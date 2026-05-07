@@ -1,20 +1,13 @@
 from __future__ import annotations
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from irc.schemas.llm import LLMConfig
+from irc.llm._types import ResolvedRoute
 
 if TYPE_CHECKING:
     from irc.llm.http_client import ChatResponse
+    from tenacity import wait_base
 
-
-@dataclass(frozen=True)
-class ResolvedRoute:
-    """Outcome of routing a task to a concrete (provider, model, endpoint)."""
-    task: str
-    provider: str
-    model: str
-    base_url: str
-    api_key_env: str
+__all__ = ["ResolvedRoute", "resolve_route", "call"]
 
 
 def resolve_route(task: str, config: LLMConfig) -> ResolvedRoute:
@@ -38,12 +31,15 @@ def call(
     task: str,
     messages: list[dict[str, str]],
     config: LLMConfig,
+    *,
+    wait: wait_base | None = None,
     **kwargs,
 ) -> ChatResponse:
     """Unified entry point: task + messages + config → ChatResponse.
 
     Hides ResolvedRoute from callers. Retries on 429/5xx.
+    Pass ``wait=wait_none()`` in tests to skip sleeping.
     """
     from irc.llm.retry import retry_call_chat  # local import avoids cycle
     route = resolve_route(task, config)
-    return retry_call_chat(route, messages, **kwargs)
+    return retry_call_chat(route, messages, wait=wait, **kwargs)

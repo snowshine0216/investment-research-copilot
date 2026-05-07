@@ -4,7 +4,7 @@ import os
 import time
 from typing import Any
 import httpx
-from irc.llm.gateway import ResolvedRoute
+from irc.llm._types import ResolvedRoute
 
 
 @dataclass(frozen=True)

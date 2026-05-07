@@ -115,3 +115,15 @@ def test_load_repo_configs_bad_yaml_raises(tmp_repo: Path):
     (tmp_repo / "inputs/preferences.yaml").write_text(yaml.safe_dump(bad), encoding="utf-8")
     with pytest.raises(ValueError, match="sum"):
         load_repo_configs(tmp_repo)
+
+
+def test_load_yaml_raises_when_no_repo_root_found(tmp_path: Path):
+    """load_yaml raises RuntimeError when pyproject.toml is not found within 5 parents."""
+    # Create a deeply nested directory with no pyproject.toml ancestor
+    deep = tmp_path / "a" / "b" / "c" / "d" / "e" / "f"
+    deep.mkdir(parents=True)
+    yaml_file = deep / "config/llm.yaml"
+    yaml_file.parent.mkdir(parents=True)
+    yaml_file.write_text("{}", encoding="utf-8")
+    with pytest.raises(RuntimeError, match="could not locate repo root"):
+        load_yaml(yaml_file)

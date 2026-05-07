@@ -2,7 +2,7 @@ from __future__ import annotations
 import httpx
 import pytest
 import respx
-from irc.llm.retry import classify_failure, FailureKind, NoRetryError, _is_retryable, retry_call_chat, RATE_LIMIT_BACKOFF_SECONDS, SERVER_ERROR_BACKOFF_SECONDS
+from irc.llm.retry import classify_failure, FailureKind, NoRetryError, _is_retryable, retry_call_chat, RATE_LIMIT_BACKOFF_SECONDS
 
 
 def test_classify_429_is_rate_limit():
@@ -34,7 +34,6 @@ def test_classify_2xx_returns_ok():
 
 def test_backoff_constants_are_non_empty():
     assert len(RATE_LIMIT_BACKOFF_SECONDS) > 0
-    assert len(SERVER_ERROR_BACKOFF_SECONDS) > 0
 
 
 # --- _is_retryable ---
@@ -69,7 +68,7 @@ def test_is_retryable_non_http_error_false():
 
 @respx.mock
 def test_retry_call_chat_success(monkeypatch):
-    from irc.llm.gateway import ResolvedRoute
+    from irc.llm._types import ResolvedRoute
     from tenacity import wait_none
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     route = ResolvedRoute(
@@ -94,7 +93,7 @@ def test_retry_call_chat_success(monkeypatch):
 
 @respx.mock
 def test_retry_call_chat_retries_on_429(monkeypatch):
-    from irc.llm.gateway import ResolvedRoute
+    from irc.llm._types import ResolvedRoute
     from tenacity import wait_none
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     route = ResolvedRoute(
@@ -121,11 +120,12 @@ def test_retry_call_chat_retries_on_429(monkeypatch):
     )
     result = retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
     assert result.text == "retried"
+    assert respx.calls.call_count == 4
 
 
 @respx.mock
 def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
-    from irc.llm.gateway import ResolvedRoute
+    from irc.llm._types import ResolvedRoute
     from tenacity import wait_none
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     route = ResolvedRoute(
@@ -140,3 +140,4 @@ def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
     )
     with pytest.raises(httpx.HTTPStatusError):
         retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
+    assert respx.calls.call_count == 4
