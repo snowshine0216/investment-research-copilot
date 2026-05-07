@@ -1,0 +1,11 @@
+# Investment Research Copilot — account snapshot
+# Edit broker / currency / holdings to match your real situation.
+accounts:
+  - broker: cmb
+    currency: cny
+    available_venues: [cmb_fund, cmb_gold]
+    holdings:
+      - asset_class: gold
+        form: paper_gold
+        cost_basis_cny: 10000
+        # `units` optional; system can back-derive from CMB price history

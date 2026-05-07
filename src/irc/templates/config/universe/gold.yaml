@@ -1,0 +1,10 @@
+instruments:
+  - { instrument_id: "cmb_paper_gold", ticker: "CMB_AU", market: cmb_internal,
+      name_cn: "招商银行账户金", asset_class: gold, currency: cny,
+      venue_required: [cmb_gold] }
+  - { instrument_id: "518880", ticker: "518880", market: cn_on_exchange,
+      name_cn: "华安黄金ETF", asset_class: gold, currency: cny,
+      tracked_index: "SHFE Au99.99", venue_required: [cn_brokerage] }
+  - { instrument_id: "159934", ticker: "159934", market: cn_on_exchange,
+      name_cn: "易方达黄金ETF", asset_class: gold, currency: cny,
+      tracked_index: "SHFE Au99.99", venue_required: [cn_brokerage] }

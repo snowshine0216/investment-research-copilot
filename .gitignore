@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+.venv/
+
+# Secrets
+.env
+
+# Project artifacts (gitignored, runtime-only)
+data/
+outputs/
+
+# OS / Editor
+.DS_Store
+.idea/
+.vscode/
