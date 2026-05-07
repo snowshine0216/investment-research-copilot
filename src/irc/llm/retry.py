@@ -5,7 +5,6 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_chain, wait_fixed
 
 if TYPE_CHECKING:
-    import httpx as _httpx
     from irc.llm._types import ResolvedRoute
     from irc.llm.http_client import ChatResponse
     from tenacity import wait_base
@@ -62,7 +61,7 @@ def retry_call_chat(
     timeout_s: float = 30.0,
     temperature: float | None = None,
     max_tokens: int | None = None,
-    client: _httpx.Client | None = None,
+    client: httpx.Client | None = None,
 ) -> ChatResponse:
     """call_chat wrapped with tenacity retry (429/5xx/network errors → up to 5 attempts).
 

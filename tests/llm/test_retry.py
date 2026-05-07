@@ -159,3 +159,42 @@ def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
     with pytest.raises(httpx.HTTPStatusError):
         retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
     assert respx.calls.call_count == 5
+
+
+@respx.mock
+def test_retry_call_chat_forwards_explicit_params(monkeypatch):
+    """Verify temperature, max_tokens, timeout_s are forwarded to call_chat."""
+    from irc.llm._types import ResolvedRoute
+    from tenacity import wait_none
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    route = ResolvedRoute(
+        task="news_summary",
+        provider="deepseek",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    captured: list[dict] = []
+
+    def _capture(request):  # respx callback: only request needed
+        import json
+        captured.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "forwarded"}}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    respx.post("https://api.deepseek.com/chat/completions").mock(side_effect=_capture)
+    result = retry_call_chat(
+        route,
+        [{"role": "user", "content": "hi"}],
+        wait=wait_none(),
+        temperature=0.1,
+        max_tokens=10,
+    )
+    assert result.text == "forwarded"
+    assert captured[0]["temperature"] == pytest.approx(0.1)
+    assert captured[0]["max_tokens"] == 10
