@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 import respx
 import httpx
-from irc.llm.gateway import ResolvedRoute
+from irc.llm._types import ResolvedRoute
 from irc.llm.http_client import call_chat, ChatResponse
 
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import httpx
 import pytest
 import respx
@@ -163,7 +164,7 @@ def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
 
 @respx.mock
 def test_retry_call_chat_forwards_explicit_params(monkeypatch):
-    """Verify temperature, max_tokens, timeout_s are forwarded to call_chat."""
+    """Verify temperature and max_tokens are forwarded through retry_call_chat to the HTTP payload."""
     from irc.llm._types import ResolvedRoute
     from tenacity import wait_none
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
@@ -177,7 +178,6 @@ def test_retry_call_chat_forwards_explicit_params(monkeypatch):
     captured: list[dict] = []
 
     def _capture(request):  # respx callback: only request needed
-        import json
         captured.append(json.loads(request.content))
         return httpx.Response(
             200,
