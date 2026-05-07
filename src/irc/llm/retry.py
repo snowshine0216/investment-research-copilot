@@ -5,6 +5,7 @@ import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_chain, wait_fixed
 
 if TYPE_CHECKING:
+    import httpx as _httpx
     from irc.llm._types import ResolvedRoute
     from irc.llm.http_client import ChatResponse
     from tenacity import wait_base
@@ -36,7 +37,7 @@ def classify_failure(response: httpx.Response) -> FailureKind:
 
 
 # Backoff schedule for rate-limit retries (seconds per attempt: 2s, 4s, 8s, 16s).
-# All four values are used via wait_chain to produce stepped backoff.
+# stop_after_attempt(5) allows 4 retries → 4 wait steps, consuming all four values.
 RATE_LIMIT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8, 16)
 
 
@@ -58,18 +59,28 @@ def retry_call_chat(
     messages: list[dict[str, str]],
     *,
     wait: wait_base | None = None,
-    **kwargs,
+    timeout_s: float = 30.0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    client: _httpx.Client | None = None,
 ) -> ChatResponse:
-    """call_chat wrapped with tenacity retry (429/5xx → up to 4 attempts).
+    """call_chat wrapped with tenacity retry (429/5xx/network errors → up to 5 attempts).
 
     Pass ``wait=wait_none()`` in tests to skip sleeping.
     """
     from irc.llm.http_client import call_chat  # local import avoids module-level cycle
     _wait = wait if wait is not None else wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS])
     _retrying = retry(
-        stop=stop_after_attempt(4),
+        stop=stop_after_attempt(5),
         wait=_wait,
         retry=retry_if_exception(_is_retryable),
         reraise=True,
     )
-    return _retrying(call_chat)(route, messages, **kwargs)
+    return _retrying(call_chat)(
+        route,
+        messages,
+        timeout_s=timeout_s,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        client=client,
+    )

@@ -73,6 +73,10 @@ def test_is_retryable_timeout_true():
     assert _is_retryable(httpx.TimeoutException("timed out")) is True
 
 
+def test_is_retryable_remote_protocol_error_true():
+    assert _is_retryable(httpx.RemoteProtocolError("peer closed connection")) is True
+
+
 def test_is_retryable_non_http_error_false():
     assert _is_retryable(ValueError("boom")) is False
 
@@ -116,9 +120,10 @@ def test_retry_call_chat_retries_on_429(monkeypatch):
         base_url="https://api.deepseek.com",
         api_key_env="DEEPSEEK_API_KEY",
     )
-    # Fail 3 times with 429, succeed on 4th
+    # Fail 4 times with 429, succeed on 5th (stop_after_attempt(5) = 4 retries)
     respx.post("https://api.deepseek.com/chat/completions").mock(
         side_effect=[
+            httpx.Response(429),
             httpx.Response(429),
             httpx.Response(429),
             httpx.Response(429),
@@ -133,7 +138,7 @@ def test_retry_call_chat_retries_on_429(monkeypatch):
     )
     result = retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
     assert result.text == "retried"
-    assert respx.calls.call_count == 4
+    assert respx.calls.call_count == 5
 
 
 @respx.mock
@@ -153,4 +158,4 @@ def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
     )
     with pytest.raises(httpx.HTTPStatusError):
         retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
-    assert respx.calls.call_count == 4
+    assert respx.calls.call_count == 5
