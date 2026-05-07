@@ -20,7 +20,7 @@ def route_deepseek() -> ResolvedRoute:
 @respx.mock
 def test_call_chat_happy_path(route_deepseek, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-    respx.post("https://api.deepseek.com/v1/chat/completions").mock(
+    respx.post("https://api.deepseek.com/chat/completions").mock(
         return_value=httpx.Response(
             200,
             json={
@@ -39,7 +39,7 @@ def test_call_chat_happy_path(route_deepseek, monkeypatch):
 @respx.mock
 def test_call_chat_429_raises(route_deepseek, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
-    respx.post("https://api.deepseek.com/v1/chat/completions").mock(
+    respx.post("https://api.deepseek.com/chat/completions").mock(
         return_value=httpx.Response(429)
     )
     with pytest.raises(httpx.HTTPStatusError):
@@ -49,4 +49,41 @@ def test_call_chat_429_raises(route_deepseek, monkeypatch):
 def test_call_chat_missing_key_raises(route_deepseek, monkeypatch):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     with pytest.raises(RuntimeError, match="DEEPSEEK_API_KEY"):
+        call_chat(route_deepseek, messages=[{"role": "user", "content": "hi"}], timeout_s=5)
+
+
+@pytest.fixture
+def route_openrouter() -> ResolvedRoute:
+    return ResolvedRoute(
+        task="memo_synthesis",
+        provider="openrouter",
+        model="anthropic/claude-opus-4.7",
+        base_url="https://openrouter.ai/api/v1",
+        api_key_env="OPENROUTER_API_KEY",
+    )
+
+
+@respx.mock
+def test_call_chat_openrouter_url(route_openrouter, monkeypatch):
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
+    respx.post("https://openrouter.ai/api/v1/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "Synthesis"}}],
+                "usage": {"prompt_tokens": 50, "completion_tokens": 20},
+            },
+        )
+    )
+    resp = call_chat(route_openrouter, messages=[{"role": "user", "content": "hi"}], timeout_s=10)
+    assert resp.text == "Synthesis"
+
+
+@respx.mock
+def test_call_chat_empty_choices_raises(route_deepseek, monkeypatch):
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(200, json={"choices": [], "usage": {}})
+    )
+    with pytest.raises(ValueError, match="empty choices"):
         call_chat(route_deepseek, messages=[{"role": "user", "content": "hi"}], timeout_s=5)

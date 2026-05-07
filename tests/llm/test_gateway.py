@@ -38,3 +38,18 @@ def test_resolve_route_is_pure():
     r2 = resolve_route("memo_synthesis", cfg1)
     assert r1 == r2
     assert cfg1.tasks["memo_synthesis"].model == "anthropic/claude-opus-4.7"
+
+
+def test_resolve_route_missing_provider_raises():
+    from irc.schemas.llm import LLMConfig, ProviderConfig, TaskRoute
+    cfg = LLMConfig.model_construct(
+        providers={
+            "deepseek": ProviderConfig(base_url="https://api.deepseek.com", api_key_env="DEEPSEEK_API_KEY"),
+        },
+        tasks={
+            "memo_synthesis": TaskRoute(provider="openrouter", model="anthropic/claude-opus-4.7"),
+            "memo_audit": TaskRoute(provider="deepseek", model="deepseek-chat"),
+        },
+    )
+    with pytest.raises(KeyError, match="unknown provider"):
+        resolve_route("memo_synthesis", cfg)

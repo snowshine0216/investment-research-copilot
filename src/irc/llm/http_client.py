@@ -29,6 +29,7 @@ def call_chat(
     timeout_s: float = 30.0,
     temperature: float | None = None,
     max_tokens: int | None = None,
+    client: httpx.Client | None = None,
 ) -> ChatResponse:
     """Make a single chat-completions call. Raises httpx.HTTPStatusError on 4xx/5xx."""
     api_key = _resolve_key(route.api_key_env)
@@ -41,19 +42,26 @@ def call_chat(
     if max_tokens is not None:
         payload["max_tokens"] = max_tokens
 
-    url = f"{route.base_url.rstrip('/')}/v1/chat/completions"
+    url = f"{route.base_url.rstrip('/')}/chat/completions"
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     started = time.perf_counter()
-    with httpx.Client(timeout=timeout_s) as client:
-        resp = client.post(
-            url,
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json=payload,
-        )
-    latency_ms = int((time.perf_counter() - started) * 1000)
+    if client is not None:
+        resp = client.post(url, headers=headers, json=payload)
+        latency_ms = int((time.perf_counter() - started) * 1000)
+    else:
+        with httpx.Client(timeout=timeout_s) as _client:
+            resp = _client.post(url, headers=headers, json=payload)
+        latency_ms = int((time.perf_counter() - started) * 1000)
     resp.raise_for_status()
     body = resp.json()
+    choices = body.get("choices") or []
+    if not choices:
+        raise ValueError(
+            f"empty choices in response from {route.provider}/{route.model}: {body!r}"
+        )
+    content = choices[0].get("message", {}).get("content") or ""
     return ChatResponse(
-        text=body["choices"][0]["message"]["content"],
+        text=content,
         prompt_tokens=int(body.get("usage", {}).get("prompt_tokens", 0)),
         completion_tokens=int(body.get("usage", {}).get("completion_tokens", 0)),
         latency_ms=latency_ms,

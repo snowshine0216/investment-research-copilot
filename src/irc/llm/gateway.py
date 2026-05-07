@@ -18,6 +18,8 @@ def resolve_route(task: str, config: LLMConfig) -> ResolvedRoute:
     if task not in config.tasks:
         raise KeyError(f"unknown task: {task!r}")
     route = config.tasks[task]
+    if route.provider not in config.providers:
+        raise KeyError(f"task {task!r} references unknown provider {route.provider!r}")
     provider_cfg = config.providers[route.provider]
     return ResolvedRoute(
         task=task,
