@@ -11,7 +11,9 @@ REQUIRED_TASKS: tuple[str, ...] = (
 )
 
 # Private/link-local ranges that are blocked to prevent SSRF.
-# localhost (127.x) and 0.0.0.0 are explicitly allowed for dev mock servers.
+# localhost (127.x, ::1) are explicitly allowed for dev mock servers.
+# Note: the guard checks IP literals only. DNS names that resolve to blocked IPs
+# at runtime are not caught here — this is a parse-time guard, not a connection-time guard.
 _BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
@@ -23,9 +25,15 @@ _BLOCKED_NETWORKS: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...] = (
 )
 
 
+class _PrivateIPError(ValueError):
+    """Raised when base_url points to a blocked private/reserved IP range."""
+
+
 def _validate_base_url(value: str) -> str:
     """Reject URLs that point to private/link-local IP ranges (SSRF guard).
-    Localhost (127.x, ::1) and http/https on localhost are explicitly allowed.
+    Localhost (127.x, ::1) are explicitly allowed for dev mock servers.
+
+    Limitation: only IP literals are checked; DNS names are not resolved.
     """
     parsed = urlparse(value)
     if parsed.scheme not in ("http", "https"):
@@ -35,20 +43,20 @@ def _validate_base_url(value: str) -> str:
         raise ValueError("base_url must have a non-empty host")
     try:
         addr = ipaddress.ip_address(host)
-        # Allow loopback explicitly
+        # Allow loopback (127.x, ::1) explicitly for local dev mock servers
         if addr.is_loopback:
             return value
         for net in _BLOCKED_NETWORKS:
             if addr in net:
-                raise ValueError(
+                raise _PrivateIPError(
                     f"base_url host {host!r} is in a private/reserved IP range; "
                     "use a public hostname or localhost for dev mock servers"
                 )
-    except ValueError as exc:
-        # If the error came from our check above, re-raise it
-        if "private/reserved" in str(exc):
-            raise
+    except _PrivateIPError:
+        raise
+    except ValueError:
         # host is a DNS name (not an IP literal) — allowed
+        pass
     return value
 
 

@@ -40,7 +40,13 @@ TEMPLATE_FILES: tuple[str, ...] = tuple(_FILENAME_TO_SCHEMA.keys())
 
 
 def _resolve_schema(repo_root: Path, file_path: Path) -> type:
-    rel = file_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    try:
+        rel = file_path.resolve().relative_to(repo_root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f"could not determine relative path for {file_path}: {exc}. "
+            "If this file is a symlink, ensure it points inside the repo root."
+        ) from exc
     if rel not in _FILENAME_TO_SCHEMA:
         raise KeyError(f"no schema registered for {rel}")
     return _FILENAME_TO_SCHEMA[rel]

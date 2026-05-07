@@ -26,4 +26,9 @@ class ValuationBucketsConfig(FrozenModel):
         cuts = [b.max_percentile for b in self.buckets]
         if any(a >= b for a, b in zip(cuts, cuts[1:])):
             raise ValueError(f"buckets must be ascending by max_percentile, got {cuts}")
+        if abs(cuts[-1] - 1.0) > 1e-9:
+            raise ValueError(
+                f"last bucket max_percentile must be 1.0 to cover all instruments, "
+                f"got {cuts[-1]}"
+            )
         return self

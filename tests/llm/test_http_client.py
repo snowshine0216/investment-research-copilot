@@ -111,3 +111,17 @@ def test_call_chat_empty_choices_raises(route_deepseek, monkeypatch):
     )
     with pytest.raises(ValueError, match="empty choices"):
         call_chat(route_deepseek, messages=[{"role": "user", "content": "hi"}], timeout_s=5)
+
+
+@respx.mock
+def test_call_chat_null_content_raises(route_deepseek, monkeypatch):
+    """Null content (e.g., tool-call response) must raise ValueError, not silently return ''."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": None}}], "usage": {}},
+        )
+    )
+    with pytest.raises(ValueError, match="null content"):
+        call_chat(route_deepseek, messages=[{"role": "user", "content": "hi"}], timeout_s=5)

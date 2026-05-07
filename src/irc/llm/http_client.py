@@ -57,7 +57,12 @@ def _parse_response(body: dict[str, Any], provider: str, model: str, latency_ms:
     choices = body.get("choices") or []
     if not choices:
         raise ValueError(f"empty choices in response from {provider}/{model}: {body!r}")
-    content = choices[0].get("message", {}).get("content") or ""
+    content = choices[0].get("message", {}).get("content")
+    if content is None:
+        raise ValueError(
+            f"null content in response from {provider}/{model} "
+            "(tool-call or unsupported finish_reason?): {body!r}"
+        )
     return ChatResponse(
         text=content,
         prompt_tokens=int(body.get("usage", {}).get("prompt_tokens", 0)),

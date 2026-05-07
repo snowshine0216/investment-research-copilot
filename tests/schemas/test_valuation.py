@@ -27,3 +27,15 @@ def test_buckets_disordered_fails():
     }
     with pytest.raises(ValidationError, match="ascending"):
         ValuationBucketsConfig.model_validate(raw)
+
+
+def test_buckets_last_must_be_1_0():
+    """Last bucket must cover the 100th percentile; ending at 0.95 is rejected."""
+    raw = {
+        "buckets": [
+            {"max_percentile": 0.50, "buy_method": "lump_sum", "granularity": "x"},
+            {"max_percentile": 0.95, "buy_method": "suspend", "granularity": "n/a"},
+        ]
+    }
+    with pytest.raises(ValidationError, match="1.0"):
+        ValuationBucketsConfig.model_validate(raw)
