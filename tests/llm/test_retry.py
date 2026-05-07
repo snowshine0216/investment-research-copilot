@@ -1,7 +1,8 @@
 from __future__ import annotations
 import httpx
 import pytest
-from irc.llm.retry import classify_failure, FailureKind, NoRetryError
+import respx
+from irc.llm.retry import classify_failure, FailureKind, NoRetryError, _is_retryable, retry_call_chat, RATE_LIMIT_BACKOFF_SECONDS, SERVER_ERROR_BACKOFF_SECONDS
 
 
 def test_classify_429_is_rate_limit():
@@ -32,6 +33,110 @@ def test_classify_2xx_returns_ok():
 
 
 def test_backoff_constants_are_non_empty():
-    from irc.llm.retry import RATE_LIMIT_BACKOFF_SECONDS, SERVER_ERROR_BACKOFF_SECONDS
     assert len(RATE_LIMIT_BACKOFF_SECONDS) > 0
     assert len(SERVER_ERROR_BACKOFF_SECONDS) > 0
+
+
+# --- _is_retryable ---
+
+def _status_error(code: int) -> httpx.HTTPStatusError:
+    req = httpx.Request("POST", "https://api.example.com")
+    resp = httpx.Response(code, request=req)
+    return httpx.HTTPStatusError(str(code), request=req, response=resp)
+
+
+def test_is_retryable_429():
+    assert _is_retryable(_status_error(429)) is True
+
+
+def test_is_retryable_503():
+    assert _is_retryable(_status_error(503)) is True
+
+
+def test_is_retryable_401_false():
+    assert _is_retryable(_status_error(401)) is False
+
+
+def test_is_retryable_200_false():
+    assert _is_retryable(_status_error(200)) is False
+
+
+def test_is_retryable_non_http_error_false():
+    assert _is_retryable(ValueError("boom")) is False
+
+
+# --- retry_call_chat ---
+
+@respx.mock
+def test_retry_call_chat_success(monkeypatch):
+    from irc.llm.gateway import ResolvedRoute
+    from tenacity import wait_none
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    route = ResolvedRoute(
+        task="news_summary",
+        provider="deepseek",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "ok"}}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+            },
+        )
+    )
+    result = retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
+    assert result.text == "ok"
+
+
+@respx.mock
+def test_retry_call_chat_retries_on_429(monkeypatch):
+    from irc.llm.gateway import ResolvedRoute
+    from tenacity import wait_none
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    route = ResolvedRoute(
+        task="news_summary",
+        provider="deepseek",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    # Fail 3 times with 429, succeed on 4th
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        side_effect=[
+            httpx.Response(429),
+            httpx.Response(429),
+            httpx.Response(429),
+            httpx.Response(
+                200,
+                json={
+                    "choices": [{"message": {"content": "retried"}}],
+                    "usage": {"prompt_tokens": 5, "completion_tokens": 2},
+                },
+            ),
+        ]
+    )
+    result = retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())
+    assert result.text == "retried"
+
+
+@respx.mock
+def test_retry_call_chat_raises_after_max_attempts(monkeypatch):
+    from irc.llm.gateway import ResolvedRoute
+    from tenacity import wait_none
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    route = ResolvedRoute(
+        task="news_summary",
+        provider="deepseek",
+        model="deepseek-chat",
+        base_url="https://api.deepseek.com",
+        api_key_env="DEEPSEEK_API_KEY",
+    )
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(503)
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        retry_call_chat(route, [{"role": "user", "content": "hi"}], wait=wait_none())

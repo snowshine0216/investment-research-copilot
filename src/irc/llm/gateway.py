@@ -1,6 +1,10 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 from irc.schemas.llm import LLMConfig
+
+if TYPE_CHECKING:
+    from irc.llm.http_client import ChatResponse
 
 
 @dataclass(frozen=True)
@@ -28,3 +32,18 @@ def resolve_route(task: str, config: LLMConfig) -> ResolvedRoute:
         base_url=provider_cfg.base_url,
         api_key_env=provider_cfg.api_key_env,
     )
+
+
+def call(
+    task: str,
+    messages: list[dict[str, str]],
+    config: LLMConfig,
+    **kwargs,
+) -> ChatResponse:
+    """Unified entry point: task + messages + config → ChatResponse.
+
+    Hides ResolvedRoute from callers. Retries on 429/5xx.
+    """
+    from irc.llm.retry import retry_call_chat  # local import avoids cycle
+    route = resolve_route(task, config)
+    return retry_call_chat(route, messages, **kwargs)

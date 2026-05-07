@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 import yaml
 
@@ -16,7 +17,7 @@ from irc.schemas.macro_view import MacroViewConfig
 from irc.schemas.universe import UniverseConfig
 
 
-_FILENAME_TO_SCHEMA: dict[str, type] = {
+_FILENAME_TO_SCHEMA: MappingProxyType = MappingProxyType({
     "inputs/account.yaml": AccountFile,
     "inputs/preferences.yaml": PreferencesFile,
     "config/llm.yaml": LLMConfig,
@@ -31,7 +32,11 @@ _FILENAME_TO_SCHEMA: dict[str, type] = {
     "config/universe/qdii_hk.yaml": UniverseConfig,
     "config/universe/cn_funds.yaml": UniverseConfig,
     "config/universe/gold.yaml": UniverseConfig,
-}
+})
+
+# Ordered list of all managed YAML paths (relative to repo root).
+# Single source of truth: used by `irc init` (copy) and `irc config validate` (count).
+TEMPLATE_FILES: tuple[str, ...] = tuple(_FILENAME_TO_SCHEMA.keys())
 
 
 def _resolve_schema(repo_root: Path, file_path: Path) -> type:
@@ -48,11 +53,16 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 def load_yaml(file_path: Path, repo_root: Path | None = None) -> Any:
     """Load a single repo YAML through its registered schema."""
     if repo_root is None:
-        repo_root = file_path.parent
+        candidate = file_path.parent
         for _ in range(5):
-            if (repo_root / "pyproject.toml").exists() or (repo_root / "inputs").exists():
+            if (candidate / "pyproject.toml").exists() or (candidate / "inputs").exists():
+                repo_root = candidate
                 break
-            repo_root = repo_root.parent
+            candidate = candidate.parent
+        else:
+            raise RuntimeError(
+                f"could not locate repo root from {file_path}; pass repo_root explicitly"
+            )
     schema = _resolve_schema(repo_root, file_path)
     raw = _read_yaml(file_path)
     return schema.model_validate(raw)

@@ -1,7 +1,9 @@
 from __future__ import annotations
 import pytest
+import respx
+import httpx
 from irc.schemas.llm import LLMConfig
-from irc.llm.gateway import resolve_route, ResolvedRoute
+from irc.llm.gateway import resolve_route, ResolvedRoute, call
 
 
 def _cfg() -> LLMConfig:
@@ -42,6 +44,8 @@ def test_resolve_route_is_pure():
 
 def test_resolve_route_missing_provider_raises():
     from irc.schemas.llm import LLMConfig, ProviderConfig, TaskRoute
+    # model_construct bypasses pydantic validation intentionally — we need a config
+    # where a task references a provider that doesn't exist to test the gateway's own guard.
     cfg = LLMConfig.model_construct(
         providers={
             "deepseek": ProviderConfig(base_url="https://api.deepseek.com", api_key_env="DEEPSEEK_API_KEY"),
@@ -53,3 +57,28 @@ def test_resolve_route_missing_provider_raises():
     )
     with pytest.raises(KeyError, match="unknown provider"):
         resolve_route("memo_synthesis", cfg)
+
+
+@respx.mock
+def test_call_hides_resolved_route(monkeypatch):
+    """call() returns ChatResponse without caller needing to know about ResolvedRoute."""
+    from tenacity import wait_none
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "summary"}}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 4},
+            },
+        )
+    )
+    from irc.llm.http_client import ChatResponse
+    result = call(
+        "news_summary",
+        [{"role": "user", "content": "summarise"}],
+        _cfg(),
+        wait=wait_none(),
+    )
+    assert isinstance(result, ChatResponse)
+    assert result.text == "summary"
