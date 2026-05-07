@@ -4,6 +4,7 @@ from irc.schemas.llm import LLMConfig
 from irc.llm._types import ResolvedRoute
 
 if TYPE_CHECKING:
+    import httpx
     from irc.llm.http_client import ChatResponse
     from tenacity import wait_base
 
@@ -33,13 +34,24 @@ def call(
     config: LLMConfig,
     *,
     wait: wait_base | None = None,
-    **kwargs,
+    timeout_s: float = 30.0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    client: httpx.Client | None = None,
 ) -> ChatResponse:
     """Unified entry point: task + messages + config → ChatResponse.
 
-    Hides ResolvedRoute from callers. Retries on 429/5xx.
+    Hides ResolvedRoute from callers. Retries on 429/5xx and network errors.
     Pass ``wait=wait_none()`` in tests to skip sleeping.
     """
     from irc.llm.retry import retry_call_chat  # local import avoids cycle
     route = resolve_route(task, config)
-    return retry_call_chat(route, messages, wait=wait, **kwargs)
+    return retry_call_chat(
+        route,
+        messages,
+        wait=wait,
+        timeout_s=timeout_s,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        client=client,
+    )

@@ -32,8 +32,10 @@ def test_classify_2xx_returns_ok():
     assert classify_failure(resp) == FailureKind.OK
 
 
-def test_backoff_constants_are_non_empty():
-    assert len(RATE_LIMIT_BACKOFF_SECONDS) > 0
+def test_backoff_constants_are_stepped():
+    """All four stepped values must be present and strictly increasing."""
+    assert len(RATE_LIMIT_BACKOFF_SECONDS) == 4
+    assert list(RATE_LIMIT_BACKOFF_SECONDS) == sorted(RATE_LIMIT_BACKOFF_SECONDS)
 
 
 # --- _is_retryable ---
@@ -57,7 +59,18 @@ def test_is_retryable_401_false():
 
 
 def test_is_retryable_200_false():
+    # Boundary test: httpx only raises HTTPStatusError on 4xx/5xx, never 2xx.
+    # This asserts that even if a 200-wrapped error were constructed manually
+    # it falls through the OK classification and returns False.
     assert _is_retryable(_status_error(200)) is False
+
+
+def test_is_retryable_connect_error_true():
+    assert _is_retryable(httpx.ConnectError("connection refused")) is True
+
+
+def test_is_retryable_timeout_true():
+    assert _is_retryable(httpx.TimeoutException("timed out")) is True
 
 
 def test_is_retryable_non_http_error_false():

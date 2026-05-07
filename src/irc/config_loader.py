@@ -17,7 +17,7 @@ from irc.schemas.macro_view import MacroViewConfig
 from irc.schemas.universe import UniverseConfig
 
 
-_FILENAME_TO_SCHEMA: MappingProxyType = MappingProxyType({
+_FILENAME_TO_SCHEMA: MappingProxyType[str, type] = MappingProxyType({
     "inputs/account.yaml": AccountFile,
     "inputs/preferences.yaml": PreferencesFile,
     "config/llm.yaml": LLMConfig,

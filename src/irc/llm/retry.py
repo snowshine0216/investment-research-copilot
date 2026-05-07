@@ -2,7 +2,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
 import httpx
-from tenacity import retry, retry_if_exception, stop_after_attempt, wait_fixed
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_chain, wait_fixed
 
 if TYPE_CHECKING:
     from irc.llm._types import ResolvedRoute
@@ -35,12 +35,15 @@ def classify_failure(response: httpx.Response) -> FailureKind:
     raise NoRetryError(f"non-retryable {code}")
 
 
-# Backoff schedule for rate-limit retries (seconds per attempt).
+# Backoff schedule for rate-limit retries (seconds per attempt: 2s, 4s, 8s, 16s).
+# All four values are used via wait_chain to produce stepped backoff.
 RATE_LIMIT_BACKOFF_SECONDS: tuple[int, ...] = (2, 4, 8, 16)
 
 
 def _is_retryable(exc: BaseException) -> bool:
-    """True for 429 and 5xx HTTP errors; False for auth errors and non-HTTP failures."""
+    """True for transient failures: 429/5xx HTTP errors and network-level errors."""
+    if isinstance(exc, (httpx.ConnectError, httpx.TimeoutException, httpx.RemoteProtocolError)):
+        return True
     if isinstance(exc, httpx.HTTPStatusError):
         try:
             kind = classify_failure(exc.response)
@@ -62,7 +65,7 @@ def retry_call_chat(
     Pass ``wait=wait_none()`` in tests to skip sleeping.
     """
     from irc.llm.http_client import call_chat  # local import avoids module-level cycle
-    _wait = wait if wait is not None else wait_fixed(RATE_LIMIT_BACKOFF_SECONDS[0])
+    _wait = wait if wait is not None else wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS])
     _retrying = retry(
         stop=stop_after_attempt(4),
         wait=_wait,

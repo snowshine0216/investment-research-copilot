@@ -80,6 +80,30 @@ def test_call_chat_openrouter_url(route_openrouter, monkeypatch):
 
 
 @respx.mock
+def test_call_chat_with_injected_client(route_deepseek, monkeypatch):
+    """Verify the client= branch: a caller-supplied httpx.Client is used directly."""
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    respx.post("https://api.deepseek.com/chat/completions").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "choices": [{"message": {"content": "injected"}}],
+                "usage": {"prompt_tokens": 3, "completion_tokens": 1},
+            },
+        )
+    )
+    # Pass a pre-built client; respx intercepts at the transport level
+    with httpx.Client() as shared_client:
+        resp = call_chat(
+            route_deepseek,
+            messages=[{"role": "user", "content": "hi"}],
+            timeout_s=10,
+            client=shared_client,
+        )
+    assert resp.text == "injected"
+
+
+@respx.mock
 def test_call_chat_empty_choices_raises(route_deepseek, monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     respx.post("https://api.deepseek.com/chat/completions").mock(
