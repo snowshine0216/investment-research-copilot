@@ -1,14 +1,10 @@
 from __future__ import annotations
 from typing import Literal
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
+from ._types import FrozenModel, AssetClass, Currency
 
 
-AssetClass = Literal[
-    "gold", "cn_equity_fund", "cn_bond_fund", "cn_etf",
-    "hk_etf", "us_etf", "cash"
-]
 GoldForm = Literal["paper_gold", "physical", "etf", "theme_fund"]
-Currency = Literal["cny", "usd", "hkd"]
 Broker = Literal["cmb", "huatai", "tiger", "futu", "ibkr", "schwab", "other"]
 Venue = Literal[
     "cmb_fund", "cmb_gold",
@@ -18,7 +14,7 @@ Horizon = Literal["long_core_medium_rotation", "long_only", "rotation_focus"]
 ReportLang = Literal["zh", "en"]
 
 
-class Holding(BaseModel):
+class Holding(FrozenModel):
     asset_class: AssetClass
     form: GoldForm | None = None
     instrument_id: str | None = None
@@ -27,18 +23,18 @@ class Holding(BaseModel):
     hold_since: str | None = None
 
 
-class Account(BaseModel):
+class Account(FrozenModel):
     broker: Broker
     currency: Currency
     available_venues: list[Venue]
     holdings: list[Holding] = Field(min_length=1)
 
 
-class AccountFile(BaseModel):
+class AccountFile(FrozenModel):
     accounts: list[Account] = Field(min_length=1)
 
 
-class RiskBand(BaseModel):
+class RiskBand(FrozenModel):
     max_drawdown: list[float] = Field(min_length=2, max_length=2)
     horizon: Horizon
 
@@ -51,14 +47,14 @@ class RiskBand(BaseModel):
         return v
 
 
-class UniverseFlags(BaseModel):
+class UniverseFlags(FrozenModel):
     cn_funds: bool
     cn_etfs: bool
     hk_etfs: bool
     us_etfs: bool
 
 
-class AssetClassTarget(BaseModel):
+class AssetClassTarget(FrozenModel):
     center: float = Field(ge=0, le=1)
     band: list[float] = Field(min_length=2, max_length=2)
 
@@ -72,7 +68,7 @@ class AssetClassTarget(BaseModel):
         return self
 
 
-class CurrencyTolerance(BaseModel):
+class CurrencyTolerance(FrozenModel):
     cny: list[float] = Field(min_length=2, max_length=2)
     usd: list[float] = Field(min_length=2, max_length=2)
     hkd: list[float] = Field(min_length=2, max_length=2)
@@ -86,18 +82,18 @@ class CurrencyTolerance(BaseModel):
         return v
 
 
-class Constraints(BaseModel):
+class Constraints(FrozenModel):
     allow_short: bool
     allow_leverage: bool
     exclude_themes: list[str]
 
 
-class InvestmentPlan(BaseModel):
+class InvestmentPlan(FrozenModel):
     monthly_new_capital_cny: float = Field(ge=0)
     current_total_cny: float | None = Field(default=None, ge=0)
 
 
-class PreferencesFile(BaseModel):
+class PreferencesFile(FrozenModel):
     risk_band: RiskBand
     universe: UniverseFlags
     asset_class_targets: dict[AssetClass, AssetClassTarget]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
+from ._types import FrozenModel, AssetClass, Currency
 
 
 Market = Literal[
@@ -8,14 +9,9 @@ Market = Literal[
     "hk_on_exchange", "us_on_exchange",
     "cmb_internal",
 ]
-AssetClass = Literal[
-    "gold", "cn_equity_fund", "cn_bond_fund", "cn_etf",
-    "hk_etf", "us_etf", "cash",
-]
-Currency = Literal["cny", "usd", "hkd"]
 
 
-class Instrument(BaseModel):
+class Instrument(FrozenModel):
     instrument_id: str = Field(min_length=1)
     ticker: str = Field(min_length=1)
     market: Market
@@ -27,7 +23,7 @@ class Instrument(BaseModel):
     venue_required: list[str] = Field(default_factory=list)
 
 
-class UniverseConfig(BaseModel):
+class UniverseConfig(FrozenModel):
     instruments: list[Instrument] = Field(default_factory=list)
 
     @model_validator(mode="after")

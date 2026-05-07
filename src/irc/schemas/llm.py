@@ -1,5 +1,6 @@
 from __future__ import annotations
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
+from ._types import FrozenModel
 
 
 REQUIRED_TASKS: tuple[str, ...] = (
@@ -8,17 +9,17 @@ REQUIRED_TASKS: tuple[str, ...] = (
 )
 
 
-class ProviderConfig(BaseModel):
+class ProviderConfig(FrozenModel):
     base_url: str
     api_key_env: str = Field(min_length=1)
 
 
-class TaskRoute(BaseModel):
+class TaskRoute(FrozenModel):
     provider: str
     model: str = Field(min_length=1)
 
 
-class LLMConfig(BaseModel):
+class LLMConfig(FrozenModel):
     providers: dict[str, ProviderConfig] = Field(min_length=1)
     tasks: dict[str, TaskRoute] = Field(min_length=1)
 

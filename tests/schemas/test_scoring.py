@@ -48,3 +48,17 @@ def test_action_thresholds_must_be_descending():
     }
     with pytest.raises(ValidationError, match="descending"):
         ScoringConfig.model_validate(raw)
+
+
+def test_action_thresholds_missing_key_raises_validation_error():
+    raw = {
+        "factor_weights": {
+            "valuation_cost": 0.10, "risk": 0.25, "quality": 0.20,
+            "macro_fit": 0.25, "thesis_news": 0.20,
+        },
+        "action_thresholds": {"strong_buy_candidate": 80},  # 3 keys missing
+        "conviction_data_completeness_threshold": 0.80,
+        "weights_version": "v",
+    }
+    with pytest.raises(ValidationError):
+        ScoringConfig.model_validate(raw)

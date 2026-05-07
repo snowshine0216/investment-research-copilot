@@ -1,6 +1,7 @@
 from __future__ import annotations
 from typing import Literal
-from pydantic import BaseModel, Field, model_validator
+from pydantic import Field, model_validator
+from ._types import FrozenModel
 
 
 BuyMethod = Literal[
@@ -11,13 +12,13 @@ BuyMethod = Literal[
 ]
 
 
-class Bucket(BaseModel):
+class Bucket(FrozenModel):
     max_percentile: float = Field(ge=0, le=1)
     buy_method: BuyMethod
     granularity: str
 
 
-class ValuationBucketsConfig(BaseModel):
+class ValuationBucketsConfig(FrozenModel):
     buckets: list[Bucket] = Field(min_length=1)
 
     @model_validator(mode="after")
