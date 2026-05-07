@@ -1,6 +1,7 @@
 from __future__ import annotations
 from importlib import resources
 from pathlib import Path
+import sys
 
 
 _TEMPLATE_FILES: tuple[str, ...] = (
@@ -41,7 +42,11 @@ def run_init(repo_root: str, force: bool) -> int:
             skipped.append(rel)
             continue
         dest.parent.mkdir(parents=True, exist_ok=True)
-        dest.write_text(_read_template(rel), encoding="utf-8")
+        try:
+            dest.write_text(_read_template(rel), encoding="utf-8")
+        except Exception as exc:
+            print(f"error writing {rel}: {exc}", file=sys.stderr)
+            return 1
         written.append(rel)
     print(f"wrote {len(written)} files; skipped {len(skipped)} existing.")
     if skipped:

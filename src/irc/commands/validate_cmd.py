@@ -2,6 +2,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 from irc.config_loader import load_repo_configs
+from irc.commands.init_cmd import _TEMPLATE_FILES as _tmpl
 
 
 def run_validate(repo_root: str) -> int:
@@ -18,7 +19,7 @@ def run_validate(repo_root: str) -> int:
         + len(bundle.universe_gold.instruments)
     )
     print(
-        "OK: all 14 YAML files validated.\n"
+        f"OK: all {len(_tmpl)} YAML files validated.\n"
         f"  scoring weights version: {bundle.scoring.weights_version}\n"
         f"  universe size: {n_inst} instruments\n"
         f"  llm tasks configured: {len(bundle.llm.tasks)}"

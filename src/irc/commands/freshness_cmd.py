@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import json
+import sys
 
 
 def run_freshness(repo_root: str) -> int:
@@ -15,6 +16,10 @@ def run_freshness(repo_root: str) -> int:
         return 0
     print(f"{'source':<16} {'last_run_at':<32} {'schema_version'}")
     for f in files:
-        m = json.loads(f.read_text(encoding="utf-8"))
+        try:
+            m = json.loads(f.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            print(f"  warning: skipping malformed manifest {f.name}: {exc}", file=sys.stderr)
+            continue
         print(f"{m.get('source','?'):<16} {m.get('last_run_at','?'):<32} {m.get('schema_version','?')}")
     return 0
