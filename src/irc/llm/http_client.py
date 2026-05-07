@@ -46,7 +46,7 @@ def call_chat(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     started = time.perf_counter()
     if client is not None:
-        resp = client.post(url, headers=headers, json=payload)
+        resp = client.post(url, headers=headers, json=payload, timeout=timeout_s)
         latency_ms = int((time.perf_counter() - started) * 1000)
     else:
         with httpx.Client(timeout=timeout_s) as _client:
