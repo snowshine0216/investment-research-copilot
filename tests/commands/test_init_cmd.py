@@ -35,3 +35,16 @@ def test_init_force_overwrites(tmp_path: Path):
     rc = run_init(repo_root=str(tmp_path), force=True)
     assert rc == 0
     assert "broker" in (tmp_path / "inputs/account.yaml").read_text()
+
+
+def test_init_returns_1_on_write_error(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys):
+    """run_init returns exit code 1 when a template write fails."""
+    from irc.commands import init_cmd
+
+    def _failing_read(rel_path: str) -> str:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(init_cmd, "_read_template", _failing_read)
+    rc = run_init(repo_root=str(tmp_path), force=False)
+    assert rc == 1
+    assert "error" in capsys.readouterr().err.lower()

@@ -22,6 +22,12 @@ def test_classify_401_raises_no_retry():
         classify_failure(resp)
 
 
+def test_classify_403_raises_no_retry():
+    resp = httpx.Response(status_code=403)
+    with pytest.raises(NoRetryError, match="auth"):
+        classify_failure(resp)
+
+
 def test_classify_400_other_no_retry():
     resp = httpx.Response(status_code=404)
     with pytest.raises(NoRetryError):

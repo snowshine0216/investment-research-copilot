@@ -17,7 +17,7 @@ class ChatResponse:
 
 
 def _resolve_key(env_name: str) -> str:
-    val = os.environ.get(env_name, "")
+    val = os.environ.get(env_name, "").strip()
     if not val:
         raise RuntimeError(f"missing required env var: {env_name}")
     return val

@@ -50,11 +50,14 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
 
 
+_MAX_ROOT_SEARCH_DEPTH = 5  # max parent dirs to search for repo root
+
+
 def load_yaml(file_path: Path, repo_root: Path | None = None) -> Any:
     """Load a single repo YAML through its registered schema."""
     if repo_root is None:
         candidate = file_path.parent
-        for _ in range(5):
+        for _ in range(_MAX_ROOT_SEARCH_DEPTH):
             if (candidate / "pyproject.toml").exists() or (candidate / "inputs").exists():
                 repo_root = candidate
                 break

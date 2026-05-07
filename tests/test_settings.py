@@ -8,8 +8,12 @@ def test_settings_loads_required_keys(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test-deepseek")
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test")
     s = Settings(_env_file=None)
-    assert s.deepseek_api_key == "sk-test-deepseek"
-    assert s.openrouter_api_key == "sk-or-test"
+    # SecretStr: access via .get_secret_value()
+    assert s.deepseek_api_key.get_secret_value() == "sk-test-deepseek"
+    assert s.openrouter_api_key.get_secret_value() == "sk-or-test"
+    # repr must NOT expose raw key
+    assert "sk-test-deepseek" not in repr(s)
+    assert "sk-or-test" not in repr(s)
 
 
 def test_settings_missing_deepseek_fails(monkeypatch):

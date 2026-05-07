@@ -1,5 +1,5 @@
 from __future__ import annotations
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -14,9 +14,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Required
-    deepseek_api_key: str = Field(min_length=1)
-    openrouter_api_key: str = Field(min_length=1)
+    # Required — stored as SecretStr so repr(Settings()) never leaks raw values
+    deepseek_api_key: SecretStr = Field(min_length=1)
+    openrouter_api_key: SecretStr = Field(min_length=1)
 
     # Optional (LDR)
     ldr_base_url: str = "http://localhost:8080"

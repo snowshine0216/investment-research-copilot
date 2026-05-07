@@ -43,3 +43,19 @@ def test_llm_config_required_tasks_present():
     }
     with pytest.raises(ValidationError, match="memo_audit"):
         LLMConfig.model_validate(raw)
+
+
+def test_llm_provider_rejects_private_ip_base_url():
+    """base_url pointing to private IP range must be rejected (SSRF guard)."""
+    from irc.schemas.llm import ProviderConfig
+    with pytest.raises(ValidationError, match="private/reserved"):
+        ProviderConfig.model_validate({"base_url": "https://169.254.169.254/v1", "api_key_env": "KEY"})
+
+
+def test_llm_provider_allows_localhost_base_url():
+    """localhost and 127.0.0.1 are allowed for dev mock servers."""
+    from irc.schemas.llm import ProviderConfig
+    cfg = ProviderConfig.model_validate({"base_url": "http://localhost:8080", "api_key_env": "KEY"})
+    assert "localhost" in cfg.base_url
+    cfg2 = ProviderConfig.model_validate({"base_url": "http://127.0.0.1:11434/v1", "api_key_env": "KEY"})
+    assert "127.0.0.1" in cfg2.base_url
