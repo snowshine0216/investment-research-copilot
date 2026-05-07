@@ -1,0 +1,6 @@
+buckets:
+  - { max_percentile: 0.30, buy_method: lump_sum,              granularity: "1-2 tranches" }
+  - { max_percentile: 0.60, buy_method: dca_weekly,            granularity: "12-16 weeks" }
+  - { max_percentile: 0.80, buy_method: dca_weekly_slow,       granularity: "24-26 weeks" }
+  - { max_percentile: 0.95, buy_method: dca_monthly_threshold, granularity: "36+ weeks" }
+  - { max_percentile: 1.00, buy_method: suspend,               granularity: "n/a" }

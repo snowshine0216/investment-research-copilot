@@ -1,0 +1,10 @@
+instruments:
+  - { instrument_id: "159920", ticker: "159920", market: cn_on_exchange,
+      name_cn: "恒生ETF", asset_class: hk_etf, currency: cny,
+      tracked_index: "Hang Seng", venue_required: [cn_brokerage] }
+  - { instrument_id: "513180", ticker: "513180", market: cn_on_exchange,
+      name_cn: "华夏恒生科技", asset_class: hk_etf, currency: cny,
+      tracked_index: "Hang Seng Tech", venue_required: [cn_brokerage] }
+  - { instrument_id: "513530", ticker: "513530", market: cn_on_exchange,
+      name_cn: "港股红利ETF", asset_class: hk_etf, currency: cny,
+      tracked_index: "HK Dividend", venue_required: [cn_brokerage] }

@@ -1,0 +1,33 @@
+# Investment Research Copilot — preferences (gold-20 starter)
+risk_band:
+  max_drawdown: [0.10, 0.20]
+  horizon: long_core_medium_rotation
+
+universe:
+  cn_funds: true
+  cn_etfs: true
+  hk_etfs: true
+  us_etfs: true
+
+asset_class_targets:
+  gold:           { center: 0.20, band: [0.12, 0.28] }
+  cn_equity_fund: { center: 0.25, band: [0.18, 0.35] }
+  cn_bond_fund:   { center: 0.15, band: [0.10, 0.25] }
+  hk_etf:         { center: 0.10, band: [0.05, 0.15] }
+  us_etf:         { center: 0.25, band: [0.18, 0.35] }
+  cash:           { center: 0.05, band: [0.00, 0.10] }
+
+currency_tolerance:
+  cny: [0.40, 0.65]
+  usd: [0.25, 0.45]
+  hkd: [0.05, 0.20]
+
+constraints:
+  allow_short: false
+  allow_leverage: false
+  exclude_themes: []
+
+investment_plan:
+  monthly_new_capital_cny: 0    # fill once you decide your monthly contribution
+
+report_language: zh

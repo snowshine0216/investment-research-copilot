@@ -1,0 +1,16 @@
+drivers:
+  real_yield_10y_tips: { weight: 0.25, direction: inverse }
+  dxy:                 { weight: 0.15, direction: inverse }
+  inflation_5y5y:      { weight: 0.15, direction: positive }
+  cb_purchases_wgc:    { weight: 0.15, direction: positive_slow }
+  etf_holdings_gld:    { weight: 0.15, direction: confirmation_short }
+  geopolitical_proxy:  { weight: 0.15, direction: positive_pulse }
+
+regime_detection:
+  vol_window_months: 6
+  vol_baseline_window_months: 12
+  vol_ratio_range_threshold: 1.5
+  adx_range_threshold: 25
+
+band:
+  rolling_window_months: 6

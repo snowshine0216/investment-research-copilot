@@ -1,0 +1,7 @@
+instruments:
+  - { instrument_id: "510300", ticker: "510300", market: cn_on_exchange,
+      name_cn: "华泰柏瑞沪深300ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "沪深300", venue_required: [cn_brokerage] }
+  - { instrument_id: "510500", ticker: "510500", market: cn_on_exchange,
+      name_cn: "南方中证500ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证500", venue_required: [cn_brokerage] }

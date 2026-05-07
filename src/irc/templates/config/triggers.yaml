@@ -1,0 +1,13 @@
+triggers:
+  real_yield_low:
+    data_field: macro.real_yield_10y_tips
+    comparator: "<="
+    threshold: 0.0
+  vix_high:
+    data_field: macro.vix
+    comparator: ">"
+    threshold: 25.0
+  weekly_drawdown_4pct:
+    data_field: instrument.weekly_return
+    comparator: "<="
+    threshold: -0.04

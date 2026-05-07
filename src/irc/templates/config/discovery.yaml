@@ -1,0 +1,17 @@
+hard_filters:
+  inception_years_min: 3
+  cn_fund_aum_cny_min: 500000000
+  us_etf_aum_usd_min: 100000000
+  cn_active_expense_ratio_max: 0.015
+  cn_passive_expense_ratio_max: 0.005
+  us_etf_expense_ratio_max: 0.003
+  etf_daily_volume_cny_min: 10000000
+
+quality_filters:
+  drawdown_3y_buffer: 1.2
+  tracking_error_max: 0.015
+  manager_tenure_years_min: 2
+
+role_bucket:
+  min_candidates_per_role: 8
+  fail_below: 5

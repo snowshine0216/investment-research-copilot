@@ -1,0 +1,18 @@
+providers:
+  deepseek:
+    base_url: https://api.deepseek.com
+    api_key_env: DEEPSEEK_API_KEY
+  openrouter:
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+
+tasks:
+  news_summary:       { provider: deepseek,   model: deepseek-chat }
+  news_dedup:         { provider: deepseek,   model: deepseek-chat }
+  factor_screening:   { provider: deepseek,   model: deepseek-chat }
+  watchlist_reason:   { provider: deepseek,   model: deepseek-chat }
+  scoring_rationale:  { provider: deepseek,   model: deepseek-reasoner }
+  thesis_falsify:     { provider: deepseek,   model: deepseek-reasoner }
+  interactive_query:  { provider: deepseek,   model: deepseek-reasoner }
+  memo_synthesis:     { provider: openrouter, model: anthropic/claude-opus-4.7 }
+  memo_audit:         { provider: openrouter, model: anthropic/claude-sonnet-4.6 }
