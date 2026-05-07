@@ -29,3 +29,9 @@ def test_classify_400_other_no_retry():
 def test_classify_2xx_returns_ok():
     resp = httpx.Response(status_code=200)
     assert classify_failure(resp) == FailureKind.OK
+
+
+def test_backoff_constants_are_non_empty():
+    from irc.llm.retry import RATE_LIMIT_BACKOFF_SECONDS, SERVER_ERROR_BACKOFF_SECONDS
+    assert len(RATE_LIMIT_BACKOFF_SECONDS) > 0
+    assert len(SERVER_ERROR_BACKOFF_SECONDS) > 0

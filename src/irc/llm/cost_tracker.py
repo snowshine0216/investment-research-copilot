@@ -24,4 +24,4 @@ def redact_secret(secret: str) -> str:
         return ""
     if len(secret) <= 4:
         return "***"
-    return f"{secret[:3]}***{secret[-4:]}"
+    return f"***{secret[-4:]}"

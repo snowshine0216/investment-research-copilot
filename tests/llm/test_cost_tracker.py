@@ -15,6 +15,6 @@ def test_append_cost_returns_new_list_immutable():
 
 
 def test_redact_secret_keeps_last_4():
-    assert redact_secret("sk-abcdef1234") == "sk-***1234"
+    assert redact_secret("sk-abcdef1234") == "***1234"
     assert redact_secret("xyz") == "***"
     assert redact_secret("") == ""
