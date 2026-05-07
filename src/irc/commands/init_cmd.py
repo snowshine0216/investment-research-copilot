@@ -2,24 +2,7 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 import sys
-
-
-_TEMPLATE_FILES: tuple[str, ...] = (
-    "inputs/account.yaml",
-    "inputs/preferences.yaml",
-    "config/llm.yaml",
-    "config/scoring.yaml",
-    "config/gold_drivers.yaml",
-    "config/discovery.yaml",
-    "config/valuation_buckets.yaml",
-    "config/triggers.yaml",
-    "config/overrides.yaml",
-    "config/macro_view.yaml",
-    "config/universe/qdii_us.yaml",
-    "config/universe/qdii_hk.yaml",
-    "config/universe/cn_funds.yaml",
-    "config/universe/gold.yaml",
-)
+from irc.config_loader import TEMPLATE_FILES
 
 
 def _read_template(rel_path: str) -> str:
@@ -36,7 +19,7 @@ def run_init(repo_root: str, force: bool) -> int:
     root.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     skipped: list[str] = []
-    for rel in _TEMPLATE_FILES:
+    for rel in TEMPLATE_FILES:
         dest = root / rel
         if dest.exists() and not force:
             skipped.append(rel)

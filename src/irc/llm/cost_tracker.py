@@ -19,7 +19,8 @@ def append_cost(history: list[CostEntry], entry: CostEntry) -> list[CostEntry]:
 
 
 def redact_secret(secret: str) -> str:
-    """Mask all but last 4 characters of an API key for safe logging."""
+    """Mask all but last 4 characters of an API key for safe logging.
+    Intentionally omits the key prefix (more aggressive than plan spec) for safety."""
     if not secret:
         return ""
     if len(secret) <= 4:
