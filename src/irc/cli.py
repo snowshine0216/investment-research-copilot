@@ -31,6 +31,14 @@ def config_validate(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Run Discovery 5-step funnel; produces discovered_watchlist.csv.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def discover(repo_root: str) -> None:
+    from irc.commands.discover_cmd import run_discover
+    rc = run_discover(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Ingest data from OpenBB + AKShare into data/local.duckdb.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def ingest(repo_root: str) -> None:
