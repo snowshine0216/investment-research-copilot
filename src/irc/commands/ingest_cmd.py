@@ -125,8 +125,17 @@ def _is_off_exchange_fund(instrument: Any) -> bool:
     return instrument.market == "cn_off_exchange" and instrument.ticker.isdigit()
 
 
-def _is_active_fund(asset_class: str) -> bool:
-    return asset_class.endswith("equity_fund") or asset_class.endswith("bond_fund")
+def _is_active_fund(instrument: Any) -> bool:
+    """Active mutual funds need manager_tenure_years; passive ETFs don't.
+
+    On-exchange instruments are ETFs (passive index trackers) regardless of
+    asset_class — bond ETFs (cn_bond_fund) and equity ETFs (cn_etf) both have
+    no meaningful manager tenure. Off-exchange instruments may be active
+    mutual funds, in which case the asset_class string ends with `*_fund`.
+    """
+    if instrument.market == "cn_on_exchange":
+        return False
+    return instrument.asset_class.endswith(("equity_fund", "bond_fund"))
 
 
 def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | None]:
@@ -142,7 +151,7 @@ def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | Non
 
 def _missing_required_metadata(instrument: Any, metadata: dict[str, Any]) -> tuple[str, ...]:
     required = ("inception_date", "expense_ratio", "aum")
-    if _is_active_fund(instrument.asset_class):
+    if _is_active_fund(instrument):
         required = (*required, "manager_tenure_years")
     return tuple(key for key in required if _is_missing(metadata.get(key)))
 
@@ -319,6 +328,7 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_qdii_us.instruments,
             *bundle.universe_qdii_hk.instruments,
             *bundle.universe_gold.instruments,
+            *bundle.universe_cn_funds.instruments,
         ]
         for instr in all_price_instruments:
             if _is_yfinance_eligible(instr):

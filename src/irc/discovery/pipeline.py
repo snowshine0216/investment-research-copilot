@@ -20,6 +20,25 @@ _WATCHLIST_COLUMNS = (
 )
 
 
+_MAX_REFS_PER_INSTRUMENT = 30
+
+
+def _refs_for_instrument(
+    instrument_id: str,
+    pool: tuple[str, ...],
+    limit: int = _MAX_REFS_PER_INSTRUMENT,
+) -> tuple[str, ...]:
+    """Filter ref pool to entries about this instrument, most recent first, capped.
+
+    Refs follow the format ``source:topic:instrument_id:date``. Without this
+    filter, the LLM prompt would balloon to the full DB ref pool (100k+ entries
+    for a real universe), exceeding context limits.
+    """
+    matching = [r for r in pool if f":{instrument_id}:" in r]
+    matching.sort(key=lambda ref: ref.rsplit(":", 1)[-1], reverse=True)
+    return tuple(matching[:limit])
+
+
 def _default_cfg() -> DiscoveryConfig:
     return DiscoveryConfig.model_validate({
         "hard_filters": {
@@ -66,7 +85,7 @@ def run_discovery(
                 role=role,
                 peer_summary=peer_summary,
                 macro_snapshot=macro_snapshot,
-                raw_refs=raw_ref_pool,
+                raw_refs=_refs_for_instrument(r.instrument_id, raw_ref_pool),
             )
             res = write_reason(r, ctx, route=route)
             if res is None:
