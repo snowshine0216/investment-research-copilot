@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 2 of 4 complete. Data layer (DuckDB, OpenBB, AKShare), discovery funnel, and scoring pipeline all ship. `irc ingest` → `irc discover` → `irc score` chain is operational. Memo generation and news layer arrive in Plans 3–4.
+> **Status:** Plan 3 of 4 complete. Full pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute all 7 stages. News layer and live gold-driver feeds arrive in Plan 4.
 
 ## Design references
 
@@ -21,16 +21,29 @@ cp .env.example .env
 
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
+
+# Run the full 7-stage pipeline in one command:
+uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
+
+# Or run stages individually:
 uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
 uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
 uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
+uv run irc gold                        # regime + band + scenarios → gold_regime.json + gold_band.yaml
+uv run irc allocate                    # target weights + top-K → proposed_allocation.yaml
+uv run irc plan                        # buy method + triggers → trade_plan.yaml
+uv run irc memo                        # LLM synthesis → memo.md + memo_audit.txt + memo_traceability.json
+uv run irc ask "Is SGOL overvalued?"   # interactive Q&A grounded in today's outputs
 uv run irc freshness                   # data manifest summary
+
+# Resume from a specific stage (skip earlier stages if outputs exist):
+uv run irc run --from score
 ```
 
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (~183 tests)
+uv run pytest                                       # unit + integration (285 tests)
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
