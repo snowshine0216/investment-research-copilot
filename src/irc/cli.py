@@ -55,6 +55,57 @@ def ingest(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(name="run", help="Run the full pipeline (ingest→discover→score→gold→allocate→plan→memo).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--from", "from_stage", type=str, default=None, help="Resume from this stage.")
+@click.option("--only", "only_stage", type=str, default=None, help="Run only this stage.")
+def run_command(repo_root: str, from_stage: str | None, only_stage: str | None) -> None:
+    from irc.commands.run_cmd import run_pipeline
+    rc = run_pipeline(repo_root=repo_root, from_stage=from_stage, only_stage=only_stage)
+    raise SystemExit(rc)
+
+
+@main.command(help="Answer a research question using memo + scores context.")
+@click.argument("question", nargs=-1, required=True)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def ask(question: tuple[str, ...], repo_root: str) -> None:
+    from irc.commands.ask_cmd import run_ask
+    rc = run_ask(repo_root=repo_root, question=" ".join(question))
+    raise SystemExit(rc)
+
+
+@main.command(help="Synthesize investment memo using LLM.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def memo(repo_root: str) -> None:
+    from irc.commands.memo_cmd import run_memo
+    rc = run_memo(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Build trade plan from proposed_allocation.yaml.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def plan(repo_root: str) -> None:
+    from irc.commands.plan_cmd import run_plan
+    rc = run_plan(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Compute proposed allocation from scores + gold tilt.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def allocate(repo_root: str) -> None:
+    from irc.commands.allocate_cmd import run_allocate
+    rc = run_allocate(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Run gold scoring (regime + band + 6 drivers + scenario).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def gold(repo_root: str) -> None:
+    from irc.commands.gold_cmd import run_gold
+    rc = run_gold(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:

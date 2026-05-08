@@ -64,6 +64,19 @@ def run_score(repo_root: str) -> int:
         cfg_scoring=bundle.scoring,
     )
 
+    # Enrich each score entry with asset_class and role from the watchlist
+    # (allocation pipeline needs these fields for per-class grouping)
+    watchlist_meta = (
+        watchlist[["instrument_id", "asset_class", "role"]].drop_duplicates("instrument_id")
+        if {"asset_class", "role"}.issubset(watchlist.columns)
+        else pd.DataFrame(columns=["instrument_id", "asset_class", "role"])
+    )
+    meta_by_id = watchlist_meta.set_index("instrument_id").to_dict("index")
+    for entry in out["scores"]:
+        m = meta_by_id.get(entry["instrument_id"], {})
+        entry.setdefault("asset_class", m.get("asset_class", "unknown"))
+        entry.setdefault("role", m.get("role", ""))
+
     out_path = root / "outputs" / today / "scoring.json"
     atomic_write_text(out_path, json.dumps(out, ensure_ascii=False, indent=2))
     print(f"score OK: {len(out['scores'])} instruments → {out_path}")
