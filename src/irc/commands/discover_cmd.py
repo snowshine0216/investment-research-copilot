@@ -22,7 +22,6 @@ def _fetch_metadata_metrics(con) -> tuple:
         "SELECT instrument_id, inception_date, expense_ratio, aum FROM instruments"
     ).fetch_df()
     if not inst_df.empty:
-        import pandas as pd  # noqa: F811
         inst_df["inception_years"] = (
             datetime.now(timezone.utc).year
             - pd.to_datetime(inst_df["inception_date"], errors="coerce").dt.year
@@ -40,7 +39,6 @@ def _fetch_metadata_metrics(con) -> tuple:
         "FROM fund_metrics"
     ).fetch_df()
     if metrics.empty:
-        import pandas as pd  # noqa: F811
         metrics = pd.DataFrame({
             "instrument_id": [], "drawdown_3y": [],
             "tracking_error": [], "manager_tenure_years": [],

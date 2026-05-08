@@ -23,6 +23,12 @@ def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
     return present / len(required)
 
 
+def _get(m: dict, key: str, default: float) -> float:
+    """Return m[key] when present and non-None; otherwise return default."""
+    val = m.get(key)
+    return val if val is not None else default
+
+
 def run_scoring(
     watchlist: pd.DataFrame,
     metrics: pd.DataFrame,
@@ -37,22 +43,22 @@ def run_scoring(
     for r in watchlist.itertuples(index=False):
         m = by_id.get(r.instrument_id, {})
         completeness = _completeness(m, _REQUIRED)
-        refs = tuple(r.cited_refs.split(",")) if getattr(r, "cited_refs", None) else ()
+        refs = tuple(r.cited_refs.split(",")) if isinstance(getattr(r, "cited_refs", None), str) else ()
         v = score_valuation_cost(
-            expense_ratio=m.get("expense_ratio") or 0.01,
-            premium_discount_pct=m.get("premium_discount_pct") or 0.0,
+            expense_ratio=_get(m, "expense_ratio", 0.01),
+            premium_discount_pct=_get(m, "premium_discount_pct", 0.0),
             raw_refs=refs,
         )
         rk = score_risk(
-            drawdown_3y=m.get("drawdown_3y") or 0.20,
-            vol_1y=m.get("vol_1y") or 0.20,
-            downside_capture=m.get("downside_capture") or 1.0,
+            drawdown_3y=_get(m, "drawdown_3y", 0.20),
+            vol_1y=_get(m, "vol_1y", 0.20),
+            downside_capture=_get(m, "downside_capture", 1.0),
             raw_refs=refs,
         )
         q = score_quality(
-            aum_stability_pct=m.get("aum_stability_pct") or 0.10,
-            manager_tenure_years=m.get("manager_tenure_years") or 3,
-            holdings_concentration_top10=m.get("holdings_concentration_top10") or 0.30,
+            aum_stability_pct=_get(m, "aum_stability_pct", 0.10),
+            manager_tenure_years=_get(m, "manager_tenure_years", 3.0),
+            holdings_concentration_top10=_get(m, "holdings_concentration_top10", 0.30),
             raw_refs=refs,
         )
         mf = score_macro_fit(

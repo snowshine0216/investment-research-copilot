@@ -48,7 +48,7 @@ def fetch_etf_metadata(symbol: str) -> dict[str, Any]:
     df = _ak_call("fund_etf_category_sina", symbol="ETF基金")
     if isinstance(df, pd.DataFrame):
         code_col = "代码" if "代码" in df.columns else "symbol"
-        rows = df[df[code_col].astype(str).str.contains(symbol)]
+        rows = df[df[code_col].astype(str).str.contains(symbol, regex=False)]
         row = rows.iloc[0].to_dict() if not rows.empty else {}
     else:
         row = dict(df)
