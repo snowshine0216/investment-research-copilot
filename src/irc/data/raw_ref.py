@@ -22,16 +22,13 @@ def build_ref_id(source: str, topic: str, instrument_id: str, date: str) -> str:
 
 def ref_index_from_duckdb(con: duckdb.DuckDBPyConnection) -> set[str]:
     """Collect all distinct _raw_ref values across tables that define this column."""
-    tables = con.execute(
-        "SELECT table_name FROM information_schema.columns WHERE column_name='_raw_ref'"
-    ).fetchall()
-    out: set[str] = set()
-    for (table_name,) in tables:
-        if table_name not in EXPECTED_TABLES:
-            continue
-        rows = con.execute(f'SELECT DISTINCT _raw_ref FROM "{table_name}"').fetchall()
-        out.update(row[0] for row in rows if row[0] is not None)
-    return out
+    # Single UNION ALL query instead of N+1 per-table queries
+    union_sql = " UNION ALL ".join(
+        f'SELECT DISTINCT _raw_ref FROM "{t}" WHERE _raw_ref IS NOT NULL'
+        for t in EXPECTED_TABLES
+    )
+    rows = con.execute(union_sql).fetchall()
+    return {row[0] for row in rows}
 
 
 def is_reachable(ref: RawRef, index: set[str]) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 from dataclasses import dataclass
 
 from irc.llm.http_client import call_chat
@@ -41,7 +42,10 @@ def score_macro_fit(ctx: MacroFitContext, route: object) -> FactorScore:
         return FactorScore(score=50.0, raw_refs=ctx.raw_refs, components={"fallback": 1.0})
     try:
         data = json.loads(resp.text)
-        score = max(0.0, min(100.0, float(data["score"])))
+        raw = float(data["score"])
+        if not math.isfinite(raw):
+            return FactorScore(score=50.0, raw_refs=ctx.raw_refs, components={"fallback": 1.0})
+        score = max(0.0, min(100.0, raw))
         return FactorScore(score=score, raw_refs=ctx.raw_refs, components={"llm_score": score})
     except (json.JSONDecodeError, KeyError, ValueError):
         return FactorScore(score=50.0, raw_refs=ctx.raw_refs, components={"fallback": 1.0})

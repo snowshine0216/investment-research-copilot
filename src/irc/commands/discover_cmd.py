@@ -77,9 +77,11 @@ def _latest_fund_metrics(metrics: pd.DataFrame, metadata: pd.DataFrame) -> pd.Da
 def _derive_db_metrics(con, manager_tenure_by_id: dict[str, float | None]) -> pd.DataFrame:
     price_values = con.execute(
         "SELECT instrument_id, date, close FROM prices"
+        " WHERE date >= CURRENT_DATE - INTERVAL '3 years'"
     ).fetch_df()
     nav_values = con.execute(
         "SELECT instrument_id, date, COALESCE(nav_acc, nav) AS nav_value FROM nav_history"
+        " WHERE date >= CURRENT_DATE - INTERVAL '3 years'"
     ).fetch_df()
     return merge_discovery_metrics(
         derive_discovery_metrics(price_values, "close", manager_tenure_by_id),
@@ -93,7 +95,7 @@ def _fetch_metadata_metrics(con) -> tuple[pd.DataFrame, pd.DataFrame]:
         "FROM instruments"
     ).fetch_df()
     volume_df = con.execute(
-        "SELECT instrument_id, AVG(close * COALESCE(volume, 0.0)) AS daily_volume_cny "
+        "SELECT instrument_id, AVG(close * volume) FILTER (WHERE volume IS NOT NULL) AS daily_volume_cny "
         "FROM prices GROUP BY instrument_id"
     ).fetch_df()
     metadata = _metadata_with_derived_fields(inst_df, volume_df)
