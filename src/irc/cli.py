@@ -55,6 +55,14 @@ def ingest(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Run gold scoring (regime + band + 6 drivers + scenario).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def gold(repo_root: str) -> None:
+    from irc.commands.gold_cmd import run_gold
+    rc = run_gold(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:
