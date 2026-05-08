@@ -8,15 +8,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# Use the venv python explicitly so subshell calls also use it
-if [[ -f ".venv/bin/python" ]]; then
-  PYTHON=".venv/bin/python"
-elif [[ -n "${VIRTUAL_ENV:-}" ]]; then
-  PYTHON="python"
-else
-  PYTHON="$(command -v python3 || command -v python)"
-fi
-
 PASS=0
 FAIL=0
 RESULTS=()
@@ -25,7 +16,7 @@ run_group() {
   local label="$1"
   shift
   printf '\n\033[1;34m══ %s ══\033[0m\n' "$label"
-  if "$PYTHON" -m pytest "$@" -q --tb=short 2>&1; then
+  if uv run pytest "$@" -q --tb=short 2>&1; then
     PASS=$((PASS + 1))
     RESULTS+=("  ✓  $label")
   else
@@ -127,12 +118,11 @@ run_group "E2E: init → ingest → discover → score" \
 # ── 6. Full suite with coverage (excluding live network tests) ────────
 printf '\n\033[1;34m══ Full suite + coverage report ══\033[0m\n'
 # Install pytest-cov if not present
-if ! "$PYTHON" -c "import pytest_cov" 2>/dev/null; then
+if ! uv run python -c "import pytest_cov" 2>/dev/null; then
   echo "Installing pytest-cov..."
-  uv pip install pytest-cov --python "$PYTHON" -q 2>/dev/null \
-    || "$PYTHON" -m ensurepip -q 2>/dev/null && "$PYTHON" -m pip install pytest-cov -q
+  uv add --dev pytest-cov -q
 fi
-if "$PYTHON" -m pytest tests/ \
+if uv run pytest tests/ \
     --ignore=tests/llm/test_live_smoke.py \
     --cov=irc \
     --cov-report=term-missing:skip-covered \
