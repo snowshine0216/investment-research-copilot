@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from typing import Callable
 from irc.commands.ingest_cmd import run_ingest
 from irc.commands.discover_cmd import run_discover
 from irc.commands.score_cmd import run_score
@@ -35,13 +36,13 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
     return 0
 
 
-def _runners_map() -> dict[str, object]:
+def _runners_map() -> dict[str, Callable[[str], int]]:
     return {
-        "ingest":   lambda r: run_ingest(r),
-        "discover": lambda r: run_discover(r),
-        "score":    lambda r: run_score(r),
-        "gold":     lambda r: run_gold(r),
-        "allocate": lambda r: run_allocate(r),
-        "plan":     lambda r: run_plan(r),
-        "memo":     lambda r: run_memo(r),
+        "ingest":   run_ingest,
+        "discover": run_discover,
+        "score":    run_score,
+        "gold":     run_gold,
+        "allocate": run_allocate,
+        "plan":     run_plan,
+        "memo":     run_memo,
     }

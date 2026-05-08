@@ -46,7 +46,7 @@ def run_memo(repo_root: str) -> int:
         for _factor, detail in s.get("factor_breakdown", {}).items():
             raw_ref_pool.extend(detail.get("raw_refs", []))
 
-    top_picks = [t["target"] for t in plan.get("trades", [])]
+    top_picks = tuple(t["target"] for t in plan.get("trades", []))
     inputs = MemoInputs(
         date_str=today,
         gold_regime=gold.get("regime", "unknown"),
@@ -55,8 +55,8 @@ def run_memo(repo_root: str) -> int:
         allocation_mode=plan.get("mode", "unknown"),
         macro_summary="实际利率趋势及全球宏观背景（由AI填充）",
         top_picks=top_picks,
-        risk_notes=["请参阅风险因子"],
-        tldr_lines=["本期要点由AI合成器自动生成"],
+        risk_notes=("请参阅风险因子",),
+        tldr_lines=("本期要点由AI合成器自动生成",),
     )
 
     synth_route = resolve_route("memo_synthesis", bundle.llm)

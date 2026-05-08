@@ -68,6 +68,8 @@ def run_gold(repo_root: str) -> int:
             etf_holdings_30d_change_tons=0.0,  # TODO(plan-4): wire from ETF holdings API
             geopolitical_stress_0to1=0.4,  # TODO(plan-4): wire from news sentiment pipeline
         )
+        print("WARN: 3 gold drivers using stub values (cb_purchases/etf_holdings/geo_stress); "
+              "live data wired in Plan 4")
         score = compute_gold_score(inputs, cfg)
         tilt = gold_tilt_from_score(score)
         scenario = classify_scenario(

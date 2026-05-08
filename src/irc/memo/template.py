@@ -10,9 +10,9 @@ class MemoInputs:
     gold_tilt: str
     allocation_mode: str
     macro_summary: str
-    top_picks: list[str]
-    risk_notes: list[str]
-    tldr_lines: list[str]
+    top_picks: tuple[str, ...]
+    risk_notes: tuple[str, ...]
+    tldr_lines: tuple[str, ...]
 
 
 def _section(n: int, title: str, body: str) -> str:
