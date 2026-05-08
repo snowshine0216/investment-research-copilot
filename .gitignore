@@ -20,3 +20,7 @@ outputs/
 .DS_Store
 .idea/
 .vscode/
+
+# Coverage
+.coverage
+htmlcov/

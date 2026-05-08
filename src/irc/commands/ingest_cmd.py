@@ -139,7 +139,15 @@ def _fetch_metadata_by_id(instruments: list) -> dict[str, dict[str, float | str 
     for instrument in instruments:
         if not _is_fund_like_ticker(instrument.ticker):
             continue
-        metadata = _normalize_fund_metadata(fetch_fund_metadata(instrument.ticker))
+        try:
+            metadata = _normalize_fund_metadata(fetch_fund_metadata(instrument.ticker))
+        except Exception as exc:
+            _log.warning(
+                "skipping %s: metadata fetch error: %s",
+                instrument.instrument_id,
+                exc,
+            )
+            continue
         missing = _missing_required_metadata(instrument, metadata)
         if missing:
             joined = ", ".join(missing)

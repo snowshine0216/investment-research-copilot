@@ -96,6 +96,35 @@ def test_fetch_fund_metadata_raises_for_unknown_code() -> None:
             fetch_fund_metadata("999999")
 
 
+def test_fetch_fund_metadata_falls_back_to_em_when_xq_fails() -> None:
+    em_basic = pd.DataFrame({
+        "项目": ["基金代码", "基金名称", "基金类型", "资产规模", "成立时间"],
+        "数据": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
+    })
+    fees = pd.DataFrame({
+        "费用类型": ["管理费率", "托管费率"],
+        "费率": ["0.50%", "0.10%"],
+    })
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.side_effect = [KeyError("data"), em_basic, fees]
+        out = fetch_fund_metadata("006075")
+
+    assert out["fund_code"] == "006075"
+    assert out["name_cn"] == "易方达标普500"
+    assert out["aum_text"] == "200亿"
+    assert [c.args[0] for c in mocked.call_args_list] == [
+        "fund_individual_basic_info_xq",
+        "fund_individual_basic_info_em",
+        "fund_fee_em",
+    ]
+
+
+def test_item_value_dict_handles_em_style_columns() -> None:
+    df = pd.DataFrame({"项目": ["基金代码", "基金名称"], "数据": ["006075", "易方达"]})
+    result = _item_value_dict(df)
+    assert result == {"基金代码": "006075", "基金名称": "易方达"}
+
+
 def test_fetch_etf_metadata() -> None:
     fake = pd.DataFrame([{"代码": "sh510300", "名称": "沪深300ETF"}])
     with patch("irc.data.akshare_client._ak_call") as mocked:

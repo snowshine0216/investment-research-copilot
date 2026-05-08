@@ -32,6 +32,8 @@ def _item_value_dict(df: pd.DataFrame) -> dict[str, Any]:
         return {}
     if {"item", "value"}.issubset(df.columns):
         return {str(r.item): r.value for r in df.itertuples(index=False)}
+    if {"项目", "数据"}.issubset(df.columns):
+        return dict(zip(df["项目"].astype(str), df["数据"]))
     if len(df) == 1:
         return {str(k): v for k, v in df.iloc[0].to_dict().items()}
     return {}
@@ -68,7 +70,11 @@ def _expense_ratio_from_fee_table(df: pd.DataFrame) -> float | None:
 
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     """Single-row metadata dict: fund_code, name_cn, fund_type, aum_text, inception_date, expense_ratio."""
-    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
+    try:
+        basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
+    except Exception:
+        # XueQiu API requires auth cookies; fall back to East Money
+        basic = _item_value_dict(_ak_call("fund_individual_basic_info_em", symbol=fund_code))
     if not basic or str(basic.get("基金代码") or basic.get("fund_code") or "") != fund_code:
         raise ValueError(f"fund {fund_code!r} not found in AKShare basic info")
     fees = _ak_call("fund_fee_em", symbol=fund_code, indicator="运作费用")
@@ -76,7 +82,7 @@ def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
         "fund_code": str(basic.get("基金代码") or basic.get("fund_code") or fund_code),
         "name_cn": str(basic.get("基金名称") or basic.get("基金简称") or basic.get("name_cn") or ""),
         "fund_type": str(basic.get("基金类型") or basic.get("fund_type") or ""),
-        "aum_text": str(basic.get("最新规模") or basic.get("基金规模") or basic.get("aum_text") or ""),
+        "aum_text": str(basic.get("最新规模") or basic.get("基金规模") or basic.get("资产规模") or basic.get("aum_text") or ""),
         "inception_date": str(basic.get("成立时间") or basic.get("成立日期") or "") or None,
         "expense_ratio": _expense_ratio_from_fee_table(fees),
         "manager_tenure_years": basic.get("manager_tenure_years") or basic.get("基金经理任职年限"),
