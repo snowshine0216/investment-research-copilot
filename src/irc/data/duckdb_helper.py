@@ -102,5 +102,11 @@ def connect(db_path: Path) -> duckdb.DuckDBPyConnection:
 
 def ensure_schema(con: duckdb.DuckDBPyConnection) -> None:
     """Idempotently create all expected tables."""
-    for stmt in _DDL_STATEMENTS:
-        con.execute(stmt)
+    con.execute("BEGIN")
+    try:
+        for stmt in _DDL_STATEMENTS:
+            con.execute(stmt)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
