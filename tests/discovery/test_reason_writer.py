@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from unittest.mock import MagicMock, patch
 
 from irc.discovery.universe import UniverseRow
@@ -65,7 +66,6 @@ def test_write_reason_retries_and_succeeds_on_second_attempt(mock_chat) -> None:
 @patch("irc.discovery.reason_writer.call_chat")
 def test_write_reason_returns_none_when_all_attempts_raise(mock_chat, caplog) -> None:
     """All attempts raise; write_reason returns None and logs a warning."""
-    import logging
     mock_chat.side_effect = RuntimeError("network timeout")
     with caplog.at_level(logging.WARNING, logger="irc.discovery.reason_writer"):
         res = write_reason(_row(), _ctx(), route=MagicMock(), max_retries=2)
