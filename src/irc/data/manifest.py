@@ -1,8 +1,12 @@
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
-from pathlib import Path
+from dataclasses import asdict, dataclass, field
 import json
+import re
+from pathlib import Path
+
 from irc.io_utils import atomic_write_text
+
+_SAFE_SOURCE_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,8 @@ class ManifestEntry:
 
 
 def _manifest_path(data_root: Path, source: str) -> Path:
+    if not _SAFE_SOURCE_RE.fullmatch(source):
+        raise ValueError(f"invalid manifest source: {source}")
     return data_root / "_manifest" / f"{source}.json"
 
 
