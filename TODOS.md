@@ -20,6 +20,18 @@ Known gaps and deferred work from Plan 1 ship review (2026-05-07).
 - [ ] `schemas/gold.py` — direction enum variants beyond "up"
 - [ ] `schemas/discovery.py` — quality filter edge cases
 
+## Performance (Plan 3)
+
+- [ ] **Sequential LLM calls in scoring**: `score_macro_fit` called once per instrument in a for-loop (blocking HTTP). Parallelize with `ThreadPoolExecutor` before scaling to full universe. (ship review 2026-05-08)
+- [ ] **Sequential LLM calls in discovery**: `write_reason` called per role × instrument. Same fix as above. (ship review 2026-05-08)
+- [ ] **`fetch_fund_metadata` / `fetch_etf_metadata` download full tables per call**: cache with `functools.lru_cache` or pass pre-fetched DataFrame from the caller. (ship review 2026-05-08)
+
+## Reliability (Plan 2+)
+
+- [ ] **`ingest` aborts on single instrument failure**: one bad ticker kills the entire run with no partial manifest. Add per-instrument try/except to continue and log failed tickers. (adversarial-review 2026-05-08)
+- [ ] **`write_reason` silent failure**: bare `except Exception: pass` swallows all LLM errors; `run_discover` returns 0 even when 0 candidates found. Add structured logging for retried/failed instruments. (adversarial-review 2026-05-08)
+- [ ] **`fetch_fund_metadata` wrong record on miss**: falls back to `df.iloc[0]` when fund_code not found, returning metadata for a different fund. Raise `ValueError` or return `{}` instead. (adversarial-review 2026-05-08)
+
 ## Design / Tech debt
 
 - [ ] **`ChatResponse.raw` unbounded** — full LLM response body stored in frozen dataclass. Remove or make optional before any serialization path is added (Plan 2+). (adversarial-review finding 11)
