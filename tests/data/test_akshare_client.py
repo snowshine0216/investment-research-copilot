@@ -44,3 +44,19 @@ def test_fetch_fund_metadata() -> None:
     assert out["fund_code"] == "006075"
     assert out["expense_ratio"] == 0.0060
     assert out["inception_date"] == "2018-03-26"
+
+
+def test_fetch_fund_metadata_raises_for_unknown_code() -> None:
+    fake = pd.DataFrame([{
+        "基金代码": "006075",
+        "基金简称": "易方达标普500",
+        "基金类型": "QDII",
+        "基金规模": "200亿",
+        "成立日期": "2018-03-26",
+        "费率": 0.0060,
+    }])
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        import pytest
+        with pytest.raises(ValueError, match="not found"):
+            fetch_fund_metadata("999999")

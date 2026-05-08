@@ -27,7 +27,7 @@ def _fetch_metadata_metrics(con) -> tuple:
             - pd.to_datetime(inst_df["inception_date"], errors="coerce").dt.year
         )
         inst_df["aum_cny"] = inst_df["aum"]
-        inst_df["daily_volume_cny"] = 1e9  # placeholder
+        inst_df["daily_volume_cny"] = 0.0  # placeholder — conservative (fail-safe until real data)
     else:
         inst_df["inception_years"] = []
         inst_df["aum_cny"] = []
@@ -35,7 +35,7 @@ def _fetch_metadata_metrics(con) -> tuple:
 
     metrics = con.execute(
         "SELECT instrument_id, drawdown_3y, tracking_error, "
-        "       99.0 AS manager_tenure_years "
+        "       0.0 AS manager_tenure_years "
         "FROM fund_metrics"
     ).fetch_df()
     if metrics.empty:

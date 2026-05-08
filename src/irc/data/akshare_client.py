@@ -30,7 +30,9 @@ def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     if isinstance(df, pd.DataFrame):
         mask = df.get("基金代码", df.get("fund_code", pd.Series(dtype=str))) == fund_code
         rows = df[mask]
-        row = rows.iloc[0].to_dict() if not rows.empty else df.iloc[0].to_dict()
+        if rows.empty:
+            raise ValueError(f"fund {fund_code!r} not found in AKShare catalog")
+        row = rows.iloc[0].to_dict()
     else:
         row = dict(df)
     return {

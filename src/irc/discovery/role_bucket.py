@@ -30,7 +30,7 @@ def _is_defensive_cn_bond(r: UniverseRow) -> bool:
 
 
 def _is_defensive_us_bond(r: UniverseRow) -> bool:
-    return r.asset_class == "us_etf" and "bond" in r.name_cn.lower()
+    return r.asset_class == "us_etf" and "bond" in (r.tracked_index or "").lower()
 
 
 def _is_hedge_low_corr(r: UniverseRow) -> bool:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 import pandas as pd
@@ -27,7 +28,6 @@ def historical_sanity_correlation(
         return SanityResult(
             rho=0.0, p_value=1.0, status="HARD_FAIL", n_instruments=len(merged)
         )
-    import math
     rho, pval = spearmanr(merged["composite_score"], merged["realized_risk_adj_return"])
     if math.isnan(rho) or rho <= 0:
         status = "HARD_FAIL"

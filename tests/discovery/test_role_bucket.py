@@ -83,7 +83,8 @@ def test_bucket_assigns_cn_bond_fund_to_defensive_cn_bond() -> None:
 
 
 def test_bucket_assigns_us_bond_etf_to_defensive_us_bond() -> None:
-    rows = (_row_named("BND", "us_etf", "US Bond Index", name_cn="Total Bond Market ETF"),)
+    # tracked_index must contain 'bond' (case-insensitive) — name_cn is typically Chinese
+    rows = (_row_named("BND", "us_etf", "US Bond Index", name_cn="标普综合傀券ETF"),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
     assert out.buckets["defensive_us_bond"][0].instrument_id == "BND"
 

@@ -45,3 +45,27 @@ def test_write_reason_drops_when_no_raw_ref_cited(mock_chat) -> None:
     )
     res = write_reason(_row(), _ctx(), route=MagicMock(), max_retries=0)
     assert res is None  # no citation → dropped
+
+
+@patch("irc.discovery.reason_writer.call_chat")
+def test_write_reason_retries_and_succeeds_on_second_attempt(mock_chat) -> None:
+    """First call returns a response with no citation; second call returns a valid citation."""
+    no_citation = MagicMock(text="A fine ETF. Risk: none.", prompt_tokens=10, completion_tokens=5)
+    with_citation = MagicMock(
+        text="Tracks S&P 500 (openbb:prices:VTI:2026-05-07). Low cost. Solid AUM. Risk: USD risk.",
+        prompt_tokens=120, completion_tokens=40,
+    )
+    mock_chat.side_effect = [no_citation, with_citation]
+    res = write_reason(_row(), _ctx(), route=MagicMock(), max_retries=1)
+    assert isinstance(res, ReasonResult)
+    assert len(res.cited_refs) >= 1
+    assert mock_chat.call_count == 2
+
+
+@patch("irc.discovery.reason_writer.call_chat")
+def test_write_reason_returns_none_when_all_attempts_raise(mock_chat) -> None:
+    """All attempts raise; write_reason returns None and does not propagate."""
+    mock_chat.side_effect = RuntimeError("network timeout")
+    res = write_reason(_row(), _ctx(), route=MagicMock(), max_retries=2)
+    assert res is None
+    assert mock_chat.call_count == 3

@@ -71,6 +71,7 @@ def write_reason(
                 prompt_tokens=resp.prompt_tokens,
                 completion_tokens=resp.completion_tokens,
             )
-        except Exception:
-            pass
+        except Exception as exc:  # noqa: BLE001
+            import sys
+            print(f"[reason_writer] attempt {_attempt} failed for {row.instrument_id}: {exc}", file=sys.stderr)
     return None

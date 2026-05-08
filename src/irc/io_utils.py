@@ -20,7 +20,7 @@ def atomic_write_text(path: Path, content: str, encoding: str = "utf-8") -> None
         if existing_mode is not None:
             os.chmod(path, existing_mode)
         _fsync_directory(path.parent)
-    except Exception:
+    except BaseException:
         try:
             os.unlink(tmp_path)
         except FileNotFoundError:
