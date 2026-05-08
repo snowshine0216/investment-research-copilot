@@ -1,0 +1,61 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from irc.schemas.discovery import DiscoveryConfig
+from irc.schemas.inputs import RiskBand
+from irc.discovery.universe import UniverseRow
+from irc.discovery.quality_filter import apply_quality_filter
+
+
+def _row(iid: str) -> UniverseRow:
+    return UniverseRow(
+        instrument_id=iid, ticker=iid, market="cn_off_exchange",
+        name_cn=iid, asset_class="us_etf", currency="cny",
+        tracked_index="x", venue_required=(),
+    )
+
+
+def _cfg() -> DiscoveryConfig:
+    return DiscoveryConfig.model_validate({
+        "hard_filters": {
+            "inception_years_min": 3, "cn_fund_aum_cny_min": 5e8,
+            "us_etf_aum_usd_min": 1e8, "cn_active_expense_ratio_max": 0.015,
+            "cn_passive_expense_ratio_max": 0.005, "us_etf_expense_ratio_max": 0.003,
+            "etf_daily_volume_cny_min": 1e7,
+        },
+        "quality_filters": {"drawdown_3y_buffer": 1.2, "tracking_error_max": 0.015, "manager_tenure_years_min": 2},
+        "role_bucket": {"min_candidates_per_role": 8, "fail_below": 5},
+    })
+
+
+def test_quality_filter_pass_within_user_dd_band() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "X", "drawdown_3y": 0.18,
+        "tracking_error": 0.005, "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_row("X"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+    assert len(out.passed) == 1
+
+
+def test_quality_filter_fail_above_dd_buffer() -> None:
+    # buffer 1.2x of upper band 0.20 = 0.24; dd 0.30 > 0.24 → fail
+    metrics = pd.DataFrame([{
+        "instrument_id": "X", "drawdown_3y": 0.30,
+        "tracking_error": 0.005, "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_row("X"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+    assert out.passed == ()
+    assert "drawdown" in out.rejected[0].reasons[0].lower()
+
+
+def test_quality_filter_relaxes_passive_tracking_error_only() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "X", "drawdown_3y": 0.10,
+        "tracking_error": 0.020, "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_row("X"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+    assert out.passed == ()  # tracking_error 0.020 > 0.015

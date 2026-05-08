@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from irc.llm.http_client import call_chat
+from irc.discovery.universe import UniverseRow
+
+
+@dataclass(frozen=True)
+class WriteReasonContext:
+    role: str
+    peer_summary: str
+    macro_snapshot: str
+    raw_refs: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ReasonResult:
+    instrument_id: str
+    reason_text: str
+    cited_refs: tuple[str, ...]
+    prompt_tokens: int
+    completion_tokens: int
+
+
+def _system_prompt() -> str:
+    return (
+        "You are an investment-research assistant. For the given instrument and role, "
+        "write at most 3 sentences explaining why it is a candidate for that role, "
+        "then 1 short 'Risk: ...' sentence. You MUST cite at least one of the provided "
+        "raw_ref tokens by including its exact id in your reasoning. Output plain text."
+    )
+
+
+def _user_prompt(row: UniverseRow, ctx: WriteReasonContext) -> str:
+    return (
+        f"Instrument: {row.instrument_id} {row.name_cn} ({row.ticker}) — {row.asset_class}\n"
+        f"Tracked index: {row.tracked_index}\n"
+        f"Role: {ctx.role}\n"
+        f"Peers: {ctx.peer_summary}\n"
+        f"Macro snapshot: {ctx.macro_snapshot}\n"
+        f"Available raw_refs: {', '.join(ctx.raw_refs)}"
+    )
+
+
+def write_reason(
+    row: UniverseRow,
+    ctx: WriteReasonContext,
+    route: object,
+    max_retries: int = 1,
+) -> ReasonResult | None:
+    """Step 5: produce a 3-sentence reason + 1 risk line, citing >= 1 raw_ref.
+    Returns None if grounding fails after all attempts."""
+    for _attempt in range(max_retries + 1):
+        try:
+            resp = call_chat(
+                route,  # type: ignore[arg-type]
+                messages=[
+                    {"role": "system", "content": _system_prompt()},
+                    {"role": "user", "content": _user_prompt(row, ctx)},
+                ],
+                timeout_s=30,
+            )
+            cited = tuple(r for r in ctx.raw_refs if r in resp.text)
+            if not cited:
+                continue
+            return ReasonResult(
+                instrument_id=row.instrument_id,
+                reason_text=resp.text.strip(),
+                cited_refs=cited,
+                prompt_tokens=resp.prompt_tokens,
+                completion_tokens=resp.completion_tokens,
+            )
+        except Exception:
+            pass
+    return None
