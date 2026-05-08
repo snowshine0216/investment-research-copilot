@@ -18,9 +18,10 @@ def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
 
-def _gold_prices(con) -> pd.Series:
+def _gold_prices(con, instrument_id: str) -> pd.Series:
     df = con.execute(
-        "SELECT date, close FROM prices WHERE instrument_id = '518880' ORDER BY date"
+        "SELECT date, close FROM prices WHERE instrument_id = ? ORDER BY date",
+        [instrument_id],
     ).fetch_df()
     return df["close"]
 
@@ -37,10 +38,15 @@ def run_gold(repo_root: str) -> int:
     root = Path(repo_root)
     bundle = load_repo_configs(root)
     cfg = bundle.gold_drivers
+    exchange_gold = [i for i in bundle.universe_gold.instruments if i.market != "cmb_internal"]
+    if not exchange_gold:
+        print("WARN: no exchange-traded gold instrument in universe/gold.yaml")
+        return 1
+    gold_id = exchange_gold[0].instrument_id
     con = connect(root / "data" / "local.duckdb")
     try:
         ensure_schema(con)
-        prices = _gold_prices(con)
+        prices = _gold_prices(con, gold_id)
         if prices.empty:
             print("WARN: no gold prices in DuckDB; run `irc ingest` first.")
             return 1

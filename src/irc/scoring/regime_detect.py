@@ -26,7 +26,12 @@ def _vol_ratio(prices: pd.Series, window_recent: int, window_baseline: int) -> f
 
 
 def _adx(prices: pd.Series, period: int = 14) -> float:
-    """Plain-pandas ADX approximation. Uses close-to-close diffs as proxy for true range."""
+    """Plain-pandas ADX approximation. Uses close-to-close diffs as proxy for true range.
+
+    Note: Ignoring intraday wicks means ADX values are typically 20-40% below Wilder ADX,
+    biasing classification toward range_bound (downward bias — undercounts trending markets).
+    Full OHLC ADX is a Plan-4 improvement once price history includes H/L columns.
+    """
     df = pd.DataFrame({"close": prices})
     df["up"] = (df["close"].diff()).clip(lower=0)
     df["down"] = (-df["close"].diff()).clip(lower=0)
