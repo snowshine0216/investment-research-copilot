@@ -6,8 +6,6 @@ from pathlib import Path
 
 import pandas as pd
 
-_log = logging.getLogger(__name__)
-
 from irc.config_loader import load_repo_configs
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.raw_ref import ref_index_from_duckdb
@@ -21,6 +19,8 @@ from irc.discovery.pipeline import run_discovery
 from irc.discovery.universe import enumerate_universe
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+
+_log = logging.getLogger(__name__)
 
 
 def _now_iso_date() -> str:

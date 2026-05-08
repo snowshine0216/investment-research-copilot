@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from irc.llm.http_client import call_chat
 from irc.discovery.universe import UniverseRow
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,5 @@ def write_reason(
                 completion_tokens=resp.completion_tokens,
             )
         except Exception as exc:  # noqa: BLE001
-            import sys
-            print(f"[reason_writer] attempt {_attempt} failed for {row.instrument_id}: {exc}", file=sys.stderr)
+            _log.warning("attempt %d failed for %s: %s", _attempt, row.instrument_id, exc)
     return None
