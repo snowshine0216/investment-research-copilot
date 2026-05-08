@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0.0] — 2026-05-08
+
+### Added
+- **Gold scoring pipeline** (`src/irc/scoring/`): vol-ratio + ADX market regime classifier (`regime_detect.py`), rolling 6-month H/L/Q1/Q3 band with 6-zone classifier (`gold_band.py`), 3-scenario classifier driven by real yield, DXY, CB purchases, and geopolitical stress (`gold_scenarios.py`), 6-driver composite gold score (0–100) mapping to `GoldTilt` label (`gold_score.py`)
+- **`irc gold` command**: orchestrates regime + band + scenario + score → `gold_regime.json` (includes zone) + `gold_band.yaml`
+- **Allocation pipeline** (`src/irc/allocation/`): AUM-based mode selector (`mode_selector.py`), per-asset-class target weights with gold tilt delta ±5pp and softmax distribution (`target_weights.py`), high-correlation pair filter (`correlation_filter.py`), top-K per class + correlation filter pipeline (`pipeline.py`)
+- **`irc allocate` command**: reads scoring output + gold tilt → `proposed_allocation.yaml`
+- **Trade planning pipeline** (`src/irc/trades/`): default buy method by asset class + mode (`buy_method.py`), bucket-based buy method from valuation percentile (`valuation_percentile.py`), venue compatibility check + same-index proxy suggestion (`venue_check.py`), VIX/real-yield/weekly-drawdown trigger emitter (`triggers.py`), full `TradePlanRow` composition (`pipeline.py`)
+- **`irc plan` command**: reads `proposed_allocation.yaml` → `trade_plan.yaml`
+- **Memo synthesis pipeline** (`src/irc/memo/`): frozen `MemoInputs` dataclass + 7-section Markdown skeleton renderer (`template.py`), LLM synthesis with raw-ref context injection (`synthesizer.py`), compliance audit LLM pass (`auditor.py`), citation coverage ratio check (`traceability.py`), full orchestrated pipeline (`pipeline.py`)
+- **`irc memo` command**: reads scoring + gold + allocation + plan → `memo.md` + `memo_audit.txt` + `memo_traceability.json`
+- **Interactive query engine** (`src/irc/queries/`): instrument extraction + intent classification (`parser.py`), LLM response with memo + scores context injection (`responder.py`)
+- **`irc ask <question>` command**: interactive Q&A grounded in today's outputs
+- **`irc run` orchestrator**: full 7-stage pipeline (ingest → discover → score → gold → allocate → plan → memo) with `--from <stage>` and `--only <stage>` resume flags
+
+### Fixed
+- `regime_detect.py` NaN guard was dead code: `np.nan or 0.0` evaluates to `nan` (NaN is truthy); replaced with `math.isfinite()` check — prevents `json.dumps` crash on sparse price history
+- `target_weights.py` ZeroDivisionError: added guard for all-zero non-gold asset class weights
+- `venue_check.py` proxy logic inverted: instruments with empty `venue_required` (unrestricted) were never returned as proxies — fixed with `not i.venue_required or set(...) &` condition
+- `memo/pipeline.py` traceability metric: now checks only refs in `raw_ref_pool[:40]` (matching what synthesizer actually receives) — eliminates always-missing refs that were never shown to the LLM
+- `gold_cmd.py` gold zone: `classify_zone(current_price, band)` is now called and written to `gold_regime.json` — `gold_zone` in generated memos was previously always "unknown"
+- `memo/synthesizer.py` prompt injection: raw refs from external APIs (OpenBB/AKShare) are now sanitized (newlines stripped, truncated to 200 chars) before LLM injection
+- `run_cmd.py` dead code: removed unused `_RUNNERS` dict (shadowed by `_runners_map()`)
+- `run_cmd.py` uncaught ValueError: `--from` and `--only` with invalid stage names now return exit code 1 with a clear error message instead of crashing with `ValueError`
+
 ## [0.2.0.0] — 2026-05-08
 
 ### Added
