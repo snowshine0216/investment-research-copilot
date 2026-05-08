@@ -119,7 +119,7 @@ def test_ingest_populates_discovery_metadata(repo: Path) -> None:
     assert stored == (date(2018, 3, 26), 0.002, 20_000_000_000.0, 6.0)
 
 
-def test_ingest_fails_closed_when_discovery_metadata_incomplete(repo: Path) -> None:
+def test_ingest_skips_instrument_when_discovery_metadata_incomplete(repo: Path) -> None:
     fake_prices = pd.DataFrame({
         "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
         "low": [4.18], "close": [4.25], "volume": [1e8],
@@ -134,9 +134,11 @@ def test_ingest_fails_closed_when_discovery_metadata_incomplete(repo: Path) -> N
             "irc.commands.ingest_cmd.fetch_fund_metadata",
             side_effect=_fake_missing_aum_fund_metadata,
         ),
-        pytest.raises(ValueError, match="aum"),
     ):
-        run_ingest(repo_root=str(repo))
+        rc = run_ingest(repo_root=str(repo))
+
+    # Skip-and-warn: ingest completes with rc=0; the problematic instrument is omitted
+    assert rc == 0
 
 
 def test_ingest_allows_missing_manager_tenure_for_passive_funds(repo: Path) -> None:

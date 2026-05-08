@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -13,6 +14,8 @@ from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
+
+_log = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "v1"
 _MACRO_SERIES = ("DGS10", "DTWEXBGS")
@@ -140,7 +143,12 @@ def _fetch_metadata_by_id(instruments: list) -> dict[str, dict[str, float | str 
         missing = _missing_required_metadata(instrument, metadata)
         if missing:
             joined = ", ".join(missing)
-            raise ValueError(f"missing required metadata for {instrument.instrument_id}: {joined}")
+            _log.warning(
+                "skipping %s: missing required metadata fields: %s",
+                instrument.instrument_id,
+                joined,
+            )
+            continue
         metadata_by_id[instrument.instrument_id] = metadata
     return metadata_by_id
 

@@ -26,6 +26,12 @@ class ReasonResult:
     completion_tokens: int
 
 
+def _sanitize(text: str, max_len: int = 200) -> str:
+    """Strip control characters and truncate external-sourced strings before LLM use."""
+    cleaned = "".join(ch for ch in str(text) if ch.isprintable() or ch in (" ", "\t"))
+    return cleaned[:max_len]
+
+
 def _system_prompt() -> str:
     return (
         "You are an investment-research assistant. For the given instrument and role, "
@@ -37,8 +43,8 @@ def _system_prompt() -> str:
 
 def _user_prompt(row: UniverseRow, ctx: WriteReasonContext) -> str:
     return (
-        f"Instrument: {row.instrument_id} {row.name_cn} ({row.ticker}) — {row.asset_class}\n"
-        f"Tracked index: {row.tracked_index}\n"
+        f"Instrument: {row.instrument_id} {_sanitize(row.name_cn)} ({row.ticker}) — {row.asset_class}\n"
+        f"Tracked index: {_sanitize(str(row.tracked_index))}\n"
         f"Role: {ctx.role}\n"
         f"Peers: {ctx.peer_summary}\n"
         f"Macro snapshot: {ctx.macro_snapshot}\n"
