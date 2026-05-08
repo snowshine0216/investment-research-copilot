@@ -40,7 +40,8 @@ Known gaps and deferred work. Updated after Plan 3 ship (2026-05-08).
 ## Design / Tech debt
 
 - [ ] **`tracking_error` stub in `metrics.py`** — `derive_discovery_metrics` always emits `tracking_error=0.0`; quality filter's tracking-error branch never fires. Implement rolling-std-of-returns-minus-benchmark in Plan 4. (code-review 2026-05-08)
-- [ ] **4/6 gold score drivers hardcoded** — `real_yield`, `dxy`, `cb_purchases`, `geopolitical_stress` are constants in `gold_score.py`; only `vol_ratio` and `adx` use live data. Activate remaining live drivers in Plan 4. (adversarial-review finding 3)
+- [ ] **2/6 gold score drivers hardcoded** — `cb_purchases_yearly_tons` and `etf_holdings_30d_change_tons` are constants in `gold_cmd.py`; `real_yield`, `dxy`, and `inflation_5y5y` are now wired from DuckDB. Activate CB flow + ETF holdings in Plan 4. (adversarial-review finding 3, partial fix 2026-05-08)
+- [ ] **`traceability.py` metric is exact-copy lower bound** — `check_traceability` does verbatim substring matching; LLM typically paraphrases, so `coverage_ratio` is near 0 in all real runs. Implement fuzzy/keyword citation scorer in Plan 4. (code-review 2026-05-08)
 - [ ] **Correlation filter permanently disabled** — `allocation/pipeline.py` always skips correlation filter until correlation data is available in Plan 4. Weights are not renormalized after the filter runs (moot until activated). (adversarial-review findings 4+5)
 - [ ] **`ChatResponse.raw` unbounded** — full LLM response body stored in frozen dataclass. Remove or make optional before any serialization path is added (Plan 4). (adversarial-review finding 11)
 - [ ] **Portfolio target tolerance** — `PreferencesFile` uses ±2% sum tolerance vs 1e-6 for system configs. Tighten to 1e-4 when financial-accuracy requirements are confirmed.

@@ -8,17 +8,7 @@ from irc.commands.allocate_cmd import run_allocate
 from irc.commands.plan_cmd import run_plan
 from irc.commands.memo_cmd import run_memo
 
-_STAGES: tuple[tuple[str, ...], ...] = (
-    ("ingest",    ),
-    ("discover",  ),
-    ("score",     ),
-    ("gold",      ),
-    ("allocate",  ),
-    ("plan",      ),
-    ("memo",      ),
-)
-
-STAGE_NAMES: tuple[str, ...] = tuple(t[0] for t in _STAGES)
+STAGE_NAMES: tuple[str, ...] = ("ingest", "discover", "score", "gold", "allocate", "plan", "memo")
 
 
 def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:

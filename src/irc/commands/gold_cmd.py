@@ -57,10 +57,10 @@ def run_gold(repo_root: str) -> int:
         inputs = GoldDriverInputs(
             real_yield_10y_tips=_macro_value(con, "DGS10", 1.65) - 2.30,  # rough TIPS proxy
             dxy=_macro_value(con, "DTWEXBGS", 104.0),
-            inflation_5y5y=2.30,
-            cb_purchases_yearly_tons=900.0,
-            etf_holdings_30d_change_tons=0.0,
-            geopolitical_stress_0to1=0.4,
+            inflation_5y5y=_macro_value(con, "T5YIFR", 2.30),
+            cb_purchases_yearly_tons=900.0,  # TODO(plan-4): wire from CB flow data source
+            etf_holdings_30d_change_tons=0.0,  # TODO(plan-4): wire from ETF holdings API
+            geopolitical_stress_0to1=0.4,  # TODO(plan-4): wire from news sentiment pipeline
         )
         score = compute_gold_score(inputs, cfg)
         tilt = gold_tilt_from_score(score)
