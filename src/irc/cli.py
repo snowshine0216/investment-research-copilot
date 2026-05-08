@@ -31,6 +31,30 @@ def config_validate(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Score every candidate from discovered_watchlist.csv via 5 factors.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def score(repo_root: str) -> None:
+    from irc.commands.score_cmd import run_score
+    rc = run_score(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Run Discovery 5-step funnel; produces discovered_watchlist.csv.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def discover(repo_root: str) -> None:
+    from irc.commands.discover_cmd import run_discover
+    rc = run_discover(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Ingest data from OpenBB + AKShare into data/local.duckdb.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def ingest(repo_root: str) -> None:
+    from irc.commands.ingest_cmd import run_ingest
+    rc = run_ingest(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:

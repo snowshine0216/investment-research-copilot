@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 1 of 4 — foundation only. CLI scaffolding and config validation work. Data ingestion, scoring, and memo generation arrive in Plans 2–4.
+> **Status:** Plan 2 of 4 complete. Data layer (DuckDB, OpenBB, AKShare), discovery funnel, and scoring pipeline all ship. `irc ingest` → `irc discover` → `irc score` chain is operational. Memo generation and news layer arrive in Plans 3–4.
 
 ## Design references
 
@@ -21,13 +21,16 @@ cp .env.example .env
 
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
-uv run irc freshness                   # data manifest summary (empty until Plan 2)
+uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
+uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
+uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
+uv run irc freshness                   # data manifest summary
 ```
 
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (~60 tests)
+uv run pytest                                       # unit + integration (~183 tests)
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
