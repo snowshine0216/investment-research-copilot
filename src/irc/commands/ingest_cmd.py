@@ -32,7 +32,7 @@ def _now_iso() -> str:
 
 
 def _date_window() -> tuple[str, str]:
-    today = datetime.now().date()
+    today = datetime.now(timezone(timedelta(hours=8))).date()
     return (today - timedelta(days=_LOOK_BACK_DAYS)).isoformat(), today.isoformat()
 
 
