@@ -23,6 +23,16 @@ def _resolve_key(env_name: str) -> str:
     return val
 
 
+def _resolve_proxy(provider: str) -> str | None:
+    """Optional per-provider HTTPS proxy from `{PROVIDER}_HTTPS_PROXY` env var.
+
+    Returns None when unset/empty so httpx falls back to a direct connection.
+    Used to route geo-restricted providers (e.g., openrouter for Anthropic
+    models) through a corporate proxy without affecting other traffic.
+    """
+    return os.environ.get(f"{provider.upper()}_HTTPS_PROXY", "").strip() or None
+
+
 def _build_payload(
     model: str,
     messages: list[dict[str, str]],
@@ -43,12 +53,13 @@ def _post_request(
     payload: dict[str, Any],
     timeout_s: float,
     client: httpx.Client | None,
+    proxy: str | None = None,
 ) -> tuple[httpx.Response, int]:
     started = time.perf_counter()
     if client is not None:
         resp = client.post(url, headers=headers, json=payload, timeout=timeout_s)
     else:
-        with httpx.Client(timeout=timeout_s) as _client:
+        with httpx.Client(timeout=timeout_s, proxy=proxy) as _client:
             resp = _client.post(url, headers=headers, json=payload)
     return resp, int((time.perf_counter() - started) * 1000)
 
@@ -82,9 +93,10 @@ def call_chat(
 ) -> ChatResponse:
     """Make a single chat-completions call. Raises httpx.HTTPStatusError on 4xx/5xx."""
     api_key = _resolve_key(route.api_key_env)
+    proxy = _resolve_proxy(route.provider)
     payload = _build_payload(route.model, messages, temperature, max_tokens)
     url = f"{route.base_url.rstrip('/')}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    resp, latency_ms = _post_request(url, headers, payload, timeout_s, client)
+    resp, latency_ms = _post_request(url, headers, payload, timeout_s, client, proxy=proxy)
     resp.raise_for_status()
     return _parse_response(resp.json(), route.provider, route.model, latency_ms)

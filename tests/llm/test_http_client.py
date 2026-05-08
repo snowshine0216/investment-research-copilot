@@ -3,7 +3,28 @@ import pytest
 import respx
 import httpx
 from irc.llm._types import ResolvedRoute
-from irc.llm.http_client import call_chat, ChatResponse
+from irc.llm.http_client import call_chat, ChatResponse, _resolve_proxy
+
+
+def test_resolve_proxy_unset_returns_none(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_HTTPS_PROXY", raising=False)
+    assert _resolve_proxy("openrouter") is None
+
+
+def test_resolve_proxy_empty_returns_none(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "  ")
+    assert _resolve_proxy("openrouter") is None
+
+
+def test_resolve_proxy_set_returns_url(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "http://10.27.7.110:8080")
+    assert _resolve_proxy("openrouter") == "http://10.27.7.110:8080"
+
+
+def test_resolve_proxy_is_provider_scoped(monkeypatch):
+    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "http://corp:8080")
+    monkeypatch.delenv("DEEPSEEK_HTTPS_PROXY", raising=False)
+    assert _resolve_proxy("deepseek") is None
 
 
 @pytest.fixture
