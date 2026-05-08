@@ -1,10 +1,22 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pandas as pd
+
+_log = logging.getLogger(__name__)
+
 from irc.config_loader import load_repo_configs
 from irc.data.duckdb_helper import connect, ensure_schema
+from irc.data.raw_ref import ref_index_from_duckdb
+from irc.discovery.metrics import (
+    DISCOVERY_METRIC_COLUMNS,
+    derive_discovery_metrics,
+    empty_discovery_metrics,
+    merge_discovery_metrics,
+)
 from irc.discovery.pipeline import run_discovery
 from irc.discovery.universe import enumerate_universe
 from irc.io_utils import atomic_write_text
@@ -15,35 +27,82 @@ def _now_iso_date() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
 
-def _fetch_metadata_metrics(con) -> tuple:
-    import pandas as pd
-
-    inst_df = con.execute(
-        "SELECT instrument_id, inception_date, expense_ratio, aum FROM instruments"
-    ).fetch_df()
-    if not inst_df.empty:
-        inst_df["inception_years"] = (
+def _metadata_with_derived_fields(
+    inst_df: pd.DataFrame,
+    volume_df: pd.DataFrame,
+) -> pd.DataFrame:
+    if inst_df.empty:
+        return pd.DataFrame(columns=[
+            "instrument_id", "inception_date", "expense_ratio", "aum",
+            "manager_tenure_years", "inception_years", "aum_cny", "daily_volume_cny",
+        ])
+    metadata = inst_df.assign(
+        inception_years=(
             datetime.now(timezone.utc).year
             - pd.to_datetime(inst_df["inception_date"], errors="coerce").dt.year
-        )
-        inst_df["aum_cny"] = inst_df["aum"]
-        inst_df["daily_volume_cny"] = 0.0  # placeholder — conservative (fail-safe until real data)
-    else:
-        inst_df["inception_years"] = []
-        inst_df["aum_cny"] = []
-        inst_df["daily_volume_cny"] = []
+        ),
+        aum_cny=inst_df["aum"],
+    )
+    if volume_df.empty:
+        _log.warning("No volume data available — daily_volume_cny set to 0.0 (placeholder). Discovered watchlist will be empty if hard filter is active.")
+        return metadata.assign(daily_volume_cny=0.0)
+    with_volume = metadata.merge(volume_df, on="instrument_id", how="left")
+    return with_volume.assign(daily_volume_cny=with_volume["daily_volume_cny"].fillna(0.0))
 
-    metrics = con.execute(
-        "SELECT instrument_id, drawdown_3y, tracking_error, "
-        "       0.0 AS manager_tenure_years "
-        "FROM fund_metrics"
-    ).fetch_df()
+
+def _manager_tenure_by_id(metadata: pd.DataFrame) -> dict[str, float | None]:
+    if metadata.empty or "manager_tenure_years" not in metadata.columns:
+        return {}
+    return {
+        str(r.instrument_id): None if pd.isna(r.manager_tenure_years) else float(r.manager_tenure_years)
+        for r in metadata.itertuples(index=False)
+    }
+
+
+def _latest_fund_metrics(metrics: pd.DataFrame, metadata: pd.DataFrame) -> pd.DataFrame:
     if metrics.empty:
-        metrics = pd.DataFrame({
-            "instrument_id": [], "drawdown_3y": [],
-            "tracking_error": [], "manager_tenure_years": [],
-        })
-    return inst_df, metrics
+        return empty_discovery_metrics()
+    latest = (
+        metrics.assign(as_of_date=pd.to_datetime(metrics["as_of_date"], errors="coerce"))
+        .sort_values(["instrument_id", "as_of_date"])
+        .drop_duplicates("instrument_id", keep="last")
+    )
+    tenure = metadata.loc[:, ["instrument_id", "manager_tenure_years"]]
+    with_tenure = latest.merge(tenure, on="instrument_id", how="left")
+    return with_tenure.assign(
+        manager_tenure_years=with_tenure["manager_tenure_years"].fillna(0.0)  # placeholder — conservative (fail-safe until real data)
+    ).loc[:, list(DISCOVERY_METRIC_COLUMNS)]
+
+
+def _derive_db_metrics(con, manager_tenure_by_id: dict[str, float | None]) -> pd.DataFrame:
+    price_values = con.execute(
+        "SELECT instrument_id, date, close FROM prices"
+    ).fetch_df()
+    nav_values = con.execute(
+        "SELECT instrument_id, date, COALESCE(nav_acc, nav) AS nav_value FROM nav_history"
+    ).fetch_df()
+    return merge_discovery_metrics(
+        derive_discovery_metrics(price_values, "close", manager_tenure_by_id),
+        derive_discovery_metrics(nav_values, "nav_value", manager_tenure_by_id),
+    )
+
+
+def _fetch_metadata_metrics(con) -> tuple[pd.DataFrame, pd.DataFrame]:
+    inst_df = con.execute(
+        "SELECT instrument_id, inception_date, expense_ratio, aum, manager_tenure_years "
+        "FROM instruments"
+    ).fetch_df()
+    volume_df = con.execute(
+        "SELECT instrument_id, AVG(close * COALESCE(volume, 0.0)) AS daily_volume_cny "
+        "FROM prices GROUP BY instrument_id"
+    ).fetch_df()
+    metadata = _metadata_with_derived_fields(inst_df, volume_df)
+    stored_metrics = con.execute(
+        "SELECT instrument_id, as_of_date, drawdown_3y, tracking_error FROM fund_metrics"
+    ).fetch_df()
+    metrics = _latest_fund_metrics(stored_metrics, metadata)
+    derived = _derive_db_metrics(con, _manager_tenure_by_id(metadata))
+    return metadata, merge_discovery_metrics(metrics, derived)
 
 
 def run_discover(repo_root: str) -> int:
@@ -55,11 +114,7 @@ def run_discover(repo_root: str) -> int:
     try:
         ensure_schema(con)
         metadata, metrics = _fetch_metadata_metrics(con)
-        ref_pool = tuple(
-            r[0] for r in con.execute(
-                "SELECT DISTINCT _raw_ref FROM prices LIMIT 200"
-            ).fetchall()
-        )
+        ref_pool = tuple(ref_index_from_duckdb(con))
     finally:
         con.close()
 

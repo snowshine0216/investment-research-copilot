@@ -63,9 +63,10 @@ def test_write_reason_retries_and_succeeds_on_second_attempt(mock_chat) -> None:
 
 
 @patch("irc.discovery.reason_writer.call_chat")
-def test_write_reason_returns_none_when_all_attempts_raise(mock_chat) -> None:
-    """All attempts raise; write_reason returns None and does not propagate."""
+def test_write_reason_returns_none_when_all_attempts_raise(mock_chat, capsys) -> None:
+    """All attempts raise; write_reason returns None and logs to stderr."""
     mock_chat.side_effect = RuntimeError("network timeout")
     res = write_reason(_row(), _ctx(), route=MagicMock(), max_retries=2)
     assert res is None
     assert mock_chat.call_count == 3
+    assert "network timeout" in capsys.readouterr().err
