@@ -9,7 +9,11 @@ from typing import Any
 import pandas as pd
 
 from irc.config_loader import load_repo_configs
-from irc.data.akshare_client import fetch_fund_metadata, fetch_fund_nav_history
+from irc.data.akshare_client import (
+    fetch_etf_metadata_em,
+    fetch_fund_metadata,
+    fetch_fund_nav_history,
+)
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
@@ -20,6 +24,7 @@ _log = logging.getLogger(__name__)
 _SCHEMA_VERSION = "v1"
 _MACRO_SERIES = ("DGS10", "DTWEXBGS")
 _LOOK_BACK_DAYS = 365 * 3
+_YF_ELIGIBLE_MARKETS = frozenset({"cn_on_exchange"})
 _AUM_UNITS = {
     "万亿": 1_000_000_000_000.0,
     "亿元": 100_000_000.0,
@@ -112,6 +117,14 @@ def _is_fund_like_ticker(ticker: str) -> bool:
     return ticker.isdigit()
 
 
+def _is_yfinance_eligible(instrument: Any) -> bool:
+    return instrument.market in _YF_ELIGIBLE_MARKETS
+
+
+def _is_off_exchange_fund(instrument: Any) -> bool:
+    return instrument.market == "cn_off_exchange" and instrument.ticker.isdigit()
+
+
 def _is_active_fund(asset_class: str) -> bool:
     return asset_class.endswith("equity_fund") or asset_class.endswith("bond_fund")
 
@@ -134,13 +147,22 @@ def _missing_required_metadata(instrument: Any, metadata: dict[str, Any]) -> tup
     return tuple(key for key in required if _is_missing(metadata.get(key)))
 
 
+def _metadata_fetcher_for(instrument: Any):
+    """On-exchange ETFs are sold on the exchange, not via DanJuanFunds — they need
+    the EastMoney profile-page scraper. Off-exchange retail funds use DanJuan."""
+    if instrument.market == "cn_on_exchange":
+        return fetch_etf_metadata_em
+    return fetch_fund_metadata
+
+
 def _fetch_metadata_by_id(instruments: list) -> dict[str, dict[str, float | str | None]]:
     metadata_by_id: dict[str, dict[str, float | str | None]] = {}
     for instrument in instruments:
         if not _is_fund_like_ticker(instrument.ticker):
             continue
         try:
-            metadata = _normalize_fund_metadata(fetch_fund_metadata(instrument.ticker))
+            fetch = _metadata_fetcher_for(instrument)
+            metadata = _normalize_fund_metadata(fetch(instrument.ticker))
         except Exception as exc:
             _log.warning(
                 "skipping %s: metadata fetch error: %s",
@@ -299,14 +321,32 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_gold.instruments,
         ]
         for instr in all_price_instruments:
-            df = fetch_etf_price_history(ticker=instr.ticker, start=start, end=end)
-            ob_counts["prices"] += _upsert_prices(con, instr.instrument_id, df)
+            if _is_yfinance_eligible(instr):
+                df = fetch_etf_price_history(ticker=instr.ticker, start=start, end=end)
+                ob_counts["prices"] += _upsert_prices(con, instr.instrument_id, df)
+            elif not _is_off_exchange_fund(instr):
+                _log.warning(
+                    "skipping price/nav ingest for %s (market=%s, ticker=%s): no source available",
+                    instr.instrument_id, instr.market, instr.ticker,
+                )
 
         for series_id in _MACRO_SERIES:
-            df = fetch_macro_series(series_id=series_id, start=start, end=end)
-            ob_counts["macro_series"] += _upsert_macro(con, series_id, df)
+            try:
+                df = fetch_macro_series(series_id=series_id, start=start, end=end)
+                ob_counts["macro_series"] += _upsert_macro(con, series_id, df)
+            except Exception as exc:
+                _log.warning(
+                    "skipping macro series %s: %s. Set FRED_API_KEY for live "
+                    "data (https://fred.stlouisfed.org/docs/api/api_key.html); "
+                    "downstream stages fall back to defaults when absent.",
+                    series_id, exc,
+                )
 
-        for instr in bundle.universe_cn_funds.instruments:
+        nav_instruments = [
+            *bundle.universe_cn_funds.instruments,
+            *(i for i in all_price_instruments if _is_off_exchange_fund(i)),
+        ]
+        for instr in nav_instruments:
             df = fetch_fund_nav_history(instr.ticker)
             ak_counts["nav_history"] += _upsert_nav(con, instr.instrument_id, df)
 

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pandas as pd
 import pytest
@@ -10,8 +10,11 @@ from irc.data.akshare_client import (
     _item_value_dict,
     _ratios_from_text,
     fetch_etf_metadata,
+    fetch_etf_metadata_em,
+    fetch_etf_price_history_akshare,
     fetch_fund_metadata,
     fetch_fund_nav_history,
+    fetch_macro_series_akshare,
 )
 
 
@@ -96,33 +99,141 @@ def test_fetch_fund_metadata_raises_for_unknown_code() -> None:
             fetch_fund_metadata("999999")
 
 
-def test_fetch_fund_metadata_falls_back_to_em_when_xq_fails() -> None:
-    em_basic = pd.DataFrame({
-        "项目": ["基金代码", "基金名称", "基金类型", "资产规模", "成立时间"],
-        "数据": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
-    })
-    fees = pd.DataFrame({
-        "费用类型": ["管理费率", "托管费率"],
-        "费率": ["0.50%", "0.10%"],
-    })
+def test_fetch_fund_metadata_propagates_xq_failure() -> None:
+    """XueQiu is the only akshare path with individual fund metadata. When it
+    fails (auth/rate limit), callers must see the exception so they can skip
+    the instrument with a warning. There is no working EM equivalent in
+    akshare 1.18.60 — `fund_individual_basic_info_em` does not exist."""
     with patch("irc.data.akshare_client._ak_call") as mocked:
-        mocked.side_effect = [KeyError("data"), em_basic, fees]
-        out = fetch_fund_metadata("006075")
-
-    assert out["fund_code"] == "006075"
-    assert out["name_cn"] == "易方达标普500"
-    assert out["aum_text"] == "200亿"
-    assert [c.args[0] for c in mocked.call_args_list] == [
-        "fund_individual_basic_info_xq",
-        "fund_individual_basic_info_em",
-        "fund_fee_em",
-    ]
+        mocked.side_effect = KeyError("data")
+        with pytest.raises(KeyError):
+            fetch_fund_metadata("006075")
+    assert [c.args[0] for c in mocked.call_args_list] == ["fund_individual_basic_info_xq"]
 
 
 def test_item_value_dict_handles_em_style_columns() -> None:
     df = pd.DataFrame({"项目": ["基金代码", "基金名称"], "数据": ["006075", "易方达"]})
     result = _item_value_dict(df)
     assert result == {"基金代码": "006075", "基金名称": "易方达"}
+
+
+_EM_PROFILE_HTML_513500 = """
+<table class="info w790">
+<tr><th>基金全称</th><td>博时标普500交易型开放式指数证券投资基金</td>
+    <th>基金简称</th><td>标普500ETF博时</td></tr>
+<tr><th>基金代码</th><td>513500（主代码）<th>基金类型</th><td>指数型-海外股票</td></tr>
+<tr><th>发行日期</th><td>2013年11月04日</td>
+    <th>成立日期/规模</th><td>2013年12月05日 / 5.650亿份</td></tr>
+<tr><th>净资产规模</th><td>209.41亿元（截止至：2026年03月31日）</td>
+    <th>份额规模</th><td>98.1064亿份</td></tr>
+<tr><th>管理费率</th><td>0.60%（每年）</td>
+    <th>托管费率</th><td>0.20%（每年）</td></tr>
+<tr><th>销售服务费率</th><td>---（每年）</td>
+    <th>最高认购费率</th><td>0.80%</td></tr>
+</table>
+"""
+
+
+def test_fetch_etf_metadata_em_parses_eastmoney_profile() -> None:
+    with patch("irc.data.akshare_client._http_get", return_value=_EM_PROFILE_HTML_513500):
+        out = fetch_etf_metadata_em("513500")
+    assert out["fund_code"] == "513500"
+    assert out["name_cn"] == "标普500ETF博时"
+    assert out["inception_date"] == "2013-12-05"
+    assert out["aum_text"] == "209.41亿元"
+    assert out["expense_ratio"] == pytest.approx(0.0060 + 0.0020)
+    assert out["manager_tenure_years"] is None
+
+
+def test_fetch_etf_metadata_em_raises_when_page_has_no_metadata() -> None:
+    with patch("irc.data.akshare_client._http_get", return_value="<html>not found</html>"):
+        with pytest.raises(ValueError, match="not found"):
+            fetch_etf_metadata_em("999999")
+
+
+def test_http_get_retries_on_timeout_then_succeeds() -> None:
+    import requests
+    from irc.data import akshare_client as ak_mod
+
+    call_count = {"n": 0}
+
+    def fake_get(url, headers, timeout):
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise requests.exceptions.Timeout("read timeout")
+        resp = MagicMock()
+        resp.text = "<html>ok</html>"
+        resp.raise_for_status = MagicMock()
+        return resp
+
+    with patch.object(ak_mod, "_http_get", wraps=ak_mod._http_get) as _wrapped, \
+         patch("requests.get", side_effect=fake_get), \
+         patch("time.sleep"):  # don't actually sleep in tests
+        out = ak_mod._http_get("https://example/", {}, timeout=1)
+
+    assert out == "<html>ok</html>"
+    assert call_count["n"] == 2  # 1 timeout + 1 success
+
+
+def test_http_get_raises_after_exhausting_retries() -> None:
+    import requests
+    from irc.data import akshare_client as ak_mod
+
+    with patch("requests.get", side_effect=requests.exceptions.Timeout("nope")), \
+         patch("time.sleep"):
+        with pytest.raises(requests.exceptions.Timeout):
+            ak_mod._http_get("https://example/", {}, timeout=1, attempts=3, backoff_s=0.0)
+
+
+def test_fetch_etf_metadata_em_handles_thousand_separator_in_aum() -> None:
+    html = (
+        "<table><tr><th>基金简称</th><td>沪深300ETF华泰柏瑞</td>"
+        "<th>成立日期/规模</th><td>2012年05月04日 / 329亿份</td></tr>"
+        "<tr><th>净资产规模</th><td>1,999.14亿元</td>"
+        "<th>管理费率</th><td>0.15%（每年）</td>"
+        "<th>托管费率</th><td>0.05%（每年）</td></tr></table>"
+    )
+    with patch("irc.data.akshare_client._http_get", return_value=html):
+        out = fetch_etf_metadata_em("510300")
+    assert out["aum_text"] == "1999.14亿元"
+
+
+def test_fetch_etf_price_history_akshare_normalizes_columns() -> None:
+    fake = pd.DataFrame({
+        "日期": ["2026-04-30", "2026-05-06"],
+        "开盘": [2.42, 2.455], "收盘": [2.419, 2.454],
+        "最高": [2.431, 2.463], "最低": [2.40, 2.45],
+        "成交量": [1.0e8, 1.1e8], "成交额": [1.0, 1.1],
+        "振幅": [0.83, 0.62], "涨跌幅": [0.33, 1.45],
+        "涨跌额": [0.008, 0.035], "换手率": [1.05, 1.66],
+    })
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+    assert mocked.call_args.args[0] == "fund_etf_hist_em"
+    assert mocked.call_args.kwargs == {
+        "symbol": "513500", "period": "daily",
+        "start_date": "20260401", "end_date": "20260507", "adjust": "qfq",
+    }
+    assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
+
+
+def test_fetch_macro_series_akshare_dispatches_dgs10() -> None:
+    fake = pd.DataFrame({
+        "日期": ["2026-04-30", "2026-05-06"],
+        "美国国债收益率10年": [4.25, 4.30],
+    })
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_macro_series_akshare("DGS10", start="2026-01-01", end="2026-12-31")
+    assert mocked.call_args.args[0] == "bond_zh_us_rate"
+    assert list(out.columns) == ["date", "value"]
+    assert out.iloc[-1]["value"] == 4.30
+
+
+def test_fetch_macro_series_akshare_raises_for_unsupported_series() -> None:
+    with pytest.raises(ValueError, match="no akshare fallback"):
+        fetch_macro_series_akshare("UNKNOWN_SERIES", start="2026-01-01", end="2026-05-01")
 
 
 def test_fetch_etf_metadata() -> None:

@@ -58,6 +58,7 @@ def test_e2e_ingest_then_discover_then_score(tmp_path: Path) -> None:
         patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=_fake_macro()),
         patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=_fake_nav()),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
     ):
         r1 = runner.invoke(main, ["ingest", "--repo-root", str(tmp_path)])
     assert r1.exit_code == 0, r1.output
@@ -65,7 +66,10 @@ def test_e2e_ingest_then_discover_then_score(tmp_path: Path) -> None:
     with patch(
         "irc.discovery.reason_writer.call_chat",
         return_value=MagicMock(
-            text="Reason cites openbb:prices:006075:2026-05-06. Risk: USD risk.",
+            text=(
+                "Reason cites akshare:nav_history:006075:2026-05-06 and "
+                "openbb:prices:513500:2026-05-06. Risk: USD risk."
+            ),
             prompt_tokens=10, completion_tokens=5,
         ),
     ):

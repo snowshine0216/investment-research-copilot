@@ -8,6 +8,7 @@ Assertions verify that every stage produces its expected output file and that
 """
 from __future__ import annotations
 
+import contextlib
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -60,9 +61,16 @@ def _fake_fund_metadata(fund_code: str) -> dict:
 
 
 def _discover_chat_response(instrument_id: str = "006075") -> MagicMock:
-    """LLM reason that includes a valid raw_ref so the citation check passes."""
+    """LLM reason that includes a valid raw_ref so the citation check passes.
+
+    Cites both an akshare NAV ref (covers off-exchange feeders like 006075) and
+    an openbb prices ref (covers on-exchange ETFs like 513500), so the same
+    mocked response works for any candidate produced by discovery."""
     return MagicMock(
-        text=f"Reason cites openbb:prices:{instrument_id}:2026-05-01. Strong thesis.",
+        text=(
+            f"Reason cites akshare:nav_history:{instrument_id}:2026-05-06 "
+            f"and openbb:prices:{instrument_id}:2026-05-01. Strong thesis."
+        ),
         prompt_tokens=10,
         completion_tokens=5,
     )
@@ -113,6 +121,8 @@ def _all_patches(instrument_id: str = "006075"):
               return_value=_fake_nav()),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata",
               side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em",
+              side_effect=_fake_fund_metadata),
         patch("irc.discovery.reason_writer.call_chat",
               side_effect=lambda *a, **kw: _discover_chat_response(instrument_id)),
         patch("irc.scoring.factors.macro_fit.call_chat",
@@ -137,8 +147,9 @@ def test_e2e_plan3_all_stages(tmp_path: Path) -> None:
     assert r.exit_code == 0, f"init failed:\n{r.output}"
 
     patches = _all_patches()
-    with patches[0], patches[1], patches[2], patches[3], \
-         patches[4], patches[5], patches[6], patches[7], patches[8]:
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
 
         # ── ingest ────────────────────────────────────────────────────────────
         r = runner.invoke(main, ["ingest", "--repo-root", str(tmp_path)])
@@ -228,8 +239,9 @@ def test_e2e_irc_run_full_pipeline(tmp_path: Path) -> None:
     assert r.exit_code == 0, f"init failed:\n{r.output}"
 
     patches = _all_patches()
-    with patches[0], patches[1], patches[2], patches[3], \
-         patches[4], patches[5], patches[6], patches[7], patches[8]:
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
         r = runner.invoke(main, ["run", "--repo-root", str(tmp_path)])
 
     assert r.exit_code == 0, f"irc run failed:\n{r.output}"

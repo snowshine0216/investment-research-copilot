@@ -92,10 +92,12 @@ def apply_hard_filter(
                 reasons.append("missing expense_ratio")
             elif expense_ratio > er_max:
                 reasons.append(f"expense_ratio {expense_ratio} > {er_max}")
+            # Off-exchange feeder funds (e.g. 006075) trade at NAV — no exchange volume exists.
+            requires_volume = "etf" in row.asset_class and row.market != "cn_off_exchange"
             daily_volume = _numeric_value(m, "daily_volume_cny")
-            if "etf" in row.asset_class and daily_volume is None:
+            if requires_volume and daily_volume is None:
                 reasons.append("missing daily_volume_cny")
-            elif "etf" in row.asset_class and daily_volume < hf.etf_daily_volume_cny_min:
+            elif requires_volume and daily_volume < hf.etf_daily_volume_cny_min:
                 reasons.append(f"daily_volume {daily_volume} < {hf.etf_daily_volume_cny_min}")
         if reasons:
             rejected.append(Rejection(instrument_id=row.instrument_id, reasons=tuple(reasons)))

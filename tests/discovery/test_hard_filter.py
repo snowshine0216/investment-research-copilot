@@ -8,9 +8,13 @@ from irc.discovery.universe import UniverseRow
 from irc.discovery.hard_filter import apply_hard_filter, HardFilterResult
 
 
-def _row(iid: str, asset_class: str = "us_etf") -> UniverseRow:
+def _row(
+    iid: str,
+    asset_class: str = "us_etf",
+    market: str = "cn_off_exchange",
+) -> UniverseRow:
     return UniverseRow(
-        instrument_id=iid, ticker=iid, market="cn_off_exchange",
+        instrument_id=iid, ticker=iid, market=market,
         name_cn=iid, asset_class=asset_class, currency="cny",
         tracked_index=None, venue_required=(),
     )
@@ -124,10 +128,26 @@ def test_hard_filter_rejects_low_etf_daily_volume() -> None:
         "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
         "expense_ratio": 0.001, "daily_volume_cny": 5e6,  # < 1e7 min
     }])
-    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
-                            cfg=_cfg(), overrides=OverridesConfig())
+    out = apply_hard_filter(
+        rows=(_row("X", "cn_etf", market="cn_on_exchange"),),
+        metadata=metadata, cfg=_cfg(), overrides=OverridesConfig(),
+    )
     assert out.passed == ()
     assert any("daily_volume" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_skips_volume_check_for_off_exchange_feeder() -> None:
+    """Off-exchange feeder funds (e.g. 006075) trade at NAV, not on an exchange.
+    They have no daily_volume_cny — the filter must not reject them on this."""
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.001, "daily_volume_cny": float("nan"),
+    }])
+    out = apply_hard_filter(
+        rows=(_row("X", "us_etf", market="cn_off_exchange"),),
+        metadata=metadata, cfg=_cfg(), overrides=OverridesConfig(),
+    )
+    assert "X" in {r.instrument_id for r in out.passed}
 
 
 def test_hard_filter_rejects_us_etf_below_usd_aum_min() -> None:
@@ -170,8 +190,10 @@ def test_hard_filter_rejects_nan_numeric_metadata() -> None:
         "aum_cny": float("nan"), "expense_ratio": float("nan"),
         "daily_volume_cny": float("nan"),
     }])
-    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
-                            cfg=_cfg(), overrides=OverridesConfig())
+    out = apply_hard_filter(
+        rows=(_row("X", "cn_etf", market="cn_on_exchange"),),
+        metadata=metadata, cfg=_cfg(), overrides=OverridesConfig(),
+    )
     reasons = " ".join(out.rejected[0].reasons)
     assert out.passed == ()
     assert "missing inception_years" in reasons

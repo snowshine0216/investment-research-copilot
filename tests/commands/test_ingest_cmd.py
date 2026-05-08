@@ -56,6 +56,7 @@ def test_ingest_creates_duckdb_and_manifest(repo: Path) -> None:
         patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=fake_macro),
         patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
     ):
         rc = run_ingest(repo_root=str(repo))
 
@@ -77,6 +78,7 @@ def test_ingest_populates_instruments_table(repo: Path) -> None:
         patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty),
         patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=empty_nav),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
     ):
         rc = run_ingest(repo_root=str(repo))
 
@@ -100,6 +102,7 @@ def test_ingest_populates_discovery_metadata(repo: Path) -> None:
         patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
         patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=empty_nav),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
     ):
         rc = run_ingest(repo_root=str(repo))
 
@@ -134,6 +137,10 @@ def test_ingest_skips_instrument_when_discovery_metadata_incomplete(repo: Path) 
             "irc.commands.ingest_cmd.fetch_fund_metadata",
             side_effect=_fake_missing_aum_fund_metadata,
         ),
+        patch(
+            "irc.commands.ingest_cmd.fetch_etf_metadata_em",
+            side_effect=_fake_missing_aum_fund_metadata,
+        ),
     ):
         rc = run_ingest(repo_root=str(repo))
 
@@ -156,6 +163,10 @@ def test_ingest_allows_missing_manager_tenure_for_passive_funds(repo: Path) -> N
             "irc.commands.ingest_cmd.fetch_fund_metadata",
             side_effect=_fake_missing_manager_tenure_fund_metadata,
         ),
+        patch(
+            "irc.commands.ingest_cmd.fetch_etf_metadata_em",
+            side_effect=_fake_missing_manager_tenure_fund_metadata,
+        ),
     ):
         rc = run_ingest(repo_root=str(repo))
 
@@ -172,6 +183,66 @@ def test_ingest_allows_missing_manager_tenure_for_passive_funds(repo: Path) -> N
     assert stored == (None,)
 
 
+def test_ingest_continues_when_macro_fetch_fails_with_missing_credentials(repo: Path) -> None:
+    """Macro provider (FRED/Intrinio) needs an API key. When unavailable, ingest
+    must skip with a warning and let downstream defaults kick in — not halt."""
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({
+        "date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34],
+    })
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch(
+            "irc.commands.ingest_cmd.fetch_macro_series",
+            side_effect=RuntimeError("Provider fallback failed. fred missing credentials"),
+        ),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+    assert rc == 0
+
+
+def test_ingest_routes_off_exchange_funds_to_nav_not_yfinance(repo: Path) -> None:
+    """006075 (cn_off_exchange) has no yfinance ticker — it must go through
+    fetch_fund_nav_history (akshare NAV path), not fetch_etf_price_history."""
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    empty_macro = pd.DataFrame({"date": [], "value": []})
+    fake_nav = pd.DataFrame({
+        "date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34],
+    })
+    with (
+        patch(
+            "irc.commands.ingest_cmd.fetch_etf_price_history",
+            return_value=fake_prices,
+        ) as mock_yf,
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
+        patch(
+            "irc.commands.ingest_cmd.fetch_fund_nav_history",
+            return_value=fake_nav,
+        ) as mock_nav,
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    yf_tickers = {c.kwargs.get("ticker", c.args[0] if c.args else None) for c in mock_yf.call_args_list}
+    nav_tickers = {c.args[0] for c in mock_nav.call_args_list}
+    assert "006075" not in yf_tickers, f"006075 should not be sent to yfinance; got {yf_tickers}"
+    assert "006075" in nav_tickers, f"006075 should go through NAV path; got {nav_tickers}"
+    assert "CMB_AU" not in yf_tickers and "CMB_AU" not in nav_tickers, (
+        "cmb_paper_gold (ticker CMB_AU) has no public source — must be skipped"
+    )
+
+
 def test_ingest_idempotent(repo: Path) -> None:
     fake_prices = pd.DataFrame({
         "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
@@ -184,6 +255,7 @@ def test_ingest_idempotent(repo: Path) -> None:
         patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
         patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=empty_nav),
         patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
     ):
         rc1 = run_ingest(repo_root=str(repo))
         rc2 = run_ingest(repo_root=str(repo))

@@ -5,12 +5,40 @@ from typing import Any
 
 import pandas as pd
 
+_EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
+_EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
+
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     """Indirection for testability; avoids heavy akshare import at module load."""
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
+
+
+def _http_get(
+    url: str,
+    headers: dict[str, str],
+    timeout: float,
+    attempts: int = 3,
+    backoff_s: float = 1.0,
+) -> str:
+    """HTTP GET with retry on transient network failures (timeout / connection
+    reset). Indirection also lets tests mock without touching the network."""
+    import time
+    import requests  # local import
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            resp = requests.get(url, headers=headers, timeout=timeout)
+            resp.raise_for_status()
+            return resp.text
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < attempts - 1:
+                time.sleep(backoff_s * (2 ** attempt))
+    assert last_exc is not None
+    raise last_exc
 
 
 def fetch_fund_nav_history(fund_code: str) -> pd.DataFrame:
@@ -69,12 +97,10 @@ def _expense_ratio_from_fee_table(df: pd.DataFrame) -> float | None:
 
 
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
-    """Single-row metadata dict: fund_code, name_cn, fund_type, aum_text, inception_date, expense_ratio."""
-    try:
-        basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
-    except Exception:
-        # XueQiu API requires auth cookies; fall back to East Money
-        basic = _item_value_dict(_ak_call("fund_individual_basic_info_em", symbol=fund_code))
+    """Single-row metadata dict via XueQiu — the only akshare path that returns
+    individual-fund metadata in 1.18.60. XueQiu is auth-restricted and may fail
+    intermittently; callers handle the exception by skipping the instrument."""
+    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
     if not basic or str(basic.get("基金代码") or basic.get("fund_code") or "") != fund_code:
         raise ValueError(f"fund {fund_code!r} not found in AKShare basic info")
     fees = _ak_call("fund_fee_em", symbol=fund_code, indicator="运作费用")
@@ -87,6 +113,130 @@ def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
         "expense_ratio": _expense_ratio_from_fee_table(fees),
         "manager_tenure_years": basic.get("manager_tenure_years") or basic.get("基金经理任职年限"),
     }
+
+
+_EM_LABEL_PATTERN = (
+    r"<th>{label}</th>\s*<td[^>]*>(.*?)</td>"
+)
+
+
+def _grab_em_label(html: str, label: str) -> str | None:
+    pattern = _EM_LABEL_PATTERN.format(label=re.escape(label))
+    match = re.search(pattern, html, re.DOTALL)
+    if match is None:
+        return None
+    return re.sub(r"<[^>]+>", "", match.group(1)).strip()
+
+
+def _percent_to_ratio(text: str | None) -> float:
+    if not text:
+        return 0.0
+    match = re.search(r"(\d+(?:\.\d+)?)\s*%", text)
+    return 0.0 if match is None else float(match.group(1)) / 100
+
+
+def _parse_inception_date_em(raw: str | None) -> str | None:
+    if not raw:
+        return None
+    match = re.search(r"(\d{4})[-年](\d{1,2})[-月](\d{1,2})", raw)
+    if match is None:
+        return None
+    return f"{match.group(1)}-{int(match.group(2)):02d}-{int(match.group(3)):02d}"
+
+
+def _parse_aum_em(raw: str | None) -> str:
+    if not raw:
+        return ""
+    cleaned = raw.replace(",", "")
+    match = re.match(r"([\d.]+\s*[万亿元]+)", cleaned)
+    return match.group(1) if match else cleaned
+
+
+def fetch_etf_metadata_em(symbol: str) -> dict[str, Any]:
+    """On-exchange ETF metadata via EastMoney's fund-profile page (fundf10.eastmoney.com).
+
+    DanJuanFunds (the API behind ``fund_individual_basic_info_xq``) only carries
+    open-ended retail funds — it returns ``{"result_code":600001,...}`` for any
+    exchange-traded ETF. EastMoney's profile page is the unauthenticated source
+    that does carry exchange-traded ETFs."""
+    html = _http_get(_EM_PROFILE_URL.format(symbol=symbol), _EM_HEADERS, timeout=30)
+    name = _grab_em_label(html, "基金简称")
+    fund_type = _grab_em_label(html, "基金类型")
+    inception_raw = _grab_em_label(html, "成立日期/规模") or _grab_em_label(html, "成立日期")
+    aum_raw = _grab_em_label(html, "净资产规模")
+    expense_ratio = (
+        _percent_to_ratio(_grab_em_label(html, "管理费率"))
+        + _percent_to_ratio(_grab_em_label(html, "托管费率"))
+        + _percent_to_ratio(_grab_em_label(html, "销售服务费率"))
+    )
+    if not name and not inception_raw and not aum_raw:
+        raise ValueError(f"ETF {symbol!r} not found on EastMoney profile page")
+    return {
+        "fund_code": symbol,
+        "name_cn": name or "",
+        "fund_type": fund_type or "",
+        "aum_text": _parse_aum_em(aum_raw),
+        "inception_date": _parse_inception_date_em(inception_raw),
+        "expense_ratio": expense_ratio if expense_ratio > 0 else None,
+        "manager_tenure_years": None,
+    }
+
+
+_AKSHARE_MACRO_HANDLERS: dict[str, str] = {
+    # FRED series_id → akshare resolver-method name (registered below).
+    "DGS10": "_fetch_dgs10_via_akshare",
+    "DTWEXBGS": "_fetch_dxy_via_akshare",
+}
+
+
+def _fetch_dgs10_via_akshare(start: str, end: str) -> pd.DataFrame:
+    raw = _ak_call("bond_zh_us_rate")
+    df = raw[["日期", "美国国债收益率10年"]].rename(columns={"日期": "date", "美国国债收益率10年": "value"})
+    df = df.dropna(subset=["value"])
+    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
+
+
+def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
+    """DXY (ICE 6-currency US Dollar Index) is used as the broad-USD proxy when
+    FRED's DTWEXBGS is unavailable. Levels differ slightly (~100 vs ~120) but
+    direction is close enough for regime-style features."""
+    raw = _ak_call("index_global_hist_em", symbol="美元指数")
+    df = raw[["日期", "最新价"]].rename(columns={"日期": "date", "最新价": "value"})
+    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
+
+
+def fetch_etf_price_history_akshare(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """OHLCV for on-exchange CN ETFs via EastMoney. Free, no auth — the
+    canonical source for these tickers (yfinance heavily rate-limits CN ETF
+    requests). Accepts ISO dates (YYYY-MM-DD); akshare expects YYYYMMDD."""
+    df = _ak_call(
+        "fund_etf_hist_em",
+        symbol=symbol,
+        period="daily",
+        start_date=start.replace("-", ""),
+        end_date=end.replace("-", ""),
+        adjust="qfq",
+    )
+    out = df.rename(columns={
+        "日期": "date",
+        "开盘": "open",
+        "收盘": "close",
+        "最高": "high",
+        "最低": "low",
+        "成交量": "volume",
+    })
+    out["date"] = pd.to_datetime(out["date"]).dt.date
+    return out[["date", "open", "high", "low", "close", "volume"]].copy()
+
+
+def fetch_macro_series_akshare(series_id: str, start: str, end: str) -> pd.DataFrame:
+    """No-auth akshare fallback for FRED macro series."""
+    handler_name = _AKSHARE_MACRO_HANDLERS.get(series_id)
+    if handler_name is None:
+        raise ValueError(f"no akshare fallback for FRED series {series_id!r}")
+    return globals()[handler_name](start, end)
 
 
 def fetch_etf_metadata(symbol: str) -> dict[str, Any]:
