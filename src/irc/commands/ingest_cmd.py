@@ -151,7 +151,7 @@ def _upsert_instruments(
     metadata_by_id: dict[str, dict[str, float | str | None]] | None = None,
 ) -> int:
     ingested_at = _now_iso()
-    today = datetime.now().date().isoformat()
+    today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     metadata_by_id = metadata_by_id or {}
     params = [
         [
