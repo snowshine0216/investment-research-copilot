@@ -55,6 +55,14 @@ def ingest(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Compute proposed allocation from scores + gold tilt.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def allocate(repo_root: str) -> None:
+    from irc.commands.allocate_cmd import run_allocate
+    rc = run_allocate(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Run gold scoring (regime + band + 6 drivers + scenario).")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def gold(repo_root: str) -> None:
