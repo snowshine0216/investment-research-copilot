@@ -1,10 +1,12 @@
 from __future__ import annotations
 import click
+from dotenv import load_dotenv
 
 
 @click.group(help="Investment Research Copilot")
 def main() -> None:
     """Entry point for the `irc` CLI."""
+    load_dotenv()
 
 
 @main.group(help="Configuration management.")
