@@ -25,7 +25,7 @@ def ref_index_from_duckdb(con: duckdb.DuckDBPyConnection) -> set[str]:
     ).fetchall()
     out: set[str] = set()
     for (table_name,) in tables:
-        rows = con.execute(f"SELECT DISTINCT _raw_ref FROM {table_name}").fetchall()
+        rows = con.execute(f'SELECT DISTINCT _raw_ref FROM "{table_name}"').fetchall()
         out.update(row[0] for row in rows if row[0] is not None)
     return out
 
