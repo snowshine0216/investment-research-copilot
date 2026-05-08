@@ -9,8 +9,13 @@ _SYSTEM = (
 )
 
 
+def _sanitize_ref(ref: str) -> str:
+    """Strip control characters to prevent prompt injection from external data sources."""
+    return ref.replace("\n", " ").replace("\r", " ").strip()[:200]
+
+
 def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute) -> ChatResponse:
-    refs_block = "\n".join(f"- {r}" for r in raw_ref_pool[:40])
+    refs_block = "\n".join(f"- {_sanitize_ref(r)}" for r in raw_ref_pool[:40])
     user_msg = (
         f"以下是备忘录骨架：\n\n{skeleton}\n\n"
         f"以下是相关原始数据摘录（请结合数据充实各章节，勿发明数据）：\n{refs_block}\n\n"

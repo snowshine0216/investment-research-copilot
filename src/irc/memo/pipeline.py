@@ -17,6 +17,9 @@ class MemoOutput:
     completion_tokens_total: int
 
 
+_MAX_REFS = 40  # must match synthesizer truncation
+
+
 def run_memo_pipeline(
     inputs: MemoInputs,
     raw_ref_pool: list[str],
@@ -24,9 +27,10 @@ def run_memo_pipeline(
     audit_route: ResolvedRoute,
 ) -> MemoOutput:
     skeleton = render_skeleton(inputs)
-    synth_resp = synthesize_memo(skeleton, raw_ref_pool, synthesis_route)
+    effective_refs = raw_ref_pool[:_MAX_REFS]  # only check refs actually given to LLM
+    synth_resp = synthesize_memo(skeleton, effective_refs, synthesis_route)
     audit_resp = audit_memo(synth_resp.text, audit_route)
-    trace = check_traceability(synth_resp.text, raw_ref_pool)
+    trace = check_traceability(synth_resp.text, effective_refs)
     return MemoOutput(
         skeleton=skeleton,
         draft=synth_resp.text,

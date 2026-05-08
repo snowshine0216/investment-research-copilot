@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
+import math
 import numpy as np
 import pandas as pd
 
@@ -36,7 +37,8 @@ def _adx(prices: pd.Series, period: int = 14) -> float:
     plus_di = 100 * df["plus_dm"].rolling(period).mean() / atr.replace(0, 1e-9)
     minus_di = 100 * df["minus_dm"].rolling(period).mean() / atr.replace(0, 1e-9)
     dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, 1e-9)
-    return float(dx.rolling(period).mean().iloc[-1] or 0.0)
+    v = dx.rolling(period).mean().iloc[-1]
+    return float(v) if math.isfinite(v) else 0.0
 
 
 def _trend_sign(prices: pd.Series, lookback: int = 60) -> int:

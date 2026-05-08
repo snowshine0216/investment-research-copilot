@@ -28,7 +28,7 @@ def _proxy_for(
             continue
         if (i.tracked_index or "").strip() != (target.tracked_index or "").strip():
             continue
-        if set(i.venue_required) & available_venues:
+        if not i.venue_required or set(i.venue_required) & available_venues:
             return i
     return None
 

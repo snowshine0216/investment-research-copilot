@@ -45,6 +45,8 @@ def compute_target_weights(
     delta = new_gold - float(gold_cfg["center"])  # type: ignore[arg-type]
     others = [k for k in class_targets if k != "gold"]
     others_total = sum(float(class_targets[k]["center"]) for k in others)  # type: ignore[arg-type]
+    if others_total == 0:
+        others_total = 1.0  # guard against all-zero non-gold config
     for k in class_targets:
         if k == "gold":
             new_w = new_gold
