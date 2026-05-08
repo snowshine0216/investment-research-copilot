@@ -11,8 +11,12 @@ def _wants_real_yield(asset_class: str) -> bool:
     return asset_class == "gold"
 
 
-def _wants_weekly_drawdown(buy_method: str) -> bool:
-    return buy_method.startswith("dca_") or "anchor" in buy_method
+def _wants_weekly_drawdown(asset_class: str, buy_method: str) -> bool:
+    return (
+        buy_method.startswith("dca_")
+        or "anchor" in buy_method
+        or asset_class in ("cn_etf", "cn_equity_fund", "cn_bond_fund")
+    )
 
 
 def emit_triggers_for_trade(
@@ -23,7 +27,7 @@ def emit_triggers_for_trade(
         keep = (
             (name == "vix_high" and _wants_vix(asset_class))
             or (name == "real_yield_low" and _wants_real_yield(asset_class))
-            or (name == "weekly_drawdown" and _wants_weekly_drawdown(buy_method))
+            or (name == "weekly_drawdown" and _wants_weekly_drawdown(asset_class, buy_method))
         )
         if keep:
             out.append({"name": name, "data_field": t.data_field,
