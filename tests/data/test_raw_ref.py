@@ -49,7 +49,7 @@ def test_is_reachable_in_index() -> None:
             source="openbb",
             retrieved_at="x",
             topic="prices",
-            raw_artifact_path="openbb:prices:510300:2026-05-06",
+            ref_id="openbb:prices:510300:2026-05-06",
         ),
         idx,
     )
@@ -58,7 +58,7 @@ def test_is_reachable_in_index() -> None:
             source="openbb",
             retrieved_at="x",
             topic="prices",
-            raw_artifact_path="openbb:prices:000000:2026-05-06",
+            ref_id="openbb:prices:000000:2026-05-06",
         ),
         idx,
     )

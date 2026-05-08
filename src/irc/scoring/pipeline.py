@@ -18,15 +18,29 @@ _REQUIRED = (
 )
 
 
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
 def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
-    present = sum(1 for k in required if metric_row.get(k) is not None)
+    present = sum(1 for k in required if not _is_missing(metric_row.get(k)))
     return present / len(required)
 
 
 def _get(m: dict, key: str, default: float) -> float:
-    """Return m[key] when present and non-None; otherwise return default."""
+    """Return m[key] when present and finite enough to parse; otherwise return default."""
     val = m.get(key)
-    return val if val is not None else default
+    if _is_missing(val):
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
 
 
 def run_scoring(

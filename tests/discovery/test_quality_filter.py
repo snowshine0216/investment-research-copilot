@@ -59,3 +59,16 @@ def test_quality_filter_relaxes_passive_tracking_error_only() -> None:
     risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
     out = apply_quality_filter(rows=(_row("X"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
     assert out.passed == ()  # tracking_error 0.020 > 0.015
+
+
+def test_quality_filter_rejects_nan_required_metrics() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "X", "drawdown_3y": float("nan"),
+        "tracking_error": float("nan"), "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_row("X"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+    reasons = " ".join(out.rejected[0].reasons)
+    assert out.passed == ()
+    assert "missing drawdown_3y" in reasons
+    assert "missing tracking_error" in reasons

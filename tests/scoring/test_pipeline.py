@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -46,3 +47,29 @@ def test_pipeline_produces_one_score_per_instrument(mock_macro) -> None:
     assert len(out["scores"]) == 1
     assert out["scores"][0]["instrument_id"] == "VTI"
     assert "composite_score" in out["scores"][0]
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
+    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([{
+        "instrument_id": "VTI", "name_cn": "VTI", "asset_class": "us_etf",
+        "role": "core_us_equity", "cited_refs": "r1", "tracked_index": "S&P 500",
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "VTI", "expense_ratio": float("nan"),
+        "premium_discount_pct": float("nan"), "drawdown_3y": float("nan"),
+        "vol_1y": float("nan"), "downside_capture": float("nan"),
+        "aum_stability_pct": float("nan"), "manager_tenure_years": float("nan"),
+        "holdings_concentration_top10": float("nan"),
+    }])
+    out = run_scoring(
+        watchlist=watchlist, metrics=metrics, news_summaries={},
+        regime_summary="x", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+    )
+    score = out["scores"][0]
+    assert score["data_completeness"] == 0.0
+    assert not math.isnan(score["factor_breakdown"]["valuation_cost"]["score"])
+    assert not math.isnan(score["factor_breakdown"]["risk"]["score"])
+    assert not math.isnan(score["factor_breakdown"]["quality"]["score"])

@@ -34,7 +34,7 @@ def _cfg() -> DiscoveryConfig:
 def test_hard_filter_passes_compliant_instrument() -> None:
     metadata = pd.DataFrame([{
         "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
-        "expense_ratio": 0.005, "daily_volume_cny": 2e7,
+        "expense_ratio": 0.002, "daily_volume_cny": 2e7,
     }])
     out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
                             cfg=_cfg(), overrides=OverridesConfig())
@@ -86,6 +86,28 @@ def test_hard_filter_rejects_high_expense_ratio_etf() -> None:
     assert any("expense_ratio" in r for r in out.rejected[0].reasons)
 
 
+def test_hard_filter_uses_us_expense_cap_for_us_etf() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.004, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("expense_ratio" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_uses_us_expense_cap_for_hk_etf() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.004, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "hk_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("expense_ratio" in r for r in out.rejected[0].reasons)
+
+
 def test_hard_filter_uses_active_expense_cap_for_non_etf() -> None:
     metadata = pd.DataFrame([{
         "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
@@ -106,6 +128,56 @@ def test_hard_filter_rejects_low_etf_daily_volume() -> None:
                             cfg=_cfg(), overrides=OverridesConfig())
     assert out.passed == ()
     assert any("daily_volume" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_rejects_us_etf_below_usd_aum_min() -> None:
+    # US ETFs are checked against us_etf_aum_usd_min (1e8), not cn_fund_aum_cny_min (5e8)
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 5e7,  # < 1e8 USD min
+        "expense_ratio": 0.002, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("aum" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_uses_cny_aum_min_for_cny_us_etf_proxy() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 1.5e8,
+        "expense_ratio": 0.002, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("aum" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_passes_zero_expense_ratio() -> None:
+    # expense_ratio=0.0 is falsy — ensure it is NOT treated as missing and rejected
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.0, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert "X" in {r.instrument_id for r in out.passed}
+
+
+def test_hard_filter_rejects_nan_numeric_metadata() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": float("nan"),
+        "aum_cny": float("nan"), "expense_ratio": float("nan"),
+        "daily_volume_cny": float("nan"),
+    }])
+    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    reasons = " ".join(out.rejected[0].reasons)
+    assert out.passed == ()
+    assert "missing inception_years" in reasons
+    assert "missing aum_cny" in reasons
+    assert "missing expense_ratio" in reasons
+    assert "missing daily_volume_cny" in reasons
 
 
 def test_hard_filter_respects_ban_list() -> None:

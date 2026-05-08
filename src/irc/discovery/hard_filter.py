@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 import pandas as pd
 
@@ -22,9 +23,36 @@ class HardFilterResult:
 
 
 def _expense_max(asset_class: str, hf) -> float:
+    if asset_class in ("us_etf", "hk_etf"):
+        return hf.us_etf_expense_ratio_max
     if "etf" in asset_class:
         return hf.cn_passive_expense_ratio_max
     return hf.cn_active_expense_ratio_max
+
+
+def _aum_min(asset_class: str, currency: str, hf) -> float:
+    if currency == "usd" and asset_class in ("us_etf", "hk_etf"):
+        return hf.us_etf_aum_usd_min
+    return hf.cn_fund_aum_cny_min
+
+
+def _is_missing(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _numeric_value(metadata: dict, key: str) -> float | None:
+    value = metadata.get(key)
+    if _is_missing(value):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def apply_hard_filter(
@@ -47,15 +75,28 @@ def apply_hard_filter(
         if m is None:
             reasons.append("no metadata available")
         else:
-            if (m.get("inception_years") or 0) < hf.inception_years_min:
-                reasons.append(f"inception {m.get('inception_years')}y < {hf.inception_years_min}y")
-            if (m.get("aum_cny") or 0) < hf.cn_fund_aum_cny_min:
-                reasons.append(f"aum {m.get('aum_cny')} < {hf.cn_fund_aum_cny_min}")
+            inception_years = _numeric_value(m, "inception_years")
+            if inception_years is None:
+                reasons.append("missing inception_years")
+            elif inception_years < hf.inception_years_min:
+                reasons.append(f"inception {inception_years}y < {hf.inception_years_min}y")
+            aum_threshold = _aum_min(row.asset_class, row.currency, hf)
+            aum_cny = _numeric_value(m, "aum_cny")
+            if aum_cny is None:
+                reasons.append("missing aum_cny")
+            elif aum_cny < aum_threshold:
+                reasons.append(f"aum {aum_cny} < {aum_threshold}")
             er_max = _expense_max(row.asset_class, hf)
-            if (m.get("expense_ratio") or 1.0) > er_max:
-                reasons.append(f"expense_ratio {m.get('expense_ratio')} > {er_max}")
-            if "etf" in row.asset_class and (m.get("daily_volume_cny") or 0) < hf.etf_daily_volume_cny_min:
-                reasons.append(f"daily_volume {m.get('daily_volume_cny')} < {hf.etf_daily_volume_cny_min}")
+            expense_ratio = _numeric_value(m, "expense_ratio")
+            if expense_ratio is None:
+                reasons.append("missing expense_ratio")
+            elif expense_ratio > er_max:
+                reasons.append(f"expense_ratio {expense_ratio} > {er_max}")
+            daily_volume = _numeric_value(m, "daily_volume_cny")
+            if "etf" in row.asset_class and daily_volume is None:
+                reasons.append("missing daily_volume_cny")
+            elif "etf" in row.asset_class and daily_volume < hf.etf_daily_volume_cny_min:
+                reasons.append(f"daily_volume {daily_volume} < {hf.etf_daily_volume_cny_min}")
         if reasons:
             rejected.append(Rejection(instrument_id=row.instrument_id, reasons=tuple(reasons)))
         else:

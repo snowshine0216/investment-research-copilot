@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 from irc.discovery.universe import UniverseRow
-from irc.discovery.role_bucket import (
-    ROLE_RULES,
-    RoleBucketResult,
-    bucket_by_role,
-)
+from irc.discovery.role_bucket import bucket_by_role
 
 
 def _row(iid: str, asset_class: str, tracked: str | None = None) -> UniverseRow:
@@ -30,9 +26,16 @@ def test_bucket_assigns_gold_role() -> None:
 
 
 def test_bucket_relaxed_flag_when_short() -> None:
-    rows = (_row("VTI", "us_etf", "S&P 500"),)
+    rows = tuple(_row(f"VTI{i}", "us_etf", "S&P 500") for i in range(5))
     out = bucket_by_role(rows, min_per_role=8, fail_below=5)
     assert out.relaxed_roles == ("core_us_equity",)
+
+
+def test_bucket_fail_below_marks_sparse_non_empty_role_failed() -> None:
+    rows = (_row("VTI", "us_etf", "S&P 500"),)
+    out = bucket_by_role(rows, min_per_role=8, fail_below=5)
+    assert "core_us_equity" in out.failed_roles
+    assert "core_us_equity" not in out.relaxed_roles
 
 
 def test_bucket_fail_below_threshold_marks_failed() -> None:

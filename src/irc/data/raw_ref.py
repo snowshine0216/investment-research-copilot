@@ -12,7 +12,7 @@ class RawRef:
     source: str
     retrieved_at: str
     topic: str
-    raw_artifact_path: str
+    ref_id: str
 
 
 def build_ref_id(source: str, topic: str, instrument_id: str, date: str) -> str:
@@ -36,4 +36,4 @@ def ref_index_from_duckdb(con: duckdb.DuckDBPyConnection) -> set[str]:
 
 def is_reachable(ref: RawRef, index: set[str]) -> bool:
     """Pure reachability check against a prebuilt raw_ref index."""
-    return ref.raw_artifact_path in index
+    return ref.ref_id in index

@@ -4,7 +4,6 @@ from pydantic import ValidationError
 from irc.schemas.inputs import (
     AccountFile,
     PreferencesFile,
-    Holding,
     AssetClassTarget,
 )
 

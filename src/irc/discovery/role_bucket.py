@@ -72,7 +72,7 @@ def bucket_by_role(
     failed: list[str] = []
     for role in buckets:
         n = len(buckets[role])
-        if n == 0:
+        if n == 0 or n < fail_below:
             failed.append(role)
         elif n < min_per_role:
             relaxed.append(role)

@@ -34,6 +34,7 @@ Known gaps and deferred work from Plan 1 ship review (2026-05-07).
 
 ## Design / Tech debt
 
+- [ ] **`tracking_error` stub in `metrics.py`** — `derive_discovery_metrics` always emits `tracking_error=0.0`; quality filter's tracking-error branch never fires. Implement rolling-std-of-returns-minus-benchmark in Plan 3 before connecting real `tracking_error_max` config. (code-review 2026-05-08)
 - [ ] **`ChatResponse.raw` unbounded** — full LLM response body stored in frozen dataclass. Remove or make optional before any serialization path is added (Plan 2+). (adversarial-review finding 11)
 - [ ] **Portfolio target tolerance** — `PreferencesFile` uses ±2% sum tolerance vs 1e-6 for system configs. Tighten to 1e-4 when financial-accuracy requirements are confirmed.
 - [ ] **`FailureKind.OK` dead code** — `classify_failure()` returns `OK` for 2xx but `HTTPStatusError` is never raised on 2xx. Remove or document.
