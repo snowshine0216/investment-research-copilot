@@ -212,3 +212,46 @@ def test_upsert_nav_allows_missing_accumulated_nav(repo: Path) -> None:
 
     assert count == 1
     assert stored == (1.23, None)
+
+
+# ---------------------------------------------------------------------------
+# Unit tests for pure helpers (no repo fixture needed)
+# ---------------------------------------------------------------------------
+
+from irc.commands.ingest_cmd import (  # noqa: E402
+    _is_missing,
+    _parse_aum_cny,
+    _parse_float,
+    _parse_ratio,
+)
+
+
+def test_parse_aum_cny_yi_unit() -> None:
+    # "200亿" → 200 × 1e8 = 2e10
+    result = _parse_aum_cny("200亿")
+    assert result == pytest.approx(200 * 1e8)
+
+
+def test_parse_aum_cny_none_returns_none() -> None:
+    assert _parse_aum_cny(None) is None
+
+
+def test_parse_aum_cny_non_numeric_text_returns_none() -> None:
+    assert _parse_aum_cny("未知") is None
+
+
+def test_parse_ratio_percent_string() -> None:
+    result = _parse_ratio("0.50%")
+    assert result == pytest.approx(0.005)
+
+
+def test_parse_float_invalid_text_returns_none() -> None:
+    assert _parse_float("not-a-number") is None
+
+
+def test_is_missing_with_none_nan_and_value() -> None:
+    import math
+    assert _is_missing(None) is True
+    assert _is_missing(float("nan")) is True
+    assert _is_missing(1.0) is False
+    assert _is_missing("hello") is False

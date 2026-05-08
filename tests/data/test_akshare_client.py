@@ -6,6 +6,9 @@ import pandas as pd
 import pytest
 
 from irc.data.akshare_client import (
+    _expense_ratio_from_fee_table,
+    _item_value_dict,
+    _ratios_from_text,
     fetch_etf_metadata,
     fetch_fund_metadata,
     fetch_fund_nav_history,
@@ -100,3 +103,28 @@ def test_fetch_etf_metadata() -> None:
         out = fetch_etf_metadata("510300")
 
     assert out == {"ticker": "510300", "name_cn": "沪深300ETF"}
+
+
+def test_item_value_dict_empty_df_returns_empty_dict() -> None:
+    result = _item_value_dict(pd.DataFrame())
+    assert result == {}
+
+
+def test_item_value_dict_single_row_uses_column_keys() -> None:
+    df = pd.DataFrame([{"fund_code": "006075", "name": "易方达"}])
+    result = _item_value_dict(df)
+    assert result["fund_code"] == "006075"
+    assert result["name"] == "易方达"
+
+
+def test_ratios_from_text_none_returns_empty_tuple() -> None:
+    assert _ratios_from_text(None) == ()
+
+
+def test_ratios_from_text_plain_float_returns_tuple() -> None:
+    result = _ratios_from_text("0.005")
+    assert result == (0.005,)
+
+
+def test_expense_ratio_from_fee_table_empty_df_returns_none() -> None:
+    assert _expense_ratio_from_fee_table(pd.DataFrame()) is None

@@ -73,3 +73,33 @@ def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
     assert not math.isnan(score["factor_breakdown"]["valuation_cost"]["score"])
     assert not math.isnan(score["factor_breakdown"]["risk"]["score"])
     assert not math.isnan(score["factor_breakdown"]["quality"]["score"])
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_pipeline_empty_watchlist_returns_empty_scores(mock_macro) -> None:
+    mock_macro.return_value = MagicMock(score=50, raw_refs=(), components={})
+    watchlist = pd.DataFrame(columns=[
+        "instrument_id", "name_cn", "asset_class", "role", "cited_refs", "tracked_index",
+    ])
+    out = run_scoring(
+        watchlist=watchlist, metrics=pd.DataFrame(), news_summaries={},
+        regime_summary="neutral", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+    )
+    assert out == {"scores": []}
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_pipeline_instrument_missing_from_metrics_uses_defaults(mock_macro) -> None:
+    mock_macro.return_value = MagicMock(score=50, raw_refs=(), components={})
+    watchlist = pd.DataFrame([{
+        "instrument_id": "GHOST", "name_cn": "Ghost ETF", "asset_class": "us_etf",
+        "role": "core_us_equity", "cited_refs": None, "tracked_index": "S&P 500",
+    }])
+    out = run_scoring(
+        watchlist=watchlist, metrics=pd.DataFrame(), news_summaries={},
+        regime_summary="neutral", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+    )
+    assert len(out["scores"]) == 1
+    assert out["scores"][0]["data_completeness"] == 0.0
