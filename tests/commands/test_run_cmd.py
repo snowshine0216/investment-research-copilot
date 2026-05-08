@@ -34,3 +34,13 @@ def test_pipeline_stops_on_failure():
         rc = run_pipeline(".")
     assert rc == 1
     assert "discover" not in call_order
+
+
+def test_invalid_from_stage_returns_error():
+    rc = run_pipeline(".", from_stage="nonexistent_stage")
+    assert rc == 1
+
+
+def test_invalid_only_stage_returns_error():
+    rc = run_pipeline(".", only_stage="nonexistent_stage")
+    assert rc == 1

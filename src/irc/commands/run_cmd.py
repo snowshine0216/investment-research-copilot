@@ -18,23 +18,19 @@ _STAGES: tuple[tuple[str, ...], ...] = (
     ("memo",      ),
 )
 
-_RUNNERS: dict[str, object] = {
-    "ingest":   run_ingest,
-    "discover": run_discover,
-    "score":    run_score,
-    "gold":     run_gold,
-    "allocate": run_allocate,
-    "plan":     run_plan,
-    "memo":     run_memo,
-}
-
 STAGE_NAMES: tuple[str, ...] = tuple(t[0] for t in _STAGES)
 
 
 def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:
     if only_stage is not None:
+        if only_stage not in STAGE_NAMES:
+            print(f"ERROR: unknown stage '{only_stage}'. Valid: {list(STAGE_NAMES)}")
+            return 1
         stages = [only_stage]
     elif from_stage is not None:
+        if from_stage not in STAGE_NAMES:
+            print(f"ERROR: unknown stage '{from_stage}'. Valid: {list(STAGE_NAMES)}")
+            return 1
         idx = STAGE_NAMES.index(from_stage)
         stages = list(STAGE_NAMES[idx:])
     else:
