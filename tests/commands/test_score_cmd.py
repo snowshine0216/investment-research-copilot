@@ -26,6 +26,13 @@ def repo_with_watchlist(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def test_score_returns_2_when_no_watchlist(tmp_path: Path) -> None:
+    from irc.commands.init_cmd import run_init
+    run_init(str(tmp_path), force=False)
+    rc = run_score(repo_root=str(tmp_path))
+    assert rc == 2
+
+
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_score_writes_scoring_json(mock_macro, repo_with_watchlist: Path) -> None:
     mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})

@@ -39,6 +39,35 @@ def test_inverted_returns_block() -> None:
     assert res.status == "HARD_FAIL"
 
 
+def test_empty_input_returns_hard_fail() -> None:
+    empty = pd.DataFrame(columns=["instrument_id", "composite_score"])
+    realized = pd.DataFrame(columns=["instrument_id", "realized_risk_adj_return"])
+    res = historical_sanity_correlation(empty, realized)
+    assert res.status == "HARD_FAIL"
+    assert res.n_instruments == 0
+
+
+def test_fewer_than_four_instruments_returns_hard_fail() -> None:
+    scores = pd.DataFrame({"instrument_id": ["A", "B", "C"], "composite_score": [80, 60, 40]})
+    realized = pd.DataFrame({"instrument_id": ["A", "B", "C"], "realized_risk_adj_return": [0.1, 0.05, 0.02]})
+    res = historical_sanity_correlation(scores, realized)
+    assert res.status == "HARD_FAIL"
+    assert res.n_instruments == 3
+
+
+def test_constant_scores_returns_hard_fail() -> None:
+    scores = pd.DataFrame({
+        "instrument_id": ["A", "B", "C", "D"],
+        "composite_score": [50, 50, 50, 50],
+    })
+    realized = pd.DataFrame({
+        "instrument_id": ["A", "B", "C", "D"],
+        "realized_risk_adj_return": [0.10, 0.05, -0.05, -0.10],
+    })
+    res = historical_sanity_correlation(scores, realized)
+    assert res.status == "HARD_FAIL"
+
+
 def test_weak_positive_warns() -> None:
     scores = pd.DataFrame({
         "instrument_id": ["A", "B", "C", "D"],

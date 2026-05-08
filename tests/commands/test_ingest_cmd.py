@@ -41,6 +41,28 @@ def test_ingest_creates_duckdb_and_manifest(repo: Path) -> None:
     assert (repo / "data" / "_manifest" / "akshare.json").exists()
 
 
+def test_ingest_populates_instruments_table(repo: Path) -> None:
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    empty = pd.DataFrame({"date": [], "value": []})
+    empty_nav = pd.DataFrame({"date": [], "nav": [], "nav_acc": []})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=empty_nav),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    from irc.data.duckdb_helper import connect
+    con = connect(repo / "data" / "local.duckdb")
+    count = con.execute("SELECT COUNT(*) FROM instruments").fetchone()[0]
+    con.close()
+    assert count > 0
+
+
 def test_ingest_idempotent(repo: Path) -> None:
     fake_prices = pd.DataFrame({
         "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],

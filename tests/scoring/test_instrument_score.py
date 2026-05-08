@@ -53,3 +53,30 @@ def test_avoid_zone() -> None:
     }
     out = compose_score(instrument_id="X", factors=factors, data_completeness=1.0, cfg=_cfg())
     assert out.action == "strong_avoid"
+
+
+def _uniform_score(score: float) -> dict[str, FactorScore]:
+    refs = ("r",)
+    return {k: FactorScore(score=score, raw_refs=refs, components={})
+            for k in ("valuation_cost", "risk", "quality", "macro_fit", "thesis_news")}
+
+
+def test_buy_candidate_action() -> None:
+    out = compose_score(instrument_id="X", factors=_uniform_score(65.0), data_completeness=1.0, cfg=_cfg())
+    assert out.action == "buy_candidate"
+
+
+def test_watch_action() -> None:
+    out = compose_score(instrument_id="X", factors=_uniform_score(45.0), data_completeness=1.0, cfg=_cfg())
+    assert out.action == "watch"
+
+
+def test_avoid_action() -> None:
+    out = compose_score(instrument_id="X", factors=_uniform_score(25.0), data_completeness=1.0, cfg=_cfg())
+    assert out.action == "avoid"
+
+
+def test_med_conviction_at_threshold() -> None:
+    out = compose_score(instrument_id="X", factors=_all_high(), data_completeness=0.82, cfg=_cfg())
+    # 0.82 >= 0.80 threshold but < 0.90 (threshold + 0.10) → med
+    assert out.conviction == "med"

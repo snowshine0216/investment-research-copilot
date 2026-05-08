@@ -55,6 +55,59 @@ def test_hard_filter_rejects_low_aum() -> None:
     assert "aum" in out.rejected[0].reasons[0].lower()
 
 
+def test_hard_filter_rejects_missing_metadata() -> None:
+    metadata = pd.DataFrame(columns=["instrument_id", "inception_years", "aum_cny", "expense_ratio", "daily_volume_cny"])
+    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert "no metadata" in out.rejected[0].reasons[0].lower()
+
+
+def test_hard_filter_rejects_short_inception() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 1, "aum_cny": 6e8,  # <3y min
+        "expense_ratio": 0.001, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("inception" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_rejects_high_expense_ratio_etf() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.010,  # > cn_passive_expense_ratio_max (0.005) for ETF
+        "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("expense_ratio" in r for r in out.rejected[0].reasons)
+
+
+def test_hard_filter_uses_active_expense_cap_for_non_etf() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.012,  # below active max (0.015) but above passive max (0.005) → should pass
+        "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(rows=(_row("X", "cn_equity_fund"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert "X" in {r.instrument_id for r in out.passed}
+
+
+def test_hard_filter_rejects_low_etf_daily_volume() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.001, "daily_volume_cny": 5e6,  # < 1e7 min
+    }])
+    out = apply_hard_filter(rows=(_row("X", "cn_etf"),), metadata=metadata,
+                            cfg=_cfg(), overrides=OverridesConfig())
+    assert out.passed == ()
+    assert any("daily_volume" in r for r in out.rejected[0].reasons)
+
+
 def test_hard_filter_respects_ban_list() -> None:
     metadata = pd.DataFrame([{
         "instrument_id": "X", "inception_years": 5, "aum_cny": 1e9,
