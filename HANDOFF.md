@@ -1,5 +1,139 @@
 # Handoff Document
-*Last updated: 2026-05-07 12:17:20 CST*
+*Last updated: 2026-05-08 19:30 CST*
+
+---
+
+## Session: May 8 — Pipeline Empty-Output Investigation + Universe Expansion
+
+### Goal
+`uv run irc run` was producing nearly-empty output files (0 candidates → 0 trades). Find out *why* (was it Plan-4 deferral? bugs? config?) and unblock the pipeline so it produces a meaningful portfolio matching the user's `preferences.yaml` targets.
+
+### Current Progress
+
+**Three commits landed on `main`**:
+- `cd7c1d1` — `fix(cli)`: `.env` was never loaded; added `load_dotenv()` at CLI entry. Settings class existed but was never instantiated; `os.environ.get()` only saw shell-exported vars.
+- `63873f7` — `feat(llm)`: per-provider `{PROVIDER}_HTTPS_PROXY` support + `scripts/check_openrouter.py` diagnostic. Anthropic models on OpenRouter return `403 "not available in your region"` from mainland China; corporate proxy `10.27.7.110:8080` bypasses cleanly. Provider-scoped so DeepSeek + AKShare + OpenBB stay direct.
+- `324457c` — `fix(ingest+discovery)`: three pre-existing bugs that produced 0 candidates regardless of universe size:
+  1. `cn_funds.yaml` entries excluded from ingest's price-fetch list → 510300/510500 etc. had only NAV, no prices, dropped by daily-volume hard filter
+  2. `_is_active_fund` matched any asset_class ending in `*_fund`, flagging passive bond ETFs as active and requiring `manager_tenure_years` they don't have. Now keyed on `market`.
+  3. `raw_ref_pool` grew with the data (104k entries at 59 funds) and was joined verbatim into every LLM prompt → DeepSeek 400 Bad Request. Now filtered per-instrument and capped at 30 most-recent refs.
+
+**Local-only changes (NOT committed — `config/` is gitignored per project design)**:
+- Universe expanded from 13 → 59 instruments via akshare-grounded ETF list (top-N by AUM per category):
+  - `qdii_us.yaml`: 5 → 13 (added 国泰/景顺/华夏/嘉实纳指, 标普500 三家, 道琼斯, 美国50)
+  - `qdii_hk.yaml`: 3 → 13 (added 恒生科技 3 家, 中概互联 2 家, 港股红利 3 家)
+  - `cn_funds.yaml`: 2 → 27 (added 沪深300 多家, 上证50, 中证A500, 中证500/1000, 创业板, 科创50, 红利, **8 只 cn_bond_fund — 之前完全空白**)
+  - `gold.yaml`: 3 → 6
+- `.env`: added `OPENROUTER_HTTPS_PROXY=http://10.27.7.110:8080`
+
+**Final pipeline state**:
+- Discovery: **0 → 3 candidates** (only 沪深300 ETFs: 510300, 510310, 159919)
+- Trade plan: 0 → 2 trades, but `target_weight: 0` because of asset_class mismatch (see "Still Blocking")
+- Memo: synthesizes via Anthropic Opus 4.7 through proxy, but `coverage=0%` (traceability check is exact-match — Plan-4 deferred)
+
+### What Worked
+- `python-dotenv` is a transitive dep of `pydantic-settings`; calling `load_dotenv()` in the click group's `main()` populates `os.environ` before any subcommand
+- Provider-keyed proxy env vars (`{PROVIDER}_HTTPS_PROXY`) — cleanly scopes proxy to OpenRouter without affecting Chinese data sources
+- `scripts/check_openrouter.py` two-step diagnostic (auth/key + chat/completion) — surfaced 403 was geo, not auth
+- `akshare.fund_etf_spot_em()` returns 1451 ETFs with AUM/volume — perfect for top-N universe selection
+- `akshare.fund_etf_fund_daily_em()` is the *separate* endpoint for bond ETFs (52 found) — they don't show up in `fund_etf_spot_em`
+- TDD with `mock_writer.call_args.args[1]` to assert per-instrument ref filtering
+- Per-instrument ref filtering via `f":{instrument_id}:" in ref` (refs are `source:topic:instrument_id:date` format)
+
+### What Didn't Work
+- **Direct Anthropic API**: same geo-restriction would apply, no point using `ANTHROPIC_API_KEY` directly
+- **Switching memo synthesis to gpt-5.5**: not needed once proxy worked; Opus 4.7 quality preserved
+- **Random/truncated ref pool sampling**: produces semantically meaningless citations (LLM citing 510300's NAV when reasoning about a gold ETF) — per-instrument filter is the right semantic
+- **Expense ratio threshold `us_etf_expense_ratio_max: 0.003`**: calibrated for direct US ETFs (5–20 bps) but the universe is QDII feeder funds (60–115 bps). Drops 26/59. Not yet adjusted.
+
+### Still Blocking (in priority order)
+
+1. **Quality filter `manager_tenure_years_min: 2`** kills 8 bond ETFs with the same "ETFs aren't active funds" bug — but in `src/irc/discovery/quality_filter.py` (the ingest fix only addressed the metadata-fetch side). Same `_is_active_fund` heuristic needs to be applied at quality-filter level.
+
+2. **Quality filter `drawdown_3y_max: 24%`** is too tight:
+   - All gold ETFs (24.8%–24.9%) — barely fail by ~1pp
+   - 创业板 ETF (33.7%), 科创50 (38.8%), 中证1000 (36%), 港股科技 (35%)
+   - Either widen threshold to ~30% or accept that growth/satellite categories don't pass
+
+3. **Asset-class mismatch between preferences and universe**: `inputs/preferences.yaml` targets `cn_equity_fund: 0.25`, but the expanded universe is mostly `cn_etf`. The allocator can't fill the bucket → `target_weight: 0`. Either:
+   - Update `preferences.yaml` to target `cn_etf` directly (probably what the user wants given the universe)
+   - Or add a mapping/aggregation in allocation logic
+
+4. **`venue_compatible: false` with `instrument 510300 not in universe`** despite 510300 being in the universe. Bug in venue-compatibility check; locate via grep for "not in universe".
+
+5. **Hard filter `etf_daily_volume_cny_min: 10M`** still drops 39 instruments — most are real funds whose 3-year averaged volume dips below 10M even though current volumes are much higher. Threshold sensible for liquidity but kills small-but-real funds. Worth re-checking after fixes 1–4.
+
+### Next Steps (resume here)
+
+1. **Fix quality filter's `_is_active_fund` equivalent** — same logic as the ingest fix in commit `324457c`. Find the manager_tenure check in `src/irc/discovery/quality_filter.py`, gate it on `instrument.market != "cn_on_exchange"`. Add test, run, expect 8 more candidates (bond ETFs).
+
+2. **Investigate `venue_compatible` "not in universe"** — grep `src/irc/` for the literal string. Likely a string-match bug between `instrument_id` and venue list.
+
+3. **Reconcile asset-class targets** — confirm with user: do they want `cn_etf` as the cn-equity bucket, or `cn_equity_fund`? Update either `preferences.yaml` or allocation mapping. Probably the former (universe is ETF-based by intent).
+
+4. **Decide drawdown threshold** — propose to user: relax `quality_filters.drawdown_3y_buffer` so gold (24.9%) and growth ETFs (33–39%) can pass. Or split per-bucket (gold-specific cap higher than overall).
+
+5. **After 1–4, re-run `irc run` end-to-end** — expect candidates across gold, cn_bond, cn_equity, hk, us; allocation should produce non-zero target_weights matching the 20/25/15/10/25/5 split.
+
+6. **Plan 4 backlog (deferred, not blocking the above)** — `TODOS.md` lines 42–46 cover Plan-4 items: tracking_error stub, gold drivers stub, traceability fuzzy matcher, correlation filter, `ChatResponse.raw` unbounded.
+
+### Key Files & Locations
+
+| File | What changed this session |
+| :--- | :--- |
+| `src/irc/cli.py` | `load_dotenv()` at CLI entry |
+| `src/irc/llm/http_client.py` | `_resolve_proxy()` per-provider proxy |
+| `src/irc/commands/ingest_cmd.py` | `_is_active_fund` market-aware; `cn_funds` in price path |
+| `src/irc/discovery/pipeline.py` | `_refs_for_instrument()` per-instrument filter + cap=30 |
+| `tests/llm/test_http_client.py` | +4 proxy tests |
+| `tests/discovery/test_pipeline.py` | +4 ref-filter tests |
+| `scripts/check_openrouter.py` | New diagnostic (auth + chat probe) |
+| `config/universe/*.yaml` | **Local-only** universe expansion (gitignored) |
+| `.env` | **Local-only** `OPENROUTER_HTTPS_PROXY` |
+| `.env.example` | Documented `{PROVIDER}_HTTPS_PROXY` convention |
+
+### Context & Notes
+
+- **User is in mainland China**: Anthropic models geo-blocked. Must keep `OPENROUTER_HTTPS_PROXY=http://10.27.7.110:8080` in `.env` for the memo step to work. DeepSeek (used for most other tasks) works direct.
+- **Universe YAMLs are gitignored by design** (per `9b3bc97`) — they're treated as per-user config. Don't try to commit `config/universe/*.yaml`. If the expanded universe should ship as a default, update `src/irc/templates/config/universe/*.yaml` instead.
+- **User prefers Chinese explanations** for product/finance decisions; English fine for code/architecture.
+- **Auto mode is on** — proceed autonomously where it's clearly correct (bug fixes, low-risk refactors). Stop and ask on product decisions (which threshold to relax, which asset-class mapping to choose).
+- **Repo state**: branch `main`, HEAD `324457c`, in sync with origin. All 11 http_client tests + 57 discovery tests + 15 ingest tests pass.
+- **Cost note**: each end-to-end `irc run` makes Anthropic Opus 4.7 + Sonnet 4.6 calls via OpenRouter (~$0.04/run based on `auth/key` usage history).
+
+### Quick-Start Commands
+
+```bash
+# Re-run discovery only (cheapest iteration during debugging)
+uv run irc discover
+
+# Trace funnel manually (fastest way to see which filter drops what)
+uv run python -c "
+from pathlib import Path
+from irc.config_loader import load_repo_configs
+from irc.data.duckdb_helper import connect, ensure_schema
+from irc.discovery.universe import enumerate_universe
+from irc.discovery.hard_filter import apply_hard_filter
+from irc.discovery.quality_filter import apply_quality_filter
+from irc.commands.discover_cmd import _fetch_metadata_metrics
+from irc.schemas.inputs import RiskBand
+b = load_repo_configs(Path('.'))
+con = connect(Path('data/local.duckdb')); ensure_schema(con)
+metadata, metrics = _fetch_metadata_metrics(con); con.close()
+u = enumerate_universe(b.universe_qdii_us, b.universe_qdii_hk, b.universe_cn_funds, b.universe_gold)
+hard = apply_hard_filter(u, metadata, b.discovery, b.overrides)
+risk = RiskBand.model_validate({'max_drawdown':[0.05, b.preferences.risk_band.max_drawdown[1]], 'horizon':'long_core_medium_rotation'})
+qual = apply_quality_filter(hard.passed, metrics, b.discovery, risk)
+print(f'universe={len(u)} → hard={len(hard.passed)} → quality={len(qual.passed)}')
+for r in qual.rejected: print('  ', r.instrument_id, r.reasons)
+"
+
+# Verify OpenRouter connection
+uv run python scripts/check_openrouter.py
+
+# Full end-to-end
+uv run irc run
+```
 
 ---
 
