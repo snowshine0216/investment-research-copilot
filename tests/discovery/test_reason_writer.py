@@ -20,7 +20,7 @@ def _row() -> UniverseRow:
     return UniverseRow(
         instrument_id="VTI", ticker="VTI", market="cn_off_exchange",
         name_cn="易方达标普500", asset_class="us_etf", currency="cny",
-        tracked_index="S&P 500", venue_required=(),
+        tracked_index="S&P 500", theme=None, venue_required=(),
     )
 
 

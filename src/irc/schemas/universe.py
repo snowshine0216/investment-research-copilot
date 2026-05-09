@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Literal
 from pydantic import Field, model_validator
-from ._types import FrozenModel, AssetClass, Currency
+from ._types import FrozenModel, AssetClass, Currency, Theme
 
 
 Market = Literal[
@@ -20,6 +20,7 @@ class Instrument(FrozenModel):
     asset_class: AssetClass
     currency: Currency
     tracked_index: str | None = None
+    theme: Theme | None = None
     venue_required: list[str] = Field(default_factory=list)
 
 

@@ -14,6 +14,7 @@ class UniverseRow:
     asset_class: str
     currency: str
     tracked_index: str | None
+    theme: str | None
     venue_required: tuple[str, ...]
 
 
@@ -26,6 +27,7 @@ def _to_row(i: Instrument) -> UniverseRow:
         asset_class=i.asset_class,
         currency=i.currency,
         tracked_index=i.tracked_index,
+        theme=i.theme,
         venue_required=tuple(i.venue_required),
     )
 

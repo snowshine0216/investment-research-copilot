@@ -4,11 +4,11 @@ from irc.discovery.universe import UniverseRow
 from irc.discovery.role_bucket import bucket_by_role
 
 
-def _row(iid: str, asset_class: str, tracked: str | None = None) -> UniverseRow:
+def _row(iid: str, asset_class: str, tracked: str | None = None, theme: str | None = None) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class=asset_class, currency="cny",
-        tracked_index=tracked, venue_required=(),
+        tracked_index=tracked, theme=theme, venue_required=(),
     )
 
 
@@ -44,11 +44,11 @@ def test_bucket_fail_below_threshold_marks_failed() -> None:
     assert "core_us_equity" in out.failed_roles
 
 
-def _row_named(iid: str, asset_class: str, tracked: str | None = None, name_cn: str = "") -> UniverseRow:
+def _row_named(iid: str, asset_class: str, tracked: str | None = None, name_cn: str = "", theme: str | None = None) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=name_cn or iid, asset_class=asset_class, currency="cny",
-        tracked_index=tracked, venue_required=(),
+        tracked_index=tracked, theme=theme, venue_required=(),
     )
 
 
@@ -96,3 +96,75 @@ def test_bucket_assigns_hk_dividend_etf_to_hedge_low_correlation() -> None:
     rows = (_row_named("3188.HK", "hk_etf", "Hang Seng Dividend Index"),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
     assert out.buckets["hedge_low_correlation"][0].instrument_id == "3188.HK"
+
+
+# === theme-based bucketing (sector ETFs + sector active funds bucket together) ===
+
+
+def test_bucket_sector_etf_routes_to_themed_bucket_not_core_cn() -> None:
+    """中证军工 ETF starts with 中证 but is sector — must NOT bucket as
+    core_cn_equity. Goes to satellite_cn_defense via theme tag."""
+    rows = (_row_named("512660", "cn_etf", "中证军工", theme="defense"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_defense"][0].instrument_id == "512660"
+    assert out.buckets["core_cn_equity"] == ()
+
+
+def test_bucket_sector_active_fund_routes_to_themed_bucket() -> None:
+    """中欧医疗健康 (active healthcare fund) buckets with healthcare ETFs."""
+    rows = (_row_named("003095", "cn_equity_fund", None, theme="healthcare"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_healthcare"][0].instrument_id == "003095"
+    assert out.buckets["satellite_cn_growth"] == ()
+
+
+def test_bucket_groups_themed_etf_and_active_fund_in_same_bucket() -> None:
+    """Whole point of theme-based bucketing: passive 半导体ETF and active
+    诺安成长 (semiconductor-heavy) compete head-to-head in the same role."""
+    rows = (
+        _row_named("512760", "cn_etf", "中证全指半导体", theme="semiconductor"),
+        _row_named("320007", "cn_equity_fund", None, theme="semiconductor"),
+    )
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    ids = {r.instrument_id for r in out.buckets["satellite_cn_semiconductor"]}
+    assert ids == {"512760", "320007"}
+
+
+def test_bucket_broad_theme_overrides_unknown_index() -> None:
+    """An ETF with theme=broad always counts as core, even if its
+    tracked_index isn't in the broad whitelist (e.g. custom indices)."""
+    rows = (_row_named("999999", "cn_etf", "中证某个新宽基", theme="broad"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_cn_equity"][0].instrument_id == "999999"
+
+
+def test_bucket_dividend_factor_routes_to_dividend_satellite() -> None:
+    rows = (_row_named("512890", "cn_etf", "中证红利低波", theme="dividend"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_dividend"][0].instrument_id == "512890"
+
+
+def test_bucket_themeless_active_fund_falls_to_satellite_cn_growth() -> None:
+    """Broad active managers (张坤/谢治宇) without a theme go to growth bucket."""
+    rows = (_row_named("005827", "cn_equity_fund", None),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_growth"][0].instrument_id == "005827"
+
+
+def test_bucket_csi_prefix_sector_etf_does_not_pollute_core() -> None:
+    """Regression: pre-theme refactor, _is_core_cn matched anything starting
+    with 中证, so 中证半导体/中证军工/中证医药 polluted core_cn_equity. With
+    theme=None and tracked_index NOT in broad whitelist, they should bucket
+    nowhere (not as core, not as sector — sector requires explicit theme)."""
+    rows = (_row_named("512170", "cn_etf", "中证医疗"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_cn_equity"] == ()
+    assert out.buckets["satellite_cn_healthcare"] == ()
+
+
+def test_bucket_broad_index_in_whitelist_still_buckets_as_core_without_theme() -> None:
+    """Backward compat: 沪深300 ETF with no theme still routes to core_cn_equity
+    via tracked_index whitelist (existing 28 yaml entries don't have theme yet)."""
+    rows = (_row_named("510300", "cn_etf", "沪深300"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_cn_equity"][0].instrument_id == "510300"

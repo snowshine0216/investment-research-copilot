@@ -60,6 +60,16 @@ def write_reason(
 ) -> ReasonResult | None:
     """Step 5: produce a 3-sentence reason + 1 risk line, citing >= 1 raw_ref.
     Returns None if grounding fails after all attempts."""
+    last_exc: Exception | None = None
+    ungrounded_attempts = 0
+    if not ctx.raw_refs:
+        _log.warning(
+            "skipping reason for %s (role=%s): no raw_refs available — "
+            "ingest produced no prices/NAV for this instrument, so the LLM "
+            "has nothing to cite. Check upstream data coverage.",
+            row.instrument_id, ctx.role,
+        )
+        return None
     for _attempt in range(max_retries + 1):
         try:
             resp = call_chat(
@@ -72,6 +82,7 @@ def write_reason(
             )
             cited = tuple(r for r in ctx.raw_refs if r in resp.text)
             if not cited:
+                ungrounded_attempts += 1
                 continue
             return ReasonResult(
                 instrument_id=row.instrument_id,
@@ -81,5 +92,19 @@ def write_reason(
                 completion_tokens=resp.completion_tokens,
             )
         except Exception as exc:  # noqa: BLE001
+            last_exc = exc
             _log.warning("attempt %d failed for %s: %s", _attempt, row.instrument_id, exc)
+    if last_exc is not None:
+        _log.warning(
+            "skipping reason for %s (role=%s): LLM call failed after %d attempts — %s. "
+            "Check llm.yaml provider credentials / network.",
+            row.instrument_id, ctx.role, max_retries + 1, last_exc,
+        )
+    elif ungrounded_attempts > 0:
+        _log.warning(
+            "skipping reason for %s (role=%s): LLM produced %d response(s) but none "
+            "cited any of the %d raw_refs. Likely the model ignored the citation "
+            "instruction; consider stricter system prompt or larger ref pool.",
+            row.instrument_id, ctx.role, ungrounded_attempts, len(ctx.raw_refs),
+        )
     return None

@@ -12,11 +12,12 @@ def _row(
     iid: str,
     asset_class: str = "us_etf",
     market: str = "cn_off_exchange",
+    theme: str | None = None,
 ) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market=market,
         name_cn=iid, asset_class=asset_class, currency="cny",
-        tracked_index=None, venue_required=(),
+        tracked_index=None, theme=theme, venue_required=(),
     )
 
 

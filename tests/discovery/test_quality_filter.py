@@ -12,7 +12,7 @@ def _row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="us_etf", currency="cny",
-        tracked_index="x", venue_required=(),
+        tracked_index="x", theme=None, venue_required=(),
     )
 
 
@@ -78,7 +78,7 @@ def _active_row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="cn_equity_fund", currency="cny",
-        tracked_index=None, venue_required=(),
+        tracked_index=None, theme=None, venue_required=(),
     )
 
 
@@ -87,7 +87,7 @@ def _fund_row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="cn_etf", currency="cny",
-        tracked_index=None, venue_required=(),
+        tracked_index=None, theme=None, venue_required=(),
     )
 
 

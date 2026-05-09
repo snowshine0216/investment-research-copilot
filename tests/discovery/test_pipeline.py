@@ -9,11 +9,11 @@ from irc.discovery.universe import UniverseRow
 from irc.discovery.pipeline import run_discovery, _refs_for_instrument
 
 
-def _row(iid: str, asset_class: str, tracked: str | None = None) -> UniverseRow:
+def _row(iid: str, asset_class: str, tracked: str | None = None, theme: str | None = None) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class=asset_class, currency="cny",
-        tracked_index=tracked, venue_required=(),
+        tracked_index=tracked, theme=theme, venue_required=(),
     )
 
 
