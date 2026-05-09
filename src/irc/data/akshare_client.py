@@ -183,9 +183,11 @@ def fetch_etf_metadata_em(symbol: str) -> dict[str, Any]:
 
 
 _AKSHARE_MACRO_HANDLERS: dict[str, str] = {
-    # FRED series_id → akshare resolver-method name (registered below).
+    # macro series_id → akshare resolver-method name (registered below).
+    # DGS10 is a FRED series; DXY is an akshare-only proxy (no FRED equivalent
+    # at the same level — DTWEXBGS sits ~120 vs DXY ~98).
     "DGS10": "_fetch_dgs10_via_akshare",
-    "DTWEXBGS": "_fetch_dxy_via_akshare",
+    "DXY": "_fetch_dxy_via_akshare",
 }
 
 
@@ -198,9 +200,10 @@ def _fetch_dgs10_via_akshare(start: str, end: str) -> pd.DataFrame:
 
 
 def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
-    """DXY (ICE 6-currency US Dollar Index) is used as the broad-USD proxy when
-    FRED's DTWEXBGS is unavailable. Levels differ slightly (~100 vs ~120) but
-    direction is close enough for regime-style features."""
+    """DXY (ICE 6-currency US Dollar Index) is the broad-USD proxy used by gold
+    scoring; thresholds in scoring/gold_score.py and scoring/gold_scenarios.py
+    are calibrated for DXY's ~95–115 range. FRED's DTWEXBGS sits ~120 and is
+    not interchangeable, so this path is the canonical DXY source."""
     raw = _ak_call("index_global_hist_em", symbol="美元指数")
     df = raw[["日期", "最新价"]].rename(columns={"日期": "date", "最新价": "value"})
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")

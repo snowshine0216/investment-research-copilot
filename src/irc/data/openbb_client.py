@@ -14,6 +14,11 @@ _log = logging.getLogger(__name__)
 
 OPENBB_PROVIDER_DEFAULT = "yfinance"
 
+# Series IDs that aren't FRED tickers — skip the OpenBB call and go straight
+# to akshare. DXY in particular has no FRED equivalent at the same level
+# (DTWEXBGS sits ~120 vs DXY ~98), so OpenBB+FRED would always 404.
+_AKSHARE_ONLY_SERIES = frozenset({"DXY"})
+
 
 def _call_obb(path: str, **kwargs: Any) -> Any:
     """Indirection so tests can mock without touching the heavy openbb import."""
@@ -77,9 +82,12 @@ def fetch_etf_price_history(
 
 
 def fetch_macro_series(series_id: str, start: str, end: str) -> pd.DataFrame:
-    """Fetch a FRED-style macro series. Tries OpenBB+FRED first (needs FRED_API_KEY
-    or INTRINIO_API_KEY); falls back to akshare's no-auth equivalents when the
-    OpenBB providers fail. Returns DataFrame with columns: date, value."""
+    """Fetch a macro series. FRED-native IDs try OpenBB+FRED first (needs
+    FRED_API_KEY or INTRINIO_API_KEY) and fall back to akshare on failure;
+    akshare-only IDs (e.g. DXY) skip OpenBB entirely. Returns DataFrame with
+    columns: date, value."""
+    if series_id in _AKSHARE_ONLY_SERIES:
+        return fetch_macro_series_akshare(series_id, start, end)
     try:
         obj = _call_obb(
             "economy.fred_series",

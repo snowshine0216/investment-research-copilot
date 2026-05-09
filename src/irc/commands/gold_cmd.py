@@ -62,7 +62,7 @@ def run_gold(repo_root: str) -> int:
         zone = classify_zone(current_price, band)
         inputs = GoldDriverInputs(
             real_yield_10y_tips=_macro_value(con, "DGS10", 1.65) - 2.30,  # rough TIPS proxy
-            dxy=_macro_value(con, "DTWEXBGS", 104.0),
+            dxy=_macro_value(con, "DXY", 104.0),
             inflation_5y5y=_macro_value(con, "T5YIFR", 2.30),
             cb_purchases_yearly_tons=900.0,  # TODO(plan-4): wire from CB flow data source
             etf_holdings_30d_change_tons=0.0,  # TODO(plan-4): wire from ETF holdings API

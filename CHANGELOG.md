@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Macro slot rename: `DTWEXBGS` → `DXY` across `_MACRO_SERIES` (`ingest_cmd.py`), `_macro_value` lookup (`gold_cmd.py`), `_AKSHARE_MACRO_HANDLERS` (`akshare_client.py`), and corresponding tests. The slot was always populated by the akshare DXY index (~95–115 range) which matches the DXY-calibrated thresholds in `gold_score._dxy_score` (95/105/115) and `gold_scenarios` (dxy<100, dxy>110); the FRED `DTWEXBGS` ID was a misnomer (real DTWEXBGS sits ~120). No data-quality change — purely a rename for clarity.
+- `openbb_client.fetch_macro_series` now routes akshare-only IDs (`DXY`) directly to akshare, skipping the always-failing OpenBB+FRED call.
+
 ## [0.3.0.0] — 2026-05-08
 
 ### Added
