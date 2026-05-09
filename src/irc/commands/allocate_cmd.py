@@ -38,7 +38,12 @@ def run_allocate(repo_root: str) -> int:
     out = run_allocation(
         scores=scores, class_targets=class_targets,
         gold_tilt=gold_tilt, correlation=pd.DataFrame(),
-        per_class_top_k=2,
+        # per_class_top_k=4 (up from 2): the role-aware selector inside
+        # run_allocation now picks one per role first, then fills by score.
+        # 4 slots per class lets all 4 distinct cn_etf roles (broad / dividend
+        # / sector themes / soe) get representation while still capping the
+        # near-clone broad-index ETFs.
+        per_class_top_k=4,
     )
     out_path = root / "outputs" / today / "proposed_allocation.yaml"
     payload = {

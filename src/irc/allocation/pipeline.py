@@ -15,11 +15,44 @@ class AllocationOutput:
 
 
 def _select_top_k_per_class(scores: list[dict], k: int) -> dict[str, list[dict]]:
+    """Pick up to `k` instruments per asset_class with role-aware diversity.
+
+    Two-phase greedy within each class:
+      1. Walk candidates by descending score; take the first one from each
+         distinct `role`. Ensures every represented role gets a slot before
+         duplicates compete.
+      2. If fewer than `k` slots are filled (more slots than distinct roles),
+         backfill by raw composite_score from the remaining candidates.
+
+    Without this, 4 high-scored 沪深300 ETFs (all role=core_cn_equity) would
+    crowd out the single 中证红利 / 央企创新 candidate even though they're
+    near-clones — the discovery's role-based diversity would silently
+    collapse at allocate. Rows without a `role` field are treated as a single
+    anonymous role, preserving the old pure-score behavior in that case.
+    """
     by_class: dict[str, list[dict]] = {}
     for s in scores:
         by_class.setdefault(s["asset_class"], []).append(s)
-    for cls in by_class:
-        by_class[cls] = sorted(by_class[cls], key=lambda r: r["composite_score"], reverse=True)[:k]
+    for cls, rows in by_class.items():
+        ranked = sorted(rows, key=lambda r: r["composite_score"], reverse=True)
+        seen_roles: set[str] = set()
+        picks: list[dict] = []
+        for r in ranked:
+            role = r.get("role") or ""
+            if role in seen_roles:
+                continue
+            picks.append(r)
+            seen_roles.add(role)
+            if len(picks) >= k:
+                break
+        if len(picks) < k:
+            for r in ranked:
+                if r in picks:
+                    continue
+                picks.append(r)
+                if len(picks) >= k:
+                    break
+        by_class[cls] = picks
     return by_class
 
 
