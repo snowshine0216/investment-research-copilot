@@ -231,9 +231,34 @@ def test_fetch_macro_series_akshare_dispatches_dgs10() -> None:
     assert out.iloc[-1]["value"] == 4.30
 
 
+def test_fetch_macro_series_akshare_dispatches_dxy() -> None:
+    """DXY is the akshare-only US Dollar Index slot used by gold scoring;
+    thresholds in gold_score/_dxy_score (95/105/115) and gold_scenarios
+    (dxy<100, dxy>110) are calibrated for this ~95–115 range."""
+    fake = pd.DataFrame({
+        "日期": ["2026-04-30", "2026-05-06"],
+        "最新价": [98.42, 99.10],
+    })
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_macro_series_akshare("DXY", start="2026-01-01", end="2026-12-31")
+    assert mocked.call_args.args[0] == "index_global_hist_em"
+    assert mocked.call_args.kwargs == {"symbol": "美元指数"}
+    assert list(out.columns) == ["date", "value"]
+    assert out.iloc[-1]["value"] == 99.10
+
+
 def test_fetch_macro_series_akshare_raises_for_unsupported_series() -> None:
     with pytest.raises(ValueError, match="no akshare fallback"):
         fetch_macro_series_akshare("UNKNOWN_SERIES", start="2026-01-01", end="2026-05-01")
+
+
+def test_fetch_macro_series_akshare_no_longer_recognizes_old_dtwexbgs_id() -> None:
+    """Guards against accidental revert: DTWEXBGS used to be the placeholder
+    for the DXY slot but was confusingly named (FRED's DTWEXBGS sits ~120 vs
+    DXY ~98). The slot is now keyed as 'DXY' end-to-end."""
+    with pytest.raises(ValueError, match="no akshare fallback"):
+        fetch_macro_series_akshare("DTWEXBGS", start="2026-01-01", end="2026-05-01")
 
 
 def test_fetch_etf_metadata() -> None:

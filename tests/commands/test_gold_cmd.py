@@ -22,7 +22,7 @@ def repo_with_gold_data(tmp_path: Path) -> Path:
              f"openbb:prices:518880:{d.isoformat()}"],
         )
     # Macro series
-    for s, v in (("DGS10", 4.0), ("DTWEXBGS", 104.0)):
+    for s, v in (("DGS10", 4.0), ("DXY", 104.0)):
         con.execute(
             "INSERT INTO macro_series VALUES (?, ?, ?, ?, ?, ?)",
             [s, base.isoformat(), v, "2026-05-07T10:00:00+08:00", "openbb",

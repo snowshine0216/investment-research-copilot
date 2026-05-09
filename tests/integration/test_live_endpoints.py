@@ -15,7 +15,7 @@ Layered coverage (bottom-up):
     • akshare: fund_individual_basic_info_xq (DanJuanFunds; off-exchange feeders)
     • akshare: fund_open_fund_info_em       (NAV history)
     • akshare: bond_zh_us_rate              (DGS10 macro fallback)
-    • akshare: index_global_hist_em         (DXY macro fallback)
+    • akshare: index_global_hist_em         (DXY macro source)
     • EastMoney HTML profile page           (on-exchange ETF metadata)
     • OpenBB → yfinance equity.price.historical with .SS / .SZ suffix
   Layer 2 — irc data clients (these wrap layer 1)
@@ -68,7 +68,8 @@ def test_akshare_bond_zh_us_rate_for_dgs10() -> None:
 
 
 def test_akshare_dxy_via_global_index() -> None:
-    """DXY (美元指数) historical via index_global_hist_em is the fallback for DTWEXBGS."""
+    """DXY (美元指数) historical via index_global_hist_em is the canonical
+    source for the DXY macro slot — FRED has no equivalent at the same level."""
     from irc.data.akshare_client import _ak_call
     df = _ak_call("index_global_hist_em", symbol="美元指数")
     assert not df.empty
@@ -152,12 +153,14 @@ def test_fetch_macro_series_falls_back_to_akshare_when_fred_unavailable() -> Non
     print(f"\n  ✓ fetch_macro_series(DGS10) via fallback → {len(df)} rows, latest={df.iloc[-1]['date']} value={df.iloc[-1]['value']}")
 
 
-def test_fetch_macro_series_falls_back_for_dxy() -> None:
+def test_fetch_macro_series_routes_dxy_to_akshare() -> None:
+    """DXY is akshare-only (no FRED equivalent at the same level), so
+    fetch_macro_series skips OpenBB and goes straight to akshare."""
     from irc.data.openbb_client import fetch_macro_series
-    df = fetch_macro_series(series_id="DTWEXBGS", start="2026-01-01", end="2026-05-01")
+    df = fetch_macro_series(series_id="DXY", start="2026-01-01", end="2026-05-01")
     assert not df.empty
     assert {"date", "value"} <= set(df.columns)
-    print(f"\n  ✓ fetch_macro_series(DTWEXBGS) via fallback → {len(df)} rows, latest={df.iloc[-1]['date']} value={df.iloc[-1]['value']}")
+    print(f"\n  ✓ fetch_macro_series(DXY) via akshare → {len(df)} rows, latest={df.iloc[-1]['date']} value={df.iloc[-1]['value']}")
 
 
 def test_fetch_fund_metadata_for_off_exchange_feeder() -> None:
@@ -227,9 +230,9 @@ def test_irc_ingest_end_to_end_populates_duckdb(tmp_path: Path) -> None:
         missing_nav = expected_nav - nav_ids
         assert not missing_nav, f"missing NAV data: {sorted(missing_nav)}"
 
-        # Macro series: DGS10 + DTWEXBGS via fallback chain.
+        # Macro series: DGS10 (FRED+akshare fallback) + DXY (akshare-only).
         macro_series = {r[0] for r in con.execute("SELECT DISTINCT series_id FROM macro_series").fetchall()}
-        assert macro_series == {"DGS10", "DTWEXBGS"}, f"macro_series populated: {macro_series}"
+        assert macro_series == {"DGS10", "DXY"}, f"macro_series populated: {macro_series}"
 
         # Sanity: every populated table has > 0 rows.
         for tbl in ("instruments", "prices", "nav_history", "macro_series"):

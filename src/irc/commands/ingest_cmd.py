@@ -22,7 +22,7 @@ from irc.data.raw_ref import build_ref_id
 _log = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "v1"
-_MACRO_SERIES = ("DGS10", "DTWEXBGS")
+_MACRO_SERIES = ("DGS10", "DXY")
 _LOOK_BACK_DAYS = 365 * 3
 _YF_ELIGIBLE_MARKETS = frozenset({"cn_on_exchange"})
 _AUM_UNITS = {
