@@ -218,6 +218,109 @@ def test_fetch_etf_price_history_akshare_normalizes_columns() -> None:
     assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
 
 
+def test_fetch_etf_price_history_akshare_retries_transient_connection_errors() -> None:
+    """EastMoney occasionally drops connections mid-handshake. A single
+    RemoteDisconnected used to crash the whole ingest because yfinance
+    fallback is rate-limited; we now retry within akshare itself."""
+    fake = pd.DataFrame({
+        "日期": ["2026-05-06"],
+        "开盘": [2.455], "收盘": [2.454],
+        "最高": [2.463], "最低": [2.45],
+        "成交量": [1.1e8],
+    })
+    transient = ConnectionError("Connection aborted: Remote end closed connection without response")
+    with patch("irc.data.akshare_client._ak_call") as mocked, \
+         patch("irc.data.akshare_client._sleep") as slept:
+        mocked.side_effect = [transient, transient, fake]
+        out = fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+    assert mocked.call_count == 3
+    assert slept.call_count == 2
+    assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
+
+
+def test_fetch_etf_price_history_akshare_does_not_retry_value_errors() -> None:
+    """Non-network errors should fail fast — retrying a malformed ticker
+    is just three identical 4xx-equivalent responses."""
+    with patch("irc.data.akshare_client._ak_call") as mocked, \
+         patch("irc.data.akshare_client._sleep") as slept:
+        mocked.side_effect = ValueError("symbol unknown")
+        with pytest.raises(ValueError):
+            fetch_etf_price_history_akshare("999999", start="2026-04-01", end="2026-05-07")
+    assert mocked.call_count == 1
+    assert slept.call_count == 0
+
+
+def test_fetch_etf_price_history_falls_back_to_sina_when_eastmoney_exhausts_retries() -> None:
+    """EastMoney's push2his.* host gets blocked at random for non-CN-mainland
+    IPs. After EM retries are exhausted, fall back to Sina finance which uses
+    a different host (finance.sina.com.cn) — proven independent uptime."""
+    sina_full = pd.DataFrame({
+        "date": ["2026-03-15", "2026-04-30", "2026-05-06", "2026-06-01"],
+        "open": [2.40, 2.42, 2.45, 2.50], "high": [2.42, 2.43, 2.46, 2.51],
+        "low":  [2.39, 2.41, 2.44, 2.49], "close": [2.41, 2.42, 2.45, 2.50],
+        "volume": [1.0e8, 1.0e8, 1.1e8, 1.2e8], "amount": [1, 1, 1, 1],
+    })
+    transient = ConnectionError("Connection aborted: push2his blocked")
+
+    def _ak_call_side_effect(fn_name, **kwargs):
+        if fn_name == "fund_etf_hist_em":
+            raise transient
+        if fn_name == "fund_etf_hist_sina":
+            return sina_full
+        raise AssertionError(f"unexpected ak_call: {fn_name}")
+
+    with patch("irc.data.akshare_client._ak_call", side_effect=_ak_call_side_effect) as mocked, \
+         patch("irc.data.akshare_client._sleep"):
+        out = fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+    # 3 EM attempts + 1 sina = 4 total
+    assert mocked.call_count == 4
+    em_calls = [c for c in mocked.call_args_list if c.args[0] == "fund_etf_hist_em"]
+    sina_calls = [c for c in mocked.call_args_list if c.args[0] == "fund_etf_hist_sina"]
+    assert len(em_calls) == 3
+    assert len(sina_calls) == 1
+    # Sina symbol is sh/sz prefixed — 513500 starts with 5 → sh
+    assert sina_calls[0].kwargs["symbol"] == "sh513500"
+    # Date range filter applied client-side — only 2026-04-30 and 2026-05-06 fall inside
+    assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
+    assert len(out) == 2
+    assert str(out.iloc[0]["date"]) == "2026-04-30"
+    assert str(out.iloc[-1]["date"]) == "2026-05-06"
+
+
+def test_fetch_etf_price_history_sina_symbol_prefix_for_shenzhen_ticker() -> None:
+    """Shenzhen tickers start with 0/1/2/3 — must map to `sz` prefix."""
+    sina_full = pd.DataFrame({
+        "date": ["2026-05-06"], "open": [1.0], "high": [1.0], "low": [1.0],
+        "close": [1.0], "volume": [1e8], "amount": [1],
+    })
+    def _ak_call_side_effect(fn_name, **kwargs):
+        if fn_name == "fund_etf_hist_em":
+            raise ConnectionError("blocked")
+        return sina_full
+
+    with patch("irc.data.akshare_client._ak_call", side_effect=_ak_call_side_effect) as mocked, \
+         patch("irc.data.akshare_client._sleep"):
+        fetch_etf_price_history_akshare("159919", start="2026-04-01", end="2026-05-07")
+    sina_call = next(c for c in mocked.call_args_list if c.args[0] == "fund_etf_hist_sina")
+    assert sina_call.kwargs["symbol"] == "sz159919"
+
+
+def test_fetch_etf_price_history_sina_fallback_propagates_failure_when_both_fail() -> None:
+    """If both EastMoney and Sina fail, raise the Sina exception so the
+    per-instrument handler in ingest_cmd skips this ticker rather than crash."""
+    def _both_fail(fn_name, **kwargs):
+        if fn_name == "fund_etf_hist_em":
+            raise ConnectionError("EM blocked")
+        if fn_name == "fund_etf_hist_sina":
+            raise ConnectionError("sina also down")
+        raise AssertionError("unexpected")
+
+    with patch("irc.data.akshare_client._ak_call", side_effect=_both_fail), \
+         patch("irc.data.akshare_client._sleep"):
+        with pytest.raises(ConnectionError, match="sina also down"):
+            fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+
+
 def test_fetch_macro_series_akshare_dispatches_dgs10() -> None:
     fake = pd.DataFrame({
         "日期": ["2026-04-30", "2026-05-06"],

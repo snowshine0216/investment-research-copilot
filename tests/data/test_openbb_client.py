@@ -51,16 +51,31 @@ def test_fetch_etf_price_history_routes_cn_ticker_to_akshare() -> None:
     assert "close" in out.columns
 
 
-def test_fetch_etf_price_history_falls_back_to_openbb_when_akshare_fails() -> None:
-    fake_obj = MagicMock()
-    fake_obj.to_df.return_value = pd.DataFrame({
-        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
-        "low": [4.18], "close": [4.25], "volume": [1e8],
+def test_fetch_etf_price_history_cn_ticker_raises_when_akshare_fails() -> None:
+    """yfinance heavily rate-limits CN ETFs (`513500.SS` etc.) — falling back
+    to it on akshare failure burns the rate-limit budget across all CN tickers
+    in the same run. For CN tickers, akshare is canonical: if it fails, raise
+    fast and let the per-instrument handler in ingest_cmd skip this one."""
+    import pytest
+    with patch("irc.data.openbb_client.fetch_etf_price_history_akshare",
+               side_effect=RuntimeError("akshare down")), \
+         patch("irc.data.openbb_client._call_obb") as obb_mock:
+        with pytest.raises(RuntimeError, match="akshare down"):
+            fetch_etf_price_history(ticker="513500", start="2026-04-01", end="2026-05-07")
+    obb_mock.assert_not_called()
+
+
+def test_fetch_etf_price_history_non_cn_falls_back_to_akshare_on_openbb_failure() -> None:
+    """Non-CN tickers (e.g. SPY) try OpenBB first, fall back to akshare on
+    OpenBB error. This path is unchanged — yfinance handles US tickers fine."""
+    fake_df = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [400.0], "high": [403.0],
+        "low": [399.0], "close": [402.0], "volume": [5e7],
     })
-    with patch("irc.data.openbb_client.fetch_etf_price_history_akshare", side_effect=RuntimeError("akshare down")), \
-         patch("irc.data.openbb_client._call_obb", return_value=fake_obj) as obb_mock:
-        out = fetch_etf_price_history(ticker="513500", start="2026-04-01", end="2026-05-07")
-    assert obb_mock.call_args.kwargs["symbol"] == "513500.SS"
+    with patch("irc.data.openbb_client._call_obb", side_effect=RuntimeError("openbb down")), \
+         patch("irc.data.openbb_client.fetch_etf_price_history_akshare", return_value=fake_df) as ak_mock:
+        out = fetch_etf_price_history(ticker="SPY", start="2026-04-01", end="2026-05-07")
+    ak_mock.assert_called_once_with("SPY", "2026-04-01", "2026-05-07")
     assert "close" in out.columns
 
 

@@ -183,6 +183,134 @@ def test_ingest_allows_missing_manager_tenure_for_passive_funds(repo: Path) -> N
     assert stored == (None,)
 
 
+def _make_instrument(asset_class: str, market: str = "cn_off_exchange"):
+    """Tiny stand-in for an Instrument — only the attributes _is_active_fund
+    reads (asset_class, market). Avoids pulling in the full pydantic schema."""
+    from types import SimpleNamespace
+    return SimpleNamespace(asset_class=asset_class, market=market, ticker="000000")
+
+
+def test_active_fund_tenure_fallback_uses_inception_years_when_tenure_missing() -> None:
+    """XueQiu's basic-info endpoint doesn't expose manager tenure for active
+    funds. Use fund inception years as a conservative lower-bound proxy so
+    well-known managers (张坤/谢治宇/etc.) at long-running funds aren't
+    silently dropped from the universe."""
+    from datetime import date
+    from irc.commands.ingest_cmd import _apply_active_fund_tenure_fallback
+    instrument = _make_instrument("cn_equity_fund")
+    metadata = {
+        "inception_date": "2018-03-26",
+        "expense_ratio": 0.015, "aum": 2e10,
+        "manager_tenure_years": None,
+    }
+    out = _apply_active_fund_tenure_fallback(instrument, metadata)
+    expected = round((date.today() - date(2018, 3, 26)).days / 365.25, 2)
+    assert out["manager_tenure_years"] == expected
+    assert out["manager_tenure_years"] >= 2.0  # passes quality_filter min
+
+
+def test_active_fund_tenure_fallback_keeps_real_tenure_when_supplied() -> None:
+    from irc.commands.ingest_cmd import _apply_active_fund_tenure_fallback
+    instrument = _make_instrument("cn_equity_fund")
+    metadata = {
+        "inception_date": "2010-01-01",
+        "expense_ratio": 0.012, "aum": 5e9,
+        "manager_tenure_years": 3.5,
+    }
+    out = _apply_active_fund_tenure_fallback(instrument, metadata)
+    assert out["manager_tenure_years"] == 3.5  # NOT 15+ from inception
+
+
+def test_active_fund_tenure_fallback_skipped_for_passive_etfs() -> None:
+    """Passive ETFs (cn_etf, on-exchange) don't need tenure — manager doesn't
+    drive returns, they just rebalance to track the index. Fallback must not
+    apply, otherwise it would muddy the metadata downstream."""
+    from irc.commands.ingest_cmd import _apply_active_fund_tenure_fallback
+    instrument = _make_instrument("cn_etf", market="cn_on_exchange")
+    metadata = {
+        "inception_date": "2018-03-26", "expense_ratio": 0.005,
+        "aum": 1e10, "manager_tenure_years": None,
+    }
+    out = _apply_active_fund_tenure_fallback(instrument, metadata)
+    assert out["manager_tenure_years"] is None  # unchanged
+
+
+def test_active_fund_tenure_fallback_no_op_when_inception_also_missing() -> None:
+    from irc.commands.ingest_cmd import _apply_active_fund_tenure_fallback
+    instrument = _make_instrument("cn_equity_fund")
+    metadata = {"inception_date": None, "expense_ratio": 0.012,
+                "aum": 1e9, "manager_tenure_years": None}
+    out = _apply_active_fund_tenure_fallback(instrument, metadata)
+    assert out["manager_tenure_years"] is None
+
+
+def test_ingest_skips_failed_price_ticker_and_continues(repo: Path) -> None:
+    """When EastMoney drops a single ticker (RemoteDisconnected) and the
+    yfinance fallback is rate-limited, the pipeline must log and skip that
+    instrument, not crash all 58 others."""
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({
+        "date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34],
+    })
+    empty_macro = pd.DataFrame({"date": [], "value": []})
+    seen: list[str] = []
+
+    def flaky_prices(ticker: str, start: str, end: str) -> pd.DataFrame:
+        seen.append(ticker)
+        if ticker == "513500":
+            raise ConnectionError("Connection aborted: RemoteDisconnected")
+        return fake_prices
+
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", side_effect=flaky_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    assert "513500" in seen, "expected 513500 to be attempted"
+    assert any(t != "513500" for t in seen), "other tickers must still be processed"
+
+
+def test_ingest_skips_failed_nav_ticker_and_continues(repo: Path) -> None:
+    """A single NAV fetch failure (XueQiu auth blip, network drop) must not
+    halt the whole pipeline — log and skip, like the price path."""
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    empty_macro = pd.DataFrame({"date": [], "value": []})
+    fake_nav = pd.DataFrame({
+        "date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34],
+    })
+    nav_calls: list[str] = []
+
+    def flaky_nav(fund_code: str) -> pd.DataFrame:
+        nav_calls.append(fund_code)
+        if fund_code == "006075":
+            raise RuntimeError("XueQiu auth blip")
+        return fake_nav
+
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", side_effect=flaky_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    assert "006075" in nav_calls
+    assert any(t != "006075" for t in nav_calls), "other NAV tickers must still be fetched"
+
+
 def test_ingest_continues_when_macro_fetch_fails_with_missing_credentials(repo: Path) -> None:
     """Macro provider (FRED/Intrinio) needs an API key. When unavailable, ingest
     must skip with a warning and let downstream defaults kick in — not halt."""

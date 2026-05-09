@@ -138,6 +138,18 @@ def _is_active_fund(instrument: Any) -> bool:
     return instrument.asset_class.endswith(("equity_fund", "bond_fund"))
 
 
+def _years_since_iso_date(iso_date: str | None) -> float | None:
+    """Years between iso_date (YYYY-MM-DD) and today, rounded to 2dp."""
+    if iso_date is None:
+        return None
+    try:
+        anchor = datetime.fromisoformat(iso_date).date()
+    except ValueError:
+        return None
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    return round((today - anchor).days / 365.25, 2)
+
+
 def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | None]:
     return {
         "inception_date": _normal_date(_metadata_value(raw, "inception_date", "成立日期")),
@@ -147,6 +159,25 @@ def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | Non
             _metadata_value(raw, "manager_tenure_years", "manager_tenure", "基金经理任职年限")
         ),
     }
+
+
+def _apply_active_fund_tenure_fallback(
+    instrument: Any, metadata: dict[str, float | str | None],
+) -> dict[str, float | str | None]:
+    """For active funds without explicit tenure, fall back to fund inception
+    years as a conservative lower-bound proxy. XueQiu's basic-info endpoint
+    doesn't expose manager tenure for active funds, so without this fallback
+    well-known managers (张坤/谢治宇/葛兰...) at long-running funds get
+    silently dropped. Passive ETFs are unaffected — they don't need tenure.
+    TODO: wire up `fund_manager_em` for accurate per-fund tenure."""
+    if not _is_active_fund(instrument):
+        return metadata
+    if metadata.get("manager_tenure_years") is not None:
+        return metadata
+    fallback = _years_since_iso_date(metadata.get("inception_date"))
+    if fallback is None:
+        return metadata
+    return {**metadata, "manager_tenure_years": fallback}
 
 
 def _missing_required_metadata(instrument: Any, metadata: dict[str, Any]) -> tuple[str, ...]:
@@ -171,7 +202,9 @@ def _fetch_metadata_by_id(instruments: list) -> dict[str, dict[str, float | str 
             continue
         try:
             fetch = _metadata_fetcher_for(instrument)
-            metadata = _normalize_fund_metadata(fetch(instrument.ticker))
+            metadata = _apply_active_fund_tenure_fallback(
+                instrument, _normalize_fund_metadata(fetch(instrument.ticker))
+            )
         except Exception as exc:
             _log.warning(
                 "skipping %s: metadata fetch error: %s",
@@ -330,9 +363,20 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_gold.instruments,
             *bundle.universe_cn_funds.instruments,
         ]
+        price_failures: list[str] = []
         for instr in all_price_instruments:
             if _is_yfinance_eligible(instr):
-                df = fetch_etf_price_history(ticker=instr.ticker, start=start, end=end)
+                try:
+                    df = fetch_etf_price_history(ticker=instr.ticker, start=start, end=end)
+                except Exception as exc:
+                    price_failures.append(instr.instrument_id)
+                    _log.warning(
+                        "skipping price ingest for %s (ticker=%s): %s. "
+                        "Other instruments will still be processed; rerun once "
+                        "the upstream source recovers.",
+                        instr.instrument_id, instr.ticker, exc,
+                    )
+                    continue
                 ob_counts["prices"] += _upsert_prices(con, instr.instrument_id, df)
             elif not _is_off_exchange_fund(instr):
                 _log.warning(
@@ -356,8 +400,18 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_cn_funds.instruments,
             *(i for i in all_price_instruments if _is_off_exchange_fund(i)),
         ]
+        nav_failures: list[str] = []
         for instr in nav_instruments:
-            df = fetch_fund_nav_history(instr.ticker)
+            try:
+                df = fetch_fund_nav_history(instr.ticker)
+            except Exception as exc:
+                nav_failures.append(instr.instrument_id)
+                _log.warning(
+                    "skipping NAV ingest for %s (ticker=%s): %s. "
+                    "Other instruments will still be processed.",
+                    instr.instrument_id, instr.ticker, exc,
+                )
+                continue
             ak_counts["nav_history"] += _upsert_nav(con, instr.instrument_id, df)
 
     finally:
@@ -373,4 +427,9 @@ def run_ingest(repo_root: str) -> int:
         schema_version=_SCHEMA_VERSION, record_counts=ak_counts,
     ))
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
+    if price_failures or nav_failures:
+        print(
+            f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "
+            f"nav: {nav_failures or 'none'}"
+        )
     return 0

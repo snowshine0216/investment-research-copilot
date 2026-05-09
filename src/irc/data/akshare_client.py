@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any
 
 import pandas as pd
@@ -14,6 +15,31 @@ def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
+
+
+def _sleep(seconds: float) -> None:
+    """Indirection so tests can fast-forward through retry backoff."""
+    time.sleep(seconds)
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """Match the connection-class errors that bubble up from EastMoney's
+    feed: requests.exceptions.ConnectionError (subclass of OSError) and
+    urllib3 ProtocolError (RemoteDisconnected, IncompleteRead, etc.).
+    Pattern-match on message as a backstop for libraries that wrap the
+    cause in a generic Exception."""
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    if isinstance(exc, OSError) and not isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
+        return True
+    msg = str(exc).lower()
+    return any(token in msg for token in (
+        "connection aborted",
+        "remotedisconnected",
+        "remote end closed",
+        "connection reset",
+        "read timed out",
+    ))
 
 
 def _http_get(
@@ -210,18 +236,68 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
 
 
-def fetch_etf_price_history_akshare(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """OHLCV for on-exchange CN ETFs via EastMoney. Free, no auth — the
-    canonical source for these tickers (yfinance heavily rate-limits CN ETF
-    requests). Accepts ISO dates (YYYY-MM-DD); akshare expects YYYYMMDD."""
-    df = _ak_call(
-        "fund_etf_hist_em",
-        symbol=symbol,
-        period="daily",
-        start_date=start.replace("-", ""),
-        end_date=end.replace("-", ""),
-        adjust="qfq",
-    )
+def _to_sina_symbol(ticker: str) -> str:
+    """Map 6-digit CN ticker to Sina finance symbol (sh510300 / sz159919).
+    Shanghai codes start with 5/6 → sh prefix; Shenzhen codes 0/1/2/3 → sz."""
+    prefix = "sh" if ticker[0] in ("5", "6") else "sz"
+    return f"{prefix}{ticker}"
+
+
+def _fetch_etf_price_history_sina(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """Sina finance ETF history. Independent host (finance.sina.com.cn) —
+    used as fallback when EastMoney's push2his.* endpoint is being dropped
+    (the host is sometimes blocked at network layer for non-CN-mainland IPs).
+    Sina returns full-history rows (1999+); we filter client-side."""
+    df = _ak_call("fund_etf_hist_sina", symbol=_to_sina_symbol(symbol))
+    out = df.assign(date=pd.to_datetime(df["date"]).dt.date)
+    start_d = pd.to_datetime(start).date()
+    end_d = pd.to_datetime(end).date()
+    mask = (out["date"] >= start_d) & (out["date"] <= end_d)
+    return out.loc[mask, ["date", "open", "high", "low", "close", "volume"]].copy()
+
+
+def fetch_etf_price_history_akshare(
+    symbol: str,
+    start: str,
+    end: str,
+    attempts: int = 3,
+    backoff_s: float = 1.0,
+) -> pd.DataFrame:
+    """OHLCV for on-exchange CN ETFs. Tries EastMoney's `fund_etf_hist_em`
+    first (forward-adjusted, official-feel), retries transient connection
+    errors, then falls back to Sina finance (`fund_etf_hist_sina`) if
+    EastMoney remains unreachable. Accepts ISO dates (YYYY-MM-DD).
+
+    Why two backends: EastMoney's `push2his.eastmoney.com` host has been
+    intermittently dropping connections at the TLS layer (network-level
+    block for some egress IPs), even when other EastMoney subdomains like
+    `fundf10.eastmoney.com` work fine. Sina finance uses an unrelated host
+    so the failure modes don't correlate."""
+    last_exc: Exception | None = None
+    df = None
+    for attempt in range(attempts):
+        try:
+            df = _ak_call(
+                "fund_etf_hist_em",
+                symbol=symbol,
+                period="daily",
+                start_date=start.replace("-", ""),
+                end_date=end.replace("-", ""),
+                adjust="qfq",
+            )
+            break
+        except Exception as exc:
+            if not _is_transient_network_error(exc):
+                raise
+            last_exc = exc
+            if attempt < attempts - 1:
+                _sleep(backoff_s * (2 ** attempt))
+    if df is None:
+        assert last_exc is not None
+        # EastMoney exhausted retries — try Sina as independent backend.
+        # Sina exception (if any) propagates; per-instrument handler in
+        # ingest_cmd skips the ticker without crashing the pipeline.
+        return _fetch_etf_price_history_sina(symbol, start, end)
     out = df.rename(columns={
         "日期": "date",
         "开盘": "open",

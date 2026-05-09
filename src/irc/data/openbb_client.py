@@ -51,26 +51,21 @@ def fetch_etf_price_history(
     end: str,
     provider: str = OPENBB_PROVIDER_DEFAULT,
 ) -> pd.DataFrame:
-    """Daily OHLCV. CN exchange tickers (6-digit codes) use akshare's EastMoney
-    feed — the canonical, no-auth source; yfinance heavily rate-limits CN ETF
-    requests. Other tickers go through OpenBB+yfinance. On primary-source
-    failure each path falls back to the other."""
+    """Daily OHLCV. CN exchange tickers (6-digit codes) go through akshare
+    only — yfinance heavily rate-limits `*.SS`/`*.SZ` symbols and falling
+    through to it after akshare failure (a) doesn't help (yfinance can't
+    fetch the data either) and (b) burns the shared rate-limit budget across
+    every CN ticker in the run. Per-instrument exception handling in
+    ingest_cmd skips failed tickers gracefully. Non-CN tickers try OpenBB
+    first and fall back to akshare on OpenBB error."""
     if _is_cn_exchange_ticker(ticker):
-        try:
-            return fetch_etf_price_history_akshare(ticker, start, end)
-        except Exception as ak_exc:
-            _log.warning(
-                "akshare price history failed for %s (%s); trying OpenBB+yfinance.",
-                ticker, ak_exc,
-            )
+        return fetch_etf_price_history_akshare(ticker, start, end)
     try:
         obj = _call_obb(
             "equity.price.historical",
             symbol=_to_yf_symbol(ticker), start_date=start, end_date=end, provider=provider,
         )
     except Exception as obb_exc:
-        if _is_cn_exchange_ticker(ticker):
-            raise
         _log.warning(
             "OpenBB price history failed for %s (%s); trying akshare fallback.",
             ticker, obb_exc,
