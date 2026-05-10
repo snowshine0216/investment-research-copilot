@@ -79,7 +79,7 @@ def _count_roles(bucketed: RoleBucketResult) -> list[DiagnosticRow]:
         for role in sorted(bucketed.relaxed_roles)
     )
     rows.extend(
-        DiagnosticRow("role_bucket", "failed", "", "", role, "below fail_below", len(bucketed.buckets.get(role, ())))
+        DiagnosticRow("role_bucket", "failed", "", "", role, "below fail_below", 0)
         for role in sorted(bucketed.failed_roles)
     )
     return rows
