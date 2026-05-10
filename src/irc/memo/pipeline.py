@@ -1,11 +1,33 @@
 from __future__ import annotations
 import re
+import warnings
 from dataclasses import dataclass
 from irc.llm._types import ResolvedRoute
 from irc.memo.template import MemoInputs, render_skeleton
 from irc.memo.synthesizer import synthesize_memo
 from irc.memo.auditor import audit_memo
 from irc.memo.traceability import check_traceability
+
+
+class MixedDateWarning(UserWarning):
+    """Emitted when memo input files span multiple output dates."""
+
+
+def check_inputs_same_date(
+    inputs: dict[str, object],
+    expected: object,
+) -> None:
+    """Warn if any input file path does not contain the expected ISO date string."""
+    mixed = [
+        (name, str(p)) for name, p in inputs.items()
+        if str(expected) not in str(p)
+    ]
+    if mixed:
+        warnings.warn(
+            f"memo inputs span multiple dates (expected {expected}): {mixed}",
+            MixedDateWarning,
+            stacklevel=2,
+        )
 
 
 _INJECT_PATTERNS = (
