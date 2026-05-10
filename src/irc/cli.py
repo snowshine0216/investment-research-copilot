@@ -114,7 +114,7 @@ def universe() -> None:
 
 
 @universe.command("build-cn-funds", help="Build generated CN fund universe from Akshare catalog.")
-@click.option("--repo-root", type=click.Path(file_okay=False), default=".",
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".",
               help="Repo root (defaults to cwd).")
 def universe_build_cn_funds(repo_root: str) -> None:
     from irc.commands.universe_cmd import run_build_cn_funds

@@ -202,18 +202,12 @@ def _fetch_full_fund_table() -> pd.DataFrame:
 @lru_cache(maxsize=1)
 def fetch_open_fund_catalog() -> pd.DataFrame:
     """Fetch Akshare's open-fund catalog with stable internal column names."""
-    df = _raw_fund_table_call()
-    rename_map = {
-        "基金代码": "fund_code",
-        "基金名称": "fund_name",
-        "基金类型": "fund_type",
-    }
-    normalized = df.rename(columns=rename_map)
+    df = _fetch_full_fund_table()  # reuses existing cache
     required = ("fund_code", "fund_name", "fund_type")
-    missing = [column for column in required if column not in normalized.columns]
+    missing = [column for column in required if column not in df.columns]
     if missing:
         raise ValueError(f"Akshare open fund catalog missing columns: {', '.join(missing)}")
-    out = normalized.loc[:, list(required)].copy()
+    out = df.loc[:, list(required)].copy()
     for column in required:
         out[column] = out[column].astype(str).str.strip()
     return out
