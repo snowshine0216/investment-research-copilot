@@ -16,7 +16,9 @@ class Settings(BaseSettings):
 
     # Required — stored as SecretStr so repr(Settings()) never leaks raw values
     deepseek_api_key: SecretStr = Field(min_length=1)
-    openrouter_api_key: SecretStr = Field(min_length=1)
+
+    # Optional
+    openrouter_api_key: SecretStr = SecretStr("")
 
     # Optional (LDR)
     ldr_base_url: str = "http://localhost:8080"

@@ -48,3 +48,11 @@ def test_provider_secrets_are_secretstr(monkeypatch):
                  "openbb_fmp_key", "openbb_tiingo_key"):
         assert isinstance(getattr(s, name), SecretStr)
         assert str(getattr(s, name)) == "**********"
+
+
+def test_openrouter_missing_returns_default(monkeypatch):
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    from irc.settings import Settings
+    s = Settings(_env_file=None)
+    assert s.openrouter_api_key.get_secret_value() == ""

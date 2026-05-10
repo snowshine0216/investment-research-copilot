@@ -11,3 +11,8 @@ class OverrideEntry(FrozenModel):
 class OverridesConfig(FrozenModel):
     boost_list: list[OverrideEntry] = Field(default_factory=list)
     ban_list: list[OverrideEntry] = Field(default_factory=list)
+
+
+class OverridesFile(FrozenModel):
+    include: list[OverrideEntry] = Field(default_factory=list)
+    exclude: list[OverrideEntry] = Field(default_factory=list)
