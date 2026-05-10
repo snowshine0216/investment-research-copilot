@@ -15,7 +15,7 @@ from irc.discovery.metrics import (
     empty_discovery_metrics,
     merge_discovery_metrics,
 )
-from irc.discovery.pipeline import run_discovery
+from irc.discovery.pipeline import run_discovery_with_diagnostics
 from irc.discovery.universe import enumerate_universe
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
@@ -127,7 +127,7 @@ def run_discover(repo_root: str) -> int:
         bundle.universe_gold,
     )
     route = resolve_route("watchlist_reason", bundle.llm)
-    df = run_discovery(
+    result = run_discovery_with_diagnostics(
         universe=universe,
         metadata=metadata,
         metrics=metrics,
@@ -142,6 +142,10 @@ def run_discover(repo_root: str) -> int:
     )
     out_dir = root / "outputs" / _now_iso_date()
     out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "discovered_watchlist.csv", df.to_csv(index=False))
-    print(f"discover OK: {len(df)} candidates → {out_dir / 'discovered_watchlist.csv'}")
+    watchlist_path = out_dir / "discovered_watchlist.csv"
+    diagnostics_path = out_dir / "discovery_diagnostics.csv"
+    atomic_write_text(watchlist_path, result.watchlist.to_csv(index=False))
+    atomic_write_text(diagnostics_path, result.diagnostics.to_csv(index=False))
+    print(f"discover OK: {len(result.watchlist)} candidates → {watchlist_path}")
+    print(f"diagnostics OK: {len(result.diagnostics)} rows → {diagnostics_path}")
     return 0
