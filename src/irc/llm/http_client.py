@@ -1,19 +1,35 @@
 from __future__ import annotations
-from dataclasses import dataclass
+import ipaddress
 import os
+import socket
 import time
 from typing import Any
+from urllib.parse import urlparse
 import httpx
-from irc.llm._types import ResolvedRoute
+from irc.llm._types import ResolvedRoute, ChatResponse
 
 
-@dataclass(frozen=True)
-class ChatResponse:
-    text: str
-    prompt_tokens: int
-    completion_tokens: int
-    latency_ms: int
-    raw: dict[str, Any]
+class SSRFError(RuntimeError):
+    pass
+
+
+_BLOCKED_NETS = (
+    ipaddress.ip_network("127.0.0.0/8"),
+    ipaddress.ip_network("169.254.0.0/16"),
+    ipaddress.ip_network("10.0.0.0/8"),
+    ipaddress.ip_network("172.16.0.0/12"),
+    ipaddress.ip_network("192.168.0.0/16"),
+    ipaddress.ip_network("::1/128"),
+    ipaddress.ip_network("fc00::/7"),
+    ipaddress.ip_network("fe80::/10"),
+)
+
+
+def _verify_host_resolves_publicly(host: str) -> None:
+    resolved = socket.gethostbyname(host)
+    addr = ipaddress.ip_address(resolved)
+    if any(addr in net for net in _BLOCKED_NETS):
+        raise SSRFError(f"host {host} resolves to blocked address {resolved}")
 
 
 def _resolve_key(env_name: str) -> str:
@@ -51,10 +67,13 @@ def _post_request(
     url: str,
     headers: dict[str, str],
     payload: dict[str, Any],
-    timeout_s: float,
-    client: httpx.Client | None,
+    timeout_s: float = 30.0,
+    client: httpx.Client | None = None,
     proxy: str | None = None,
 ) -> tuple[httpx.Response, int]:
+    parsed = urlparse(url)
+    if parsed.hostname:
+        _verify_host_resolves_publicly(parsed.hostname)
     started = time.perf_counter()
     if client is not None:
         resp = client.post(url, headers=headers, json=payload, timeout=timeout_s)
@@ -79,7 +98,7 @@ def _parse_response(body: dict[str, Any], provider: str, model: str, latency_ms:
         prompt_tokens=int(body.get("usage", {}).get("prompt_tokens", 0)),
         completion_tokens=int(body.get("usage", {}).get("completion_tokens", 0)),
         latency_ms=latency_ms,
-        raw=body,
+        raw=body if os.environ.get("IRC_PERSIST_LLM_RAW") == "1" else None,
     )
 
 
