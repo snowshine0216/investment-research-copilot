@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 
-Regime = Literal["range_bound", "uptrend", "downtrend"]
+Regime = Literal["range_bound", "uptrend", "downtrend", "neutral"]
 
 
 @dataclass(frozen=True)
@@ -72,6 +72,29 @@ def classify_regime(
         regime: Regime = "range_bound"
     elif sign > 0:
         regime = "uptrend"
-    else:
+    elif sign < 0:
         regime = "downtrend"
+    else:
+        regime = "neutral"
     return RegimeResult(regime=regime, vol_ratio=vol, adx=adx, trend_sign=sign)
+
+
+@dataclass(frozen=True)
+class DetectRegimeResult:
+    label: str  # "unknown", "neutral", "uptrend", "downtrend", "range_bound"
+
+
+def detect_regime(prices: pd.DataFrame, min_obs: int = 30) -> DetectRegimeResult:
+    """High-level regime detection from a DataFrame with 'date' and 'close' columns.
+
+    Returns DetectRegimeResult with a `label` attribute. Short histories return
+    'unknown'; flat (zero-slope) prices return 'neutral'.
+    """
+    if len(prices) < min_obs:
+        return DetectRegimeResult(label="unknown")
+    close = prices["close"] if "close" in prices.columns else prices.iloc[:, -1]
+    slope = float(close.iloc[-1]) - float(close.iloc[0])
+    if math.isclose(slope, 0.0, abs_tol=1e-9):
+        return DetectRegimeResult(label="neutral")
+    result = classify_regime(close, vol_ratio_threshold=1.5, adx_threshold=25)
+    return DetectRegimeResult(label=result.regime)

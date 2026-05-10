@@ -32,3 +32,18 @@ def test_volatile_prices_not_range_bound():
     out = classify_regime(s, vol_ratio_threshold=1.2, adx_threshold=20)
     # 大波动 → 不是震荡
     assert out.regime != "range_bound" or out.vol_ratio > 1.0
+
+
+from datetime import date, timedelta
+import pandas as pd
+from irc.scoring.regime_detect import detect_regime
+
+
+def test_short_history_returns_unknown_not_downtrend():
+    df = pd.DataFrame({
+        "date": [date(2026, 1, 1) + timedelta(days=i) for i in range(5)],
+        "close": [100.0] * 5,  # zero slope
+    })
+    out = detect_regime(prices=df)
+    assert out.label in ("unknown", "neutral")
+    assert out.label != "downtrend"
