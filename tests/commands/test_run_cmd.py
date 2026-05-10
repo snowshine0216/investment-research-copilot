@@ -9,7 +9,7 @@ from irc.commands.run_cmd import run_pipeline, STAGE_NAMES
 def test_stage_names_complete():
     assert "ingest" in STAGE_NAMES
     assert "memo" in STAGE_NAMES
-    assert len(STAGE_NAMES) == 7
+    assert len(STAGE_NAMES) == 8  # ingest, research, discover, score, gold, allocate, plan, memo
 
 
 def test_only_stage_runs_single():

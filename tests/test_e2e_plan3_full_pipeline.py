@@ -225,7 +225,7 @@ def test_e2e_plan3_all_stages(tmp_path: Path) -> None:
         assert len(memo_text) > 10, "memo.md is empty"
         trace = json.loads(trace_files[0].read_text())
         assert "coverage_ratio" in trace
-        assert "missing_count" in trace
+        assert "n_refs" in trace
 
         # ── ask ───────────────────────────────────────────────────────────────
         r = runner.invoke(main, ["ask", "--repo-root", str(tmp_path), "黄金标的如何？"])
