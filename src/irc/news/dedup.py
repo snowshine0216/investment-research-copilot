@@ -25,7 +25,8 @@ def dedup_items(items: list[FeedItem]) -> list[FeedItem]:
         sig = similarity_signature(it.title)
         if sig and sig in seen_sigs:
             continue
-        seen_urls.add(it.source_url)
+        if it.source_url:  # only track non-blank URLs to avoid cross-item collision
+            seen_urls.add(it.source_url)
         seen_sigs.add(sig)
         out.append(it)
     return out

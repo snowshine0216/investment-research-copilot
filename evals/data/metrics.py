@@ -35,8 +35,9 @@ def completeness_per_field(con: duckdb.DuckDBPyConnection, table: str) -> dict[s
     if total == 0:
         return {c[0]: 1.0 for c in cols}
     for (col,) in cols:
+        safe_col = '"' + col.replace('"', '""') + '"'
         non_null = con.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL"  # noqa: S608 — col from information_schema
+            f"SELECT COUNT(*) FROM {table} WHERE {safe_col} IS NOT NULL"  # noqa: S608 — col is quoted
         ).fetchone()[0]
         result[col] = non_null / total
     return result

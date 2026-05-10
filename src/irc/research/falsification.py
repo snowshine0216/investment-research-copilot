@@ -17,6 +17,15 @@ _SYS = (
 )
 
 
+_MAX_CONDITIONS = 10
+_MAX_CONDITION_LEN = 300
+
+
+def _sanitize_condition(c: str) -> str:
+    """Strip leading/trailing whitespace and truncate to prevent memo structure corruption."""
+    return str(c).strip().replace("\n", " ").replace("\r", "")[:_MAX_CONDITION_LEN]
+
+
 def generate_falsification(thesis_summary: str, route: ResolvedRoute) -> FalsificationResult:
     try:
         resp = call_chat(route, messages=[
@@ -24,7 +33,7 @@ def generate_falsification(thesis_summary: str, route: ResolvedRoute) -> Falsifi
             {"role": "user", "content": thesis_summary},
         ], timeout_s=30, temperature=0.2)
         data = json.loads(resp.text)
-        conds = data.get("conditions", [])
-        return FalsificationResult(conditions=tuple(str(c) for c in conds))
+        conds = data.get("conditions", [])[:_MAX_CONDITIONS]
+        return FalsificationResult(conditions=tuple(_sanitize_condition(c) for c in conds))
     except Exception:
         return FalsificationResult(conditions=())

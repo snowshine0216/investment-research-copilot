@@ -1,7 +1,9 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 import os
+from urllib.parse import urlparse
 import httpx
+from irc.llm.http_client import _verify_host_resolves_publicly, SSRFError
 
 
 @dataclass(frozen=True)
@@ -20,6 +22,11 @@ class LDRResearchResult:
 
 def run_research(query: str, time_budget_s: int = 120) -> LDRResearchResult:
     base = os.environ.get("LDR_BASE_URL", "http://localhost:8080").rstrip("/")
+    host = urlparse(base).hostname or ""
+    try:
+        _verify_host_resolves_publicly(host)
+    except SSRFError as e:
+        return LDRResearchResult(report_md="", failure_reason=f"SSRF blocked: {e}")
     token = os.environ.get("LDR_API_TOKEN", "")
     headers = {"Content-Type": "application/json"}
     if token:

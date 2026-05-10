@@ -1,11 +1,13 @@
 from __future__ import annotations
+from unittest.mock import patch
 import respx
 import httpx
 from irc.research.ldr_client import run_research, LDRResearchResult
 
 
 @respx.mock
-def test_ldr_run_research_happy_path(monkeypatch):
+@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+def test_ldr_run_research_happy_path(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:8080")
     monkeypatch.setenv("LDR_API_TOKEN", "tok")
     respx.post("http://localhost:8080/api/v1/research").mock(
@@ -21,7 +23,8 @@ def test_ldr_run_research_happy_path(monkeypatch):
 
 
 @respx.mock
-def test_ldr_returns_empty_on_503(monkeypatch):
+@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+def test_ldr_returns_empty_on_503(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:8080")
     monkeypatch.setenv("LDR_API_TOKEN", "tok")
     respx.post("http://localhost:8080/api/v1/research").mock(return_value=httpx.Response(503))

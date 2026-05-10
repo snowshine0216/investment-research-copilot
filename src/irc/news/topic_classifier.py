@@ -19,9 +19,9 @@ _RULES: tuple[tuple[str, tuple[str, ...]], ...] = (
 )
 
 
-def classify_topic(text: str, url: str = "") -> str:
+def classify_topic(text: str, url: str = "") -> str | None:
     blob = (text + " " + url).lower()
     for topic, kws in _RULES:
         if any(k in blob for k in kws):
             return topic
-    return "holdings_sector"
+    return None

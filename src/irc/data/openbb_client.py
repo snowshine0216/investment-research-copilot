@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import logging
 import os
+import threading
 from typing import Any
 
 import pandas as pd
@@ -13,6 +14,7 @@ from irc.data.akshare_client import (
 )
 
 _log = logging.getLogger(__name__)
+_FRED_CRED_LOCK = threading.Lock()  # guards global OBB credential mutation
 
 OPENBB_PROVIDER_DEFAULT = "yfinance"
 
@@ -84,11 +86,6 @@ def fetch_macro_series(series_id: str, start: str, end: str) -> pd.DataFrame:
         fred_key = os.environ.get("FRED_API_KEY")
         if fred_key:
             from openbb import obb  # noqa: PLC0415
-            import threading  # noqa: PLC0415
-            _FRED_CRED_LOCK = getattr(fetch_macro_series, "_fred_cred_lock", None)
-            if _FRED_CRED_LOCK is None:
-                fetch_macro_series._fred_cred_lock = threading.Lock()  # type: ignore[attr-defined]
-                _FRED_CRED_LOCK = fetch_macro_series._fred_cred_lock  # type: ignore[attr-defined]
             with _FRED_CRED_LOCK:
                 obb.user.credentials.fred_api_key = fred_key
                 obj = _call_obb(

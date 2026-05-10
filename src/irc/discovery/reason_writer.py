@@ -70,9 +70,10 @@ def write_reason(
     # Simplified calling convention: write_reason(role=..., instrument_id=..., route=...)
     if role is not None and instrument_id is not None and row is None:
         try:
+            safe_id = str(instrument_id).strip()[:200].replace("\n", " ").replace("\r", "")
             resp = call_chat(
                 route,  # type: ignore[arg-type]
-                messages=[{"role": "user", "content": f"{role}: {instrument_id}"}],
+                messages=[{"role": "user", "content": f"{role}: {safe_id}"}],
                 timeout_s=30,
             )
             return resp.text.strip()

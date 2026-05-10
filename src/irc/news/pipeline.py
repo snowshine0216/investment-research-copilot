@@ -18,7 +18,8 @@ def build_news_layer(feed_urls_by_topic: dict[str, list[str]]) -> NewsLayerOutpu
         raw.extend(fetch_feeds(urls=urls, topic=topic))
     refined: list[FeedItem] = []
     for it in raw:
-        topic = classify_topic(it.title + " " + it.summary, url=it.source_url) or it.topic
+        inferred_topic = classify_topic(it.title + " " + it.summary, url=it.source_url)
+        topic = inferred_topic if inferred_topic is not None else it.topic
         refined.append(FeedItem(
             title=it.title, summary=it.summary, source_url=it.source_url,
             published_iso=it.published_iso, topic=topic,

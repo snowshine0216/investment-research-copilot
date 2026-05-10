@@ -17,5 +17,5 @@ def test_keyword_routing():
     assert classify_topic("Russia-Ukraine ...", url="reuters.com") == "geopolitics"
 
 
-def test_default_falls_back_to_holdings_sector():
-    assert classify_topic("ABC announces ...", url="generic.com") == "holdings_sector"
+def test_default_falls_back_to_none():
+    assert classify_topic("ABC announces ...", url="generic.com") is None
