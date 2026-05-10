@@ -70,12 +70,12 @@ def write_reason(
     # Simplified calling convention: write_reason(role=..., instrument_id=..., route=...)
     if role is not None and instrument_id is not None and row is None:
         try:
-            call_chat(
+            resp = call_chat(
                 route,  # type: ignore[arg-type]
                 messages=[{"role": "user", "content": f"{role}: {instrument_id}"}],
                 timeout_s=30,
             )
-            return ""
+            return resp.text.strip()
         except Exception as e:
             _log.warning(
                 "write_reason failed for %s/%s: %s", role, instrument_id, e,

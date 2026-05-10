@@ -41,7 +41,7 @@ def run(repo_root: Path) -> int:
     if refs_file.exists():
         refs = tuple(json.loads(refs_file.read_text(encoding="utf-8")))
 
-    baseline_chars = int(repo_root / "outputs" / "memo" / "baseline_chars.txt").read_text().strip() \
+    baseline_chars = int((repo_root / "outputs" / "memo" / "baseline_chars.txt").read_text().strip()) \
         if (repo_root / "outputs" / "memo" / "baseline_chars.txt").exists() else len(memo_text)
 
     sp = seven_sections_present(memo_text)

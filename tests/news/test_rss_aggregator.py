@@ -21,8 +21,9 @@ _FAKE_RSS_PARSED = type("FP", (), {
 })()
 
 
+@patch("irc.news.rss_aggregator._verify_host_resolves_publicly")
 @patch("irc.news.rss_aggregator.feedparser.parse", return_value=_FAKE_RSS_PARSED)
-def test_fetch_feeds_returns_normalized_items(mock_parse):
+def test_fetch_feeds_returns_normalized_items(mock_parse, mock_ssrf):
     items = fetch_feeds(urls=["http://x/rss"], topic="us_monetary")
     assert len(items) == 2
     assert all(isinstance(i, FeedItem) for i in items)

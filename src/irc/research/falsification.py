@@ -26,5 +26,5 @@ def generate_falsification(thesis_summary: str, route: ResolvedRoute) -> Falsifi
         data = json.loads(resp.text)
         conds = data.get("conditions", [])
         return FalsificationResult(conditions=tuple(str(c) for c in conds))
-    except (json.JSONDecodeError, KeyError, ValueError, Exception):
+    except Exception:
         return FalsificationResult(conditions=())

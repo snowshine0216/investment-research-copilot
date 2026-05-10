@@ -19,18 +19,24 @@ def freshness_per_source(con: duckdb.DuckDBPyConnection, source: str) -> dict[st
     return out
 
 
+_ALLOWED_TABLES = frozenset({"prices", "nav_history", "macro_series", "raw_ref"})
+
+
 def completeness_per_field(con: duckdb.DuckDBPyConnection, table: str) -> dict[str, float]:
     """Fraction of non-null values per column."""
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"table {table!r} not in allowlist {_ALLOWED_TABLES}")
     cols = con.execute(
-        f"SELECT column_name FROM information_schema.columns WHERE table_name='{table}'"
+        "SELECT column_name FROM information_schema.columns WHERE table_name=?",
+        [table],
     ).fetchall()
     result: dict[str, float] = {}
-    total = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+    total = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]  # noqa: S608 — table is allowlisted
     if total == 0:
         return {c[0]: 1.0 for c in cols}
     for (col,) in cols:
         non_null = con.execute(
-            f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL"
+            f"SELECT COUNT(*) FROM {table} WHERE {col} IS NOT NULL"  # noqa: S608 — col from information_schema
         ).fetchone()[0]
         result[col] = non_null / total
     return result

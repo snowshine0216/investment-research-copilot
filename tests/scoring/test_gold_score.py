@@ -50,6 +50,21 @@ def test_tilt_mapping():
     assert gold_tilt_from_score(15) == "underweight"
 
 
+def test_known_drivers_present_in_gold_drivers_config():
+    """Regression: _KNOWN_DRIVERS keys must match gold_drivers.yaml to avoid KeyError at runtime."""
+    from pathlib import Path
+    import yaml
+    from irc.scoring.gold_score import _KNOWN_DRIVERS
+    config_path = Path(__file__).parents[2] / "config" / "gold_drivers.yaml"
+    if not config_path.exists():
+        import pytest
+        pytest.skip("config/gold_drivers.yaml not present in this checkout")
+    data = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    driver_keys = set((data.get("drivers") or {}).keys())
+    missing = set(_KNOWN_DRIVERS) - driver_keys
+    assert not missing, f"_KNOWN_DRIVERS references keys not in gold_drivers.yaml: {missing}"
+
+
 import pytest
 from irc.scoring.gold_score import compute_gold_score, GoldDriverInputs, ConfigKeyMismatch
 from irc.schemas.gold import GoldDriversConfig
