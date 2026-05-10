@@ -4,7 +4,7 @@ from irc.llm._types import ResolvedRoute
 from irc.memo.template import MemoInputs, render_skeleton
 from irc.memo.synthesizer import synthesize_memo
 from irc.memo.auditor import audit_memo
-from irc.memo.traceability import TraceabilityResult, check_traceability
+from irc.memo.traceability import check_traceability
 
 
 @dataclass(frozen=True)
@@ -12,7 +12,7 @@ class MemoOutput:
     skeleton: str
     draft: str
     audit_notes: str
-    traceability: TraceabilityResult
+    traceability: dict[str, float]
     prompt_tokens_total: int
     completion_tokens_total: int
 
