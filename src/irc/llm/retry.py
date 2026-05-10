@@ -1,6 +1,7 @@
 from __future__ import annotations
 from enum import Enum
 from typing import TYPE_CHECKING
+import time
 import httpx
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_chain, wait_fixed
 
@@ -8,6 +9,10 @@ if TYPE_CHECKING:
     from irc.llm._types import ResolvedRoute
     from irc.llm.http_client import ChatResponse
     from tenacity import wait_base
+
+
+class AggregateTimeoutError(TimeoutError):
+    """Raised when total wall time across all retry attempts exceeds deadline_s."""
 
 
 class FailureKind(str, Enum):
@@ -53,7 +58,7 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
-def retry_call_chat(
+def _call_once(
     route: ResolvedRoute,
     messages: list[dict[str, str]],
     *,
@@ -63,10 +68,7 @@ def retry_call_chat(
     max_tokens: int | None = None,
     client: httpx.Client | None = None,
 ) -> ChatResponse:
-    """call_chat wrapped with tenacity retry (429/5xx/network errors → up to 5 attempts).
-
-    Pass ``wait=wait_none()`` in tests to skip sleeping.
-    """
+    """Single attempt: call_chat wrapped with tenacity for 429/5xx/network errors."""
     from irc.llm.http_client import call_chat  # local import avoids module-level cycle
     _wait = wait if wait is not None else wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS])
     _retrying = retry(
@@ -76,10 +78,48 @@ def retry_call_chat(
         reraise=True,
     )
     return _retrying(call_chat)(
-        route,
-        messages,
+        route, messages,
         timeout_s=timeout_s,
         temperature=temperature,
         max_tokens=max_tokens,
         client=client,
     )
+
+
+def retry_call_chat(
+    route: ResolvedRoute,
+    messages: list[dict[str, str]],
+    *,
+    wait: wait_base | None = None,
+    timeout_s: float = 30.0,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    client: httpx.Client | None = None,
+    deadline_s: float = 60.0,
+    attempts: int = 5,
+) -> ChatResponse:
+    """call_chat wrapped with tenacity retry (429/5xx/network errors → up to 5 attempts).
+
+    ``deadline_s`` caps total wall time; ``AggregateTimeoutError`` is raised if exceeded.
+    Pass ``wait=wait_none()`` in tests to skip sleeping.
+    """
+    started = time.monotonic()
+    last_err: Exception | None = None
+    kw = dict(
+        wait=wait, timeout_s=timeout_s, temperature=temperature,
+        max_tokens=max_tokens, client=client,
+    )
+    for i in range(attempts):
+        if time.monotonic() - started >= deadline_s:
+            raise AggregateTimeoutError(
+                f"deadline {deadline_s}s exceeded after {i} attempts"
+            )
+        try:
+            return _call_once(route, messages, **kw)
+        except (ConnectionError, TimeoutError) as e:
+            last_err = e
+            elapsed = time.monotonic() - started
+            sleep_s = min(2 ** i, max(0.0, deadline_s - elapsed))
+            if sleep_s > 0:
+                time.sleep(sleep_s)
+    raise last_err if last_err else AggregateTimeoutError("no attempts ran")

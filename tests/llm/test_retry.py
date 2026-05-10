@@ -204,3 +204,18 @@ def test_retry_call_chat_forwards_explicit_params(monkeypatch):
     assert result.text == "forwarded"
     assert captured[0]["temperature"] == pytest.approx(0.1)
     assert captured[0]["max_tokens"] == 10
+
+
+import time
+from unittest.mock import patch
+import pytest
+from irc.llm.retry import retry_call_chat, AggregateTimeoutError
+
+
+def test_retry_aggregates_to_deadline():
+    def slow(*a, **kw):
+        time.sleep(0.6)
+        raise ConnectionError("boom")
+    with patch("irc.llm.retry._call_once", side_effect=slow):
+        with pytest.raises(AggregateTimeoutError):
+            retry_call_chat(route=None, messages=[], deadline_s=1.0, attempts=10)
