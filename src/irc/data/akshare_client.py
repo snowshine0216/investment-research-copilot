@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
-from typing import Any
+import time
+from typing import Any, TypeVar
 
 import pandas as pd
 
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
+_T = TypeVar("_T")
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -14,6 +17,61 @@ def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
+
+
+def _sleep(seconds: float) -> None:
+    """Indirection so tests can fast-forward through retry backoff."""
+    time.sleep(seconds)
+
+
+def _retry_transient(
+    operation: Callable[[], _T],
+    is_transient: Callable[[BaseException], bool],
+    attempts: int,
+    backoff_s: float,
+) -> _T:
+    if attempts < 1:
+        raise ValueError("attempts must be >= 1")
+    last_exc: BaseException | None = None
+    for attempt in range(attempts):
+        try:
+            return operation()
+        except Exception as exc:
+            if not is_transient(exc):
+                raise
+            last_exc = exc
+            if attempt < attempts - 1:
+                _sleep(backoff_s * (2 ** attempt))
+    assert last_exc is not None
+    raise last_exc
+
+
+def _is_transient_network_error(exc: BaseException) -> bool:
+    """Match the connection-class errors that bubble up from EastMoney's
+    feed: requests.exceptions.ConnectionError (subclass of OSError) and
+    urllib3 ProtocolError (RemoteDisconnected, IncompleteRead, etc.).
+    Pattern-match on message as a backstop for libraries that wrap the
+    cause in a generic Exception."""
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    # Explicit allowlist of OS-level errors that are genuinely network-related.
+    # Broad OSError catch-all is intentionally avoided: BlockingIOError,
+    # ChildProcessError, InterruptedError, etc. are not network failures and
+    # must not be silently retried.
+    _NETWORK_OS_ERRORS = (
+        ConnectionResetError, ConnectionAbortedError,
+        ConnectionRefusedError, BrokenPipeError,
+    )
+    if isinstance(exc, _NETWORK_OS_ERRORS):
+        return True
+    msg = str(exc).lower()
+    return any(token in msg for token in (
+        "connection aborted",
+        "remotedisconnected",
+        "remote end closed",
+        "connection reset",
+        "read timed out",
+    ))
 
 
 def _http_get(
@@ -25,20 +83,22 @@ def _http_get(
 ) -> str:
     """HTTP GET with retry on transient network failures (timeout / connection
     reset). Indirection also lets tests mock without touching the network."""
-    import time
     import requests  # local import
-    last_exc: Exception | None = None
-    for attempt in range(attempts):
-        try:
-            resp = requests.get(url, headers=headers, timeout=timeout)
-            resp.raise_for_status()
-            return resp.text
-        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
-            last_exc = exc
-            if attempt < attempts - 1:
-                time.sleep(backoff_s * (2 ** attempt))
-    assert last_exc is not None
-    raise last_exc
+
+    def _get() -> str:
+        resp = requests.get(url, headers=headers, timeout=timeout)
+        resp.raise_for_status()
+        return resp.text
+
+    return _retry_transient(
+        _get,
+        lambda exc: isinstance(exc, (
+            requests.exceptions.Timeout,
+            requests.exceptions.ConnectionError,
+        )),
+        attempts,
+        backoff_s,
+    )
 
 
 def fetch_fund_nav_history(fund_code: str) -> pd.DataFrame:
@@ -210,18 +270,68 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
 
 
-def fetch_etf_price_history_akshare(symbol: str, start: str, end: str) -> pd.DataFrame:
-    """OHLCV for on-exchange CN ETFs via EastMoney. Free, no auth — the
-    canonical source for these tickers (yfinance heavily rate-limits CN ETF
-    requests). Accepts ISO dates (YYYY-MM-DD); akshare expects YYYYMMDD."""
-    df = _ak_call(
-        "fund_etf_hist_em",
-        symbol=symbol,
-        period="daily",
-        start_date=start.replace("-", ""),
-        end_date=end.replace("-", ""),
-        adjust="qfq",
-    )
+def _to_sina_symbol(ticker: str) -> str:
+    """Map 6-digit CN ticker to Sina finance symbol (sh510300 / sz159919).
+    Shanghai codes start with 5/6 → sh prefix; Shenzhen codes 0/1/2/3 → sz."""
+    if not ticker or not ticker.isdigit():
+        raise ValueError(f"Expected 6-digit numeric CN ticker, got: {ticker!r}")
+    prefix = "sh" if ticker[0] in ("5", "6") else "sz"
+    return f"{prefix}{ticker}"
+
+
+def _fetch_etf_price_history_sina(symbol: str, start: str, end: str) -> pd.DataFrame:
+    """Sina finance ETF history. Independent host (finance.sina.com.cn) —
+    used as fallback when EastMoney's push2his.* endpoint is being dropped
+    (the host is sometimes blocked at network layer for non-CN-mainland IPs).
+    Sina returns full-history rows (1999+); we filter client-side."""
+    df = _ak_call("fund_etf_hist_sina", symbol=_to_sina_symbol(symbol))
+    out = df.assign(date=pd.to_datetime(df["date"]).dt.date)
+    start_d = pd.to_datetime(start).date()
+    end_d = pd.to_datetime(end).date()
+    mask = (out["date"] >= start_d) & (out["date"] <= end_d)
+    return out.loc[mask, ["date", "open", "high", "low", "close", "volume"]].copy()
+
+
+def fetch_etf_price_history_akshare(
+    symbol: str,
+    start: str,
+    end: str,
+    attempts: int = 3,
+    backoff_s: float = 1.0,
+    skip_eastmoney: bool = False,
+    on_eastmoney_exhausted: Callable[[], None] | None = None,
+) -> pd.DataFrame:
+    """OHLCV for on-exchange CN ETFs. Tries EastMoney's `fund_etf_hist_em`
+    first (forward-adjusted, official-feel), retries transient connection
+    errors, then falls back to Sina finance (`fund_etf_hist_sina`) if
+    EastMoney remains unreachable. Accepts ISO dates (YYYY-MM-DD).
+
+    Why two backends: EastMoney's `push2his.eastmoney.com` host has been
+    intermittently dropping connections at the TLS layer (network-level
+    block for some egress IPs), even when other EastMoney subdomains like
+    `fundf10.eastmoney.com` work fine. Sina finance uses an unrelated host
+    so the failure modes don't correlate."""
+    if skip_eastmoney:
+        return _fetch_etf_price_history_sina(symbol, start, end)
+
+    def _fetch_eastmoney() -> pd.DataFrame:
+        return _ak_call(
+            "fund_etf_hist_em",
+            symbol=symbol,
+            period="daily",
+            start_date=start.replace("-", ""),
+            end_date=end.replace("-", ""),
+            adjust="qfq",
+        )
+
+    try:
+        df = _retry_transient(_fetch_eastmoney, _is_transient_network_error, attempts, backoff_s)
+    except Exception as exc:
+        if not _is_transient_network_error(exc):
+            raise
+        if on_eastmoney_exhausted is not None:
+            on_eastmoney_exhausted()
+        return _fetch_etf_price_history_sina(symbol, start, end)
     out = df.rename(columns={
         "日期": "date",
         "开盘": "open",

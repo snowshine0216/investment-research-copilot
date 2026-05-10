@@ -1,6 +1,6 @@
 # TODOS
 
-Known gaps and deferred work. Updated after Plan 3 ship (2026-05-08).
+Known gaps and deferred work. Updated after v0.4.0.0 ship (2026-05-10).
 
 ## Security
 
@@ -73,6 +73,7 @@ Known gaps and deferred work. Updated after Plan 3 ship (2026-05-08).
 - [ ] **Sequential LLM calls in discovery**: `write_reason` called per role × instrument. Same fix as above. (ship review 2026-05-08)
 - [ ] **`fetch_fund_metadata` / `fetch_etf_metadata` download full tables per call**: cache with `functools.lru_cache` or pass pre-fetched DataFrame from the caller. (ship review 2026-05-08)
 
+- [ ] **Accurate per-fund manager tenure** — `ingest_cmd._ingest_active_fund_tenure` uses inception-date proxy; replace with a real per-fund manager-start-date field from EastMoney or a dedicated tenure API. (`src/irc/commands/ingest_cmd.py` TODO, v0.4.0.0)
 ## Reliability (Plan 2+)
 
 - [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()` (ship 2026-05-08).
@@ -86,3 +87,13 @@ Known gaps and deferred work. Updated after Plan 3 ship (2026-05-08).
 - [ ] **Portfolio target tolerance** — `PreferencesFile` uses ±2% sum tolerance vs 1e-6 for system configs. Tighten to 1e-4 when financial-accuracy requirements are confirmed.
 - [ ] **`FailureKind.OK` dead code** — `classify_failure()` returns `OK` for 2xx but `HTTPStatusError` is never raised on 2xx. Remove or document.
 - [ ] **Tenacity decorator rebuilt per call** — rebuild once at module level to reduce per-call allocation overhead in batch runs.
+
+## Completed
+
+- [x] **Sequential LLM calls in scoring**: `score_macro_fit` called once per instrument in a for-loop (blocking HTTP). Parallelized with `ThreadPoolExecutor` in `run_scoring()`. **Completed:** v0.3.0.0 (2026-05-08)
+- [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()`. **Completed:** v0.3.0.0 (2026-05-08)
+- [x] **Bond ETF quality filter `_is_active_fund` heuristic**: the duplicated heuristic in `ingest_cmd.py` was treating passive bond ETFs as active funds requiring `manager_tenure_years`. Consolidated into `instrument_kind.requires_manager_tenure` and shared across ingest + quality filter. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Resilient CN exchange price fetch**: EastMoney primary with automatic Sina finance fallback; `skip_eastmoney` flag; `on_eastmoney_exhausted` callback. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Role-aware allocation top-K**: two-phase greedy ensures role diversity before score-based backfill — prevents near-clone ETFs from crowding out dividend/sector picks. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Negative tenure from future inception date**: `_apply_active_fund_tenure_fallback` now rejects ≤0 years. **Completed:** v0.4.0.0 (2026-05-10)
+

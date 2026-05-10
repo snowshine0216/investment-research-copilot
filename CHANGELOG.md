@@ -11,6 +11,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Macro slot rename: `DTWEXBGS` → `DXY` across `_MACRO_SERIES` (`ingest_cmd.py`), `_macro_value` lookup (`gold_cmd.py`), `_AKSHARE_MACRO_HANDLERS` (`akshare_client.py`), and corresponding tests. The slot was always populated by the akshare DXY index (~95–115 range) which matches the DXY-calibrated thresholds in `gold_score._dxy_score` (95/105/115) and `gold_scenarios` (dxy<100, dxy>110); the FRED `DTWEXBGS` ID was a misnomer (real DTWEXBGS sits ~120). No data-quality change — purely a rename for clarity.
 - `openbb_client.fetch_macro_series` now routes akshare-only IDs (`DXY`) directly to akshare, skipping the always-failing OpenBB+FRED call.
 
+## [0.4.0.0] — 2026-05-10
+
+### Added
+- **Theme-aware CN fund taxonomy**: `theme` field added to `UniverseInstrument` schema (`sector`, `broad`, `dividend`, `growth`, or `None`). Theme drives role bucketing in discovery, quality filtering in `discovery/quality_filter.py`, and exclusion via `preferences.constraints.exclude_themes`.
+- **Sector role buckets** (`discovery/role_bucket.py`): 7 new `satellite_cn_*` roles (`sector_cn_tech`, `sector_cn_consumer`, `sector_cn_healthcare`, `sector_cn_energy`, `sector_cn_finance`, `sector_cn_manufacturing`, `sector_cn_materials`) mapping sector ETFs to typed allocation slots. Core CN role now also gated on `theme=broad` or `None` with broad index.
+- **Role-aware top-K allocation** (`allocation/pipeline.py`): two-phase greedy selection ensures every represented role gets a slot before score-based backfill. Prevents 4 high-scored 沪深300 clones from crowding out lower-scored 红利/创新 picks.
+- **Expanded CN funds universe template** (`cn_funds.yaml`): 10 sector ETFs across tech/consumer/healthcare/energy/finance/manufacturing/materials added with correct theme tags; active off-exchange funds skeleton; fund template now covers broad, sector, dividend, and bond categories.
+- **LLM skip logging** in `discovery/pipeline.py`: instruments excluded by `excluded_themes` are now logged as skipped before reason-writing, preventing spurious "no raw refs" warnings.
+- **`_IngestFeatureFlags` feature-flag system** (`ingest_cmd.py`): `ACTIVE_FUND_TENURE_PROXY_ENABLED` env var (default `true`) controls whether fund age is used as a manager-tenure proxy for active funds without explicit tenure data.
+- **Active fund tenure proxy fallback** (`ingest_cmd.py`): for off-exchange active funds missing `manager_tenure_years`, the fund's inception date is used as a proxy. Guards in place: proxy disabled for passive ETFs, for funds with real tenure, and when inception date is future-dated or unparseable.
+- **Resilient CN exchange price fetch** (`data/akshare_client.py`): EastMoney primary with automatic Sina finance fallback; `skip_eastmoney` flag routes straight to Sina; `on_eastmoney_exhausted` callback fires after last EM retry, enabling the ingest loop to skip EM for remaining instruments in the same run.
+- **Per-source ingest counters**: CN exchange prices now tracked under `ak_counts["prices"]` (not `ob_counts["prices"]`), so manifest record counts correctly reflect which provider fetched each price series.
+
+### Fixed
+- **Negative tenure from future-dated inception** (`ingest_cmd.py`): `_apply_active_fund_tenure_fallback` now rejects zero-or-negative years (e.g. from a provider returning a future inception date), preventing a semantically invalid negative from flowing into scoring.
+- **Invalid `.env` bool crashes ingest** (`ingest_cmd.py`): `_IngestFeatureFlags` validation errors now produce a human-readable `Config error: …` message and `return 1` instead of a raw pydantic traceback.
+- **`_to_sina_symbol` IndexError on empty ticker** (`data/akshare_client.py`): added explicit guard — raises `ValueError` on non-digit or empty input rather than `IndexError`.
+- **Refs pre-indexed per instrument** in `discovery/pipeline.py`: `_index_refs_by_instrument` groups, sorts descending by date, and caps at 30 refs before reason-writing — prevents oversized prompts on large universes.
+- **Quality filter `exclude_themes`** plumbed through from preferences to `run_discover` call: themes in `preferences.constraints.exclude_themes` are now excluded before LLM reason-writing, not just before scoring.
+- **`requires_manager_tenure` consolidated** (`instrument_kind.py`): single authoritative function replaces the duplicated `_is_active_fund` heuristic that was causing bond ETFs to incorrectly require tenure data.
+
 ## [0.3.0.0] — 2026-05-08
 
 ### Added

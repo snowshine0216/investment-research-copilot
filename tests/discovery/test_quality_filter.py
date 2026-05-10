@@ -12,7 +12,7 @@ def _row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="us_etf", currency="cny",
-        tracked_index="x", venue_required=(),
+        tracked_index="x", theme=None, venue_required=(),
     )
 
 
@@ -78,7 +78,15 @@ def _active_row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="cn_equity_fund", currency="cny",
-        tracked_index=None, venue_required=(),
+        tracked_index=None, theme=None, venue_required=(),
+    )
+
+
+def _on_exchange_bond_row(iid: str) -> UniverseRow:
+    return UniverseRow(
+        instrument_id=iid, ticker=iid, market="cn_on_exchange",
+        name_cn=iid, asset_class="cn_bond_fund", currency="cny",
+        tracked_index="5年国债", theme=None, venue_required=(),
     )
 
 
@@ -87,7 +95,7 @@ def _fund_row(iid: str) -> UniverseRow:
     return UniverseRow(
         instrument_id=iid, ticker=iid, market="cn_off_exchange",
         name_cn=iid, asset_class="cn_etf", currency="cny",
-        tracked_index=None, venue_required=(),
+        tracked_index=None, theme=None, venue_required=(),
     )
 
 
@@ -129,4 +137,18 @@ def test_quality_filter_non_etf_ignores_tracking_error() -> None:
     }])
     risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
     out = apply_quality_filter(rows=(_active_row("F"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+    assert len(out.passed) == 1
+
+
+def test_quality_filter_on_exchange_bond_etf_does_not_require_manager_tenure() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "BOND", "drawdown_3y": 0.05,
+        "tracking_error": None, "manager_tenure_years": None,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+
+    out = apply_quality_filter(
+        rows=(_on_exchange_bond_row("BOND"),), metrics=metrics, cfg=_cfg(), risk_band=risk
+    )
+
     assert len(out.passed) == 1

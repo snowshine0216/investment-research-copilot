@@ -9,6 +9,9 @@ from irc.io_utils import atomic_write_text
 from irc.allocation.pipeline import run_allocation
 
 
+PER_CLASS_TOP_K = 4
+
+
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
@@ -38,7 +41,7 @@ def run_allocate(repo_root: str) -> int:
     out = run_allocation(
         scores=scores, class_targets=class_targets,
         gold_tilt=gold_tilt, correlation=pd.DataFrame(),
-        per_class_top_k=2,
+        per_class_top_k=PER_CLASS_TOP_K,
     )
     out_path = root / "outputs" / today / "proposed_allocation.yaml"
     payload = {

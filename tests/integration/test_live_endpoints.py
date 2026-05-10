@@ -191,6 +191,49 @@ def _instrument_ids_with_data(con, table: str) -> set[str]:
     return {r[0] for r in rows}
 
 
+def _all_live_instruments(repo_root: Path):
+    from irc.config_loader import load_repo_configs
+
+    bundle = load_repo_configs(repo_root)
+    return [
+        *bundle.universe_qdii_us.instruments,
+        *bundle.universe_qdii_hk.instruments,
+        *bundle.universe_gold.instruments,
+        *bundle.universe_cn_funds.instruments,
+    ], bundle.universe_cn_funds.instruments
+
+
+def _live_ingest_expectations(repo_root: Path) -> dict[str, set[str]]:
+    all_instruments, cn_funds = _all_live_instruments(repo_root)
+    cn_fund_ids = {instrument.instrument_id for instrument in cn_funds}
+    off_exchange_fund_ids = {
+        instrument.instrument_id
+        for instrument in all_instruments
+        if instrument.market == "cn_off_exchange" and instrument.ticker.isdigit()
+    }
+    return {
+        "instrument_ids": {instrument.instrument_id for instrument in all_instruments},
+        "priced_ids": {
+            instrument.instrument_id
+            for instrument in all_instruments
+            if instrument.market == "cn_on_exchange"
+        },
+        "nav_ids": cn_fund_ids | off_exchange_fund_ids,
+    }
+
+
+def test_live_ingest_expectations_come_from_expanded_default_universe(tmp_path: Path) -> None:
+    from irc.commands.init_cmd import run_init
+
+    run_init(str(tmp_path), force=False)
+
+    expectations = _live_ingest_expectations(tmp_path)
+
+    assert len(expectations["instrument_ids"]) > 13
+    assert "510310" in expectations["priced_ids"]
+    assert "005827" in expectations["nav_ids"]
+
+
 def test_irc_ingest_end_to_end_populates_duckdb(tmp_path: Path) -> None:
     """The whole point: run real `irc init` + `irc ingest` against the live
     network and assert DuckDB has rows for every category of instrument we
@@ -201,15 +244,14 @@ def test_irc_ingest_end_to_end_populates_duckdb(tmp_path: Path) -> None:
     runner = CliRunner()
     init_result = runner.invoke(main, ["init", "--repo-root", str(tmp_path)])
     assert init_result.exit_code == 0, f"init failed:\n{init_result.output}"
+    expectations = _live_ingest_expectations(tmp_path)
 
     ingest_result = runner.invoke(main, ["ingest", "--repo-root", str(tmp_path)])
     assert ingest_result.exit_code == 0, f"ingest failed:\n{ingest_result.output}"
 
     con = connect(tmp_path / "data" / "local.duckdb")
     try:
-        # All instruments enrolled (excluding cmb_paper_gold which we skip with warning):
-        # qdii_us(5) + qdii_hk(3) + gold(3) + cn_funds(2) = 13 rows.
-        assert _row_count(con, "instruments") == 13
+        assert _row_count(con, "instruments") == len(expectations["instrument_ids"])
 
         # Metadata coverage: every numeric-ticker instrument should have inception_date.
         missing_meta = con.execute(
@@ -218,16 +260,12 @@ def test_irc_ingest_end_to_end_populates_duckdb(tmp_path: Path) -> None:
         ).fetchall()
         assert not missing_meta, f"instruments missing inception_date: {[r[0] for r in missing_meta]}"
 
-        # Price history: every cn_on_exchange instrument should have rows in `prices`.
         priced = _instrument_ids_with_data(con, "prices")
-        expected_priced = {"513500", "159941", "159920", "513180", "513530", "518880", "159934"}
-        missing_priced = expected_priced - priced
+        missing_priced = expectations["priced_ids"] - priced
         assert not missing_priced, f"missing price data for on-exchange ETFs: {sorted(missing_priced)}"
 
-        # NAV history: cn_funds + off-exchange feeders.
         nav_ids = _instrument_ids_with_data(con, "nav_history")
-        expected_nav = {"510300", "510500", "006075", "050025", "161130"}
-        missing_nav = expected_nav - nav_ids
+        missing_nav = expectations["nav_ids"] - nav_ids
         assert not missing_nav, f"missing NAV data: {sorted(missing_nav)}"
 
         # Macro series: DGS10 (FRED+akshare fallback) + DXY (akshare-only).

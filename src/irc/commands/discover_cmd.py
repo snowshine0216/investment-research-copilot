@@ -138,6 +138,7 @@ def run_discover(repo_root: str) -> int:
         peer_summary="See universe peers in same role bucket.",
         macro_snapshot="See macro_series in DuckDB.",
         raw_ref_pool=ref_pool,
+        excluded_themes=tuple(bundle.preferences.constraints.exclude_themes),
     )
     out_dir = root / "outputs" / _now_iso_date()
     out_dir.mkdir(parents=True, exist_ok=True)

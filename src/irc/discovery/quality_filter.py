@@ -8,6 +8,7 @@ from irc.schemas.discovery import DiscoveryConfig
 from irc.schemas.inputs import RiskBand
 from irc.discovery.hard_filter import HardFilterResult, Rejection
 from irc.discovery.universe import UniverseRow
+from irc.instrument_kind import requires_manager_tenure
 
 
 def _is_missing(value: Any) -> bool:
@@ -57,7 +58,7 @@ def apply_quality_filter(
                 reasons.append("missing tracking_error")
             elif te is not None and te > qf.tracking_error_max and "etf" in row.asset_class:
                 reasons.append(f"tracking_error {te} > {qf.tracking_error_max}")
-            is_active = row.asset_class.endswith("equity_fund") or row.asset_class.endswith("bond_fund")
+            is_active = requires_manager_tenure(row)
             tenure = _numeric_value(m, "manager_tenure_years")
             if is_active and tenure is None:
                 reasons.append("missing manager_tenure_years")

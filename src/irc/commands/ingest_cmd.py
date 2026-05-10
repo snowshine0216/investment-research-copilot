@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from irc.config_loader import load_repo_configs
 from irc.data.akshare_client import (
@@ -18,13 +19,14 @@ from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
+from irc.instrument_kind import requires_manager_tenure as _is_active_fund
 
 _log = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "v1"
 _MACRO_SERIES = ("DGS10", "DXY")
 _LOOK_BACK_DAYS = 365 * 3
-_YF_ELIGIBLE_MARKETS = frozenset({"cn_on_exchange"})
+_PRICE_HISTORY_MARKETS = frozenset({"cn_on_exchange"})
 _AUM_UNITS = {
     "万亿": 1_000_000_000_000.0,
     "亿元": 100_000_000.0,
@@ -33,6 +35,17 @@ _AUM_UNITS = {
     "万": 10_000.0,
 }
 _MISSING_TEXT = frozenset({"", "-", "--", "nan", "none", "null"})
+
+
+class _IngestFeatureFlags(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+    active_fund_tenure_proxy_enabled: bool = True
 
 
 def _now_iso() -> str:
@@ -117,25 +130,24 @@ def _is_fund_like_ticker(ticker: str) -> bool:
     return ticker.isdigit()
 
 
-def _is_yfinance_eligible(instrument: Any) -> bool:
-    return instrument.market in _YF_ELIGIBLE_MARKETS
+def _has_price_history_source(instrument: Any) -> bool:
+    return instrument.market in _PRICE_HISTORY_MARKETS
 
 
 def _is_off_exchange_fund(instrument: Any) -> bool:
     return instrument.market == "cn_off_exchange" and instrument.ticker.isdigit()
 
 
-def _is_active_fund(instrument: Any) -> bool:
-    """Active mutual funds need manager_tenure_years; passive ETFs don't.
-
-    On-exchange instruments are ETFs (passive index trackers) regardless of
-    asset_class — bond ETFs (cn_bond_fund) and equity ETFs (cn_etf) both have
-    no meaningful manager tenure. Off-exchange instruments may be active
-    mutual funds, in which case the asset_class string ends with `*_fund`.
-    """
-    if instrument.market == "cn_on_exchange":
-        return False
-    return instrument.asset_class.endswith(("equity_fund", "bond_fund"))
+def _years_since_iso_date(iso_date: str | None) -> float | None:
+    """Years between iso_date (YYYY-MM-DD) and today, rounded to 2dp."""
+    if iso_date is None:
+        return None
+    try:
+        anchor = datetime.fromisoformat(iso_date).date()
+    except ValueError:
+        return None
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+    return round((today - anchor).days / 365.25, 2)
 
 
 def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | None]:
@@ -149,11 +161,52 @@ def _normalize_fund_metadata(raw: dict[str, Any]) -> dict[str, float | str | Non
     }
 
 
+def _apply_active_fund_tenure_fallback(
+    instrument: Any,
+    metadata: dict[str, float | str | None],
+    enabled: bool = True,
+) -> dict[str, float | str | None]:
+    """For active funds without explicit tenure, use fund age as a temporary
+    proxy. XueQiu's basic-info endpoint doesn't expose manager tenure for active
+    funds, so without this fallback well-known long-running funds get silently
+    dropped. This may overstate current-manager tenure after manager changes.
+    Passive ETFs are unaffected — they don't need tenure.
+    TODO: wire up `fund_manager_em` for accurate per-fund tenure."""
+    if not enabled or not _is_active_fund(instrument):
+        return metadata
+    if metadata.get("manager_tenure_years") is not None:
+        return metadata
+    fallback = _years_since_iso_date(metadata.get("inception_date"))
+    if fallback is None or fallback <= 0:
+        return metadata
+    return {**metadata, "manager_tenure_years": fallback}
+
+
 def _missing_required_metadata(instrument: Any, metadata: dict[str, Any]) -> tuple[str, ...]:
     required = ("inception_date", "expense_ratio", "aum")
     if _is_active_fund(instrument):
         required = (*required, "manager_tenure_years")
     return tuple(key for key in required if _is_missing(metadata.get(key)))
+
+
+def _price_source_for(instrument: Any) -> str:
+    if instrument.market == "cn_on_exchange":
+        return "akshare"
+    return "openbb"
+
+
+def _coerce_price_history(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    for column in ("open", "high", "low", "close", "volume"):
+        out[column] = pd.to_numeric(out[column], errors="raise")
+    return out
+
+
+def _coerce_nav_history(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["nav"] = pd.to_numeric(out["nav"], errors="raise")
+    out["nav_acc"] = pd.to_numeric(out["nav_acc"], errors="coerce")
+    return out
 
 
 def _metadata_fetcher_for(instrument: Any):
@@ -164,14 +217,21 @@ def _metadata_fetcher_for(instrument: Any):
     return fetch_fund_metadata
 
 
-def _fetch_metadata_by_id(instruments: list) -> dict[str, dict[str, float | str | None]]:
+def _fetch_metadata_by_id(
+    instruments: list,
+    active_fund_tenure_proxy_enabled: bool = True,
+) -> dict[str, dict[str, float | str | None]]:
     metadata_by_id: dict[str, dict[str, float | str | None]] = {}
     for instrument in instruments:
         if not _is_fund_like_ticker(instrument.ticker):
             continue
         try:
             fetch = _metadata_fetcher_for(instrument)
-            metadata = _normalize_fund_metadata(fetch(instrument.ticker))
+            metadata = _apply_active_fund_tenure_fallback(
+                instrument,
+                _normalize_fund_metadata(fetch(instrument.ticker)),
+                enabled=active_fund_tenure_proxy_enabled,
+            )
         except Exception as exc:
             _log.warning(
                 "skipping %s: metadata fetch error: %s",
@@ -238,11 +298,11 @@ def _upsert_instruments(
     return len(params)
 
 
-def _upsert_prices(con, instrument_id: str, df: pd.DataFrame) -> int:
+def _upsert_prices(con, instrument_id: str, df: pd.DataFrame, source: str = "openbb") -> int:
     ingested_at = _now_iso()
     params = [
         [instrument_id, str(r.date), r.open, r.high, r.low, r.close, r.volume,
-         ingested_at, "openbb", build_ref_id("openbb", "prices", instrument_id, str(r.date))]
+         ingested_at, source, build_ref_id(source, "prices", instrument_id, str(r.date))]
         for r in df.itertuples(index=False)
     ]
     if params:
@@ -306,6 +366,11 @@ def _upsert_nav(con, instrument_id: str, df: pd.DataFrame) -> int:
 def run_ingest(repo_root: str) -> int:
     root = Path(repo_root)
     bundle = load_repo_configs(root)
+    try:
+        feature_flags = _IngestFeatureFlags(_env_file=root / ".env")
+    except Exception as exc:
+        print(f"ERROR: invalid config in .env — {exc}")
+        return 1
     db_path = root / "data" / "local.duckdb"
 
     con = connect(db_path)
@@ -313,7 +378,7 @@ def run_ingest(repo_root: str) -> int:
         ensure_schema(con)
         start, end = _date_window()
         ob_counts: dict[str, int] = {"prices": 0, "macro_series": 0, "instruments": 0}
-        ak_counts: dict[str, int] = {"nav_history": 0}
+        ak_counts: dict[str, int] = {"prices": 0, "nav_history": 0}
 
         all_instruments = [
             *bundle.universe_qdii_us.instruments,
@@ -321,19 +386,63 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_gold.instruments,
             *bundle.universe_cn_funds.instruments,
         ]
-        metadata_by_id = _fetch_metadata_by_id(all_instruments)
+        metadata_by_id = _fetch_metadata_by_id(
+            all_instruments,
+            active_fund_tenure_proxy_enabled=feature_flags.active_fund_tenure_proxy_enabled,
+        )
         ob_counts["instruments"] = _upsert_instruments(con, all_instruments, metadata_by_id)
 
-        all_price_instruments = [
-            *bundle.universe_qdii_us.instruments,
-            *bundle.universe_qdii_hk.instruments,
-            *bundle.universe_gold.instruments,
-            *bundle.universe_cn_funds.instruments,
-        ]
-        for instr in all_price_instruments:
-            if _is_yfinance_eligible(instr):
-                df = fetch_etf_price_history(ticker=instr.ticker, start=start, end=end)
-                ob_counts["prices"] += _upsert_prices(con, instr.instrument_id, df)
+        price_failures: list[str] = []
+        price_attempts = 0
+        price_successes = 0
+        eastmoney_unavailable = False
+
+        def _mark_eastmoney_unavailable() -> None:
+            nonlocal eastmoney_unavailable
+            eastmoney_unavailable = True
+
+        for instr in all_instruments:
+            if _has_price_history_source(instr):
+                price_attempts += 1
+                try:
+                    df = fetch_etf_price_history(
+                        ticker=instr.ticker,
+                        start=start,
+                        end=end,
+                        skip_cn_eastmoney=eastmoney_unavailable,
+                        on_cn_eastmoney_exhausted=_mark_eastmoney_unavailable,
+                    )
+                    if df.empty:
+                        raise ValueError("empty price history")
+                    df = _coerce_price_history(df)
+                except Exception as exc:
+                    price_failures.append(instr.instrument_id)
+                    _log.warning(
+                        "skipping price ingest for %s (ticker=%s): %s. "
+                        "Other instruments will still be processed; rerun once "
+                        "the upstream source recovers.",
+                        instr.instrument_id, instr.ticker, exc,
+                    )
+                    continue
+                try:
+                    price_source = _price_source_for(instr)
+                    inserted = _upsert_prices(
+                        con,
+                        instr.instrument_id,
+                        df,
+                        source=price_source,
+                    )
+                    if price_source == "akshare":
+                        ak_counts["prices"] += inserted
+                    else:
+                        ob_counts["prices"] += inserted
+                except Exception as exc:
+                    print(
+                        f"ERROR: ingest failed while writing prices for "
+                        f"{instr.instrument_id}: {exc}"
+                    )
+                    return 1
+                price_successes += 1
             elif not _is_off_exchange_fund(instr):
                 _log.warning(
                     "skipping price/nav ingest for %s (market=%s, ticker=%s): no source available",
@@ -352,16 +461,61 @@ def run_ingest(repo_root: str) -> int:
                     series_id, exc,
                 )
 
-        nav_instruments = [
-            *bundle.universe_cn_funds.instruments,
-            *(i for i in all_price_instruments if _is_off_exchange_fund(i)),
+        nav_candidates = [
+            i for i in all_instruments
+            if _is_off_exchange_fund(i)
         ]
+        seen_nav_ids: set[str] = set()
+        nav_instruments = []
+        for instr in nav_candidates:
+            if instr.instrument_id in seen_nav_ids:
+                continue
+            seen_nav_ids.add(instr.instrument_id)
+            nav_instruments.append(instr)
+        nav_failures: list[str] = []
+        nav_attempts = 0
+        nav_successes = 0
         for instr in nav_instruments:
-            df = fetch_fund_nav_history(instr.ticker)
-            ak_counts["nav_history"] += _upsert_nav(con, instr.instrument_id, df)
+            nav_attempts += 1
+            try:
+                df = fetch_fund_nav_history(instr.ticker)
+                if df.empty:
+                    raise ValueError("empty NAV history")
+                df = _coerce_nav_history(df)
+            except Exception as exc:
+                nav_failures.append(instr.instrument_id)
+                _log.warning(
+                    "skipping NAV ingest for %s (ticker=%s): %s. "
+                    "Other instruments will still be processed.",
+                    instr.instrument_id, instr.ticker, exc,
+                )
+                continue
+            try:
+                ak_counts["nav_history"] += _upsert_nav(con, instr.instrument_id, df)
+            except Exception as exc:
+                print(
+                    f"ERROR: ingest failed while writing NAV for "
+                    f"{instr.instrument_id}: {exc}"
+                )
+                return 1
+            nav_successes += 1
 
     finally:
         con.close()
+
+    fatal_failures: list[str] = []
+    if price_attempts and price_successes == 0:
+        fatal_failures.append("prices")
+    if nav_attempts and nav_successes == 0:
+        fatal_failures.append("nav")
+    if fatal_failures:
+        print(f"ERROR: ingest failed: no successful {', '.join(fatal_failures)} ingest")
+        if price_failures or nav_failures:
+            print(
+                f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "
+                f"nav: {nav_failures or 'none'}"
+            )
+        return 1
 
     data_root = root / "data"
     write_manifest(data_root, ManifestEntry(
@@ -373,4 +527,9 @@ def run_ingest(repo_root: str) -> int:
         schema_version=_SCHEMA_VERSION, record_counts=ak_counts,
     ))
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
+    if price_failures or nav_failures:
+        print(
+            f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "
+            f"nav: {nav_failures or 'none'}"
+        )
     return 0

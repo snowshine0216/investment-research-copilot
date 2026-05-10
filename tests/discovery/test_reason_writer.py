@@ -20,7 +20,7 @@ def _row() -> UniverseRow:
     return UniverseRow(
         instrument_id="VTI", ticker="VTI", market="cn_off_exchange",
         name_cn="易方达标普500", asset_class="us_etf", currency="cny",
-        tracked_index="S&P 500", venue_required=(),
+        tracked_index="S&P 500", theme=None, venue_required=(),
     )
 
 
@@ -72,3 +72,19 @@ def test_write_reason_returns_none_when_all_attempts_raise(mock_chat, caplog) ->
     assert res is None
     assert mock_chat.call_count == 3
     assert any("network timeout" in r.message for r in caplog.records)
+
+
+@patch("irc.discovery.reason_writer.call_chat")
+def test_write_reason_skips_without_raw_refs(mock_chat, caplog) -> None:
+    ctx = WriteReasonContext(
+        role="core_us_equity",
+        peer_summary="VTI/VOO are broad-market US ETF passive proxies",
+        macro_snapshot="Real yield ~1.65%, DXY ~104",
+        raw_refs=(),
+    )
+    with caplog.at_level(logging.WARNING, logger="irc.discovery.reason_writer"):
+        res = write_reason(_row(), ctx, route=MagicMock(), max_retries=2)
+
+    assert res is None
+    mock_chat.assert_not_called()
+    assert any("no raw_refs available" in r.message for r in caplog.records)
