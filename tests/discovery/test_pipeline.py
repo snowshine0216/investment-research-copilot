@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from irc.discovery.universe import UniverseRow
-from irc.discovery.pipeline import run_discovery, _refs_for_instrument
+from irc.discovery.pipeline import run_discovery, _refs_for_instrument, _index_refs_by_instrument
 
 
 def _row(iid: str, asset_class: str, tracked: str | None = None, theme: str | None = None) -> UniverseRow:
@@ -43,6 +43,22 @@ def test_refs_for_instrument_sorts_by_date_desc() -> None:
     out = _refs_for_instrument("VTI", pool)
     assert out[0].endswith("2024-12-31")
     assert out[-1].endswith("2024-01-01")
+
+
+def test_index_refs_by_instrument_groups_sorts_caps_and_ignores_malformed_refs() -> None:
+    pool = (
+        "akshare:prices:VTI:2024-01-01",
+        "akshare:prices:QQQ:2024-03-01",
+        "malformed-ref",
+        "akshare:prices:VTI:2024-12-31",
+    )
+
+    out = _index_refs_by_instrument(pool, limit=1)
+
+    assert out == {
+        "QQQ": ("akshare:prices:QQQ:2024-03-01",),
+        "VTI": ("akshare:prices:VTI:2024-12-31",),
+    }
 
 
 @patch("irc.discovery.pipeline.write_reason")
@@ -104,3 +120,33 @@ def test_pipeline_returns_dataframe_with_role_and_reason(mock_writer, tmp_path: 
     assert isinstance(out, pd.DataFrame)
     assert {"instrument_id", "role", "reason_text", "cited_refs"} <= set(out.columns)
     assert out.iloc[0]["role"] == "core_us_equity"
+
+
+@patch("irc.discovery.pipeline.write_reason")
+def test_pipeline_respects_excluded_themes_before_reason_generation(mock_writer) -> None:
+    universe = (_row("512170", "cn_etf", "中证医疗", theme="healthcare"),)
+    metadata = pd.DataFrame([{
+        "instrument_id": "512170", "inception_years": 10,
+        "aum_cny": 1e9, "expense_ratio": 0.001, "daily_volume_cny": 5e8,
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "512170", "drawdown_3y": 0.15,
+        "tracking_error": 0.001, "manager_tenure_years": 10,
+    }])
+
+    out = run_discovery(
+        universe=universe,
+        metadata=metadata,
+        metrics=metrics,
+        risk_band_max_dd_upper=0.20,
+        cfg_overrides=None,
+        cfg_discovery=None,
+        route=MagicMock(),
+        peer_summary="x",
+        macro_snapshot="x",
+        raw_ref_pool=("akshare:prices:512170:2026-05-06",),
+        excluded_themes=("healthcare",),
+    )
+
+    assert out.empty
+    mock_writer.assert_not_called()

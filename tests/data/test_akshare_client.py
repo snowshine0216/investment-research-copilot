@@ -9,6 +9,7 @@ from irc.data.akshare_client import (
     _expense_ratio_from_fee_table,
     _item_value_dict,
     _ratios_from_text,
+    _retry_transient,
     fetch_etf_metadata,
     fetch_etf_metadata_em,
     fetch_etf_price_history_akshare,
@@ -185,6 +186,15 @@ def test_http_get_raises_after_exhausting_retries() -> None:
             ak_mod._http_get("https://example/", {}, timeout=1, attempts=3, backoff_s=0.0)
 
 
+def test_retry_transient_rejects_zero_attempts() -> None:
+    operation = MagicMock(return_value="unused")
+
+    with pytest.raises(ValueError, match="attempts must be >= 1"):
+        _retry_transient(operation, lambda _exc: True, attempts=0, backoff_s=0.0)
+
+    operation.assert_not_called()
+
+
 def test_fetch_etf_metadata_em_handles_thousand_separator_in_aum() -> None:
     html = (
         "<table><tr><th>基金简称</th><td>沪深300ETF华泰柏瑞</td>"
@@ -238,6 +248,35 @@ def test_fetch_etf_price_history_akshare_retries_transient_connection_errors() -
     assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
 
 
+def test_fetch_etf_price_history_akshare_retries_wrapped_remote_disconnect() -> None:
+    fake = pd.DataFrame({
+        "日期": ["2026-05-06"],
+        "开盘": [2.455], "收盘": [2.454],
+        "最高": [2.463], "最低": [2.45],
+        "成交量": [1.1e8],
+    })
+    transient = Exception("urllib3 ProtocolError: RemoteDisconnected")
+    with patch("irc.data.akshare_client._ak_call") as mocked, \
+         patch("irc.data.akshare_client._sleep") as slept:
+        mocked.side_effect = [transient, fake]
+        out = fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+
+    assert mocked.call_count == 2
+    assert slept.call_count == 1
+    assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
+
+
+def test_fetch_etf_price_history_akshare_does_not_retry_generic_non_network_errors() -> None:
+    with patch("irc.data.akshare_client._ak_call") as mocked, \
+         patch("irc.data.akshare_client._sleep") as slept:
+        mocked.side_effect = Exception("schema changed: missing 日期 column")
+        with pytest.raises(Exception, match="schema changed"):
+            fetch_etf_price_history_akshare("513500", start="2026-04-01", end="2026-05-07")
+
+    assert mocked.call_count == 1
+    assert slept.call_count == 0
+
+
 def test_fetch_etf_price_history_akshare_does_not_retry_value_errors() -> None:
     """Non-network errors should fail fast — retrying a malformed ticker
     is just three identical 4xx-equivalent responses."""
@@ -285,6 +324,61 @@ def test_fetch_etf_price_history_falls_back_to_sina_when_eastmoney_exhausts_retr
     assert len(out) == 2
     assert str(out.iloc[0]["date"]) == "2026-04-30"
     assert str(out.iloc[-1]["date"]) == "2026-05-06"
+
+
+def test_fetch_etf_price_history_notifies_when_eastmoney_exhausts_retries() -> None:
+    sina_full = pd.DataFrame({
+        "date": ["2026-05-06"],
+        "open": [2.45], "high": [2.46], "low": [2.44],
+        "close": [2.45], "volume": [1.1e8], "amount": [1],
+    })
+
+    def _ak_call_side_effect(fn_name, **kwargs):
+        if fn_name == "fund_etf_hist_em":
+            raise ConnectionError("EM blocked")
+        if fn_name == "fund_etf_hist_sina":
+            return sina_full
+        raise AssertionError(f"unexpected ak_call: {fn_name}")
+
+    exhausted: list[bool] = []
+    with patch("irc.data.akshare_client._ak_call", side_effect=_ak_call_side_effect), \
+         patch("irc.data.akshare_client._sleep"):
+        fetch_etf_price_history_akshare(
+            "513500",
+            start="2026-04-01",
+            end="2026-05-07",
+            on_eastmoney_exhausted=lambda: exhausted.append(True),
+        )
+
+    assert exhausted == [True]
+
+
+def test_fetch_etf_price_history_can_skip_eastmoney_after_run_level_outage() -> None:
+    sina_full = pd.DataFrame({
+        "date": ["2026-05-06"],
+        "open": [2.45], "high": [2.46], "low": [2.44],
+        "close": [2.45], "volume": [1.1e8], "amount": [1],
+    })
+
+    def _ak_call_side_effect(fn_name, **kwargs):
+        if fn_name == "fund_etf_hist_em":
+            raise AssertionError("EastMoney should be skipped after run-level outage")
+        if fn_name == "fund_etf_hist_sina":
+            return sina_full
+        raise AssertionError(f"unexpected ak_call: {fn_name}")
+
+    with patch("irc.data.akshare_client._ak_call", side_effect=_ak_call_side_effect) as mocked, \
+         patch("irc.data.akshare_client._sleep") as slept:
+        out = fetch_etf_price_history_akshare(
+            "513500",
+            start="2026-04-01",
+            end="2026-05-07",
+            skip_eastmoney=True,
+        )
+
+    assert [c.args[0] for c in mocked.call_args_list] == ["fund_etf_hist_sina"]
+    assert slept.call_count == 0
+    assert list(out.columns) == ["date", "open", "high", "low", "close", "volume"]
 
 
 def test_fetch_etf_price_history_sina_symbol_prefix_for_shenzhen_ticker() -> None:

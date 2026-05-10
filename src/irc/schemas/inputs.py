@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import Literal
 from pydantic import Field, field_validator, model_validator
-from ._types import FrozenModel, AssetClass, Currency
+from ._types import FrozenModel, AssetClass, Currency, Theme
 
 
 GoldForm = Literal["paper_gold", "physical", "etf", "theme_fund"]
@@ -85,7 +85,7 @@ class CurrencyTolerance(FrozenModel):
 class Constraints(FrozenModel):
     allow_short: bool
     allow_leverage: bool
-    exclude_themes: list[str]
+    exclude_themes: list[Theme]
 
 
 class InvestmentPlan(FrozenModel):

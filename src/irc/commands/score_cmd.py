@@ -38,7 +38,7 @@ def run_score(repo_root: str) -> int:
             return 2
         watchlist_path = outputs[-1]
 
-    watchlist = pd.read_csv(watchlist_path)
+    watchlist = pd.read_csv(watchlist_path, dtype={"instrument_id": str, "ticker": str})
 
     con = connect(root / "data" / "local.duckdb")
     try:

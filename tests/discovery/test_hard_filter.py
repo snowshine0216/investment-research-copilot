@@ -216,3 +216,21 @@ def test_hard_filter_respects_ban_list() -> None:
                             cfg=_cfg(), overrides=overrides)
     assert out.passed == ()
     assert "ban" in out.rejected[0].reasons[0].lower()
+
+
+def test_hard_filter_respects_excluded_themes() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "X", "inception_years": 5, "aum_cny": 1e9,
+        "expense_ratio": 0.001, "daily_volume_cny": 5e8,
+    }])
+
+    out = apply_hard_filter(
+        rows=(_row("X", "cn_etf", theme="healthcare"),),
+        metadata=metadata,
+        cfg=_cfg(),
+        overrides=OverridesConfig(),
+        excluded_themes=("healthcare",),
+    )
+
+    assert out.passed == ()
+    assert "theme excluded" in out.rejected[0].reasons[0].lower()

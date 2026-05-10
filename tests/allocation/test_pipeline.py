@@ -108,3 +108,16 @@ def test_pipeline_role_aware_handles_missing_role_field():
                          per_class_top_k=2)
     ids = {row["instrument_id"] for row in out.selected_instruments}
     assert ids == {"X", "Y"}
+
+
+def test_pipeline_per_class_top_k_zero_selects_none() -> None:
+    scores = [
+        {"instrument_id": "VTI", "asset_class": "us_etf", "role": "core_us_equity",
+         "composite_score": 80, "action": "watch", "conviction": "low"},
+    ]
+    out = run_allocation(scores=scores, class_targets=_class_targets(),
+                         gold_tilt="neutral", correlation=pd.DataFrame(),
+                         per_class_top_k=0)
+
+    assert out.selected_instruments == []
+    assert out.diagnostics["total_weight"] == 0

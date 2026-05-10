@@ -9,6 +9,9 @@ from irc.io_utils import atomic_write_text
 from irc.allocation.pipeline import run_allocation
 
 
+PER_CLASS_TOP_K = 4
+
+
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
@@ -38,12 +41,7 @@ def run_allocate(repo_root: str) -> int:
     out = run_allocation(
         scores=scores, class_targets=class_targets,
         gold_tilt=gold_tilt, correlation=pd.DataFrame(),
-        # per_class_top_k=4 (up from 2): the role-aware selector inside
-        # run_allocation now picks one per role first, then fills by score.
-        # 4 slots per class lets all 4 distinct cn_etf roles (broad / dividend
-        # / sector themes / soe) get representation while still capping the
-        # near-clone broad-index ETFs.
-        per_class_top_k=4,
+        per_class_top_k=PER_CLASS_TOP_K,
     )
     out_path = root / "outputs" / today / "proposed_allocation.yaml"
     payload = {

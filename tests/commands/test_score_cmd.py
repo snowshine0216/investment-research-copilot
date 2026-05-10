@@ -40,3 +40,32 @@ def test_score_writes_scoring_json(mock_macro, repo_with_watchlist: Path) -> Non
     assert rc == 0
     scoring_files = list((repo_with_watchlist / "outputs").rglob("scoring.json"))
     assert len(scoring_files) == 1
+
+
+@patch("irc.commands.score_cmd.resolve_route")
+@patch("irc.commands.score_cmd.run_scoring")
+def test_score_preserves_leading_zero_fund_ids(
+    mock_run_scoring,
+    mock_resolve_route,
+    tmp_path: Path,
+) -> None:
+    run_init(str(tmp_path), force=False)
+    out_dir = tmp_path / "outputs" / "2026-05-07"
+    out_dir.mkdir(parents=True)
+    pd.DataFrame([{
+        "instrument_id": "005827", "name_cn": "易方达蓝筹", "asset_class": "cn_equity_fund",
+        "ticker": "005827", "role": "satellite_cn_growth", "cited_refs": "r1", "tracked_index": "",
+    }]).to_csv(out_dir / "discovered_watchlist.csv", index=False)
+    from irc.data.duckdb_helper import connect, ensure_schema
+    con = connect(tmp_path / "data" / "local.duckdb")
+    ensure_schema(con)
+    con.close()
+    mock_resolve_route.return_value = object()
+    mock_run_scoring.return_value = {"scores": [{"instrument_id": "005827"}]}
+
+    rc = run_score(repo_root=str(tmp_path))
+
+    assert rc == 0
+    watchlist = mock_run_scoring.call_args.kwargs["watchlist"]
+    assert watchlist.loc[0, "instrument_id"] == "005827"
+    assert watchlist.loc[0, "ticker"] == "005827"

@@ -60,9 +60,11 @@ def apply_hard_filter(
     metadata: pd.DataFrame,
     cfg: DiscoveryConfig,
     overrides: OverridesConfig,
+    excluded_themes: tuple[str, ...] = (),
 ) -> HardFilterResult:
     """Step 2 of Discovery. Pure: rows + metadata + cfg → (passed, rejected with reasons)."""
     banned = {e.instrument_id for e in overrides.ban_list}
+    excluded = frozenset(excluded_themes)
     by_id = metadata.set_index("instrument_id").to_dict("index")
     passed: list[UniverseRow] = []
     rejected: list[Rejection] = []
@@ -71,6 +73,8 @@ def apply_hard_filter(
         reasons: list[str] = []
         if row.instrument_id in banned:
             reasons.append("ban_list override")
+        if row.theme in excluded:
+            reasons.append(f"theme excluded: {row.theme}")
         m = by_id.get(row.instrument_id)
         if m is None:
             reasons.append("no metadata available")

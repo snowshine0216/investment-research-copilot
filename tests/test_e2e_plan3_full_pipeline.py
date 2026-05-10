@@ -60,17 +60,19 @@ def _fake_fund_metadata(fund_code: str) -> dict:
     }
 
 
-def _discover_chat_response(instrument_id: str = "006075") -> MagicMock:
-    """LLM reason that includes a valid raw_ref so the citation check passes.
+def _raw_ref_from_messages(messages: list[dict[str, str]]) -> str:
+    user_message = next((m["content"] for m in messages if m.get("role") == "user"), "")
+    marker = "Available raw_refs: "
+    if marker not in user_message:
+        return "akshare:nav_history:006075:2026-05-06"
+    raw_refs = user_message.split(marker, 1)[1].splitlines()[0]
+    return raw_refs.split(", ", 1)[0].strip()
 
-    Cites both an akshare NAV ref (covers off-exchange feeders like 006075) and
-    an openbb prices ref (covers on-exchange ETFs like 513500), so the same
-    mocked response works for any candidate produced by discovery."""
+
+def _discover_chat_response(raw_ref: str = "akshare:nav_history:006075:2026-05-06") -> MagicMock:
+    """LLM reason that includes a raw_ref supplied in the discovery prompt."""
     return MagicMock(
-        text=(
-            f"Reason cites akshare:nav_history:{instrument_id}:2026-05-06 "
-            f"and openbb:prices:{instrument_id}:2026-05-01. Strong thesis."
-        ),
+        text=f"Reason cites {raw_ref}. Strong thesis.",
         prompt_tokens=10,
         completion_tokens=5,
     )
@@ -110,7 +112,7 @@ def _ask_response() -> MagicMock:
 
 # ─── shared patch context ────────────────────────────────────────────────────
 
-def _all_patches(instrument_id: str = "006075"):
+def _all_patches():
     """Return a list of (target, kwargs) for unittest.mock.patch."""
     return [
         patch("irc.commands.ingest_cmd.fetch_etf_price_history",
@@ -124,7 +126,9 @@ def _all_patches(instrument_id: str = "006075"):
         patch("irc.commands.ingest_cmd.fetch_etf_metadata_em",
               side_effect=_fake_fund_metadata),
         patch("irc.discovery.reason_writer.call_chat",
-              side_effect=lambda *a, **kw: _discover_chat_response(instrument_id)),
+              side_effect=lambda *a, **kw: _discover_chat_response(
+                _raw_ref_from_messages(kw["messages"])
+              )),
         patch("irc.scoring.factors.macro_fit.call_chat",
               return_value=_macro_fit_response()),
         patch("irc.memo.synthesizer.call_chat",

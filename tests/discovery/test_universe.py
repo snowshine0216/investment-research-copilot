@@ -33,3 +33,18 @@ def test_enumerate_dedups_by_instrument_id() -> None:
            "tracked_index": "i", "venue_required": []}
     out = enumerate_universe(_u([dup]), _u([dup]), _u([]), _u([]))
     assert len(out) == 1
+
+
+def test_enumerate_preserves_theme() -> None:
+    out = enumerate_universe(
+        qdii_us=_u([]),
+        qdii_hk=_u([]),
+        cn_funds=_u([{
+            "instrument_id": "512760", "ticker": "512760", "market": "cn_on_exchange",
+            "name_cn": "半导体ETF", "asset_class": "cn_etf", "currency": "cny",
+            "tracked_index": "中证全指半导体", "theme": "semiconductor",
+            "venue_required": ["cn_brokerage"],
+        }]),
+        gold=_u([]),
+    )
+    assert out[0].theme == "semiconductor"

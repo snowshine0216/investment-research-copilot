@@ -11,7 +11,8 @@ universe:
 
 asset_class_targets:
   gold:           { center: 0.20, band: [0.12, 0.28] }
-  cn_equity_fund: { center: 0.25, band: [0.18, 0.35] }
+  cn_equity_fund: { center: 0.15, band: [0.10, 0.25] }
+  cn_etf:         { center: 0.10, band: [0.05, 0.20] }
   cn_bond_fund:   { center: 0.15, band: [0.10, 0.25] }
   hk_etf:         { center: 0.10, band: [0.05, 0.15] }
   us_etf:         { center: 0.25, band: [0.18, 0.35] }

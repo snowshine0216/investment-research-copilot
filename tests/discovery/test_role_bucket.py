@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from typing import get_args
+
+import pytest
+
 from irc.discovery.universe import UniverseRow
-from irc.discovery.role_bucket import bucket_by_role
+from irc.discovery.role_bucket import THEMED_CN_ROLE_BY_THEME, bucket_by_role
+from irc.schemas._types import SECTOR_THEMES, Theme
 
 
 def _row(iid: str, asset_class: str, tracked: str | None = None, theme: str | None = None) -> UniverseRow:
@@ -71,11 +76,9 @@ def test_bucket_assigns_nasdaq_etf_to_satellite_us_tech() -> None:
 
 
 def test_bucket_assigns_cn_equity_fund_to_satellite_cn_growth() -> None:
-    # cn_equity_fund without 沪深/中证 index → satellite_cn_growth (core_cn_equity predicate fails)
+    # cn_equity_fund without an explicit theme falls through to satellite_cn_growth.
     rows = (_row_named("320007", "cn_equity_fund", "中小成长"),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
-    # First match wins: core_cn_equity checks tracked_index.startswith(("沪深","中证"))
-    # "中小成长" does NOT start with those prefixes, so predicate is False → falls to satellite_cn_growth
     assert out.buckets["satellite_cn_growth"][0].instrument_id == "320007"
 
 
@@ -164,7 +167,31 @@ def test_bucket_csi_prefix_sector_etf_does_not_pollute_core() -> None:
 
 def test_bucket_broad_index_in_whitelist_still_buckets_as_core_without_theme() -> None:
     """Backward compat: 沪深300 ETF with no theme still routes to core_cn_equity
-    via tracked_index whitelist (existing 28 yaml entries don't have theme yet)."""
+    via the explicit broad-index whitelist."""
     rows = (_row_named("510300", "cn_etf", "沪深300"),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
     assert out.buckets["core_cn_equity"][0].instrument_id == "510300"
+
+
+@pytest.mark.parametrize(
+    ("theme", "expected_role"),
+    [
+        ("tech", "satellite_cn_tech"),
+        ("new_energy", "satellite_cn_new_energy"),
+        ("consumer", "satellite_cn_consumer"),
+        ("finance", "satellite_cn_finance"),
+        ("metals", "satellite_cn_metals"),
+        ("real_estate", "satellite_cn_real_estate"),
+        ("soe", "satellite_cn_soe"),
+    ],
+)
+def test_bucket_all_theme_literals_route_to_expected_role(theme: str, expected_role: str) -> None:
+    rows = (_row_named("X", "cn_etf", "themed index", theme=theme),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets[expected_role][0].instrument_id == "X"
+
+
+def test_themed_cn_role_map_matches_schema_sector_themes() -> None:
+    sector_themes = set(get_args(Theme)) - {"broad", "dividend"}
+    assert set(THEMED_CN_ROLE_BY_THEME) == sector_themes
+    assert set(THEMED_CN_ROLE_BY_THEME) == set(SECTOR_THEMES)

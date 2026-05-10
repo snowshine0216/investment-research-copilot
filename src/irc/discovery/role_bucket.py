@@ -4,6 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from irc.discovery.universe import UniverseRow
+from irc.schemas._types import SECTOR_THEMES
 
 
 # Whitelist of broad-market CN indices. Sector indices like "中证军工" share
@@ -14,6 +15,11 @@ _BROAD_CN_INDICES = frozenset({
     "中证A500", "中证500", "中证1000", "中证全指",
     "创业板指", "创业板50", "科创50",
 })
+
+THEMED_CN_ROLE_BY_THEME: dict[str, str] = {
+    theme: f"satellite_cn_{theme}"
+    for theme in SECTOR_THEMES
+}
 
 
 def _is_core_gold(r: UniverseRow) -> bool:
@@ -55,23 +61,17 @@ def _theme_pred(target: str) -> Callable[[UniverseRow], bool]:
     return _pred
 
 
-_is_satellite_cn_tech = _theme_pred("tech")
-_is_satellite_cn_semiconductor = _theme_pred("semiconductor")
-_is_satellite_cn_defense = _theme_pred("defense")
-_is_satellite_cn_healthcare = _theme_pred("healthcare")
-_is_satellite_cn_new_energy = _theme_pred("new_energy")
-_is_satellite_cn_consumer = _theme_pred("consumer")
-_is_satellite_cn_finance = _theme_pred("finance")
-_is_satellite_cn_metals = _theme_pred("metals")
-_is_satellite_cn_real_estate = _theme_pred("real_estate")
-_is_satellite_cn_soe = _theme_pred("soe")
+_THEMED_CN_ROLE_RULES = tuple(
+    (role, _theme_pred(theme))
+    for theme, role in THEMED_CN_ROLE_BY_THEME.items()
+)
 
 
 def _is_satellite_cn_growth(r: UniverseRow) -> bool:
     """Active equity funds with no sector or factor tilt — broad alpha plays
     (张坤/谢治宇/朱少醒-style whole-market managers). Themed active funds
     bucket into their sector role, not here."""
-    return r.asset_class == "cn_equity_fund" and r.theme in (None, "broad")
+    return r.asset_class == "cn_equity_fund" and r.theme is None
 
 
 def _is_defensive_cn_bond(r: UniverseRow) -> bool:
@@ -96,16 +96,7 @@ ROLE_RULES: tuple[tuple[str, Callable[[UniverseRow], bool]], ...] = (
     ("core_cn_equity", _is_core_cn),
     ("satellite_us_tech", _is_satellite_us_tech),
     ("satellite_cn_dividend", _is_satellite_cn_dividend),
-    ("satellite_cn_tech", _is_satellite_cn_tech),
-    ("satellite_cn_semiconductor", _is_satellite_cn_semiconductor),
-    ("satellite_cn_defense", _is_satellite_cn_defense),
-    ("satellite_cn_healthcare", _is_satellite_cn_healthcare),
-    ("satellite_cn_new_energy", _is_satellite_cn_new_energy),
-    ("satellite_cn_consumer", _is_satellite_cn_consumer),
-    ("satellite_cn_finance", _is_satellite_cn_finance),
-    ("satellite_cn_metals", _is_satellite_cn_metals),
-    ("satellite_cn_real_estate", _is_satellite_cn_real_estate),
-    ("satellite_cn_soe", _is_satellite_cn_soe),
+    *_THEMED_CN_ROLE_RULES,
     ("satellite_cn_growth", _is_satellite_cn_growth),
     ("defensive_cn_bond", _is_defensive_cn_bond),
     ("defensive_us_bond", _is_defensive_us_bond),

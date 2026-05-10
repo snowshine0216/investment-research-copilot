@@ -113,3 +113,21 @@ def test_discover_derives_metrics_when_fund_metrics_empty(
     out_dir = next(p for p in (repo_with_prices_no_metrics / "outputs").iterdir())
     df = pd.read_csv(out_dir / "discovered_watchlist.csv", dtype={"instrument_id": str})
     assert df["instrument_id"].tolist() == ["006075"]
+
+
+def test_discover_passes_excluded_themes_to_pipeline(repo_with_db: Path) -> None:
+    preferences_path = repo_with_db / "inputs" / "preferences.yaml"
+    preferences_path.write_text(
+        preferences_path.read_text(encoding="utf-8").replace(
+            "exclude_themes: []",
+            "exclude_themes: [healthcare]",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("irc.commands.discover_cmd.run_discovery") as mock_run:
+        mock_run.return_value = pd.DataFrame(columns=["instrument_id"])
+        rc = run_discover(repo_root=str(repo_with_db))
+
+    assert rc == 0
+    assert mock_run.call_args.kwargs["excluded_themes"] == ("healthcare",)

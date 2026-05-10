@@ -1,5 +1,5 @@
 from __future__ import annotations
-from typing import Literal
+from typing import Literal, get_args
 from pydantic import BaseModel, ConfigDict
 
 
@@ -21,6 +21,11 @@ Theme = Literal[
     "new_energy", "consumer", "finance",
     "metals", "real_estate", "soe",
 ]
+
+SECTOR_THEMES = tuple(
+    theme for theme in get_args(Theme)
+    if theme not in ("broad", "dividend")
+)
 
 
 class FrozenModel(BaseModel):

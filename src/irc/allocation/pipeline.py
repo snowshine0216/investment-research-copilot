@@ -33,6 +33,8 @@ def _select_top_k_per_class(scores: list[dict], k: int) -> dict[str, list[dict]]
     by_class: dict[str, list[dict]] = {}
     for s in scores:
         by_class.setdefault(s["asset_class"], []).append(s)
+    if k <= 0:
+        return {cls: [] for cls in by_class}
     for cls, rows in by_class.items():
         ranked = sorted(rows, key=lambda r: r["composite_score"], reverse=True)
         seen_roles: set[str] = set()
@@ -72,10 +74,10 @@ def run_allocation(
     per_class_top_k: int = 2,
 ) -> AllocationOutput:
     """Compose Stage 5 allocation:
-      1. apply gold_tilt to class centers
-      2. select top-K per class by score
-      3. softmax-distribute class weight across selected instruments
-      4. correlation_filter drops near-duplicates
+    1. apply gold_tilt to class centers
+    2. select top-K per class with role-aware diversity, then score backfill
+    3. softmax-distribute class weight across selected instruments
+    4. correlation_filter drops near-duplicates
     """
     class_weights_obj = compute_target_weights(class_targets, gold_tilt=gold_tilt)
     class_weights: dict[str, float] = {k: v.target_weight for k, v in class_weights_obj.items()}
