@@ -18,6 +18,7 @@ dependencies = [
     "scipy>=1.13",
     "openbb>=4.3",
     "akshare>=1.13",
+    "feedparser>=6.0",
 ]
 
 [project.optional-dependencies]
