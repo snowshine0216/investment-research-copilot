@@ -170,3 +170,43 @@ def test_reasons_run_in_parallel(mock_w):
     elapsed = time.monotonic() - t0
     assert len(out) == 8
     assert elapsed < 0.9  # 8 × 0.3s sequential = 2.4s; parallel ≤ ~0.5s
+
+
+@patch("irc.discovery.pipeline.write_reason")
+def test_pipeline_can_return_diagnostics(mock_writer) -> None:
+    from irc.discovery.pipeline import run_discovery_with_diagnostics
+
+    mock_writer.return_value = MagicMock(
+        instrument_id="003095",
+        reason_text="healthcare active fund",
+        cited_refs=(),
+        prompt_tokens=10,
+        completion_tokens=5,
+    )
+    universe = (_row("003095", "cn_equity_fund", None, None),)
+    metadata = pd.DataFrame([{
+        "instrument_id": "003095", "inception_years": 5,
+        "aum_cny": 1e9, "expense_ratio": 0.012, "daily_volume_cny": 0,
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "003095", "drawdown_3y": 0.15,
+        "tracking_error": None, "manager_tenure_years": 5,
+    }])
+
+    result = run_discovery_with_diagnostics(
+        universe=universe,
+        metadata=metadata,
+        metrics=metrics,
+        risk_band_max_dd_upper=0.20,
+        cfg_overrides=None,
+        cfg_discovery=None,
+        route=MagicMock(),
+        peer_summary="x",
+        macro_snapshot="x",
+        raw_ref_pool=(),
+    )
+
+    assert result.watchlist["instrument_id"].tolist() == ["003095"]
+    assert {"universe", "hard_filter", "quality_filter", "role_bucket"}.issubset(
+        set(result.diagnostics["stage"])
+    )
