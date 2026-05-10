@@ -8,11 +8,17 @@ from irc.queries.parser import parse_query
 from irc.queries.responder import respond_to_query
 
 
+MAX_QUESTION_LEN = 2000
+
+
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
 
 def run_ask(repo_root: str, question: str) -> int:
+    if len(question) > MAX_QUESTION_LEN:
+        print(f"ERROR: question exceeds max length ({len(question)} > {MAX_QUESTION_LEN})")
+        return 2
     root = Path(repo_root)
     bundle = load_repo_configs(root)
     today = _today()
