@@ -10,11 +10,13 @@ class HardFilters(FrozenModel):
     cn_active_expense_ratio_max: float = Field(ge=0, le=1)
     cn_passive_expense_ratio_max: float = Field(ge=0, le=1)
     us_etf_expense_ratio_max: float = Field(ge=0, le=1)
+    qdii_feeder_expense_ratio_max: float = Field(default=0.012, ge=0, le=1)
     etf_daily_volume_cny_min: float = Field(ge=0)
 
 
 class QualityFilters(FrozenModel):
     drawdown_3y_buffer: float = Field(gt=0)
+    drawdown_3y_buffer_by_asset_class: dict[str, float] = Field(default_factory=dict)
     tracking_error_max: float = Field(ge=0, le=1)
     manager_tenure_years_min: float = Field(ge=0)
 

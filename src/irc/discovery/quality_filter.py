@@ -30,6 +30,14 @@ def _numeric_value(metrics: dict, key: str) -> float | None:
         return None
 
 
+def _drawdown_max(row: UniverseRow, cfg: DiscoveryConfig, risk_band: RiskBand) -> float:
+    buffer = cfg.quality_filters.drawdown_3y_buffer_by_asset_class.get(
+        row.asset_class,
+        cfg.quality_filters.drawdown_3y_buffer,
+    )
+    return risk_band.max_drawdown[1] * buffer
+
+
 def apply_quality_filter(
     rows: tuple[UniverseRow, ...],
     metrics: pd.DataFrame,
@@ -38,7 +46,6 @@ def apply_quality_filter(
 ) -> HardFilterResult:
     """Step 3 of Discovery. Combines drawdown / tracking_error / tenure rules."""
     qf = cfg.quality_filters
-    dd_max = risk_band.max_drawdown[1] * qf.drawdown_3y_buffer
     by_id = metrics.set_index("instrument_id").to_dict("index")
     passed: list[UniverseRow] = []
     rejected: list[Rejection] = []
@@ -48,6 +55,7 @@ def apply_quality_filter(
         if m is None:
             reasons.append("no metrics")
         else:
+            dd_max = _drawdown_max(row, cfg, risk_band)
             drawdown = _numeric_value(m, "drawdown_3y")
             if drawdown is None:
                 reasons.append("missing drawdown_3y")
