@@ -72,8 +72,8 @@ def normalize_catalog_rows(rows: Iterable[Mapping[str, Any]]) -> tuple[CatalogFu
     for row in rows:
         fund_code = _text(row.get("fund_code"))
         fund_name = _text(row.get("fund_name"))
-        fund_type = _text(row.get("fund_type"))
-        if not fund_code or not fund_name or not fund_type:
+        fund_type = _text(row.get("fund_type")) or ""
+        if not fund_code or not fund_name:
             continue
         normalized.append(CatalogFund(fund_code=fund_code.zfill(6), fund_name=fund_name, fund_type=fund_type))
     return tuple(normalized)

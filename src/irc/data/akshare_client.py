@@ -191,11 +191,14 @@ def _fetch_full_fund_table() -> pd.DataFrame:
     """Fetch the master open-ended fund catalog. Returns DataFrame with 'fund_code' column."""
     df = _raw_fund_table_call()
     if "基金代码" in df.columns:
-        df = df.rename(columns={
-            "基金代码": "fund_code",
-            "基金名称": "fund_name",
-            "基金类型": "fund_type",
-        })
+        rename_map = {"基金代码": "fund_code"}
+        if "基金名称" in df.columns:
+            rename_map["基金名称"] = "fund_name"
+        elif "基金简称" in df.columns:
+            rename_map["基金简称"] = "fund_name"
+        if "基金类型" in df.columns:
+            rename_map["基金类型"] = "fund_type"
+        df = df.rename(columns=rename_map)
     return df
 
 
@@ -203,12 +206,16 @@ def _fetch_full_fund_table() -> pd.DataFrame:
 def fetch_open_fund_catalog() -> pd.DataFrame:
     """Fetch Akshare's open-fund catalog with stable internal column names."""
     df = _fetch_full_fund_table()  # reuses existing cache
-    required = ("fund_code", "fund_name", "fund_type")
-    missing = [column for column in required if column not in df.columns]
+    required_cols = ["fund_code", "fund_name"]
+    missing = [column for column in required_cols if column not in df.columns]
     if missing:
         raise ValueError(f"Akshare open fund catalog missing columns: {', '.join(missing)}")
-    out = df.loc[:, list(required)].copy()
-    for column in required:
+    out_cols = [c for c in ["fund_code", "fund_name", "fund_type"] if c in df.columns]
+    out = df.loc[:, out_cols].copy()
+    # Ensure fund_type column exists (may be absent from daily-nav endpoint)
+    if "fund_type" not in out.columns:
+        out["fund_type"] = ""
+    for column in out.columns:
         out[column] = out[column].astype(str).str.strip()
     return out
 

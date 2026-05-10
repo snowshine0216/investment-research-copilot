@@ -542,11 +542,11 @@ def test_fetch_open_fund_catalog_normalizes_chinese_columns() -> None:
 
 
 def test_fetch_open_fund_catalog_raises_when_required_columns_missing() -> None:
-    fake = pd.DataFrame({"基金代码": ["003095"], "基金名称": ["中欧医疗健康混合A"]})
+    fake = pd.DataFrame({"基金代码": ["003095"]})  # missing 基金名称 / fund_name
     with patch("irc.data.akshare_client._raw_fund_table_call", return_value=fake):
         from irc.data.akshare_client import fetch_open_fund_catalog, _fetch_full_fund_table
 
         _fetch_full_fund_table.cache_clear()
         fetch_open_fund_catalog.cache_clear()
-        with pytest.raises(ValueError, match="fund_type"):
+        with pytest.raises(ValueError, match="fund_name"):
             fetch_open_fund_catalog()
