@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 from typing import Callable
 from irc.commands.ingest_cmd import run_ingest
 from irc.commands.discover_cmd import run_discover
@@ -8,8 +9,9 @@ from irc.commands.gold_cmd import run_gold
 from irc.commands.allocate_cmd import run_allocate
 from irc.commands.plan_cmd import run_plan
 from irc.commands.memo_cmd import run_memo
+from irc.commands.research_cmd import run_research
 
-STAGE_NAMES: tuple[str, ...] = ("ingest", "discover", "score", "gold", "allocate", "plan", "memo")
+STAGE_NAMES: tuple[str, ...] = ("ingest", "research", "discover", "score", "gold", "allocate", "plan", "memo")
 
 
 def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:
@@ -31,6 +33,13 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
         rc = fn(repo_root)
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
+            from irc.pipeline_halt import write_halted
+            today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+            write_halted(
+                repo_root=Path(repo_root), date=today, stage=stage,
+                reason=f"stage exit code {rc}",
+                remediation=f"Inspect the stage output and re-run `irc {stage} --repo-root {repo_root}` after fixing.",
+            )
             return rc
     print(f"pipeline OK: ran {stages}")
     return 0
@@ -39,6 +48,7 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
 def _runners_map() -> dict[str, Callable[[str], int]]:
     return {
         "ingest":   run_ingest,
+        "research": run_research,
         "discover": run_discover,
         "score":    run_score,
         "gold":     run_gold,
