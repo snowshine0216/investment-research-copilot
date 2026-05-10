@@ -12,6 +12,10 @@ _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
 
 
+class FundNotFound(LookupError):
+    """Raised when a fund_code is not present in the akshare fund table."""
+
+
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     """Indirection for testability; avoids heavy akshare import at module load."""
     import akshare as ak  # local import
@@ -156,10 +160,30 @@ def _expense_ratio_from_fee_table(df: pd.DataFrame) -> float | None:
     return total if found else None
 
 
+def _fetch_full_fund_table() -> pd.DataFrame:
+    """Fetch the master open-ended fund catalog. Returns DataFrame with 'fund_code' column."""
+    df = _ak_call("fund_open_fund_daily_em")
+    if "基金代码" in df.columns:
+        df = df.rename(columns={
+            "基金代码": "fund_code",
+            "基金名称": "fund_name",
+            "基金类型": "fund_type",
+        })
+    return df
+
+
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     """Single-row metadata dict via XueQiu — the only akshare path that returns
     individual-fund metadata in 1.18.60. XueQiu is auth-restricted and may fail
-    intermittently; callers handle the exception by skipping the instrument."""
+    intermittently; callers handle the exception by skipping the instrument.
+
+    Raises FundNotFound if the fund_code is absent from the full fund table.
+    """
+    table = _fetch_full_fund_table()
+    if "fund_code" in table.columns:
+        matches = table[table["fund_code"] == fund_code]
+        if matches.empty:
+            raise FundNotFound(f"fund_code {fund_code!r} not in akshare fund table")
     basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
     if not basic or str(basic.get("基金代码") or basic.get("fund_code") or "") != fund_code:
         raise ValueError(f"fund {fund_code!r} not found in AKShare basic info")
