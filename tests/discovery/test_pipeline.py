@@ -150,3 +150,23 @@ def test_pipeline_respects_excluded_themes_before_reason_generation(mock_writer)
 
     assert out.empty
     mock_writer.assert_not_called()
+
+
+import time
+from unittest.mock import patch
+from irc.discovery.pipeline import run_discover_with_reasons
+
+
+def _slow_reason(*a, **kw):
+    time.sleep(0.3)
+    return "ok"
+
+
+@patch("irc.discovery.pipeline.write_reason", side_effect=_slow_reason)
+def test_reasons_run_in_parallel(mock_w):
+    candidates = [{"role": "r1", "instrument_id": f"I{i}"} for i in range(8)]
+    t0 = time.monotonic()
+    out = run_discover_with_reasons(candidates=candidates, route=None, max_workers=8)
+    elapsed = time.monotonic() - t0
+    assert len(out) == 8
+    assert elapsed < 0.9  # 8 × 0.3s sequential = 2.4s; parallel ≤ ~0.5s

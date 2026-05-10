@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 import pandas as pd
@@ -130,3 +131,17 @@ def run_discovery(
     if not rows:
         return pd.DataFrame(columns=list(_WATCHLIST_COLUMNS))
     return pd.DataFrame(rows)
+
+
+def run_discover_with_reasons(candidates: list[dict[str, Any]], *, route: Any, max_workers: int = 8) -> list[dict[str, Any]]:
+    """Parallelize write_reason calls across candidates using ThreadPoolExecutor.
+    
+    For each candidate with 'role' and 'instrument_id' keys, calls write_reason
+    and adds the result to the candidate dict under 'reason' key.
+    """
+    def task(c: dict[str, Any]) -> dict[str, Any]:
+        reason = write_reason(role=c["role"], instrument_id=c["instrument_id"], route=route)
+        return {**c, "reason": reason}
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        return list(ex.map(task, candidates))
