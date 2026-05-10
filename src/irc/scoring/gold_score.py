@@ -7,6 +7,20 @@ from irc.schemas.gold import GoldDriversConfig
 GoldTilt = Literal["overweight", "neutral_plus", "neutral", "neutral_minus", "underweight"]
 
 
+class ConfigKeyMismatch(KeyError):
+    """Raised when a required gold driver key is missing from the config."""
+
+
+_KNOWN_DRIVERS = (
+    "real_yield_10y_tips",
+    "dxy",
+    "inflation_5y5y",
+    "cb_purchases_wgc",
+    "etf_holdings_gld",
+    "geopolitical_proxy",
+)
+
+
 @dataclass(frozen=True)
 class GoldDriverInputs:
     real_yield_10y_tips: float    # in %
@@ -58,6 +72,10 @@ def _geo_score(stress: float) -> float:
 
 def compute_gold_score(inputs: GoldDriverInputs, cfg: GoldDriversConfig) -> float:
     """Weighted composite of 6 driver sub-scores → 0-100."""
+    drivers = cfg.drivers if cfg.drivers is not None else {}
+    for d in _KNOWN_DRIVERS:
+        if d not in drivers:
+            raise ConfigKeyMismatch(f"driver '{d}' missing from gold config")
     components = {
         "real_yield_10y_tips": _real_yield_score(inputs.real_yield_10y_tips),
         "dxy":                 _dxy_score(inputs.dxy),
