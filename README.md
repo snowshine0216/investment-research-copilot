@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 3 of 4 complete. Full pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute all 7 stages. News layer and live gold-driver feeds arrive in Plan 4.
+> **Status:** Plan 4 (theme-aware discovery) in progress. Full pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute all 7 stages. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. News layer and live gold-driver feeds remain in Plan 4.
 
 ## Design references
 
