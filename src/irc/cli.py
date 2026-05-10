@@ -114,3 +114,11 @@ def freshness(repo_root: str) -> None:
     from irc.commands.freshness_cmd import run_freshness
     rc = run_freshness(repo_root=repo_root)
     raise SystemExit(rc)
+
+
+@main.command(help="Run LDR research jobs across 7 themes; write data/research/<theme>.md.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def research(repo_root: str) -> None:
+    from irc.commands.research_cmd import run_research
+    rc = run_research(repo_root=repo_root)
+    raise SystemExit(rc)
