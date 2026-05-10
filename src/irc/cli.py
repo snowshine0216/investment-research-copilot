@@ -122,3 +122,13 @@ def research(repo_root: str) -> None:
     from irc.commands.research_cmd import run_research
     rc = run_research(repo_root=repo_root)
     raise SystemExit(rc)
+
+
+@main.command(help="Run per-stage eval; produces report.json under outputs/<date>/evals/<stage>/.")
+@click.argument("stage", required=False)
+@click.option("--all", "all_stages", is_flag=True, default=False)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
+    from irc.commands.eval_cmd import run_eval
+    rc = run_eval(repo_root=repo_root, stage=stage, all_stages=all_stages)
+    raise SystemExit(rc)
