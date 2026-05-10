@@ -34,9 +34,10 @@ def test_classify_400_other_no_retry():
         classify_failure(resp)
 
 
-def test_classify_2xx_returns_ok():
+def test_classify_2xx_raises_no_retry():
     resp = httpx.Response(status_code=200)
-    assert classify_failure(resp) == FailureKind.OK
+    with pytest.raises(NoRetryError):
+        classify_failure(resp)
 
 
 def test_backoff_constants_are_stepped():
@@ -229,3 +230,8 @@ def test_retry_decorator_built_at_import_time():
     assert hasattr(retry_mod, "_RETRY_DECORATOR")
     fn = retry_mod._RETRY_DECORATOR
     assert callable(fn)
+
+
+def test_failurekind_ok_removed():
+    from irc.llm.retry import FailureKind
+    assert "OK" not in {k.name for k in FailureKind}

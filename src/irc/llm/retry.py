@@ -16,7 +16,6 @@ class AggregateTimeoutError(TimeoutError):
 
 
 class FailureKind(str, Enum):
-    OK = "ok"
     RATE_LIMITED = "rate_limited"
     SERVER_ERROR = "server_error"
 
@@ -27,10 +26,9 @@ class NoRetryError(Exception):
 
 def classify_failure(response: httpx.Response) -> FailureKind:
     """Pure classification of an HTTP response into retry policy buckets.
-    Raises NoRetryError for 4xx that should not be retried."""
+    Raises NoRetryError for 4xx that should not be retried.
+    Only called for error responses (4xx/5xx); never called for 2xx success."""
     code = response.status_code
-    if 200 <= code < 300:
-        return FailureKind.OK
     if code == 429:
         return FailureKind.RATE_LIMITED
     if 500 <= code < 600:
