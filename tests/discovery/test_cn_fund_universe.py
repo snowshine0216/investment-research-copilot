@@ -167,3 +167,15 @@ def test_serialized_universe_validates_as_yaml_compatible_shape() -> None:
             }
         ]
     }
+
+
+def test_dedupe_excludes_etf_feeder_in_favor_of_main_etf() -> None:
+    out = build_cn_fund_universe([
+        {"fund_code": "510300", "fund_name": "华泰柏瑞沪深300ETF", "fund_type": "指数型-股票"},
+        {"fund_code": "000311", "fund_name": "华泰柏瑞沪深300ETF联接A", "fund_type": "指数型"},
+        {"fund_code": "004752", "fund_name": "华泰柏瑞沪深300ETF联接C", "fund_type": "指数型"},
+    ])
+    ids = [i.instrument_id for i in out]
+    assert "510300" in ids
+    assert "000311" not in ids
+    assert "004752" not in ids

@@ -99,6 +99,8 @@ def _has_any(text: str, markers: tuple[str, ...]) -> bool:
 
 
 def _is_exchange_traded(fund: CatalogFund) -> bool:
+    if "联接" in fund.fund_name:
+        return False
     return _has_any(f"{fund.fund_name} {fund.fund_type}", _ETF_MARKERS)
 
 
@@ -201,12 +203,17 @@ def _share_class_rank(name: str) -> int:
     for rank, share_class in enumerate(("A", "B", "D", "E", "I", "C")):
         if re.search(rf"(?:\({share_class}\)|{share_class}类?|{share_class}份额?)$", normalized):
             return rank
-    return 2
+    return len(("A", "B", "D", "E", "I", "C"))
 
 
 def _share_base_name(name: str) -> str:
     normalized = name.strip().replace("（", "(").replace("）", ")")
-    normalized = re.sub(r"(?:\([A-Z]\)|[A-Z]类?|[A-Z]份额?)$", "", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(
+        r"(?:\([ABCDIE]\)|[ABCDIE]类?|[ABCDIE]份额?)$",
+        "",
+        normalized,
+        flags=re.IGNORECASE,
+    )
     normalized = re.sub(r"人民币$", "", normalized)
     return normalized
 
@@ -284,6 +291,18 @@ def _to_instrument(classified: ClassifiedFund) -> Instrument:
     return Instrument.model_validate(payload)
 
 
+def _exclude_feeder_funds(classified: tuple[ClassifiedFund, ...]) -> tuple[ClassifiedFund, ...]:
+    """Remove OTC feeder funds (联接) whose parent ETF is already in the classified set."""
+    etf_names = {item.catalog.fund_name for item in classified if item.asset_class == "cn_etf"}
+    return tuple(
+        item for item in classified
+        if not (
+            "联接" in item.catalog.fund_name
+            and any(item.catalog.fund_name.startswith(etf_name) for etf_name in etf_names)
+        )
+    )
+
+
 def build_cn_fund_universe(
     rows: Iterable[Mapping[str, Any]],
     options: UniverseBuildOptions | None = None,
@@ -291,6 +310,7 @@ def build_cn_fund_universe(
     build_options = options or UniverseBuildOptions()
     funds = dedupe_share_classes(normalize_catalog_rows(rows))
     classified = tuple(item for fund in funds if (item := classify_catalog_fund(fund)) is not None)
+    classified = _exclude_feeder_funds(classified)
     capped = _apply_caps(classified, build_options)
     return tuple(_to_instrument(item) for item in capped)
 
