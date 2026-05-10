@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import contextlib
 from functools import lru_cache
+import os
 import re
 import time
-from typing import Any, TypeVar
+from typing import Any, Generator, TypeVar
 
 import pandas as pd
 
@@ -22,6 +24,24 @@ def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
+
+
+@contextlib.contextmanager
+def _proxy_env(proxy_url: str) -> Generator[None, None, None]:
+    """Temporarily inject HTTP/HTTPS proxy env vars so requests-based libs
+    (akshare, etc.) route through the proxy. Restores original values on exit."""
+    keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+    saved = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        os.environ[k] = proxy_url
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _sleep(seconds: float) -> None:
@@ -179,6 +199,26 @@ def _fetch_full_fund_table() -> pd.DataFrame:
     return df
 
 
+@lru_cache(maxsize=1)
+def fetch_open_fund_catalog() -> pd.DataFrame:
+    """Fetch Akshare's open-fund catalog with stable internal column names."""
+    df = _raw_fund_table_call()
+    rename_map = {
+        "基金代码": "fund_code",
+        "基金名称": "fund_name",
+        "基金类型": "fund_type",
+    }
+    normalized = df.rename(columns=rename_map)
+    required = ("fund_code", "fund_name", "fund_type")
+    missing = [column for column in required if column not in normalized.columns]
+    if missing:
+        raise ValueError(f"Akshare open fund catalog missing columns: {', '.join(missing)}")
+    out = normalized.loc[:, list(required)].copy()
+    for column in required:
+        out[column] = out[column].astype(str).str.strip()
+    return out
+
+
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     """Single-row metadata dict via XueQiu — the only akshare path that returns
     individual-fund metadata in 1.18.60. XueQiu is auth-restricted and may fail
@@ -294,8 +334,14 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     """DXY (ICE 6-currency US Dollar Index) is the broad-USD proxy used by gold
     scoring; thresholds in scoring/gold_score.py and scoring/gold_scenarios.py
     are calibrated for DXY's ~95–115 range. FRED's DTWEXBGS sits ~120 and is
-    not interchangeable, so this path is the canonical DXY source."""
-    raw = _ak_call("index_global_hist_em", symbol="美元指数")
+    not interchangeable, so this path is the canonical DXY source.
+
+    If AKSHARE_HTTPS_PROXY is set in the environment, the EastMoney request is
+    routed through that proxy (useful when the host is geo-restricted)."""
+    proxy_url = os.environ.get("AKSHARE_HTTPS_PROXY")
+    ctx = _proxy_env(proxy_url) if proxy_url else contextlib.nullcontext()
+    with ctx:
+        raw = _ak_call("index_global_hist_em", symbol="美元指数")
     df = raw[["日期", "最新价"]].rename(columns={"日期": "date", "最新价": "value"})
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)

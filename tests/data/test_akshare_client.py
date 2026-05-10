@@ -518,3 +518,33 @@ def test_fund_table_fetched_once_across_calls():
             try: fetch_fund_metadata("110011")
             except Exception: pass
         assert mock_raw.call_count == 1
+
+
+def test_fetch_open_fund_catalog_normalizes_chinese_columns() -> None:
+    fake = pd.DataFrame({
+        "基金代码": ["003095", "110022"],
+        "基金名称": ["中欧医疗健康混合A", "易方达消费行业股票A"],
+        "基金类型": ["混合型", "股票型"],
+        "ignored": [1, 2],
+    })
+    with patch("irc.data.akshare_client._raw_fund_table_call", return_value=fake):
+        from irc.data.akshare_client import fetch_open_fund_catalog
+
+        fetch_open_fund_catalog.cache_clear()
+        out = fetch_open_fund_catalog()
+
+    assert list(out.columns) == ["fund_code", "fund_name", "fund_type"]
+    assert out.to_dict("records") == [
+        {"fund_code": "003095", "fund_name": "中欧医疗健康混合A", "fund_type": "混合型"},
+        {"fund_code": "110022", "fund_name": "易方达消费行业股票A", "fund_type": "股票型"},
+    ]
+
+
+def test_fetch_open_fund_catalog_raises_when_required_columns_missing() -> None:
+    fake = pd.DataFrame({"基金代码": ["003095"], "基金名称": ["中欧医疗健康混合A"]})
+    with patch("irc.data.akshare_client._raw_fund_table_call", return_value=fake):
+        from irc.data.akshare_client import fetch_open_fund_catalog
+
+        fetch_open_fund_catalog.cache_clear()
+        with pytest.raises(ValueError, match="fund_type"):
+            fetch_open_fund_catalog()
