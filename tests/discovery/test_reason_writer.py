@@ -88,3 +88,16 @@ def test_write_reason_skips_without_raw_refs(mock_chat, caplog) -> None:
     assert res is None
     mock_chat.assert_not_called()
     assert any("no raw_refs available" in r.message for r in caplog.records)
+
+
+import logging
+from unittest.mock import patch, MagicMock
+from irc.discovery.reason_writer import write_reason
+
+
+def test_write_reason_logs_on_failure(caplog):
+    caplog.set_level(logging.WARNING, logger="irc.discovery.reason_writer")
+    with patch("irc.discovery.reason_writer.call_chat", side_effect=RuntimeError("boom")):
+        out = write_reason(role="core_equity", instrument_id="VTI", route=MagicMock())
+    assert out == ""  # graceful empty return preserved
+    assert any("VTI" in r.message and "boom" in r.message for r in caplog.records)
