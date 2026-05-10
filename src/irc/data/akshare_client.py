@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from functools import lru_cache
 import re
 import time
 from typing import Any, TypeVar
@@ -160,9 +161,15 @@ def _expense_ratio_from_fee_table(df: pd.DataFrame) -> float | None:
     return total if found else None
 
 
+def _raw_fund_table_call() -> pd.DataFrame:
+    """Raw call to akshare for open-ended fund table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_open_fund_daily_em")
+
+
+@lru_cache(maxsize=1)
 def _fetch_full_fund_table() -> pd.DataFrame:
     """Fetch the master open-ended fund catalog. Returns DataFrame with 'fund_code' column."""
-    df = _ak_call("fund_open_fund_daily_em")
+    df = _raw_fund_table_call()
     if "基金代码" in df.columns:
         df = df.rename(columns={
             "基金代码": "fund_code",
@@ -376,9 +383,20 @@ def fetch_macro_series_akshare(series_id: str, start: str, end: str) -> pd.DataF
     return globals()[handler_name](start, end)
 
 
+def _raw_etf_table_call() -> pd.DataFrame:
+    """Raw call to akshare for ETF category table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_etf_category_sina", symbol="ETF基金")
+
+
+@lru_cache(maxsize=1)
+def _fetch_full_etf_table() -> pd.DataFrame:
+    """Fetch the master on-exchange ETF catalog. Returns DataFrame with ETF data."""
+    return _raw_etf_table_call()
+
+
 def fetch_etf_metadata(symbol: str) -> dict[str, Any]:
     """On-exchange ETF metadata; symbol is 6-digit code (e.g. '510300')."""
-    df = _ak_call("fund_etf_category_sina", symbol="ETF基金")
+    df = _fetch_full_etf_table()
     if isinstance(df, pd.DataFrame):
         code_col = "代码" if "代码" in df.columns else "symbol"
         rows = df[df[code_col].astype(str).str.contains(symbol, regex=False)]

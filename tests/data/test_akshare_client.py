@@ -507,3 +507,14 @@ def test_missing_fund_raises_not_found(mock_full):
     })
     with pytest.raises(FundNotFound):
         fetch_fund_metadata("999999")
+
+
+def test_fund_table_fetched_once_across_calls():
+    from irc.data.akshare_client import _fetch_full_fund_table
+    _fetch_full_fund_table.cache_clear()
+    with patch("irc.data.akshare_client._raw_fund_table_call",
+               return_value=MagicMock()) as mock_raw:
+        for _ in range(5):
+            try: fetch_fund_metadata("110011")
+            except Exception: pass
+        assert mock_raw.call_count == 1
