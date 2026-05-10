@@ -114,3 +114,52 @@ def test_preferences_centers_must_sum_to_one():
 def test_asset_class_target_band_must_contain_center():
     with pytest.raises(ValidationError):
         AssetClassTarget(center=0.20, band=[0.30, 0.40])
+
+
+def test_targets_summing_to_1_005_rejected():
+    payload = {
+        "risk_band": {"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"},
+        "universe": {"cn_funds": True, "cn_etfs": True, "hk_etfs": True, "us_etfs": True},
+        "asset_class_targets": {
+            "gold": {"center": 0.605, "band": [0.50, 0.70]},
+            "cn_equity_fund": {"center": 0.20, "band": [0.15, 0.30]},
+            "cn_bond_fund": {"center": 0.10, "band": [0.05, 0.20]},
+            "hk_etf": {"center": 0.05, "band": [0.00, 0.10]},
+            "us_etf": {"center": 0.20, "band": [0.10, 0.30]},
+            "cash": {"center": 0.0, "band": [0.00, 0.05]},
+        },
+        "currency_tolerance": {
+            "cny": [0.40, 0.65],
+            "usd": [0.25, 0.45],
+            "hkd": [0.05, 0.20],
+        },
+        "constraints": {"allow_short": False, "allow_leverage": False, "exclude_themes": []},
+        "investment_plan": {"monthly_new_capital_cny": 0},
+        "report_language": "zh",
+    }  # sum=1.005 — too high
+    with pytest.raises(ValidationError):
+        PreferencesFile.model_validate(payload)
+
+
+def test_targets_summing_to_1_00005_accepted():
+    payload = {
+        "risk_band": {"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"},
+        "universe": {"cn_funds": True, "cn_etfs": True, "hk_etfs": True, "us_etfs": True},
+        "asset_class_targets": {
+            "gold": {"center": 0.20, "band": [0.12, 0.28]},
+            "cn_equity_fund": {"center": 0.25, "band": [0.18, 0.35]},
+            "cn_bond_fund": {"center": 0.15, "band": [0.10, 0.25]},
+            "hk_etf": {"center": 0.10, "band": [0.05, 0.15]},
+            "us_etf": {"center": 0.25, "band": [0.18, 0.35]},
+            "cash": {"center": 0.05005, "band": [0.00, 0.10]},
+        },
+        "currency_tolerance": {
+            "cny": [0.40, 0.65],
+            "usd": [0.25, 0.45],
+            "hkd": [0.05, 0.20],
+        },
+        "constraints": {"allow_short": False, "allow_leverage": False, "exclude_themes": []},
+        "investment_plan": {"monthly_new_capital_cny": 0},
+        "report_language": "zh",
+    }  # sum=1.00005 — within 1e-4 tolerance
+    PreferencesFile.model_validate(payload)

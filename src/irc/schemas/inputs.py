@@ -93,6 +93,9 @@ class InvestmentPlan(FrozenModel):
     current_total_cny: float | None = Field(default=None, ge=0)
 
 
+_TARGETS_TOLERANCE = 1e-4  # tightened from 0.02 (2%) to 1e-4 (0.01%)
+
+
 class PreferencesFile(FrozenModel):
     risk_band: RiskBand
     universe: UniverseFlags
@@ -105,6 +108,6 @@ class PreferencesFile(FrozenModel):
     @model_validator(mode="after")
     def _centers_sum_to_one(self) -> "PreferencesFile":
         total = sum(t.center for t in self.asset_class_targets.values())
-        if not (0.98 <= total <= 1.02):
-            raise ValueError(f"asset_class_targets centers must sum to ~1.0, got {total:.4f}")
+        if abs(total - 1.0) > _TARGETS_TOLERANCE:
+            raise ValueError(f"asset_class_targets centers must sum to 1 ± {_TARGETS_TOLERANCE} (got {total:.6f})")
         return self
