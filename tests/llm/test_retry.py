@@ -219,3 +219,13 @@ def test_retry_aggregates_to_deadline():
     with patch("irc.llm.retry._call_once", side_effect=slow):
         with pytest.raises(AggregateTimeoutError):
             retry_call_chat(route=None, messages=[], deadline_s=1.0, attempts=10)
+
+
+import irc.llm.retry as retry_mod
+
+
+def test_retry_decorator_built_at_import_time():
+    # decorator is bound at module load — not rebuilt per call
+    assert hasattr(retry_mod, "_RETRY_DECORATOR")
+    fn = retry_mod._RETRY_DECORATOR
+    assert callable(fn)

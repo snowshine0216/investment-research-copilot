@@ -58,6 +58,12 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+_RETRY_DECORATOR = retry(
+    stop=stop_after_attempt(5),
+    wait=wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS]),
+    retry=retry_if_exception(_is_retryable),
+    reraise=True,
+)
 def _call_once(
     route: ResolvedRoute,
     messages: list[dict[str, str]],
@@ -70,13 +76,17 @@ def _call_once(
 ) -> ChatResponse:
     """Single attempt: call_chat wrapped with tenacity for 429/5xx/network errors."""
     from irc.llm.http_client import call_chat  # local import avoids module-level cycle
-    _wait = wait if wait is not None else wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS])
-    _retrying = retry(
-        stop=stop_after_attempt(5),
-        wait=_wait,
-        retry=retry_if_exception(_is_retryable),
-        reraise=True,
-    )
+    if wait is not None:
+        # Use custom wait if provided (e.g., for testing with wait_none())
+        _retrying = retry(
+            stop=stop_after_attempt(5),
+            wait=wait,
+            retry=retry_if_exception(_is_retryable),
+            reraise=True,
+        )
+    else:
+        # Use module-level decorator with default backoff
+        _retrying = _RETRY_DECORATOR
     return _retrying(call_chat)(
         route, messages,
         timeout_s=timeout_s,
