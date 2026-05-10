@@ -1,19 +1,18 @@
 # TODOS
 
-Known gaps and deferred work. Updated after v0.4.0.0 ship (2026-05-10).
+Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 
 ## Security
 
-- [ ] **SSRF DNS-bypass** — `_validate_base_url()` checks IP literals only; a hostname that resolves to 169.254.169.254 at runtime bypasses the guard. Fix: DNS-resolve at call time in `http_client._post_request()` and verify the resolved IP. (adversarial-review finding 1)
-- [ ] **Remaining plain-str secrets** — `anthropic_api_key`, `tushare_token`, `ldr_api_token`, `openbb_fmp_key`, `openbb_tiingo_key` are plain `str` in `Settings`. Upgrade to `SecretStr` when those providers are activated in Plan 2+. (adversarial-review finding 5)
-- [ ] **Two-hop prompt injection** — raw refs pass through synthesizer and then into auditor prompt; a crafted ref could manipulate the audit result. Add a sanitization boundary before the auditor pass. (adversarial-review finding 11)
-- [ ] **Unbounded question length in `ask_cmd`** — no max length on user question; a 100k-char question would be injected directly into the LLM prompt. Add `MAX_QUESTION_LEN = 2000` guard. (adversarial-review finding 13)
+- [ ] **SSRF via feedparser redirect** — `rss_aggregator.py` DNS-guards the initial hostname but `feedparser.parse()` follows HTTP redirects internally, which could bypass the guard. Mitigation: pass a custom urllib handler with no-redirect policy or pre-resolve final destination. Low-priority since feed URLs are operator-supplied. (adversarial-review 2026-05-11)
+- [ ] **Cross-class correlation check** — `correlation_filter.py` only drops intra-class correlated instruments; highly correlated equity + QDII pairs can survive. Add optional cross-class check. (adversarial-review 2026-05-11 INVESTIGATE)
+- [ ] **Float tolerance edge case** — IEEE 754 sums for YAML-parsed floats like 0.3+0.4+0.3 can exceed 1e-4; `schemas/inputs.py` uses `_TARGETS_TOLERANCE = 1e-4`. Verified OK for current `preferences.yaml` (sum=1.0 exactly). Monitor if users add new targets. (adversarial-review 2026-05-11 INVESTIGATE)
+- [ ] **Accurate per-fund manager tenure** — `ingest_cmd._ingest_active_fund_tenure` uses inception-date proxy; replace with a real per-fund manager-start-date field from EastMoney or a dedicated tenure API.
 
 ## Reliability
 
-- [ ] **No aggregate timeout** — worst-case `retry_call_chat()` wall time is 3 min (5 × 30s + 2+4+8+16s waits). Add a `deadline_s` or `asyncio.timeout` guard for batch runs. (adversarial-review finding 7)
-- [ ] **`sign==0` always "downtrend"** — `regime_detect.py` linear regression slope on short new-issue history gives sign=0 which defaults to "downtrend". Minor: only affects ETFs < 60 days old. (adversarial-review finding 2)
-- [ ] **`compute_gold_score` KeyError on config drift** — hardcoded driver names like `"real_yield"` may diverge from config keys; a renamed config key would cause silent KeyError. Add explicit key validation. (adversarial-review finding 8)
+- [ ] **`evals/architecture/metrics.py` silent PASS on syntax errors** — files with syntax errors trigger `continue`, appearing to have no imports and hiding potential DAG cycles. Surface as WARN.
+- [ ] **`evals/scoring/runner.py` false stability on 1-item corpus** — `len(scores)==1` produces empty split; `score_distribution_stability([], [x])` returns `0.0`, classified as PASS. Return WARN when split has <2 observations.
 
 ## Coverage gaps
 
@@ -24,76 +23,34 @@ Known gaps and deferred work. Updated after v0.4.0.0 ship (2026-05-10).
 - [ ] `schemas/gold.py` — direction enum variants beyond "up"
 - [ ] `schemas/discovery.py` — quality filter edge cases
 
-## Performance (Plan 3)
-
-- [x] **Sequential LLM calls in scoring**: `score_macro_fit` called once per instrument in a for-loop (blocking HTTP). Parallelized with `ThreadPoolExecutor` in `run_scoring()` (ship 2026-05-08).
-- [ ] **Sequential LLM calls in discovery**: `write_reason` called per role × instrument. Same fix as above. (ship review 2026-05-08)
-- [ ] **`fetch_fund_metadata` / `fetch_etf_metadata` download full tables per call**: cache with `functools.lru_cache` or pass pre-fetched DataFrame from the caller. (ship review 2026-05-08)
-
-## Reliability (Plan 2+)
-
-- [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()` (ship 2026-05-08).
-- [ ] **`write_reason` silent failure**: bare `except Exception: pass` swallows all LLM errors; `run_discover` returns 0 even when 0 candidates found. Add structured logging for retried/failed instruments. (adversarial-review 2026-05-08)
-- [ ] **`fetch_fund_metadata` wrong record on miss**: falls back to `df.iloc[0]` when fund_code not found, returning metadata for a different fund. Raise `ValueError` or return `{}` instead. (adversarial-review 2026-05-08)
-- [ ] **Mixed-date fallback** — `run_memo` silently reads scoring/gold/allocation from different calendar dates when outputs are stale; two dates appear in one memo. Add explicit staleness check or warn clearly. (adversarial-review finding 14)
-
 ## Design / Tech debt
 
-- [ ] **`tracking_error` stub in `metrics.py`** — `derive_discovery_metrics` always emits `tracking_error=0.0`; quality filter's tracking-error branch never fires. Implement rolling-std-of-returns-minus-benchmark in Plan 4. (code-review 2026-05-08)
-- [ ] **2/6 gold score drivers hardcoded** — `cb_purchases_yearly_tons` and `etf_holdings_30d_change_tons` are constants in `gold_cmd.py`; `real_yield`, `dxy`, and `inflation_5y5y` are now wired from DuckDB. Activate CB flow + ETF holdings in Plan 4. (adversarial-review finding 3, partial fix 2026-05-08)
-- [ ] **`traceability.py` metric is exact-copy lower bound** — `check_traceability` does verbatim substring matching; LLM typically paraphrases, so `coverage_ratio` is near 0 in all real runs. Implement fuzzy/keyword citation scorer in Plan 4. (code-review 2026-05-08)
-- [ ] **Correlation filter permanently disabled** — `allocation/pipeline.py` always skips correlation filter until correlation data is available in Plan 4. When activated, intra-class weights must be renormalized after dropped instruments (otherwise total_weight < 1.0). (adversarial-review findings 4+5, code-review finding 2026-05-08)
-- [ ] **`ChatResponse.raw` unbounded** — full LLM response body stored in frozen dataclass. Remove or make optional before any serialization path is added (Plan 4). (adversarial-review finding 11)
-- [ ] **Portfolio target tolerance** — `PreferencesFile` uses ±2% sum tolerance vs 1e-6 for system configs. Tighten to 1e-4 when financial-accuracy requirements are confirmed.
-- [ ] **`FailureKind.OK` dead code** — `classify_failure()` returns `OK` for 2xx but `HTTPStatusError` is never raised on 2xx. Remove or document.
-- [ ] **Tenacity decorator rebuilt per call** — rebuild once at module level to reduce per-call allocation overhead in batch runs.
-
-
-## Security
-
-- [ ] **SSRF DNS-bypass** — `_validate_base_url()` checks IP literals only; a hostname that resolves to 169.254.169.254 at runtime bypasses the guard. Fix: DNS-resolve at call time in `http_client._post_request()` and verify the resolved IP. (adversarial-review finding 1)
-- [ ] **Remaining plain-str secrets** — `anthropic_api_key`, `tushare_token`, `ldr_api_token`, `openbb_fmp_key`, `openbb_tiingo_key` are plain `str` in `Settings`. Upgrade to `SecretStr` when those providers are activated in Plan 2+. (adversarial-review finding 5)
-
-## Reliability
-
-- [ ] **No aggregate timeout** — worst-case `retry_call_chat()` wall time is 3 min (5 × 30s + 2+4+8+16s waits). Add a `deadline_s` or `asyncio.timeout` guard for batch runs. (adversarial-review finding 7)
-
-## Coverage gaps
-
-- [ ] `config_loader._resolve_schema` — `KeyError` path when schema is not registered (100% happy-path only)
-- [ ] `settings.py` — `OPENROUTER_API_KEY` missing path
-- [ ] `schemas/triggers.py` — invalid comparator branch (~50% coverage)
-- [ ] `schemas/overrides.py` — populated override lists (~50% coverage)
-- [ ] `schemas/gold.py` — direction enum variants beyond "up"
-- [ ] `schemas/discovery.py` — quality filter edge cases
-
-## Performance (Plan 3)
-
-- [x] **Sequential LLM calls in scoring**: `score_macro_fit` called once per instrument in a for-loop (blocking HTTP). Parallelized with `ThreadPoolExecutor` in `run_scoring()` (ship 2026-05-08).
-- [ ] **Sequential LLM calls in discovery**: `write_reason` called per role × instrument. Same fix as above. (ship review 2026-05-08)
-- [ ] **`fetch_fund_metadata` / `fetch_etf_metadata` download full tables per call**: cache with `functools.lru_cache` or pass pre-fetched DataFrame from the caller. (ship review 2026-05-08)
-
-- [ ] **Accurate per-fund manager tenure** — `ingest_cmd._ingest_active_fund_tenure` uses inception-date proxy; replace with a real per-fund manager-start-date field from EastMoney or a dedicated tenure API. (`src/irc/commands/ingest_cmd.py` TODO, v0.4.0.0)
-## Reliability (Plan 2+)
-
-- [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()` (ship 2026-05-08).
 - [ ] **`write_reason` silent failure**: bare `except Exception: pass` swallows all LLM errors; `run_discover` returns 0 even when 0 candidates found. Add structured logging for retried/failed instruments. (adversarial-review 2026-05-08)
 - [ ] **`fetch_fund_metadata` wrong record on miss**: falls back to `df.iloc[0]` when fund_code not found, returning metadata for a different fund. Raise `ValueError` or return `{}` instead. (adversarial-review 2026-05-08)
-
-## Design / Tech debt
-
-- [ ] **`tracking_error` stub in `metrics.py`** — `derive_discovery_metrics` always emits `tracking_error=0.0`; quality filter's tracking-error branch never fires. Implement rolling-std-of-returns-minus-benchmark in Plan 3 before connecting real `tracking_error_max` config. (code-review 2026-05-08)
-- [ ] **`ChatResponse.raw` unbounded** — full LLM response body stored in frozen dataclass. Remove or make optional before any serialization path is added (Plan 2+). (adversarial-review finding 11)
-- [ ] **Portfolio target tolerance** — `PreferencesFile` uses ±2% sum tolerance vs 1e-6 for system configs. Tighten to 1e-4 when financial-accuracy requirements are confirmed.
-- [ ] **`FailureKind.OK` dead code** — `classify_failure()` returns `OK` for 2xx but `HTTPStatusError` is never raised on 2xx. Remove or document.
-- [ ] **Tenacity decorator rebuilt per call** — rebuild once at module level to reduce per-call allocation overhead in batch runs.
 
 ## Completed
 
-- [x] **Sequential LLM calls in scoring**: `score_macro_fit` called once per instrument in a for-loop (blocking HTTP). Parallelized with `ThreadPoolExecutor` in `run_scoring()`. **Completed:** v0.3.0.0 (2026-05-08)
-- [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()`. **Completed:** v0.3.0.0 (2026-05-08)
-- [x] **Bond ETF quality filter `_is_active_fund` heuristic**: the duplicated heuristic in `ingest_cmd.py` was treating passive bond ETFs as active funds requiring `manager_tenure_years`. Consolidated into `instrument_kind.requires_manager_tenure` and shared across ingest + quality filter. **Completed:** v0.4.0.0 (2026-05-10)
-- [x] **Resilient CN exchange price fetch**: EastMoney primary with automatic Sina finance fallback; `skip_eastmoney` flag; `on_eastmoney_exhausted` callback. **Completed:** v0.4.0.0 (2026-05-10)
-- [x] **Role-aware allocation top-K**: two-phase greedy ensures role diversity before score-based backfill — prevents near-clone ETFs from crowding out dividend/sector picks. **Completed:** v0.4.0.0 (2026-05-10)
-- [x] **Negative tenure from future inception date**: `_apply_active_fund_tenure_fallback` now rejects ≤0 years. **Completed:** v0.4.0.0 (2026-05-10)
-
+- [x] **SSRF DNS-bypass**: DNS-resolve at call time in `http_client._verify_host_resolves_publicly` + applied to `rss_aggregator`, `ldr_client`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Remaining plain-str secrets**: `SecretStr` for anthropic/tushare/ldr/fmp/tiingo tokens in `Settings`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Two-hop prompt injection**: raw refs sanitized before auditor prompt in memo pipeline. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Unbounded question length**: `MAX_QUESTION_LEN = 2000` guard in `ask_cmd`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **No aggregate timeout / deadline_s dead code**: outer loop now catches `httpx.HTTPError`; deadline_s is live. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`sign==0` always "downtrend"**: returns `'neutral'` on zero-slope. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`compute_gold_score` KeyError on config drift**: explicit key validation added. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Correlation filter permanently disabled**: activated with intra-class renormalization. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`ChatResponse.raw` unbounded**: bounded via opt-in env flag; default `None`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Portfolio target tolerance**: tightened from ±2% to 1e-4. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`FailureKind.OK` dead code**: removed. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Tenacity decorator rebuilt per call**: bound at module level. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Sequential LLM calls in discovery**: parallelized `write_reason` with `ThreadPoolExecutor`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`fetch_fund_metadata` / `fetch_etf_metadata` cache**: `lru_cache` on full-table fetches. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`tracking_error` stub**: rolling TE vs role benchmark now live in `discovery/metrics`. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **2/6 gold score drivers hardcoded**: `cb_purchases` + `etf_holdings_30d` wired from WGC CSV. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`traceability.py` exact-copy lower bound**: replaced with token-based fuzzy coverage. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Mixed-date fallback in memo**: warn when scoring/gold/allocation inputs span mixed dates. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **Sequential LLM calls in scoring**: parallelized with `ThreadPoolExecutor`. **Completed:** v0.3.0.0 (2026-05-08)
+- [x] **`ingest` aborts on single instrument failure**: changed to skip-and-warn. **Completed:** v0.3.0.0 (2026-05-08)
+- [x] **Bond ETF quality filter `_is_active_fund` heuristic**: consolidated into `instrument_kind.requires_manager_tenure`. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Resilient CN exchange price fetch**: EastMoney primary with automatic Sina finance fallback. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Role-aware allocation top-K**: two-phase greedy ensures role diversity. **Completed:** v0.4.0.0 (2026-05-10)
+- [x] **Negative tenure from future inception date**: rejects ≤0 years. **Completed:** v0.4.0.0 (2026-05-10)
