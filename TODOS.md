@@ -73,6 +73,7 @@ Known gaps and deferred work. Updated after v0.4.0.0 ship (2026-05-10).
 - [ ] **Sequential LLM calls in discovery**: `write_reason` called per role × instrument. Same fix as above. (ship review 2026-05-08)
 - [ ] **`fetch_fund_metadata` / `fetch_etf_metadata` download full tables per call**: cache with `functools.lru_cache` or pass pre-fetched DataFrame from the caller. (ship review 2026-05-08)
 
+- [ ] **Accurate per-fund manager tenure** — `ingest_cmd._ingest_active_fund_tenure` uses inception-date proxy; replace with a real per-fund manager-start-date field from EastMoney or a dedicated tenure API. (`src/irc/commands/ingest_cmd.py` TODO, v0.4.0.0)
 ## Reliability (Plan 2+)
 
 - [x] **`ingest` aborts on single instrument failure**: one bad ticker killed the entire run — changed to skip-and-warn (`_log.warning + continue`) in `_fetch_metadata_by_id()` (ship 2026-05-08).

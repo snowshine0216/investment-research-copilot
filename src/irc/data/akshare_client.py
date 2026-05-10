@@ -54,7 +54,15 @@ def _is_transient_network_error(exc: BaseException) -> bool:
     cause in a generic Exception."""
     if isinstance(exc, (ConnectionError, TimeoutError)):
         return True
-    if isinstance(exc, OSError) and not isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
+    # Explicit allowlist of OS-level errors that are genuinely network-related.
+    # Broad OSError catch-all is intentionally avoided: BlockingIOError,
+    # ChildProcessError, InterruptedError, etc. are not network failures and
+    # must not be silently retried.
+    _NETWORK_OS_ERRORS = (
+        ConnectionResetError, ConnectionAbortedError,
+        ConnectionRefusedError, BrokenPipeError,
+    )
+    if isinstance(exc, _NETWORK_OS_ERRORS):
         return True
     msg = str(exc).lower()
     return any(token in msg for token in (

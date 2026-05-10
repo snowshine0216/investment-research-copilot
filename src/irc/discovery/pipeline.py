@@ -51,6 +51,11 @@ def _refs_for_instrument(
     Refs follow the format ``source:topic:instrument_id:date``. Without this
     filter, the LLM prompt would balloon to the full DB ref pool (100k+ entries
     for a real universe), exceeding context limits.
+
+    .. warning::
+        This is a single-instrument convenience wrapper that rebuilds the full
+        O(N) index on every call.  Callers in a tight loop **must** use
+        :func:`_index_refs_by_instrument` directly to avoid O(M·N) behaviour.
     """
     return _index_refs_by_instrument(pool, limit).get(instrument_id, ())
 
