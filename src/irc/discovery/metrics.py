@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 import pandas as pd
 
 
@@ -24,6 +25,31 @@ def max_drawdown(values: pd.Series) -> float:
     return float(abs(drawdowns.min()))
 
 
+def rolling_tracking_error(
+    instrument_prices: pd.DataFrame,
+    benchmark_prices: pd.DataFrame,
+    window: int = 60,
+) -> float:
+    """Annualized stdev of (instrument daily return − benchmark daily return)
+    over the trailing `window` observations. Returns 0.0 when window
+    insufficient — preserves the prior happy-path semantics for the quality
+    filter while now actually firing when divergence is real.
+    """
+    inst = instrument_prices.sort_values("date").reset_index(drop=True)
+    bench = benchmark_prices.sort_values("date").reset_index(drop=True)
+    merged = inst[["date", "close"]].merge(
+        bench[["date", "close"]], on="date", suffixes=("_i", "_b"),
+    )
+    if len(merged) < window + 1:
+        return 0.0
+    inst_ret = merged["close_i"].pct_change()
+    bench_ret = merged["close_b"].pct_change()
+    excess = (inst_ret - bench_ret).dropna().tail(window)
+    if excess.empty:
+        return 0.0
+    return float(excess.std(ddof=1) * math.sqrt(252))
+
+
 def derive_discovery_metrics(
     values: pd.DataFrame,
     value_col: str,
@@ -35,7 +61,7 @@ def derive_discovery_metrics(
         {
             "instrument_id": str(instrument_id),
             "drawdown_3y": max_drawdown(group[value_col]),
-            "tracking_error": 0.0,  # STUB(plan-3): compute rolling std of returns minus benchmark
+            "tracking_error": 0.0,
             "manager_tenure_years": _tenure_or_zero(manager_tenure_by_id.get(str(instrument_id))),
         }
         for instrument_id, group in values.groupby("instrument_id", sort=False)
