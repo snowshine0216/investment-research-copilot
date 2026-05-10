@@ -10,6 +10,37 @@ class FilteredCandidates:
     dropped: list[dict[str, Any]]
 
 
+def drop_correlated_and_renormalize(
+    selected: list[dict],
+    corr_matrix: dict[tuple[str, str], float],
+    threshold: float,
+) -> list[dict]:
+    """Drop high-correlation pairs within each asset class (keeping the higher-weighted),
+    then renormalize weights within each class so they sum to 1.0.
+    """
+    by_class: dict[str, list[dict]] = {}
+    for r in selected:
+        by_class.setdefault(r["asset_class"], []).append(r)
+    kept: list[dict] = []
+    for cls, rows in by_class.items():
+        rows_sorted = sorted(rows, key=lambda r: -r["target_weight"])
+        keep_ids: list[str] = []
+        for r in rows_sorted:
+            iid = r["instrument_id"]
+            collides = any(
+                corr_matrix.get((iid, k), corr_matrix.get((k, iid), 0.0)) >= threshold
+                for k in keep_ids
+            )
+            if not collides:
+                keep_ids.append(iid)
+        kept_rows = [r for r in rows if r["instrument_id"] in keep_ids]
+        total = sum(r["target_weight"] for r in kept_rows) or 1.0
+        kept.extend(
+            {**r, "target_weight": r["target_weight"] / total} for r in kept_rows
+        )
+    return kept
+
+
 def drop_high_correlation_pairs(
     candidates: pd.DataFrame, corr_matrix: pd.DataFrame, threshold: float,
 ) -> FilteredCandidates:
