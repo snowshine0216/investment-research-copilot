@@ -19,6 +19,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - Scoring eval runner previously read stale `outputs/scoring/scores.json` path and treated the file as a raw list; now reads dated output path and unwraps the dict wrapper — completeness gate now fires correctly on real artifacts.
+- **Falsy-list masking** in `gates.py`: `missing_data or REQUIRED_METRIC_FIELDS` incorrectly fell back to all-required-fields when the score had zero missing fields (empty list is falsy); fixed to explicit `is not None` check.
+- **Markdown injection** in decision report table: raw field values could contain `|` or `\n`, breaking Markdown table structure; `_md()` helper now escapes both characters.
+- **Null-safety** in `gates.py` / `report.py`: explicit `None` checks and `try/except` guards for `data_completeness`, `coverage_ratio`, and `target_weight` fields that may arrive as `None` from older output files.
+- **Pipeline-incomplete gate**: `_scores_missing_action()` detects when >50% of score rows lack an `action` field (scoring stage did not run) and auto-elevates `pipeline_halted`, preventing the decision layer from issuing advice on incomplete pipeline output.
+- **`MIN_BUY_COMPLETENESS` constant**: hardcoded `0.80` deduplicated into `completeness.py`; `gates.py` and `evals/scoring/runner.py` now import the single constant.
+- **Null-safety in `decision_cmd.py`**: `_resolve_output_dir` no longer raises when the `outputs/` directory does not exist.
 
 ## [0.6.0.0] — 2026-05-11
 
