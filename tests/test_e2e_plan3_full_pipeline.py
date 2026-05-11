@@ -20,6 +20,7 @@ import pytest
 from click.testing import CliRunner
 
 from irc.cli import main
+from irc.research.ldr_client import LDRResearchResult
 
 
 # ─── fake data helpers ──────────────────────────────────────────────────────
@@ -110,6 +111,14 @@ def _ask_response() -> MagicMock:
     )
 
 
+def _research_response() -> LDRResearchResult:
+    return LDRResearchResult(
+        report_md="# Theme\n\nResearch content.",
+        citations=[],
+        failure_reason="",
+    )
+
+
 # ─── shared patch context ────────────────────────────────────────────────────
 
 def _all_patches():
@@ -137,6 +146,8 @@ def _all_patches():
               return_value=_audit_response()),
         patch("irc.queries.responder.call_chat",
               return_value=_ask_response()),
+          patch("irc.research.theme_research.run_research",
+              return_value=_research_response()),
     ]
 
 

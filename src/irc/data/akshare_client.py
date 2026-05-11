@@ -5,6 +5,7 @@ import contextlib
 from functools import lru_cache
 import os
 import re
+import threading
 import time
 from typing import Any, Generator, TypeVar
 
@@ -13,6 +14,7 @@ import pandas as pd
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
+_AKSHARE_PROXY_LOCK = threading.Lock()
 
 
 class FundNotFound(LookupError):
@@ -341,8 +343,10 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     routed through that proxy (useful when the host is geo-restricted)."""
     proxy_url = os.environ.get("AKSHARE_HTTPS_PROXY")
     ctx = _proxy_env(proxy_url) if proxy_url else contextlib.nullcontext()
-    with ctx:
-        raw = _ak_call("index_global_hist_em", symbol="美元指数")
+    # _proxy_env temporarily mutates process env; lock to avoid cross-thread bleed.
+    with _AKSHARE_PROXY_LOCK:
+        with ctx:
+            raw = _ak_call("index_global_hist_em", symbol="美元指数")
     df = raw[["日期", "最新价"]].rename(columns={"日期": "date", "最新价": "value"})
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)

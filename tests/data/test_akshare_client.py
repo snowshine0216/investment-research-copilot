@@ -453,6 +453,34 @@ def test_fetch_macro_series_akshare_dispatches_dxy() -> None:
     assert out.iloc[-1]["value"] == 99.10
 
 
+def test_fetch_macro_series_dxy_uses_proxy_lock_when_proxy_env_is_set(monkeypatch) -> None:
+    fake = pd.DataFrame({
+        "日期": ["2026-05-06"],
+        "最新价": [99.10],
+    })
+
+    class _LockProbe:
+        def __init__(self) -> None:
+            self.entered = 0
+
+        def __enter__(self):
+            self.entered += 1
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    probe = _LockProbe()
+    monkeypatch.setenv("AKSHARE_HTTPS_PROXY", "http://proxy.example.com:8080")
+
+    with patch("irc.data.akshare_client._AKSHARE_PROXY_LOCK", probe), \
+         patch("irc.data.akshare_client._ak_call", return_value=fake):
+        out = fetch_macro_series_akshare("DXY", start="2026-01-01", end="2026-12-31")
+
+    assert probe.entered == 1
+    assert list(out.columns) == ["date", "value"]
+
+
 def test_fetch_macro_series_akshare_raises_for_unsupported_series() -> None:
     with pytest.raises(ValueError, match="no akshare fallback"):
         fetch_macro_series_akshare("UNKNOWN_SERIES", start="2026-01-01", end="2026-05-01")

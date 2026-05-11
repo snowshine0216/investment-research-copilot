@@ -22,4 +22,5 @@ def run_research_pipeline(
             out_dir / f"{r.theme}.md",
             _format_report(r.theme, r.report_md, r.citations, r.failure_reason),
         )
-    return 0
+    has_failures = any(r.failure_reason for r in reports)
+    return 2 if has_failures else 0
