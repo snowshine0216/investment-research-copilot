@@ -43,6 +43,7 @@ uv run irc gold                        # regime + band + scenarios → gold_regi
 uv run irc allocate                    # target weights + top-K → proposed_allocation.yaml
 uv run irc plan                        # buy method + triggers → trade_plan.yaml
 uv run irc memo                        # LLM synthesis → memo.md + memo_audit.txt + memo_traceability.json
+uv run irc decision                    # decision-readiness report → decision_report.json + decision_report.md
 uv run irc ask "Is SGOL overvalued?"   # interactive Q&A grounded in today's outputs
 uv run irc freshness                   # data manifest summary
 

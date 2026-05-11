@@ -92,6 +92,14 @@ def plan(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Compose decision-readiness report from today's outputs.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def decision(repo_root: str) -> None:
+    from irc.commands.decision_cmd import run_decision
+    rc = run_decision(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Compute proposed allocation from scores + gold tilt.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def allocate(repo_root: str) -> None:

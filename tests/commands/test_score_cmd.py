@@ -69,3 +69,5 @@ def test_score_preserves_leading_zero_fund_ids(
     watchlist = mock_run_scoring.call_args.kwargs["watchlist"]
     assert watchlist.loc[0, "instrument_id"] == "005827"
     assert watchlist.loc[0, "ticker"] == "005827"
+    metrics = mock_run_scoring.call_args.kwargs["metrics"]
+    assert "missing_data" not in metrics.columns

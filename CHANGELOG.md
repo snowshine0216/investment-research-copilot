@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1.0] — 2026-05-11
+
+### Added
+- **Decision-readiness layer** (`irc.decision`): pure `completeness`, `models`, `gates`, and `report` modules that compose scoring, allocation, trade-plan, traceability, and pipeline-health artifacts into a daily `decision_report.json` + `decision_report.md`.
+- **`irc decision` CLI command**: reads today's outputs; writes `decision_report.json` and `decision_report.md`; exit 0 on success, 2 when required artifacts are missing.
+- **6 hard gates** (Phase 1): pipeline-halted, data-completeness < 0.80, target-weights invalid, venue blocked without proxy, memo narrative-only, score-avoid signal. `portfolio_action` is always `no_trade` (Phase 3 ordering excluded).
+- **Scoring `missing_data` field**: every score row now lists the specific financial metric fields that were absent or NaN.
+- **Local scoring metrics loader** (`src/irc/scoring/metrics_loader.py`): derives `expense_ratio`, `drawdown_3y`, `vol_1y`, `downside_capture`, `manager_tenure_years`, and `holdings_concentration_top10` from local DuckDB tables; `aum_stability_pct` stays NaN (honest missing) until AUM-history ingestion lands.
+- **Scoring eval completeness gates** (Phase 2): `scoring_data_completeness_avg` (FAIL < 0.75, WARN < 0.90) and `buy_candidate_min_completeness` (FAIL < 0.80) metrics added to scoring eval runner; runner now reads `outputs/<date>/scoring.json` and handles `{"scores": [...]}` format.
+
+### Fixed
+- Scoring eval runner previously read stale `outputs/scoring/scores.json` path and treated the file as a raw list; now reads dated output path and unwraps the dict wrapper — completeness gate now fires correctly on real artifacts.
+
 ## [0.6.0.0] — 2026-05-11
 
 ### Added

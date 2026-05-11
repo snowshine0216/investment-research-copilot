@@ -16,6 +16,10 @@ This plan implements Phase 1 and Phase 2 from [docs/superpowers/specs/2026-05-11
 
 Phase 3 portfolio deltas are deliberately excluded. Do not calculate `buy_amount_cny`, `sell_amount_cny`, `trim_amount_cny`, or true sell/trim recommendations in this plan. The output may include `portfolio_action: no_trade`, but not real order sizing.
 
+`inputs/account.yaml` is listed as a Phase 1 input in the spec but is **not consumed** by Phase 1 because no holdings/delta logic is computed yet. The decision command does not read or require it. It remains documented as a Phase 1 input for forward compatibility with Phase 3, where current-holdings comparison is added.
+
+Vocabulary: `overall_status` takes one of `"blocked"` (any system-level blocking reason fires) or `"ok"` (no system-level blockers; per-row statuses still determine actionability). The spec only shows `"blocked"`; `"ok"` is introduced here as the non-blocked counterpart and is used by tests and the Markdown verdict.
+
 Commits are not included as executable steps because this environment requires explicit user approval before committing. Use `git diff --check` checkpoints instead.
 
 ## File Structure
@@ -440,6 +444,21 @@ def test_complete_healthy_buy_candidate_can_be_actionable() -> None:
 
     assert decision["decision_status"] == "actionable_buy"
     assert decision["portfolio_action"] == "no_trade"
+
+
+def test_zero_memo_traceability_marks_evidence_narrative_only() -> None:
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=0.0,
+    )
+
+    assert decision["memo_evidence_status"] == "narrative_only"
+    assert "memo_narrative_only" in decision["blocking_reasons"]
+    assert decision["decision_status"] == "blocked"
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -741,7 +760,7 @@ def test_compose_decision_report_allows_actionable_buy_when_all_gates_clear() ->
         pipeline_halted=False,
     )
 
-    assert report["overall_status"] == "actionable"
+    assert report["overall_status"] == "ok"
     assert report["rows"][0]["decision_status"] == "actionable_buy"
 
 
@@ -810,7 +829,7 @@ def compose_decision_report(
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     return {
         "date": date,
-        "overall_status": "blocked" if blocking_reasons else "actionable",
+        "overall_status": "blocked" if blocking_reasons else "ok",
         "blocking_reasons": blocking_reasons,
         "summary": _summary(rows),
         "rows": rows,
@@ -1088,10 +1107,13 @@ Expected: no output.
 
 ### Task 6: Scoring Completeness Eval Gate
 
+**Why this task is critical:** the existing `evals/scoring/runner.py` reads from `outputs/scoring/scores.json` and treats the file as a top-level list. The actual score command writes `{"scores": [...]}` to `outputs/<date>/scoring.json`. Without fixing the input path and format, the new completeness metrics will silently see an empty input on real artifacts and never FAIL — defeating Phase 2's "explicit eval failures when a buy candidate has incomplete data" requirement.
+
 **Files:**
 - Modify: `evals/scoring/metrics.py`
 - Modify: `evals/scoring/runner.py`
 - Modify: `tests/evals/test_scoring_metrics.py`
+- Create: `tests/evals/test_scoring_runner.py`
 
 - [ ] **Step 1: Write the failing metric tests**
 
@@ -1159,11 +1181,102 @@ def buy_candidate_min_completeness(scores: list[dict]) -> float:
     return min(values) if values else 1.0
 ```
 
-- [ ] **Step 4: Wire metrics into scoring eval runner**
+- [ ] **Step 4: Write failing runner tests for path + format fix**
 
-Modify `evals/scoring/runner.py` imports:
+Create `tests/evals/test_scoring_runner.py`:
 
 ```python
+from __future__ import annotations
+
+import json
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from evals.scoring.runner import run
+
+
+def _today() -> str:
+    return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+
+
+def _scoring_payload(scores: list[dict]) -> dict:
+    return {"scores": scores}
+
+
+def _full_factor_breakdown() -> dict:
+    return {
+        k: {"value": 0.5, "raw_refs": [f"ref_{k}"]}
+        for k in ("valuation_cost", "risk", "quality", "macro_fit", "thesis_news")
+    }
+
+
+def test_runner_reads_dated_scoring_json(tmp_path: Path) -> None:
+    today = _today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True)
+    (out_dir / "scoring.json").write_text(json.dumps(_scoring_payload([
+        {
+            "instrument_id": "VTI",
+            "action": "buy_candidate",
+            "composite_score": 80.0,
+            "data_completeness": 1.0,
+            "factor_breakdown": _full_factor_breakdown(),
+        }
+    ])), encoding="utf-8")
+
+    rc = run(tmp_path)
+
+    report_path = tmp_path / "outputs" / today / "evals" / "scoring" / "report.json"
+    assert report_path.exists()
+    report = json.loads(report_path.read_text(encoding="utf-8"))
+    metric_names = {m["name"] for m in report["metrics"]}
+    assert "scoring_data_completeness_avg" in metric_names
+    assert "buy_candidate_min_completeness" in metric_names
+    assert rc == 0
+
+
+def test_runner_fails_when_buy_candidate_below_threshold(tmp_path: Path) -> None:
+    today = _today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True)
+    (out_dir / "scoring.json").write_text(json.dumps(_scoring_payload([
+        {
+            "instrument_id": "VTI",
+            "action": "buy_candidate",
+            "composite_score": 80.0,
+            "data_completeness": 0.0,
+            "factor_breakdown": _full_factor_breakdown(),
+        }
+    ])), encoding="utf-8")
+
+    rc = run(tmp_path)
+
+    assert rc == 2
+    report = json.loads((tmp_path / "outputs" / today / "evals" / "scoring" / "report.json").read_text(encoding="utf-8"))
+    buy_metric = next(m for m in report["metrics"] if m["name"] == "buy_candidate_min_completeness")
+    assert buy_metric["status"] == "FAIL"
+```
+
+Run:
+
+```bash
+uv run pytest tests/evals/test_scoring_runner.py -q
+```
+
+Expected: FAIL (runner still reads stale `outputs/scoring/scores.json` path and lacks completeness metrics).
+
+- [ ] **Step 5: Wire metrics into scoring eval runner and fix path/format**
+
+Replace `evals/scoring/runner.py` contents:
+
+```python
+from __future__ import annotations
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+import json
+from irc.io_utils import atomic_write_text
+from evals._shared.status import classify_status, worst_status
+from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.scoring.metrics import (
     buy_candidate_min_completeness,
     factor_breakdown_completeness,
@@ -1172,25 +1285,64 @@ from evals.scoring.metrics import (
     score_distribution_stability,
     scoring_data_completeness_avg,
 )
-```
 
-Add thresholds near the existing threshold constants:
-
-```python
+_TZ = timezone(timedelta(hours=8))
+_FBC_TH = {"warn_below": 0.99, "fail_below": 0.9}
+_RRR_TH = {"warn_below": 0.99, "fail_below": 0.9}
+_RHO_TH = {"warn_below": 0.0, "fail_below": -0.5}
+_STABILITY_TH = {"warn_above": 0.1, "fail_above": 0.2}
 _DATA_COMPLETENESS_AVG_TH = {"warn_below": 0.90, "fail_below": 0.75}
+# Spec: FAIL when any buy candidate < 0.80; no WARN band for buys.
+# warn_below == fail_below collapses the WARN tier; classify_status returns FAIL or PASS only.
 _BUY_COMPLETENESS_TH = {"warn_below": 0.80, "fail_below": 0.80}
-```
 
-Before `metrics: list[MetricReport] = [`, compute:
 
-```python
+def _load_scores(repo_root: Path) -> tuple[list[dict], Path | None]:
+    today = datetime.now(_TZ).date().isoformat()
+    today_path = repo_root / "outputs" / today / "scoring.json"
+    if today_path.exists():
+        return _parse_scores(today_path), today_path
+    candidates = sorted((repo_root / "outputs").glob("*/scoring.json"))
+    if candidates:
+        latest = candidates[-1]
+        return _parse_scores(latest), latest
+    return [], None
+
+
+def _parse_scores(path: Path) -> list[dict]:
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        return list(raw.get("scores", []))
+    if isinstance(raw, list):
+        return list(raw)
+    return []
+
+
+def run(repo_root: Path) -> int:
+    scores, source = _load_scores(repo_root)
+    if source is None:
+        report = _pass_report()
+        _write(repo_root, report)
+        print(f"scoring eval: {report.overall} (no input file)")
+        return 0
+
+    index: set[str] = set()
+    for s in scores:
+        for v in s.get("factor_breakdown", {}).values():
+            index.update(v.get("raw_refs", []))
+
+    fbc = factor_breakdown_completeness(scores)
+    rrr = raw_ref_reachability(scores, index)
+    rho = historical_sanity_rho(scores)
     data_completeness_avg = scoring_data_completeness_avg(scores)
     buy_min_completeness = buy_candidate_min_completeness(scores)
-```
 
-Add these two `MetricReport` entries at the start of the metrics list:
+    mid = len(scores) // 2
+    comp_a = [s.get("composite_score", 0.0) for s in scores[:mid]]
+    comp_b = [s.get("composite_score", 0.0) for s in scores[mid:]]
+    stability = score_distribution_stability(comp_a, comp_b)
 
-```python
+    metrics: list[MetricReport] = [
         MetricReport(
             name="scoring_data_completeness_avg",
             value=data_completeness_avg,
@@ -1205,24 +1357,77 @@ Add these two `MetricReport` entries at the start of the metrics list:
             n_observations=len(scores),
             threshold=_BUY_COMPLETENESS_TH,
         ),
+        MetricReport(
+            name="factor_breakdown_completeness",
+            value=fbc,
+            status=classify_status(fbc, _FBC_TH, "higher_is_better"),
+            n_observations=len(scores),
+            threshold=_FBC_TH,
+        ),
+        MetricReport(
+            name="raw_ref_reachability",
+            value=rrr,
+            status=classify_status(rrr, _RRR_TH, "higher_is_better"),
+            n_observations=len(scores),
+            threshold=_RRR_TH,
+        ),
+        MetricReport(
+            name="historical_sanity_rho",
+            value=rho,
+            status=classify_status(rho, _RHO_TH, "higher_is_better"),
+            n_observations=len(scores),
+            threshold=_RHO_TH,
+        ),
+        MetricReport(
+            name="score_distribution_stability",
+            value=stability,
+            status=classify_status(stability, _STABILITY_TH, "lower_is_better"),
+            n_observations=len(scores),
+            threshold=_STABILITY_TH,
+        ),
+    ]
+    overall = worst_status([m.status for m in metrics])
+    report = StageReport(
+        stage="scoring",
+        ran_at=datetime.now(_TZ).isoformat(),
+        based_on=[str(source)],
+        metrics=metrics,
+        overall=overall,
+    )
+    _write(repo_root, report)
+    print(f"scoring eval: {overall}")
+    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
+
+
+def _pass_report() -> StageReport:
+    return StageReport(
+        stage="scoring", ran_at=datetime.now(_TZ).isoformat(),
+        based_on=[], metrics=[], overall="PASS",
+    )
+
+
+def _write(repo_root: Path, report: StageReport) -> None:
+    out_dir = (repo_root / "outputs" / datetime.now(_TZ).date().isoformat() / "evals" / "scoring")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(out_dir / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
 ```
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 6: Run tests**
 
 Run:
 
 ```bash
-uv run pytest tests/evals/test_scoring_metrics.py -q
+uv run pytest tests/evals/test_scoring_metrics.py tests/evals/test_scoring_runner.py -q
 ```
 
 Expected: PASS.
 
-- [ ] **Step 6: Checkpoint**
+- [ ] **Step 7: Checkpoint**
 
 Run:
 
 ```bash
-git diff --check -- evals/scoring/metrics.py evals/scoring/runner.py tests/evals/test_scoring_metrics.py
+git diff --check -- evals/scoring/metrics.py evals/scoring/runner.py tests/evals/test_scoring_metrics.py tests/evals/test_scoring_runner.py
 ```
 
 Expected: no output.
@@ -1294,6 +1499,9 @@ def test_load_scoring_metrics_combines_instruments_prices_and_holdings(tmp_path:
     assert row["manager_tenure_years"] == 8.0
     assert row["holdings_concentration_top10"] == 0.45
     assert row["drawdown_3y"] >= 0.0
+    # aum_stability_pct must stay NaN until a real AUM-history derivation lands.
+    # Phase 2 honest-missing-data goal forbids faking a 0.0 stability value.
+    assert pd.isna(row["aum_stability_pct"])
     con.close()
 ```
 
@@ -1351,16 +1559,38 @@ def _metrics_for_instrument(con: duckdb.DuckDBPyConnection, instrument_id: str) 
     prices = _price_or_nav_series(con, instrument_id)
     risk = derive_risk_metrics(prices) if not prices.empty else {}
     concentration = _latest_holdings_concentration(con, instrument_id)
+    # aum_stability_pct requires a multi-period AUM history we do not yet ingest.
+    # Honest "missing" (NaN) is required so Phase 2 completeness gates fire correctly
+    # on instruments lacking AUM-stability evidence. Do not fake a 0.0 stability value.
     return {
         "instrument_id": instrument_id,
         "expense_ratio": base.get("expense_ratio"),
-        "drawdown_3y": latest_fund.get("drawdown_3y", risk.get("drawdown_3y")),
-        "vol_1y": latest_fund.get("vol_1y", risk.get("vol_1y")),
-        "downside_capture": latest_fund.get("downside_capture", risk.get("downside_capture")),
-        "aum_stability_pct": 0.0 if base.get("aum") is not None else math.nan,
+        "drawdown_3y": _coalesce(latest_fund.get("drawdown_3y"), risk.get("drawdown_3y")),
+        "vol_1y": _coalesce(latest_fund.get("vol_1y"), risk.get("vol_1y")),
+        "downside_capture": _coalesce(latest_fund.get("downside_capture"), risk.get("downside_capture")),
+        "aum_stability_pct": math.nan,
         "manager_tenure_years": base.get("manager_tenure_years"),
         "holdings_concentration_top10": concentration,
     }
+
+
+def _coalesce(*values: Any) -> Any:
+    """Return the first non-None, non-NaN value, else NaN.
+
+    `dict.get(key, fallback)` only returns `fallback` when the key is absent;
+    if the key exists but the value is None or NaN, the fallback is skipped.
+    This helper makes fund_metrics → derived-from-prices fallback honest.
+    """
+    for value in values:
+        if value is None:
+            continue
+        try:
+            if pd.isna(value):
+                continue
+        except (TypeError, ValueError):
+            pass
+        return value
+    return math.nan
 
 
 def _instrument_base(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict[str, Any]:
@@ -1543,7 +1773,7 @@ uv run irc decision                  # gates scoring/allocation/trade-plan/memo 
 Run:
 
 ```bash
-uv run pytest tests/decision tests/scoring/test_pipeline.py tests/scoring/test_metrics_loader.py tests/evals/test_scoring_metrics.py tests/commands/test_decision_cmd.py tests/commands/test_score_cmd.py tests/test_cli_smoke.py -q
+uv run pytest tests/decision tests/scoring/test_pipeline.py tests/scoring/test_metrics_loader.py tests/evals/test_scoring_metrics.py tests/evals/test_scoring_runner.py tests/commands/test_decision_cmd.py tests/commands/test_score_cmd.py tests/test_cli_smoke.py -q
 ```
 
 Expected: PASS.
@@ -1602,10 +1832,45 @@ Expected: no output.
 
 ## Self-Review Checklist
 
-- Phase 1 decision report is covered by Tasks 3, 4, and 5.
-- Phase 2 missing-data visibility is covered by Tasks 1, 2, 6, and 7.
-- Existing command style is preserved: pure logic in package modules, file I/O in command wrappers.
-- No order sizing, portfolio deltas, broker APIs, or sell/trim logic are included.
+**Spec coverage — Phase 1 hard gates (design.md lines 102–112):**
+- Gate 1 (`PIPELINE_HALTED.md` → `overall_status: blocked`): Tasks 3, 4 (`pipeline_halted` flag plumbed through `decide_row` and `_overall_blocking_reasons`).
+- Gate 2 (`data_completeness < 0.80` blocks `actionable_buy` and surfaces missing fields): Tasks 1, 2, 3.
+- Gate 3 (target weights not ≈ 1.0 invalidates portfolio sizing): Tasks 3, 4 (`target_weights_are_valid`).
+- Gate 4 (incompatible venue with no proxy blocks execution): Task 3 (`venue_status_for_trade`).
+- Gate 5 (coverage 0.0 marks memo evidence narrative-only): Task 3 (`memo_evidence_status`).
+- Gate 6 (avoid stays avoid): Task 3 (`_decision_status` short-circuits before blocking).
+
+**Spec coverage — Phase 1 test scenarios (design.md lines 210–219):**
+- 1. Pipeline halt blocks every row → `test_pipeline_halt_blocks_everything`.
+- 2. Low completeness demotes a buy candidate → `test_low_data_completeness_blocks_buy`.
+- 3. Invalid allocation total blocks target-weight recs → `test_target_weights_are_valid_requires_total_near_one` + report tests.
+- 4. Incompatible venue without proxy blocks → `test_incompatible_venue_without_proxy_blocks_execution`.
+- 5. Avoid stays avoid when selected → `test_avoid_action_stays_avoid_even_when_selected`.
+- 6. Zero memo traceability marks narrative-only → `test_zero_memo_traceability_marks_evidence_narrative_only`.
+- 7. Complete healthy buy candidate → `test_complete_healthy_buy_candidate_can_be_actionable`.
+- 8. Markdown verdict + blocking reasons → `test_markdown_report_starts_with_clear_verdict`.
+
+**Spec coverage — Phase 2 completeness audit (design.md lines 138–164):**
+- Per-instrument missing-field lists: Tasks 1, 2 (`missing_required_fields`, scoring output enrichment).
+- Aggregate completeness by asset class: Task 1 (`summarize_completeness`).
+- Fail/warn/pass status for scoring readiness: Task 6 (`scoring_data_completeness_avg` thresholds 0.90/0.75).
+- Explicit eval failures when a buy candidate has incomplete data: Task 6 (`buy_candidate_min_completeness` with `fail_below=0.80`) **AND** Task 6 runner path/format fix so the metric actually fires on real outputs.
+- Fill required fields from price/NAV history before adding new providers: Task 7 (`derive_risk_metrics`, deterministic, tested from local sample series).
+
+**Spec coverage — acceptance criteria (design.md lines 221–230):**
+- Blocked report on 2026-05-11 artifacts: Task 8 step 4.
+- "No buy/sell decision is supported today" statement: Task 4 (`render_decision_markdown` verdict branch).
+- Every blocked instrument has reason + next step: Task 3 (`_reason`, `_next_step`).
+- Missing fields listed by instrument: Tasks 1, 2.
+- Target-weight invalidity detected: Task 3 (`target_weights_are_valid`).
+- Memo labeled narrative-only when coverage 0.0: Task 3 + new gate test.
+- Unit tests cover hard gates and report composition without network: Tasks 1, 3, 4 (all use plain dicts).
+- Existing pipeline commands continue to work: Task 8 step 3 (full pytest).
+
+**Scope discipline:**
+- No order sizing, portfolio deltas, broker APIs, or sell/trim logic (Phase 3 excluded).
+- `inputs/account.yaml` documented as Phase 1 input but not yet consumed.
+- `overall_status: "ok"` is the non-blocked counterpart of `"blocked"` (introduced here; spec only shows `"blocked"`).
 - Tests are deterministic and network-free.
 - The current 2026-05-11 output should produce a blocked report, not a buy/sell recommendation.
 
