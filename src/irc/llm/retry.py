@@ -56,6 +56,12 @@ def _is_retryable(exc: BaseException) -> bool:
     return False
 
 
+def _is_deadline_retryable(exc: BaseException) -> bool:
+    if isinstance(exc, (ConnectionError, TimeoutError)):
+        return True
+    return isinstance(exc, httpx.HTTPError) and _is_retryable(exc)
+
+
 _RETRY_DECORATOR = retry(
     stop=stop_after_attempt(5),
     wait=wait_chain(*[wait_fixed(s) for s in RATE_LIMIT_BACKOFF_SECONDS]),
@@ -124,9 +130,17 @@ def retry_call_chat(
             )
         try:
             return _call_once(route, messages, **kw)
-        except (ConnectionError, TimeoutError) as e:
-            last_err = e
+        except (ConnectionError, TimeoutError, httpx.HTTPError) as exc:
+            if not _is_deadline_retryable(exc):
+                raise
+            last_err = exc
             elapsed = time.monotonic() - started
+            if elapsed >= deadline_s:
+                raise AggregateTimeoutError(
+                    f"deadline {deadline_s}s exceeded after {i + 1} attempts"
+                ) from exc
+            if isinstance(exc, httpx.HTTPError):
+                raise
             sleep_s = min(2 ** i, max(0.0, deadline_s - elapsed))
             if sleep_s > 0:
                 time.sleep(sleep_s)

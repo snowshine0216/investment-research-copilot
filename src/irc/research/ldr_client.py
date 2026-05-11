@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
+import ipaddress
 import os
 from urllib.parse import urlparse
 import httpx
@@ -20,11 +21,22 @@ class LDRResearchResult:
     failure_reason: str = ""
 
 
+def _is_loopback_host(host: str) -> bool:
+    normalized = host.rstrip(".").lower()
+    if normalized == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        return False
+
+
 def run_research(query: str, time_budget_s: int = 120) -> LDRResearchResult:
     base = os.environ.get("LDR_BASE_URL", "http://localhost:8080").rstrip("/")
     host = urlparse(base).hostname or ""
     try:
-        _verify_host_resolves_publicly(host)
+        if not _is_loopback_host(host):
+            _verify_host_resolves_publicly(host)
     except SSRFError as e:
         return LDRResearchResult(report_md="", failure_reason=f"SSRF blocked: {e}")
     token = os.environ.get("LDR_API_TOKEN", "")

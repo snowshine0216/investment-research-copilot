@@ -222,6 +222,16 @@ def test_retry_aggregates_to_deadline():
             retry_call_chat(route=None, messages=[], deadline_s=1.0, attempts=10)
 
 
+def test_retry_aggregates_httpx_errors_to_deadline():
+    def slow(*a, **kw):
+        time.sleep(0.2)
+        raise httpx.ConnectError("boom")
+
+    with patch("irc.llm.retry._call_once", side_effect=slow):
+        with pytest.raises(AggregateTimeoutError):
+            retry_call_chat(route=None, messages=[], deadline_s=0.1, attempts=3)
+
+
 import irc.llm.retry as retry_mod
 
 

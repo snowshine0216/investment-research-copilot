@@ -107,6 +107,44 @@ def test_fetch_fund_metadata_raises_for_unknown_code(mock_table) -> None:
 
 
 @patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_normalizes_catalog_code_before_lookup(mock_table) -> None:
+    mock_table.return_value = pd.DataFrame({
+        "fund_code": [6075], "fund_name": ["易方达标普500"], "fund_type": ["QDII"],
+    })
+    basic = pd.DataFrame({
+        "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
+        "value": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
+    })
+    fees = pd.DataFrame({"费用类型": ["管理费率"], "费率": ["0.50%"]})
+
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.side_effect = [basic, fees]
+        out = fetch_fund_metadata("006075")
+
+    assert out["fund_code"] == "006075"
+    assert mocked.call_args_list[0].kwargs == {"symbol": "006075"}
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_normalizes_incoming_code_before_lookup(mock_table) -> None:
+    mock_table.return_value = pd.DataFrame({
+        "fund_code": ["006075"], "fund_name": ["易方达标普500"], "fund_type": ["QDII"],
+    })
+    basic = pd.DataFrame({
+        "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
+        "value": [6075, "易方达标普500", "QDII", "200亿", "2018-03-26"],
+    })
+    fees = pd.DataFrame({"费用类型": ["管理费率"], "费率": ["0.50%"]})
+
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.side_effect = [basic, fees]
+        out = fetch_fund_metadata("6075")
+
+    assert out["fund_code"] == "006075"
+    assert mocked.call_args_list[0].kwargs == {"symbol": "006075"}
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
 def test_fetch_fund_metadata_propagates_xq_failure(mock_table) -> None:
     """XueQiu is the only akshare path with individual fund metadata. When it
     fails (auth/rate limit), callers must see the exception so they can skip

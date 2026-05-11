@@ -11,24 +11,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **News layer** (`news/`): feedparser-based RSS aggregator with SSRF DNS guard, 7-topic keyword classifier, URL + similarity-signature dedup, static FOMC/PBoC/WGC events calendar, pipeline that aggregates all feeds and returns per-topic counts.
-- **Research stage** (`cli/research`, `research/ldr_client`): calls optional LDR API (HTTP wrapper with token + graceful failure) to produce per-theme markdown research documents written to `data/research/<theme>.md`; wired into the main pipeline.
+- **Research stage** (`cli/research`, `research/ldr_client`): calls optional LDR API (HTTP wrapper with token + graceful failure) to produce per-theme markdown research documents written to `data/research/<theme>.md`; included in `irc run` only when `LDR_ENABLED=true`.
 - **Eval framework** (`evals/`): 12-stage evaluation harness (data, discovery, scoring, gold_score, allocation, research, news, queries, memo, trade_plan, triggers, architecture). Each stage has typed `MetricReport`/`StageReport` schemas (`evals/_shared`), a metrics module, and a runner. `irc eval` CLI dispatches a single stage or `--all`; exit code reflects worst status.
 - **Spot-check eval** (`evals/spot_check`): weekly auto-sample + CSV queue for manual review.
 - **Architecture eval** (`evals/architecture`): DAG acyclicity check, max LOC, and output completeness metrics.
 - **WGC gold drivers** (`gold/drivers`): wires `cb_purchases` + `etf_holdings_30d` from WGC CSV ingestion; removes hardcoded constants.
 - **Discovery rolling tracking-error** (`discovery/metrics`): replaces the 0.0 stub with actual rolling TE vs role benchmark.
-- **`PIPELINE_HALTED.md`** on stage failure + research stage added to main run.
+- **`PIPELINE_HALTED.md`** on stage failure + optional research stage support in main run.
 - **Thesis-news score** (`scoring/factors/thesis_news`): replaces stub with real news-signals scoring factor.
 - **Correlation filter activation** (`allocation`): intra-class weight renormalization live; module-level Lock for OBB credential (TOCTOU fix).
 - **Feature-flagged active-fund tenure proxy** and resilient CN exchange price fetch carried forward from 0.4.0.0.
 - **Generated CN fund universe path**: `irc universe build-cn-funds` command, akshare open-fund catalog wrapper, deterministic CN fund classifier (`src/irc/discovery/cn_fund_universe.py`), optional generated universe merge in config loading, and discovery diagnostics CSV output (`discovery_diagnostics.csv`).
 
 ### Fixed
-- **Security — SSRF (CRITICAL)**: `ldr_client.py` now calls `_verify_host_resolves_publicly` on `LDR_BASE_URL` before any HTTP request; `rss_aggregator.py` applies DNS guard before feedparser; `discovery/reason_writer.py` sanitizes `instrument_id` in simplified mode before constructing LLM prompt.
+- **Security — SSRF (CRITICAL)**: `ldr_client.py` now calls `_verify_host_resolves_publicly` on non-loopback `LDR_BASE_URL` hosts before any HTTP request while still allowing local self-hosted LDR; `rss_aggregator.py` applies DNS guard before feedparser; `discovery/reason_writer.py` sanitizes `instrument_id` in simplified mode before constructing LLM prompt.
 - **Security — SQL injection**: `evals/data/metrics.py` double-quotes column names from `information_schema` and escapes embedded quotes; table name already allowlisted.
 - **Security — secrets**: `SecretStr` for anthropic/tushare/ldr/fmp/tiingo tokens; user question capped at `MAX_QUESTION_LEN=2000`.
 - **Security — two-hop prompt injection**: raw refs sanitized before auditor prompt in memo pipeline.
-- **Reliability — retry deadline**: `deadline_s` outer loop now catches `httpx.HTTPError` (was catching Python builtins, missing all httpx transport errors).
+- **Reliability — retry deadline**: `deadline_s` now converts retryable HTTPX failures into `AggregateTimeoutError` when the wall-clock deadline is exceeded.
+- **Reliability — akshare fund lookup**: fund codes are normalized before catalog pre-checks so numeric/mixed-type upstream codes do not falsely raise `FundNotFound`.
 - **Reliability — parallel write_reason**: `ThreadPoolExecutor` mirrors Plan-3 scoring parallelism.
 - **Reliability — gold_score KeyError**: explicit validation surfaces renamed-driver mismatches.
 - **Reliability — regime zero-slope**: returns `'neutral'` not `'downtrend'`.
@@ -42,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance — akshare cache**: `lru_cache` for full-table fetches; cleared in init.
 - **Schema — ChatResponse.raw**: bounded via opt-in env flag; default `None`.
 - **Schema — FailureKind.OK removed**: `classify_failure` returns only real failures.
-- **Pipeline correctness — research stage**: `run_research_pipeline` now returns non-zero when any theme research fails, so `irc run` halts instead of silently passing degraded research outputs.
+- **Pipeline correctness — research stage**: `run_research_pipeline` now returns non-zero when any theme research fails; `irc run` includes that fail-fast stage only when `LDR_ENABLED=true` so default setup remains operable.
 - **Concurrency hardening — akshare proxy path**: DXY macro fetch now wraps proxy-env mutation in a module-level lock to avoid cross-thread proxy-env contamination.
 
 ### Changed

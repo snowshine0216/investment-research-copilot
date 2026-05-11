@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+import os
 from typing import Callable
 from irc.commands.ingest_cmd import run_ingest
 from irc.commands.discover_cmd import run_discover
@@ -12,6 +13,25 @@ from irc.commands.memo_cmd import run_memo
 from irc.commands.research_cmd import run_research
 
 STAGE_NAMES: tuple[str, ...] = ("ingest", "research", "discover", "score", "gold", "allocate", "plan", "memo")
+_TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
+
+
+def _env_flag_enabled(name: str) -> bool:
+    return os.environ.get(name, "").strip().lower() in _TRUE_ENV_VALUES
+
+
+def _explicit_research_requested(from_stage: str | None, only_stage: str | None) -> bool:
+    return only_stage == "research" or from_stage == "research"
+
+
+def _without_disabled_optional_stages(
+    stages: list[str], from_stage: str | None, only_stage: str | None,
+) -> list[str]:
+    if _env_flag_enabled("LDR_ENABLED") or _explicit_research_requested(from_stage, only_stage):
+        return stages
+    if "research" in stages:
+        print("research skipped: set LDR_ENABLED=true to run LDR research")
+    return [stage for stage in stages if stage != "research"]
 
 
 def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:
@@ -28,6 +48,7 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
         stages = list(STAGE_NAMES[idx:])
     else:
         stages = list(STAGE_NAMES)
+    stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
     for stage in stages:
         fn = _runners_map()[stage]
         rc = fn(repo_root)

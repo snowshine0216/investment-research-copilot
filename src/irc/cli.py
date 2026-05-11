@@ -57,7 +57,7 @@ def ingest(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
-@main.command(name="run", help="Run the full pipeline (ingest→discover→score→gold→allocate→plan→memo).")
+@main.command(name="run", help="Run the default pipeline; include research when LDR_ENABLED=true.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--from", "from_stage", type=str, default=None, help="Resume from this stage.")
 @click.option("--only", "only_stage", type=str, default=None, help="Run only this stage.")

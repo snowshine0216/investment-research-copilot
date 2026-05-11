@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr = SecretStr("")
 
     # Optional (LDR)
+    ldr_enabled: bool = False
     ldr_base_url: str = "http://localhost:8080"
     ldr_api_token: SecretStr = SecretStr("")
 

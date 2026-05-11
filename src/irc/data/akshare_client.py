@@ -204,6 +204,13 @@ def _fetch_full_fund_table() -> pd.DataFrame:
     return df
 
 
+def _normalize_fund_code(value: Any) -> str:
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text.zfill(6) if text.isdigit() else text
+
+
 @lru_cache(maxsize=1)
 def fetch_open_fund_catalog() -> pd.DataFrame:
     """Fetch Akshare's open-fund catalog with stable internal column names."""
@@ -229,17 +236,20 @@ def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
 
     Raises FundNotFound if the fund_code is absent from the full fund table.
     """
+    normalized_fund_code = _normalize_fund_code(fund_code)
     table = _fetch_full_fund_table()
     if "fund_code" in table.columns:
-        matches = table[table["fund_code"] == fund_code]
+        catalog_codes = table["fund_code"].map(_normalize_fund_code)
+        matches = table[catalog_codes == normalized_fund_code]
         if matches.empty:
-            raise FundNotFound(f"fund_code {fund_code!r} not in akshare fund table")
-    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
-    if not basic or str(basic.get("基金代码") or basic.get("fund_code") or "") != fund_code:
-        raise ValueError(f"fund {fund_code!r} not found in AKShare basic info")
-    fees = _ak_call("fund_fee_em", symbol=fund_code, indicator="运作费用")
+            raise FundNotFound(f"fund_code {normalized_fund_code!r} not in akshare fund table")
+    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=normalized_fund_code))
+    basic_code = _normalize_fund_code(basic.get("基金代码") or basic.get("fund_code") or "")
+    if not basic or basic_code != normalized_fund_code:
+        raise ValueError(f"fund {normalized_fund_code!r} not found in AKShare basic info")
+    fees = _ak_call("fund_fee_em", symbol=normalized_fund_code, indicator="运作费用")
     return {
-        "fund_code": str(basic.get("基金代码") or basic.get("fund_code") or fund_code),
+        "fund_code": _normalize_fund_code(basic.get("基金代码") or basic.get("fund_code") or normalized_fund_code),
         "name_cn": str(basic.get("基金名称") or basic.get("基金简称") or basic.get("name_cn") or ""),
         "fund_type": str(basic.get("基金类型") or basic.get("fund_type") or ""),
         "aum_text": str(basic.get("最新规模") or basic.get("基金规模") or basic.get("资产规模") or basic.get("aum_text") or ""),

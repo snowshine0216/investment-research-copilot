@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 4 (theme-aware discovery) in progress. Full pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute all 7 stages. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. News layer and live gold-driver feeds remain in Plan 4.
+> **Status:** Plan 4 (theme-aware discovery) in progress. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Optional LDR research runs between ingest and discovery when `LDR_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation.
 
 ## Design references
 
@@ -18,6 +18,7 @@ cd investment-research-copilot
 uv sync --all-extras
 cp .env.example .env
 # Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
+# Optional: set LDR_ENABLED=true when a self-hosted LDR service is reachable.
 
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
@@ -26,11 +27,15 @@ uv run irc config validate             # validates all 14 YAML files
 uv run irc universe build-cn-funds     # ~359 funds across equity/bond/ETF categories
 uv run irc config validate             # confirm generated file is accepted (universe grows to ~418)
 
-# Run the full 7-stage pipeline in one command:
+# Run the default 7-stage pipeline in one command:
 uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
+
+# Or include optional LDR research between ingest and discovery:
+LDR_ENABLED=true uv run irc run         # ingest → research → discover → score → gold → allocate → plan → memo
 
 # Or run stages individually:
 uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
+uv run irc research                    # LDR research → data/research/<theme>.md (requires reachable LDR)
 uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
                                        #                  + outputs/<date>/discovery_diagnostics.csv
 uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
@@ -48,7 +53,7 @@ uv run irc run --from score
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (574 tests)
+uv run pytest                                       # unit + integration (586 tests)
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
