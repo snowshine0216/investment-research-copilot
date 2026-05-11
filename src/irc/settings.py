@@ -16,16 +16,19 @@ class Settings(BaseSettings):
 
     # Required — stored as SecretStr so repr(Settings()) never leaks raw values
     deepseek_api_key: SecretStr = Field(min_length=1)
-    openrouter_api_key: SecretStr = Field(min_length=1)
+
+    # Optional
+    openrouter_api_key: SecretStr = SecretStr("")
 
     # Optional (LDR)
+    ldr_enabled: bool = False
     ldr_base_url: str = "http://localhost:8080"
-    ldr_api_token: str = ""
+    ldr_api_token: SecretStr = SecretStr("")
 
     # Optional (OpenBB extras)
-    openbb_fmp_key: str = ""
-    openbb_tiingo_key: str = ""
+    openbb_fmp_key: SecretStr = SecretStr("")
+    openbb_tiingo_key: SecretStr = SecretStr("")
 
     # Roadmap (declared so .env doesn't error on extras)
-    tushare_token: str = ""
-    anthropic_api_key: str = ""
+    tushare_token: SecretStr = SecretStr("")
+    anthropic_api_key: SecretStr = SecretStr("")

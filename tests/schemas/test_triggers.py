@@ -11,3 +11,13 @@ def test_triggers_config_minimal():
     }
     cfg = TriggersConfig.model_validate(raw)
     assert "real_yield_low" in cfg.triggers
+
+
+import pytest
+from pydantic import ValidationError
+from irc.schemas.triggers import TriggerSpec
+
+
+def test_invalid_comparator_rejected():
+    with pytest.raises(ValidationError):
+        TriggerSpec(data_field="macro.vix", comparator="????", threshold=20.0)

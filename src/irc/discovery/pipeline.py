@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from typing import Any
 
 import pandas as pd
 
+from irc.discovery.diagnostics import build_discovery_diagnostics
 from irc.discovery.hard_filter import apply_hard_filter
 from irc.discovery.quality_filter import apply_quality_filter
 from irc.discovery.reason_writer import WriteReasonContext, write_reason
@@ -21,6 +24,12 @@ _WATCHLIST_COLUMNS = (
 
 
 _MAX_REFS_PER_INSTRUMENT = 30
+
+
+@dataclass(frozen=True)
+class DiscoveryRunResult:
+    watchlist: pd.DataFrame
+    diagnostics: pd.DataFrame
 
 
 def _index_refs_by_instrument(
@@ -87,6 +96,34 @@ def run_discovery(
     excluded_themes: tuple[str, ...] = (),
 ) -> pd.DataFrame:
     """Compose discovery 5 steps end-to-end. Returns watchlist DataFrame."""
+    return run_discovery_with_diagnostics(
+        universe=universe,
+        metadata=metadata,
+        metrics=metrics,
+        risk_band_max_dd_upper=risk_band_max_dd_upper,
+        cfg_overrides=cfg_overrides,
+        cfg_discovery=cfg_discovery,
+        route=route,
+        peer_summary=peer_summary,
+        macro_snapshot=macro_snapshot,
+        raw_ref_pool=raw_ref_pool,
+        excluded_themes=excluded_themes,
+    ).watchlist
+
+
+def run_discovery_with_diagnostics(
+    universe: tuple[UniverseRow, ...],
+    metadata: pd.DataFrame,
+    metrics: pd.DataFrame,
+    risk_band_max_dd_upper: float,
+    cfg_overrides: OverridesConfig | None,
+    cfg_discovery: DiscoveryConfig | None,
+    route: Any,
+    peer_summary: str,
+    macro_snapshot: str,
+    raw_ref_pool: tuple[str, ...],
+    excluded_themes: tuple[str, ...] = (),
+) -> DiscoveryRunResult:
     cfg_d = cfg_discovery or _default_cfg()
     cfg_o = cfg_overrides or OverridesConfig()
     risk = RiskBand.model_validate({
@@ -127,6 +164,22 @@ def run_discovery(
                 "cited_refs": ",".join(res.cited_refs),
                 "relaxed": role in bucketed.relaxed_roles,
             })
-    if not rows:
-        return pd.DataFrame(columns=list(_WATCHLIST_COLUMNS))
-    return pd.DataFrame(rows)
+    diagnostics = build_discovery_diagnostics(universe, hard, quality, bucketed)
+    return DiscoveryRunResult(
+        watchlist=pd.DataFrame(rows, columns=list(_WATCHLIST_COLUMNS)),
+        diagnostics=diagnostics,
+    )
+
+
+def run_discover_with_reasons(candidates: list[dict[str, Any]], *, route: Any, max_workers: int = 8) -> list[dict[str, Any]]:
+    """Parallelize write_reason calls across candidates using ThreadPoolExecutor.
+    
+    For each candidate with 'role' and 'instrument_id' keys, calls write_reason
+    and adds the result to the candidate dict under 'reason' key.
+    """
+    def task(c: dict[str, Any]) -> dict[str, Any]:
+        reason = write_reason(role=c["role"], instrument_id=c["instrument_id"], route=route)
+        return {**c, "reason": reason}
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        return list(ex.map(task, candidates))

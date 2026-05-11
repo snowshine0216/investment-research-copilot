@@ -53,15 +53,39 @@ def _user_prompt(row: UniverseRow, ctx: WriteReasonContext) -> str:
 
 
 def write_reason(
-    row: UniverseRow,
-    ctx: WriteReasonContext,
-    route: object,
+    row: UniverseRow | None = None,
+    ctx: WriteReasonContext | None = None,
+    route: object = None,
     max_retries: int = 1,
-) -> ReasonResult | None:
+    *,
+    role: str | None = None,
+    instrument_id: str | None = None,
+) -> ReasonResult | str | None:
     """Step 5: produce a 3-sentence reason + 1 risk line, citing >= 1 raw_ref.
-    Returns None if grounding fails after all attempts."""
+    Returns None if grounding fails after all attempts.
+
+    Simplified mode (role + instrument_id kwargs): makes a bare call_chat request
+    and returns '' on failure with a structured warning log.
+    """
+    # Simplified calling convention: write_reason(role=..., instrument_id=..., route=...)
+    if role is not None and instrument_id is not None and row is None:
+        try:
+            safe_id = str(instrument_id).strip()[:200].replace("\n", " ").replace("\r", "")
+            resp = call_chat(
+                route,  # type: ignore[arg-type]
+                messages=[{"role": "user", "content": f"{role}: {safe_id}"}],
+                timeout_s=30,
+            )
+            return resp.text.strip()
+        except Exception as e:
+            _log.warning(
+                "write_reason failed for %s/%s: %s", role, instrument_id, e,
+                extra={"role": role, "instrument_id": instrument_id},
+            )
+            return ""
     last_exc: Exception | None = None
     ungrounded_attempts = 0
+    assert row is not None and ctx is not None, "row and ctx required in standard mode"
     if not ctx.raw_refs:
         _log.warning(
             "skipping reason for %s (role=%s): no raw_refs available — "

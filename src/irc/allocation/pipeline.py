@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 import pandas as pd
 from irc.allocation.target_weights import compute_target_weights, softmax_distribute
-from irc.allocation.correlation_filter import drop_high_correlation_pairs
+from irc.allocation.correlation_filter import drop_high_correlation_pairs, drop_correlated_and_renormalize
 
 
 @dataclass(frozen=True)
@@ -107,6 +107,8 @@ def run_allocation(
         dropped = filt.dropped
     else:
         dropped = []
+    # Renormalize intra-class weights after any drops, using empty corr dict (no further drops)
+    selected = drop_correlated_and_renormalize(selected, corr_matrix={}, threshold=0.85)
     eff_n = _effective_n([s["target_weight"] for s in selected])
     return AllocationOutput(
         target_weights_per_class=class_weights,

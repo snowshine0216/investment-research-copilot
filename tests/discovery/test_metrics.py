@@ -94,3 +94,36 @@ def test_tenure_or_zero_none_returns_zero() -> None:
 
 def test_tenure_or_zero_float_passes_through() -> None:
     assert _tenure_or_zero(5.5) == 5.5
+
+
+# ── Task 27: rolling_tracking_error ──────────────────────────────────────────
+from datetime import date, timedelta
+from irc.discovery.metrics import rolling_tracking_error
+
+
+def _series(start: date, values: list[float]) -> pd.DataFrame:
+    return pd.DataFrame({
+        "date": [start + timedelta(days=i) for i in range(len(values))],
+        "close": values,
+    })
+
+
+def test_rolling_tracking_error_zero_when_returns_match():
+    instr = _series(date(2026, 1, 1), [100, 101, 102, 103, 104, 105])
+    bench = _series(date(2026, 1, 1), [100, 101, 102, 103, 104, 105])
+    te = rolling_tracking_error(instrument_prices=instr, benchmark_prices=bench, window=4)
+    assert te == 0.0
+
+
+def test_rolling_tracking_error_positive_when_returns_diverge():
+    instr = _series(date(2026, 1, 1), [100, 102, 99, 105, 103, 110])
+    bench = _series(date(2026, 1, 1), [100, 100, 100, 100, 100, 100])
+    te = rolling_tracking_error(instrument_prices=instr, benchmark_prices=bench, window=4)
+    assert te > 0.0
+
+
+def test_rolling_tracking_error_returns_zero_with_insufficient_data():
+    instr = _series(date(2026, 1, 1), [100, 101])
+    bench = _series(date(2026, 1, 1), [100, 101])
+    te = rolling_tracking_error(instrument_prices=instr, benchmark_prices=bench, window=20)
+    assert te == 0.0

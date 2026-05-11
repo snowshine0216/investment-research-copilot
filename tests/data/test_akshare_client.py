@@ -16,6 +16,7 @@ from irc.data.akshare_client import (
     fetch_fund_metadata,
     fetch_fund_nav_history,
     fetch_macro_series_akshare,
+    FundNotFound,
 )
 
 
@@ -51,7 +52,14 @@ def test_fetch_fund_nav_history_tolerates_unit_nav_without_accumulated_nav() -> 
     assert pd.isna(out.loc[0, "nav_acc"])
 
 
-def test_fetch_fund_metadata() -> None:
+_FUND_TABLE_006075 = pd.DataFrame({
+    "fund_code": ["006075"], "fund_name": ["易方达标普500"], "fund_type": ["QDII"]
+})
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata(mock_table) -> None:
+    mock_table.return_value = _FUND_TABLE_006075
     basic = pd.DataFrame({
         "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
         "value": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
@@ -74,7 +82,9 @@ def test_fetch_fund_metadata() -> None:
     ]
 
 
-def test_fetch_fund_metadata_sums_operating_fees_in_one_row() -> None:
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_sums_operating_fees_in_one_row(mock_table) -> None:
+    mock_table.return_value = _FUND_TABLE_006075
     basic = pd.DataFrame({
         "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
         "value": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
@@ -89,22 +99,58 @@ def test_fetch_fund_metadata_sums_operating_fees_in_one_row() -> None:
     assert out["expense_ratio"] == 0.0060
 
 
-def test_fetch_fund_metadata_raises_for_unknown_code() -> None:
-    fake = pd.DataFrame({
-        "item": ["基金代码", "基金名称"],
-        "value": ["006075", "易方达标普500"],
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_raises_for_unknown_code(mock_table) -> None:
+    mock_table.return_value = _FUND_TABLE_006075  # doesn't contain "999999"
+    with pytest.raises(FundNotFound):
+        fetch_fund_metadata("999999")
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_normalizes_catalog_code_before_lookup(mock_table) -> None:
+    mock_table.return_value = pd.DataFrame({
+        "fund_code": [6075], "fund_name": ["易方达标普500"], "fund_type": ["QDII"],
     })
+    basic = pd.DataFrame({
+        "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
+        "value": ["006075", "易方达标普500", "QDII", "200亿", "2018-03-26"],
+    })
+    fees = pd.DataFrame({"费用类型": ["管理费率"], "费率": ["0.50%"]})
+
     with patch("irc.data.akshare_client._ak_call") as mocked:
-        mocked.return_value = fake
-        with pytest.raises(ValueError, match="not found"):
-            fetch_fund_metadata("999999")
+        mocked.side_effect = [basic, fees]
+        out = fetch_fund_metadata("006075")
+
+    assert out["fund_code"] == "006075"
+    assert mocked.call_args_list[0].kwargs == {"symbol": "006075"}
 
 
-def test_fetch_fund_metadata_propagates_xq_failure() -> None:
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_normalizes_incoming_code_before_lookup(mock_table) -> None:
+    mock_table.return_value = pd.DataFrame({
+        "fund_code": ["006075"], "fund_name": ["易方达标普500"], "fund_type": ["QDII"],
+    })
+    basic = pd.DataFrame({
+        "item": ["基金代码", "基金名称", "基金类型", "最新规模", "成立时间"],
+        "value": [6075, "易方达标普500", "QDII", "200亿", "2018-03-26"],
+    })
+    fees = pd.DataFrame({"费用类型": ["管理费率"], "费率": ["0.50%"]})
+
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.side_effect = [basic, fees]
+        out = fetch_fund_metadata("6075")
+
+    assert out["fund_code"] == "006075"
+    assert mocked.call_args_list[0].kwargs == {"symbol": "006075"}
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_fetch_fund_metadata_propagates_xq_failure(mock_table) -> None:
     """XueQiu is the only akshare path with individual fund metadata. When it
     fails (auth/rate limit), callers must see the exception so they can skip
     the instrument with a warning. There is no working EM equivalent in
     akshare 1.18.60 — `fund_individual_basic_info_em` does not exist."""
+    mock_table.return_value = _FUND_TABLE_006075
     with patch("irc.data.akshare_client._ak_call") as mocked:
         mocked.side_effect = KeyError("data")
         with pytest.raises(KeyError):
@@ -445,6 +491,34 @@ def test_fetch_macro_series_akshare_dispatches_dxy() -> None:
     assert out.iloc[-1]["value"] == 99.10
 
 
+def test_fetch_macro_series_dxy_uses_proxy_lock_when_proxy_env_is_set(monkeypatch) -> None:
+    fake = pd.DataFrame({
+        "日期": ["2026-05-06"],
+        "最新价": [99.10],
+    })
+
+    class _LockProbe:
+        def __init__(self) -> None:
+            self.entered = 0
+
+        def __enter__(self):
+            self.entered += 1
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    probe = _LockProbe()
+    monkeypatch.setenv("AKSHARE_HTTPS_PROXY", "http://proxy.example.com:8080")
+
+    with patch("irc.data.akshare_client._AKSHARE_PROXY_LOCK", probe), \
+         patch("irc.data.akshare_client._ak_call", return_value=fake):
+        out = fetch_macro_series_akshare("DXY", start="2026-01-01", end="2026-12-31")
+
+    assert probe.entered == 1
+    assert list(out.columns) == ["date", "value"]
+
+
 def test_fetch_macro_series_akshare_raises_for_unsupported_series() -> None:
     with pytest.raises(ValueError, match="no akshare fallback"):
         fetch_macro_series_akshare("UNKNOWN_SERIES", start="2026-01-01", end="2026-05-01")
@@ -490,3 +564,55 @@ def test_ratios_from_text_plain_float_returns_tuple() -> None:
 
 def test_expense_ratio_from_fee_table_empty_df_returns_none() -> None:
     assert _expense_ratio_from_fee_table(pd.DataFrame()) is None
+
+
+@patch("irc.data.akshare_client._fetch_full_fund_table")
+def test_missing_fund_raises_not_found(mock_full):
+    mock_full.return_value = pd.DataFrame({
+        "fund_code": ["110011"], "fund_name": ["X"], "fund_type": ["equity"],
+    })
+    with pytest.raises(FundNotFound):
+        fetch_fund_metadata("999999")
+
+
+def test_fund_table_fetched_once_across_calls():
+    from irc.data.akshare_client import _fetch_full_fund_table
+    _fetch_full_fund_table.cache_clear()
+    with patch("irc.data.akshare_client._raw_fund_table_call",
+               return_value=MagicMock()) as mock_raw:
+        for _ in range(5):
+            try: fetch_fund_metadata("110011")
+            except Exception: pass
+        assert mock_raw.call_count == 1
+
+
+def test_fetch_open_fund_catalog_normalizes_chinese_columns() -> None:
+    fake = pd.DataFrame({
+        "基金代码": ["003095", "110022"],
+        "基金名称": ["中欧医疗健康混合A", "易方达消费行业股票A"],
+        "基金类型": ["混合型", "股票型"],
+        "ignored": [1, 2],
+    })
+    with patch("irc.data.akshare_client._raw_fund_table_call", return_value=fake):
+        from irc.data.akshare_client import fetch_open_fund_catalog, _fetch_full_fund_table
+
+        _fetch_full_fund_table.cache_clear()
+        fetch_open_fund_catalog.cache_clear()
+        out = fetch_open_fund_catalog()
+
+    assert list(out.columns) == ["fund_code", "fund_name", "fund_type"]
+    assert out.to_dict("records") == [
+        {"fund_code": "003095", "fund_name": "中欧医疗健康混合A", "fund_type": "混合型"},
+        {"fund_code": "110022", "fund_name": "易方达消费行业股票A", "fund_type": "股票型"},
+    ]
+
+
+def test_fetch_open_fund_catalog_raises_when_required_columns_missing() -> None:
+    fake = pd.DataFrame({"基金代码": ["003095"]})  # missing 基金名称 / fund_name
+    with patch("irc.data.akshare_client._raw_fund_table_call", return_value=fake):
+        from irc.data.akshare_client import fetch_open_fund_catalog, _fetch_full_fund_table
+
+        _fetch_full_fund_table.cache_clear()
+        fetch_open_fund_catalog.cache_clear()
+        with pytest.raises(ValueError, match="fund_name"):
+            fetch_open_fund_catalog()

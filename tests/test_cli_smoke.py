@@ -7,7 +7,7 @@ from irc.cli import main
 def test_cli_help_lists_subcommands():
     result = CliRunner().invoke(main, ["--help"])
     assert result.exit_code == 0
-    for cmd in ("init", "config", "freshness"):
+    for cmd in ("init", "config", "freshness", "universe"):
         assert cmd in result.output
 
 

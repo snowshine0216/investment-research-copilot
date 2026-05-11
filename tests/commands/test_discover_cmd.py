@@ -116,6 +116,8 @@ def test_discover_derives_metrics_when_fund_metrics_empty(
 
 
 def test_discover_passes_excluded_themes_to_pipeline(repo_with_db: Path) -> None:
+    from irc.discovery.pipeline import DiscoveryRunResult
+
     preferences_path = repo_with_db / "inputs" / "preferences.yaml"
     preferences_path.write_text(
         preferences_path.read_text(encoding="utf-8").replace(
@@ -125,8 +127,58 @@ def test_discover_passes_excluded_themes_to_pipeline(repo_with_db: Path) -> None
         encoding="utf-8",
     )
 
-    with patch("irc.commands.discover_cmd.run_discovery") as mock_run:
-        mock_run.return_value = pd.DataFrame(columns=["instrument_id"])
+    with patch("irc.commands.discover_cmd.run_discovery_with_diagnostics") as mock_run:
+        mock_run.return_value = DiscoveryRunResult(
+            watchlist=pd.DataFrame(columns=["instrument_id"]),
+            diagnostics=pd.DataFrame(columns=["stage", "status", "asset_class", "theme", "role", "reason", "count"]),
+        )
+        rc = run_discover(repo_root=str(repo_with_db))
+
+    assert rc == 0
+    assert mock_run.call_args.kwargs["excluded_themes"] == ("healthcare",)
+
+
+def test_discover_writes_diagnostics_csv(repo_with_db: Path) -> None:
+    fake_resp_text = (
+        "Reason: tracks SP500 (openbb:prices:006075:2026-05-06). Risk: USD strength."
+    )
+    with patch("irc.discovery.reason_writer.call_chat") as mock_chat:
+        mock_chat.return_value.__class__ = type(
+            "ChatResponse", (), {
+                "text": fake_resp_text, "prompt_tokens": 10, "completion_tokens": 5,
+            }
+        )()
+        mock_chat.return_value.text = fake_resp_text
+        mock_chat.return_value.prompt_tokens = 10
+        mock_chat.return_value.completion_tokens = 5
+        rc = run_discover(repo_root=str(repo_with_db))
+
+    assert rc == 0
+    out_dir = next(p for p in (repo_with_db / "outputs").iterdir())
+    diagnostics_path = out_dir / "discovery_diagnostics.csv"
+    assert diagnostics_path.exists()
+    df = pd.read_csv(diagnostics_path)
+    assert {"stage", "status", "asset_class", "theme", "role", "reason", "count"}.issubset(df.columns)
+    assert "universe" in set(df["stage"])
+
+
+def test_discover_passes_excluded_themes_to_pipeline_with_diagnostics(repo_with_db: Path) -> None:
+    from irc.discovery.pipeline import DiscoveryRunResult
+
+    preferences_path = repo_with_db / "inputs" / "preferences.yaml"
+    preferences_path.write_text(
+        preferences_path.read_text(encoding="utf-8").replace(
+            "exclude_themes: []",
+            "exclude_themes: [healthcare]",
+        ),
+        encoding="utf-8",
+    )
+
+    with patch("irc.commands.discover_cmd.run_discovery_with_diagnostics") as mock_run:
+        mock_run.return_value = DiscoveryRunResult(
+            watchlist=pd.DataFrame(columns=["instrument_id"]),
+            diagnostics=pd.DataFrame(columns=["stage", "status", "asset_class", "theme", "role", "reason", "count"]),
+        )
         rc = run_discover(repo_root=str(repo_with_db))
 
     assert rc == 0

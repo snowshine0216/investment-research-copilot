@@ -127,3 +127,83 @@ def test_load_yaml_raises_when_no_repo_root_found(tmp_path: Path):
     yaml_file.write_text("{}", encoding="utf-8")
     with pytest.raises(RuntimeError, match="could not locate repo root"):
         load_yaml(yaml_file)
+
+
+def test_load_repo_configs_merges_optional_generated_cn_funds(tmp_repo: Path):
+    _minimal_inputs(tmp_repo)
+    _minimal_configs(tmp_repo)
+    write_yaml(tmp_repo / "config/universe/cn_funds.yaml", {
+        "instruments": [
+            {
+                "instrument_id": "510300", "ticker": "510300", "market": "cn_on_exchange",
+                "name_cn": "华泰柏瑞沪深300ETF", "asset_class": "cn_etf", "currency": "cny",
+                "tracked_index": "沪深300", "theme": "broad", "venue_required": ["cn_brokerage"],
+            }
+        ]
+    })
+    write_yaml(tmp_repo / "config/universe/cn_funds.generated.yaml", {
+        "instruments": [
+            {
+                "instrument_id": "003095", "ticker": "003095", "market": "cn_off_exchange",
+                "name_cn": "中欧医疗健康混合A", "asset_class": "cn_equity_fund", "currency": "cny",
+                "theme": "healthcare", "venue_required": ["cmb_fund"],
+            }
+        ]
+    })
+
+    bundle = load_repo_configs(tmp_repo)
+
+    assert [instrument.instrument_id for instrument in bundle.universe_cn_funds.instruments] == ["510300", "003095"]
+
+
+def test_load_repo_configs_curated_cn_funds_win_over_generated_duplicates(tmp_repo: Path):
+    _minimal_inputs(tmp_repo)
+    _minimal_configs(tmp_repo)
+    write_yaml(tmp_repo / "config/universe/cn_funds.yaml", {
+        "instruments": [
+            {
+                "instrument_id": "003095", "ticker": "003095", "market": "cn_off_exchange",
+                "name_cn": "Curated Name", "asset_class": "cn_equity_fund", "currency": "cny",
+                "theme": "healthcare", "venue_required": ["cmb_fund"],
+            }
+        ]
+    })
+    write_yaml(tmp_repo / "config/universe/cn_funds.generated.yaml", {
+        "instruments": [
+            {
+                "instrument_id": "003095", "ticker": "003095", "market": "cn_off_exchange",
+                "name_cn": "Generated Name", "asset_class": "cn_equity_fund", "currency": "cny",
+                "theme": "healthcare", "venue_required": ["cmb_fund"],
+            }
+        ]
+    })
+
+    bundle = load_repo_configs(tmp_repo)
+
+    assert len(bundle.universe_cn_funds.instruments) == 1
+    assert bundle.universe_cn_funds.instruments[0].name_cn == "Curated Name"
+
+
+def test_load_repo_configs_works_without_generated_cn_funds(tmp_repo: Path):
+    _minimal_inputs(tmp_repo)
+    _minimal_configs(tmp_repo)
+
+    bundle = load_repo_configs(tmp_repo)
+
+    assert bundle.universe_cn_funds.instruments == []
+
+
+def test_load_yaml_accepts_generated_cn_funds_when_file_exists(tmp_repo: Path):
+    write_yaml(tmp_repo / "config/universe/cn_funds.generated.yaml", {
+        "instruments": [
+            {
+                "instrument_id": "003095", "ticker": "003095", "market": "cn_off_exchange",
+                "name_cn": "中欧医疗健康混合A", "asset_class": "cn_equity_fund", "currency": "cny",
+                "theme": "healthcare", "venue_required": ["cmb_fund"],
+            }
+        ]
+    })
+
+    cfg = load_yaml(tmp_repo / "config/universe/cn_funds.generated.yaml", tmp_repo)
+
+    assert cfg.instruments[0].instrument_id == "003095"

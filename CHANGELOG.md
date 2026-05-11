@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0.0] — 2026-05-11
+
+### Added
+- **News layer** (`news/`): feedparser-based RSS aggregator with SSRF DNS guard, 7-topic keyword classifier, URL + similarity-signature dedup, static FOMC/PBoC/WGC events calendar, pipeline that aggregates all feeds and returns per-topic counts.
+- **Research stage** (`cli/research`, `research/ldr_client`): calls optional LDR API (HTTP wrapper with token + graceful failure) to produce per-theme markdown research documents written to `data/research/<theme>.md`; included in `irc run` only when `LDR_ENABLED=true`.
+- **Eval framework** (`evals/`): 12-stage evaluation harness (data, discovery, scoring, gold_score, allocation, research, news, queries, memo, trade_plan, triggers, architecture). Each stage has typed `MetricReport`/`StageReport` schemas (`evals/_shared`), a metrics module, and a runner. `irc eval` CLI dispatches a single stage or `--all`; exit code reflects worst status.
+- **Spot-check eval** (`evals/spot_check`): weekly auto-sample + CSV queue for manual review.
+- **Architecture eval** (`evals/architecture`): DAG acyclicity check, max LOC, and output completeness metrics.
+- **WGC gold drivers** (`gold/drivers`): wires `cb_purchases` + `etf_holdings_30d` from WGC CSV ingestion; removes hardcoded constants.
+- **Discovery rolling tracking-error** (`discovery/metrics`): replaces the 0.0 stub with actual rolling TE vs role benchmark.
+- **`PIPELINE_HALTED.md`** on stage failure + optional research stage support in main run.
+- **Thesis-news score** (`scoring/factors/thesis_news`): replaces stub with real news-signals scoring factor.
+- **Correlation filter activation** (`allocation`): intra-class weight renormalization live; module-level Lock for OBB credential (TOCTOU fix).
+- **Feature-flagged active-fund tenure proxy** and resilient CN exchange price fetch carried forward from 0.4.0.0.
+- **Generated CN fund universe path**: `irc universe build-cn-funds` command, akshare open-fund catalog wrapper, deterministic CN fund classifier (`src/irc/discovery/cn_fund_universe.py`), optional generated universe merge in config loading, and discovery diagnostics CSV output (`discovery_diagnostics.csv`).
+
+### Fixed
+- **Security — SSRF (CRITICAL)**: `ldr_client.py` now calls `_verify_host_resolves_publicly` on non-loopback `LDR_BASE_URL` hosts before any HTTP request while still allowing local self-hosted LDR; `rss_aggregator.py` applies DNS guard before feedparser; `discovery/reason_writer.py` sanitizes `instrument_id` in simplified mode before constructing LLM prompt.
+- **Security — SQL injection**: `evals/data/metrics.py` double-quotes column names from `information_schema` and escapes embedded quotes; table name already allowlisted.
+- **Security — secrets**: `SecretStr` for anthropic/tushare/ldr/fmp/tiingo tokens; user question capped at `MAX_QUESTION_LEN=2000`.
+- **Security — two-hop prompt injection**: raw refs sanitized before auditor prompt in memo pipeline.
+- **Reliability — retry deadline**: `deadline_s` now converts retryable HTTPX failures into `AggregateTimeoutError` when the wall-clock deadline is exceeded.
+- **Reliability — akshare fund lookup**: fund codes are normalized before catalog pre-checks so numeric/mixed-type upstream codes do not falsely raise `FundNotFound`.
+- **Reliability — parallel write_reason**: `ThreadPoolExecutor` mirrors Plan-3 scoring parallelism.
+- **Reliability — gold_score KeyError**: explicit validation surfaces renamed-driver mismatches.
+- **Reliability — regime zero-slope**: returns `'neutral'` not `'downtrend'`.
+- **Reliability — memo mixed-date warning**: warns when scoring/gold/allocation inputs span mixed dates.
+- **Reliability — FundNotFound**: akshare raises typed exception instead of returning wrong fund's metadata.
+- **Reliability — falsification length**: conditions list capped at 10, each truncated to 300 chars to prevent memo corruption.
+- **Correctness — topic classifier**: returns `None` (not `'holdings_sector'`) when no keyword matches, preserving the feed-supplied topic in the pipeline `or` fallback.
+- **Correctness — dedup blank URL**: items with empty `source_url` no longer collide in the seen-URL set.
+- **Correctness — preference tolerance**: target sum tolerance tightened from 2% → 1e-4.
+- **Performance — retry binding**: tenacity decorator bound at import time, not per-call.
+- **Performance — akshare cache**: `lru_cache` for full-table fetches; cleared in init.
+- **Schema — ChatResponse.raw**: bounded via opt-in env flag; default `None`.
+- **Schema — FailureKind.OK removed**: `classify_failure` returns only real failures.
+- **Pipeline correctness — research stage**: `run_research_pipeline` now returns non-zero when any theme research fails; `irc run` includes that fail-fast stage only when `LDR_ENABLED=true` so default setup remains operable.
+- **Concurrency hardening — akshare proxy path**: DXY macro fetch now wraps proxy-env mutation in a module-level lock to avoid cross-thread proxy-env contamination.
+
 ### Changed
 - Macro slot rename: `DTWEXBGS` → `DXY` across `_MACRO_SERIES` (`ingest_cmd.py`), `_macro_value` lookup (`gold_cmd.py`), `_AKSHARE_MACRO_HANDLERS` (`akshare_client.py`), and corresponding tests. The slot was always populated by the akshare DXY index (~95–115 range) which matches the DXY-calibrated thresholds in `gold_score._dxy_score` (95/105/115) and `gold_scenarios` (dxy<100, dxy>110); the FRED `DTWEXBGS` ID was a misnomer (real DTWEXBGS sits ~120). No data-quality change — purely a rename for clarity.
 - `openbb_client.fetch_macro_series` now routes akshare-only IDs (`DXY`) directly to akshare, skipping the always-failing OpenBB+FRED call.

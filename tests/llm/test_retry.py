@@ -34,9 +34,10 @@ def test_classify_400_other_no_retry():
         classify_failure(resp)
 
 
-def test_classify_2xx_returns_ok():
+def test_classify_2xx_raises_no_retry():
     resp = httpx.Response(status_code=200)
-    assert classify_failure(resp) == FailureKind.OK
+    with pytest.raises(NoRetryError):
+        classify_failure(resp)
 
 
 def test_backoff_constants_are_stepped():
@@ -204,3 +205,43 @@ def test_retry_call_chat_forwards_explicit_params(monkeypatch):
     assert result.text == "forwarded"
     assert captured[0]["temperature"] == pytest.approx(0.1)
     assert captured[0]["max_tokens"] == 10
+
+
+import time
+from unittest.mock import patch
+import pytest
+from irc.llm.retry import retry_call_chat, AggregateTimeoutError
+
+
+def test_retry_aggregates_to_deadline():
+    def slow(*a, **kw):
+        time.sleep(0.6)
+        raise ConnectionError("boom")
+    with patch("irc.llm.retry._call_once", side_effect=slow):
+        with pytest.raises(AggregateTimeoutError):
+            retry_call_chat(route=None, messages=[], deadline_s=1.0, attempts=10)
+
+
+def test_retry_aggregates_httpx_errors_to_deadline():
+    def slow(*a, **kw):
+        time.sleep(0.2)
+        raise httpx.ConnectError("boom")
+
+    with patch("irc.llm.retry._call_once", side_effect=slow):
+        with pytest.raises(AggregateTimeoutError):
+            retry_call_chat(route=None, messages=[], deadline_s=0.1, attempts=3)
+
+
+import irc.llm.retry as retry_mod
+
+
+def test_retry_decorator_built_at_import_time():
+    # decorator is bound at module load — not rebuilt per call
+    assert hasattr(retry_mod, "_RETRY_DECORATOR")
+    fn = retry_mod._RETRY_DECORATOR
+    assert callable(fn)
+
+
+def test_failurekind_ok_removed():
+    from irc.llm.retry import FailureKind
+    assert "OK" not in {k.name for k in FailureKind}

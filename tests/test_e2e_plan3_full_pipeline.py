@@ -20,6 +20,7 @@ import pytest
 from click.testing import CliRunner
 
 from irc.cli import main
+from irc.research.ldr_client import LDRResearchResult
 
 
 # ─── fake data helpers ──────────────────────────────────────────────────────
@@ -110,6 +111,14 @@ def _ask_response() -> MagicMock:
     )
 
 
+def _research_response() -> LDRResearchResult:
+    return LDRResearchResult(
+        report_md="# Theme\n\nResearch content.",
+        citations=[],
+        failure_reason="",
+    )
+
+
 # ─── shared patch context ────────────────────────────────────────────────────
 
 def _all_patches():
@@ -137,6 +146,8 @@ def _all_patches():
               return_value=_audit_response()),
         patch("irc.queries.responder.call_chat",
               return_value=_ask_response()),
+          patch("irc.research.theme_research.run_research",
+              return_value=_research_response()),
     ]
 
 
@@ -225,7 +236,7 @@ def test_e2e_plan3_all_stages(tmp_path: Path) -> None:
         assert len(memo_text) > 10, "memo.md is empty"
         trace = json.loads(trace_files[0].read_text())
         assert "coverage_ratio" in trace
-        assert "missing_count" in trace
+        assert "n_refs" in trace
 
         # ── ask ───────────────────────────────────────────────────────────────
         r = runner.invoke(main, ["ask", "--repo-root", str(tmp_path), "黄金标的如何？"])

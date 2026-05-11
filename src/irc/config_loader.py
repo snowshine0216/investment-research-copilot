@@ -1,7 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 from typing import Any
 import yaml
 
@@ -17,7 +16,7 @@ from irc.schemas.macro_view import MacroViewConfig
 from irc.schemas.universe import UniverseConfig
 
 
-_FILENAME_TO_SCHEMA: MappingProxyType[str, type] = MappingProxyType({
+_FILENAME_TO_SCHEMA: dict[str, type] = {
     "inputs/account.yaml": AccountFile,
     "inputs/preferences.yaml": PreferencesFile,
     "config/llm.yaml": LLMConfig,
@@ -32,7 +31,11 @@ _FILENAME_TO_SCHEMA: MappingProxyType[str, type] = MappingProxyType({
     "config/universe/qdii_hk.yaml": UniverseConfig,
     "config/universe/cn_funds.yaml": UniverseConfig,
     "config/universe/gold.yaml": UniverseConfig,
-})
+}
+
+_OPTIONAL_FILENAME_TO_SCHEMA: dict[str, type] = {
+    "config/universe/cn_funds.generated.yaml": UniverseConfig,
+}
 
 # Ordered list of all managed YAML paths (relative to repo root).
 # Single source of truth: used by `irc init` (copy) and `irc config validate` (count).
@@ -47,9 +50,10 @@ def _resolve_schema(repo_root: Path, file_path: Path) -> type:
             f"could not determine relative path for {file_path}: {exc}. "
             "If this file is a symlink, ensure it points inside the repo root."
         ) from exc
-    if rel not in _FILENAME_TO_SCHEMA:
+    schema = _FILENAME_TO_SCHEMA.get(rel) or _OPTIONAL_FILENAME_TO_SCHEMA.get(rel)
+    if schema is None:
         raise KeyError(f"no schema registered for {rel}")
-    return _FILENAME_TO_SCHEMA[rel]
+    return schema
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -95,6 +99,22 @@ class ConfigBundle:
     universe_gold: UniverseConfig
 
 
+def _load_optional_universe(path: Path, repo_root: Path) -> UniverseConfig:
+    if not path.exists():
+        return UniverseConfig()
+    return load_yaml(path, repo_root)
+
+
+def _merge_universe_configs(primary: UniverseConfig, secondary: UniverseConfig) -> UniverseConfig:
+    seen = {instrument.instrument_id for instrument in primary.instruments}
+    instruments = [*primary.instruments]
+    instruments.extend(
+        instrument for instrument in secondary.instruments
+        if instrument.instrument_id not in seen
+    )
+    return UniverseConfig(instruments=instruments)
+
+
 def load_repo_configs(repo_root: Path) -> ConfigBundle:
     """Load every YAML the system needs and return a single immutable bundle.
     Validates each file against its pydantic schema; first failure raises."""
@@ -112,6 +132,9 @@ def load_repo_configs(repo_root: Path) -> ConfigBundle:
         macro_view=load_yaml(p / "config/macro_view.yaml", p),
         universe_qdii_us=load_yaml(p / "config/universe/qdii_us.yaml", p),
         universe_qdii_hk=load_yaml(p / "config/universe/qdii_hk.yaml", p),
-        universe_cn_funds=load_yaml(p / "config/universe/cn_funds.yaml", p),
+        universe_cn_funds=_merge_universe_configs(
+            load_yaml(p / "config/universe/cn_funds.yaml", p),
+            _load_optional_universe(p / "config/universe/cn_funds.generated.yaml", p),
+        ),
         universe_gold=load_yaml(p / "config/universe/gold.yaml", p),
     )

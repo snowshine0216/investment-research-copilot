@@ -29,6 +29,7 @@ def _cfg() -> DiscoveryConfig:
             "cn_active_expense_ratio_max": 0.015,
             "cn_passive_expense_ratio_max": 0.005,
             "us_etf_expense_ratio_max": 0.003,
+            "qdii_feeder_expense_ratio_max": 0.012,
             "etf_daily_volume_cny_min": 1e7,
         },
         "quality_filters": {"drawdown_3y_buffer": 1.2, "tracking_error_max": 0.015, "manager_tenure_years_min": 2},
@@ -96,7 +97,7 @@ def test_hard_filter_uses_us_expense_cap_for_us_etf() -> None:
         "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
         "expense_ratio": 0.004, "daily_volume_cny": 2e7,
     }])
-    out = apply_hard_filter(rows=(_row("X", "us_etf"),), metadata=metadata,
+    out = apply_hard_filter(rows=(_row("X", "us_etf", market="cn_on_exchange"),), metadata=metadata,
                             cfg=_cfg(), overrides=OverridesConfig())
     assert out.passed == ()
     assert any("expense_ratio" in r for r in out.rejected[0].reasons)
@@ -107,7 +108,7 @@ def test_hard_filter_uses_us_expense_cap_for_hk_etf() -> None:
         "instrument_id": "X", "inception_years": 5, "aum_cny": 6e8,
         "expense_ratio": 0.004, "daily_volume_cny": 2e7,
     }])
-    out = apply_hard_filter(rows=(_row("X", "hk_etf"),), metadata=metadata,
+    out = apply_hard_filter(rows=(_row("X", "hk_etf", market="cn_on_exchange"),), metadata=metadata,
                             cfg=_cfg(), overrides=OverridesConfig())
     assert out.passed == ()
     assert any("expense_ratio" in r for r in out.rejected[0].reasons)
@@ -234,3 +235,34 @@ def test_hard_filter_respects_excluded_themes() -> None:
 
     assert out.passed == ()
     assert "theme excluded" in out.rejected[0].reasons[0].lower()
+
+
+def test_hard_filter_uses_qdii_feeder_expense_cap_for_off_exchange_us_or_hk_funds() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "006075", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.008, "daily_volume_cny": float("nan"),
+    }])
+    out = apply_hard_filter(
+        rows=(_row("006075", "us_etf", market="cn_off_exchange"),),
+        metadata=metadata,
+        cfg=_cfg(),
+        overrides=OverridesConfig(),
+    )
+
+    assert [row.instrument_id for row in out.passed] == ["006075"]
+
+
+def test_hard_filter_keeps_tight_expense_cap_for_on_exchange_qdii_etf() -> None:
+    metadata = pd.DataFrame([{
+        "instrument_id": "513500", "inception_years": 5, "aum_cny": 6e8,
+        "expense_ratio": 0.008, "daily_volume_cny": 2e7,
+    }])
+    out = apply_hard_filter(
+        rows=(_row("513500", "us_etf", market="cn_on_exchange"),),
+        metadata=metadata,
+        cfg=_cfg(),
+        overrides=OverridesConfig(),
+    )
+
+    assert out.passed == ()
+    assert any("expense_ratio" in reason for reason in out.rejected[0].reasons)

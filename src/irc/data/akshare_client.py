@@ -1,15 +1,24 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+import contextlib
+from functools import lru_cache
+import os
 import re
+import threading
 import time
-from typing import Any, TypeVar
+from typing import Any, Generator, TypeVar
 
 import pandas as pd
 
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
+_AKSHARE_PROXY_LOCK = threading.Lock()
+
+
+class FundNotFound(LookupError):
+    """Raised when a fund_code is not present in the akshare fund table."""
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -17,6 +26,24 @@ def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
+
+
+@contextlib.contextmanager
+def _proxy_env(proxy_url: str) -> Generator[None, None, None]:
+    """Temporarily inject HTTP/HTTPS proxy env vars so requests-based libs
+    (akshare, etc.) route through the proxy. Restores original values on exit."""
+    keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
+    saved = {k: os.environ.get(k) for k in keys}
+    for k in keys:
+        os.environ[k] = proxy_url
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _sleep(seconds: float) -> None:
@@ -156,16 +183,73 @@ def _expense_ratio_from_fee_table(df: pd.DataFrame) -> float | None:
     return total if found else None
 
 
+def _raw_fund_table_call() -> pd.DataFrame:
+    """Raw call to akshare for open-ended fund table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_open_fund_daily_em")
+
+
+@lru_cache(maxsize=1)
+def _fetch_full_fund_table() -> pd.DataFrame:
+    """Fetch the master open-ended fund catalog. Returns DataFrame with 'fund_code' column."""
+    df = _raw_fund_table_call()
+    if "基金代码" in df.columns:
+        rename_map = {"基金代码": "fund_code"}
+        if "基金名称" in df.columns:
+            rename_map["基金名称"] = "fund_name"
+        elif "基金简称" in df.columns:
+            rename_map["基金简称"] = "fund_name"
+        if "基金类型" in df.columns:
+            rename_map["基金类型"] = "fund_type"
+        df = df.rename(columns=rename_map)
+    return df
+
+
+def _normalize_fund_code(value: Any) -> str:
+    text = str(value).strip()
+    if text.endswith(".0"):
+        text = text[:-2]
+    return text.zfill(6) if text.isdigit() else text
+
+
+@lru_cache(maxsize=1)
+def fetch_open_fund_catalog() -> pd.DataFrame:
+    """Fetch Akshare's open-fund catalog with stable internal column names."""
+    df = _fetch_full_fund_table()  # reuses existing cache
+    required_cols = ["fund_code", "fund_name"]
+    missing = [column for column in required_cols if column not in df.columns]
+    if missing:
+        raise ValueError(f"Akshare open fund catalog missing columns: {', '.join(missing)}")
+    out_cols = [c for c in ["fund_code", "fund_name", "fund_type"] if c in df.columns]
+    out = df.loc[:, out_cols].copy()
+    # Ensure fund_type column exists (may be absent from daily-nav endpoint)
+    if "fund_type" not in out.columns:
+        out["fund_type"] = ""
+    for column in out.columns:
+        out[column] = out[column].astype(str).str.strip()
+    return out
+
+
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     """Single-row metadata dict via XueQiu — the only akshare path that returns
     individual-fund metadata in 1.18.60. XueQiu is auth-restricted and may fail
-    intermittently; callers handle the exception by skipping the instrument."""
-    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=fund_code))
-    if not basic or str(basic.get("基金代码") or basic.get("fund_code") or "") != fund_code:
-        raise ValueError(f"fund {fund_code!r} not found in AKShare basic info")
-    fees = _ak_call("fund_fee_em", symbol=fund_code, indicator="运作费用")
+    intermittently; callers handle the exception by skipping the instrument.
+
+    Raises FundNotFound if the fund_code is absent from the full fund table.
+    """
+    normalized_fund_code = _normalize_fund_code(fund_code)
+    table = _fetch_full_fund_table()
+    if "fund_code" in table.columns:
+        catalog_codes = table["fund_code"].map(_normalize_fund_code)
+        matches = table[catalog_codes == normalized_fund_code]
+        if matches.empty:
+            raise FundNotFound(f"fund_code {normalized_fund_code!r} not in akshare fund table")
+    basic = _item_value_dict(_ak_call("fund_individual_basic_info_xq", symbol=normalized_fund_code))
+    basic_code = _normalize_fund_code(basic.get("基金代码") or basic.get("fund_code") or "")
+    if not basic or basic_code != normalized_fund_code:
+        raise ValueError(f"fund {normalized_fund_code!r} not found in AKShare basic info")
+    fees = _ak_call("fund_fee_em", symbol=normalized_fund_code, indicator="运作费用")
     return {
-        "fund_code": str(basic.get("基金代码") or basic.get("fund_code") or fund_code),
+        "fund_code": _normalize_fund_code(basic.get("基金代码") or basic.get("fund_code") or normalized_fund_code),
         "name_cn": str(basic.get("基金名称") or basic.get("基金简称") or basic.get("name_cn") or ""),
         "fund_type": str(basic.get("基金类型") or basic.get("fund_type") or ""),
         "aum_text": str(basic.get("最新规模") or basic.get("基金规模") or basic.get("资产规模") or basic.get("aum_text") or ""),
@@ -263,8 +347,16 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     """DXY (ICE 6-currency US Dollar Index) is the broad-USD proxy used by gold
     scoring; thresholds in scoring/gold_score.py and scoring/gold_scenarios.py
     are calibrated for DXY's ~95–115 range. FRED's DTWEXBGS sits ~120 and is
-    not interchangeable, so this path is the canonical DXY source."""
-    raw = _ak_call("index_global_hist_em", symbol="美元指数")
+    not interchangeable, so this path is the canonical DXY source.
+
+    If AKSHARE_HTTPS_PROXY is set in the environment, the EastMoney request is
+    routed through that proxy (useful when the host is geo-restricted)."""
+    proxy_url = os.environ.get("AKSHARE_HTTPS_PROXY")
+    ctx = _proxy_env(proxy_url) if proxy_url else contextlib.nullcontext()
+    # _proxy_env temporarily mutates process env; lock to avoid cross-thread bleed.
+    with _AKSHARE_PROXY_LOCK:
+        with ctx:
+            raw = _ak_call("index_global_hist_em", symbol="美元指数")
     df = raw[["日期", "最新价"]].rename(columns={"日期": "date", "最新价": "value"})
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
@@ -352,9 +444,20 @@ def fetch_macro_series_akshare(series_id: str, start: str, end: str) -> pd.DataF
     return globals()[handler_name](start, end)
 
 
+def _raw_etf_table_call() -> pd.DataFrame:
+    """Raw call to akshare for ETF category table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_etf_category_sina", symbol="ETF基金")
+
+
+@lru_cache(maxsize=1)
+def _fetch_full_etf_table() -> pd.DataFrame:
+    """Fetch the master on-exchange ETF catalog. Returns DataFrame with ETF data."""
+    return _raw_etf_table_call()
+
+
 def fetch_etf_metadata(symbol: str) -> dict[str, Any]:
     """On-exchange ETF metadata; symbol is 6-digit code (e.g. '510300')."""
-    df = _ak_call("fund_etf_category_sina", symbol="ETF基金")
+    df = _fetch_full_etf_table()
     if isinstance(df, pd.DataFrame):
         code_col = "代码" if "代码" in df.columns else "symbol"
         rows = df[df[code_col].astype(str).str.contains(symbol, regex=False)]

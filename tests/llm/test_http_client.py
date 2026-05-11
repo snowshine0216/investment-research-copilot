@@ -2,6 +2,7 @@ from __future__ import annotations
 import pytest
 import respx
 import httpx
+from unittest.mock import patch
 from irc.llm._types import ResolvedRoute
 from irc.llm.http_client import call_chat, ChatResponse, _resolve_proxy
 
@@ -146,3 +147,10 @@ def test_call_chat_null_content_raises(route_deepseek, monkeypatch):
     )
     with pytest.raises(ValueError, match="null content"):
         call_chat(route_deepseek, messages=[{"role": "user", "content": "hi"}], timeout_s=5)
+
+
+@patch("irc.llm.http_client.socket.gethostbyname", return_value="169.254.169.254")
+def test_post_request_blocks_metadata_resolution(mock_dns):
+    from irc.llm.http_client import _post_request, SSRFError
+    with pytest.raises(SSRFError):
+        _post_request(url="https://attacker.example.com/v1/chat", headers={}, payload={})

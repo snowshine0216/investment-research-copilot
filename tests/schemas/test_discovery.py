@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pytest
 from pydantic import ValidationError
-from irc.schemas.discovery import DiscoveryConfig
+from irc.schemas.discovery import DiscoveryConfig, QualityFilters
 
 
 def test_discovery_config_default():
@@ -46,3 +46,11 @@ def test_fail_below_gte_min_candidates_fails():
     }
     with pytest.raises(ValidationError):
         DiscoveryConfig.model_validate(raw)
+
+
+def test_small_drawdown_buffer_accepted():
+    QualityFilters(drawdown_3y_buffer=0.1, tracking_error_max=0.02, manager_tenure_years_min=0)
+
+
+def test_extreme_tracking_error_max_accepted():
+    QualityFilters(drawdown_3y_buffer=1.0, tracking_error_max=1.0, manager_tenure_years_min=2)

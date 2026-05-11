@@ -22,10 +22,12 @@ class HardFilterResult:
     rejected: tuple[Rejection, ...]
 
 
-def _expense_max(asset_class: str, hf) -> float:
-    if asset_class in ("us_etf", "hk_etf"):
+def _expense_max(row: UniverseRow, hf) -> float:
+    if row.asset_class in ("us_etf", "hk_etf") and row.market == "cn_off_exchange":
+        return hf.qdii_feeder_expense_ratio_max
+    if row.asset_class in ("us_etf", "hk_etf"):
         return hf.us_etf_expense_ratio_max
-    if "etf" in asset_class:
+    if "etf" in row.asset_class:
         return hf.cn_passive_expense_ratio_max
     return hf.cn_active_expense_ratio_max
 
@@ -90,7 +92,7 @@ def apply_hard_filter(
                 reasons.append("missing aum_cny")
             elif aum_cny < aum_threshold:
                 reasons.append(f"aum {aum_cny} < {aum_threshold}")
-            er_max = _expense_max(row.asset_class, hf)
+            er_max = _expense_max(row, hf)
             expense_ratio = _numeric_value(m, "expense_ratio")
             if expense_ratio is None:
                 reasons.append("missing expense_ratio")

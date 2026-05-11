@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import logging
+import os
+import threading
 from typing import Any
 
 import pandas as pd
@@ -12,6 +14,7 @@ from irc.data.akshare_client import (
 )
 
 _log = logging.getLogger(__name__)
+_FRED_CRED_LOCK = threading.Lock()  # guards global OBB credential mutation
 
 OPENBB_PROVIDER_DEFAULT = "yfinance"
 
@@ -80,10 +83,20 @@ def fetch_macro_series(series_id: str, start: str, end: str) -> pd.DataFrame:
     if series_id in _AKSHARE_ONLY_SERIES:
         return fetch_macro_series_akshare(series_id, start, end)
     try:
-        obj = _call_obb(
-            "economy.fred_series",
-            symbol=series_id, start_date=start, end_date=end,
-        )
+        fred_key = os.environ.get("FRED_API_KEY")
+        if fred_key:
+            from openbb import obb  # noqa: PLC0415
+            with _FRED_CRED_LOCK:
+                obb.user.credentials.fred_api_key = fred_key
+                obj = _call_obb(
+                    "economy.fred_series",
+                    symbol=series_id, start_date=start, end_date=end,
+                )
+        else:
+            obj = _call_obb(
+                "economy.fred_series",
+                symbol=series_id, start_date=start, end_date=end,
+            )
     except Exception as openbb_exc:
         _log.warning(
             "OpenBB FRED fetch failed for %s (%s); falling back to akshare.",

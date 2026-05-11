@@ -57,7 +57,7 @@ def ingest(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
-@main.command(name="run", help="Run the full pipeline (ingest→discover→score→gold→allocate→plan→memo).")
+@main.command(name="run", help="Run the default pipeline; include research when LDR_ENABLED=true.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--from", "from_stage", type=str, default=None, help="Resume from this stage.")
 @click.option("--only", "only_stage", type=str, default=None, help="Run only this stage.")
@@ -108,9 +108,41 @@ def gold(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.group(help="Universe generation.")
+def universe() -> None:
+    pass
+
+
+@universe.command("build-cn-funds", help="Build generated CN fund universe from Akshare catalog.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".",
+              help="Repo root (defaults to cwd).")
+def universe_build_cn_funds(repo_root: str) -> None:
+    from irc.commands.universe_cmd import run_build_cn_funds
+    rc = run_build_cn_funds(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:
     from irc.commands.freshness_cmd import run_freshness
     rc = run_freshness(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Run LDR research jobs across 7 themes; write data/research/<theme>.md.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def research(repo_root: str) -> None:
+    from irc.commands.research_cmd import run_research
+    rc = run_research(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
+@main.command(help="Run per-stage eval; produces report.json under outputs/<date>/evals/<stage>/.")
+@click.argument("stage", required=False)
+@click.option("--all", "all_stages", is_flag=True, default=False)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
+    from irc.commands.eval_cmd import run_eval
+    rc = run_eval(repo_root=repo_root, stage=stage, all_stages=all_stages)
     raise SystemExit(rc)

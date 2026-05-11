@@ -24,7 +24,12 @@ def _cfg() -> DiscoveryConfig:
             "cn_passive_expense_ratio_max": 0.005, "us_etf_expense_ratio_max": 0.003,
             "etf_daily_volume_cny_min": 1e7,
         },
-        "quality_filters": {"drawdown_3y_buffer": 1.2, "tracking_error_max": 0.015, "manager_tenure_years_min": 2},
+        "quality_filters": {
+            "drawdown_3y_buffer": 1.2,
+            "drawdown_3y_buffer_by_asset_class": {"cn_equity_fund": 1.6, "cn_bond_fund": 0.6},
+            "tracking_error_max": 0.015,
+            "manager_tenure_years_min": 2,
+        },
         "role_bucket": {"min_candidates_per_role": 8, "fail_below": 5},
     })
 
@@ -152,3 +157,34 @@ def test_quality_filter_on_exchange_bond_etf_does_not_require_manager_tenure() -
     )
 
     assert len(out.passed) == 1
+
+
+def _asset_row(iid: str, asset_class: str, market: str = "cn_off_exchange") -> UniverseRow:
+    return UniverseRow(
+        instrument_id=iid, ticker=iid, market=market,
+        name_cn=iid, asset_class=asset_class, currency="cny",
+        tracked_index=None, theme=None, venue_required=(),
+    )
+
+
+def test_quality_filter_uses_asset_class_drawdown_buffer_override() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "F", "drawdown_3y": 0.30,
+        "tracking_error": None, "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_asset_row("F", "cn_equity_fund"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+
+    assert [row.instrument_id for row in out.passed] == ["F"]
+
+
+def test_quality_filter_uses_tighter_drawdown_buffer_for_cn_bond_fund() -> None:
+    metrics = pd.DataFrame([{
+        "instrument_id": "B", "drawdown_3y": 0.15,
+        "tracking_error": None, "manager_tenure_years": 5,
+    }])
+    risk = RiskBand.model_validate({"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"})
+    out = apply_quality_filter(rows=(_asset_row("B", "cn_bond_fund"),), metrics=metrics, cfg=_cfg(), risk_band=risk)
+
+    assert out.passed == ()
+    assert any("drawdown_3y" in reason for reason in out.rejected[0].reasons)

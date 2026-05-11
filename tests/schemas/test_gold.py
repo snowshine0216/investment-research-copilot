@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pytest
 from pydantic import ValidationError
-from irc.schemas.gold import GoldDriversConfig
+from irc.schemas.gold import GoldDriversConfig, DriverSpec
 
 
 def test_gold_drivers_minimal():
@@ -35,3 +35,12 @@ def test_gold_weights_sum_to_one_required():
     }
     with pytest.raises(ValidationError):
         GoldDriversConfig.model_validate(raw)
+
+
+def test_direction_inverse_accepted():
+    DriverSpec(weight=0.2, direction="inverse")
+
+
+def test_direction_invalid_rejected():
+    with pytest.raises(ValidationError):
+        DriverSpec(weight=0.2, direction="sideways")
