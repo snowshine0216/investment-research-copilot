@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from irc.decision.completeness import REQUIRED_METRIC_FIELDS
+from irc.decision.completeness import MIN_BUY_COMPLETENESS, REQUIRED_METRIC_FIELDS
 from irc.decision.models import DecisionRow, VenueStatus
 
 
@@ -14,7 +14,10 @@ def target_weights_are_valid(allocation: dict[str, Any], tolerance: float = 1e-3
     total = allocation.get("diagnostics", {}).get("total_weight")
     if total is None:
         selected = allocation.get("selected_instruments", [])
-        total = sum(float(row.get("target_weight", 0.0)) for row in selected)
+        total = sum(
+            float(row.get("target_weight") or 0.0) if row.get("target_weight") is not None else 0.0
+            for row in selected
+        )
     try:
         return abs(float(total) - 1.0) <= tolerance
     except (TypeError, ValueError):
@@ -42,11 +45,16 @@ def decide_row(
     trade: dict[str, Any] | None,
     pipeline_halted: bool,
     memo_traceability_coverage: float,
-    completeness_threshold: float = 0.80,
+    completeness_threshold: float = MIN_BUY_COMPLETENESS,
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
-    completeness = float(score.get("data_completeness", 0.0))
-    missing_data = list(score.get("missing_data") or REQUIRED_METRIC_FIELDS)
+    _raw_completeness = score.get("data_completeness", 0.0)
+    try:
+        completeness = float(_raw_completeness) if _raw_completeness is not None else 0.0
+    except (TypeError, ValueError):
+        completeness = 0.0
+    raw_missing = score.get("missing_data")
+    missing_data = list(raw_missing) if raw_missing is not None else list(REQUIRED_METRIC_FIELDS)
     venue_status = venue_status_for_trade(trade)
     evidence_status = memo_evidence_status(memo_traceability_coverage)
     blocking_reasons = _blocking_reasons(

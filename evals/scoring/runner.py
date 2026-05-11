@@ -2,6 +2,7 @@ from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
+from irc.decision.completeness import MIN_BUY_COMPLETENESS
 from irc.io_utils import atomic_write_text
 from evals._shared.status import classify_status, worst_status
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
@@ -20,9 +21,9 @@ _RRR_TH = {"warn_below": 0.99, "fail_below": 0.9}
 _RHO_TH = {"warn_below": 0.0, "fail_below": -0.5}
 _STABILITY_TH = {"warn_above": 0.1, "fail_above": 0.2}
 _DATA_COMPLETENESS_AVG_TH = {"warn_below": 0.90, "fail_below": 0.75}
-# Spec: FAIL when any buy candidate < 0.80; no WARN band for buys.
+# Spec: FAIL when any buy candidate < MIN_BUY_COMPLETENESS; no WARN band for buys.
 # warn_below == fail_below collapses the WARN tier; classify_status returns FAIL or PASS only.
-_BUY_COMPLETENESS_TH = {"warn_below": 0.80, "fail_below": 0.80}
+_BUY_COMPLETENESS_TH = {"warn_below": MIN_BUY_COMPLETENESS, "fail_below": MIN_BUY_COMPLETENESS}
 
 
 def _load_scores(repo_root: Path) -> tuple[list[dict], Path | None]:

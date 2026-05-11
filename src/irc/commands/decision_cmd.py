@@ -50,7 +50,8 @@ def _resolve_output_dir(root: Path) -> Path:
     today_dir = root / "outputs" / today
     if today_dir.exists():
         return today_dir
-    candidates = sorted(path for path in (root / "outputs").glob("*") if path.is_dir())
+    outputs_dir = root / "outputs"
+    candidates = sorted(path for path in outputs_dir.glob("*") if path.is_dir()) if outputs_dir.is_dir() else []
     return candidates[-1] if candidates else today_dir
 
 

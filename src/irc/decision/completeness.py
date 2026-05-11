@@ -16,6 +16,8 @@ REQUIRED_METRIC_FIELDS: tuple[str, ...] = (
     "holdings_concentration_top10",
 )
 
+MIN_BUY_COMPLETENESS: float = 0.80
+
 
 def is_missing(value: Any) -> bool:
     if value is None:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from irc.decision.completeness import (
     REQUIRED_METRIC_FIELDS,
     completeness_ratio,
@@ -51,3 +53,34 @@ def test_summarize_completeness_groups_by_asset_class() -> None:
 
     assert summary["overall_avg"] == 0.5
     assert summary["by_asset_class"] == {"gold": 0.5, "us_etf": 0.5}
+
+
+def test_completeness_ratio_partial_row_returns_fraction() -> None:
+    row = {
+        "expense_ratio": 0.001,
+        "drawdown_3y": None,
+        "vol_1y": None,
+        "downside_capture": 0.9,
+        "aum_stability_pct": float("nan"),
+        "manager_tenure_years": 8.0,
+        "holdings_concentration_top10": 0.25,
+    }
+
+    ratio = completeness_ratio(row)
+
+    assert ratio == pytest.approx(4 / 7)
+
+
+def test_completeness_ratio_none_row_returns_zero() -> None:
+    assert completeness_ratio(None) == 0.0
+
+
+def test_completeness_ratio_empty_required_returns_one() -> None:
+    assert completeness_ratio({"expense_ratio": 0.5}, required=[]) == 1.0
+
+
+def test_summarize_completeness_empty_list_returns_full_avg() -> None:
+    summary = summarize_completeness([])
+
+    assert summary["overall_avg"] == 1.0
+    assert summary["by_asset_class"] == {}

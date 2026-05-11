@@ -16,7 +16,12 @@ def compose_decision_report(
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
     trades_by_target = {str(row.get("target")): row for row in trade_plan.get("trades", [])}
-    coverage = float(memo_traceability.get("coverage_ratio", 0.0))
+    _raw_cov = memo_traceability.get("coverage_ratio", 0.0)
+    coverage = float(_raw_cov) if _raw_cov is not None else 0.0
+    scores = scoring.get("scores", [])
+    pipeline_incomplete = _scores_missing_action(scores)
+    if pipeline_incomplete:
+        pipeline_halted = True
     rows = _build_rows(scoring, selected_ids, trades_by_target, target_weight_valid, pipeline_halted, coverage)
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     return {
@@ -25,6 +30,7 @@ def compose_decision_report(
         "blocking_reasons": blocking_reasons,
         "summary": _summary(rows),
         "rows": rows,
+        "pipeline_incomplete": pipeline_incomplete,
     }
 
 
@@ -44,6 +50,14 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines.extend(_table_section(report.get("rows", [])))
     lines.append("")
     return "\n".join(lines)
+
+
+def _scores_missing_action(scores: list[dict[str, Any]]) -> bool:
+    """Return True when >50% of scores lack an 'action' field (pipeline ran without scoring)."""
+    if not scores:
+        return False
+    missing = sum(1 for s in scores if s.get("action") is None)
+    return missing / len(scores) > 0.5
 
 
 def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool, target_weight_valid: bool) -> list[str]:
@@ -105,6 +119,10 @@ def _blocking_section(blocking_reasons: list[str]) -> list[str]:
         return ["- No system-level blocking reason detected."]
 
 
+def _md(s: object) -> str:
+    return str(s).replace("|", "\\|").replace("\n", " ")
+
+
 def _table_section(rows: list[dict[str, Any]]) -> list[str]:
     lines = [
         "| Instrument | Status | Score Action | Conviction | Completeness | Venue | Next Step |",
@@ -112,6 +130,14 @@ def _table_section(rows: list[dict[str, Any]]) -> list[str]:
     ]
     for row in rows:
         lines.append(
-            "| {instrument_id} | {decision_status} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(**row)
+            "| {instrument_id} | {decision_status} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
+                instrument_id=_md(row["instrument_id"]),
+                decision_status=row["decision_status"],
+                score_action=_md(row["score_action"]),
+                conviction=_md(row["conviction"]),
+                data_completeness=row["data_completeness"],
+                venue_status=row["venue_status"],
+                next_step=_md(row["next_step"]),
+            )
         )
     return lines

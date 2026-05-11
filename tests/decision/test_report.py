@@ -86,3 +86,62 @@ def test_markdown_report_starts_with_clear_verdict() -> None:
     assert markdown.startswith("# Decision Report 2026-05-11")
     assert "No buy/sell decision is supported today." in markdown
     assert "pipeline_halted" in markdown
+
+
+def test_compose_decision_report_empty_scores_returns_ok_no_rows() -> None:
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": []},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"coverage_ratio": 1.0},
+        pipeline_halted=False,
+    )
+
+    assert report["overall_status"] == "ok"
+    assert report["rows"] == []
+    assert report["summary"]["actionable_buy_count"] == 0
+
+
+def test_build_rows_handles_score_with_no_matching_trade() -> None:
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "UNKNOWN", "asset_class": "gold", "action": "watch", "conviction": "low", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"coverage_ratio": 1.0},
+        pipeline_halted=False,
+    )
+
+    assert len(report["rows"]) == 1
+    assert report["rows"][0]["venue_status"] == "unknown"
+
+
+def test_render_decision_markdown_ok_verdict_text() -> None:
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"coverage_ratio": 1.0},
+        pipeline_halted=False,
+    )
+
+    markdown = render_decision_markdown(report)
+
+    assert "At least one instrument passed decision-readiness gates" in markdown
+
+
+def test_blocking_section_no_reasons_shows_no_blocking_message() -> None:
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"coverage_ratio": 1.0},
+        pipeline_halted=False,
+    )
+
+    markdown = render_decision_markdown(report)
+
+    assert "No system-level blocking reason detected." in markdown

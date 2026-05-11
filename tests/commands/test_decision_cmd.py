@@ -53,3 +53,34 @@ def test_decision_writes_json_and_markdown(tmp_path: Path) -> None:
     report = json.loads(report_json.read_text(encoding="utf-8"))
     assert report["rows"][0]["decision_status"] == "actionable_buy"
     assert report_md.read_text(encoding="utf-8").startswith(f"# Decision Report {_today()}")
+
+
+def test_decision_sets_pipeline_halted_when_marker_file_present(tmp_path: Path) -> None:
+    run_init(str(tmp_path), force=False)
+    out_dir = tmp_path / "outputs" / _today()
+    out_dir.mkdir(parents=True)
+    (out_dir / "scoring.json").write_text(json.dumps({"scores": []}), encoding="utf-8")
+    (out_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({"selected_instruments": [], "diagnostics": {"total_weight": 1.0}}), encoding="utf-8")
+    (out_dir / "trade_plan.yaml").write_text(yaml.safe_dump({"trades": []}), encoding="utf-8")
+    (out_dir / "memo_traceability.json").write_text(json.dumps({"coverage_ratio": 1.0}), encoding="utf-8")
+    (out_dir / "PIPELINE_HALTED.md").write_text("halted", encoding="utf-8")
+
+    assert run_decision(repo_root=str(tmp_path)) == 0
+
+    report = json.loads((out_dir / "decision_report.json").read_text(encoding="utf-8"))
+    assert "pipeline_halted" in report["blocking_reasons"]
+
+
+def test_decision_resolves_output_dir_to_latest_when_today_absent(tmp_path: Path) -> None:
+    run_init(str(tmp_path), force=False)
+    past_dir = tmp_path / "outputs" / "2026-05-01"
+    past_dir.mkdir(parents=True)
+    (past_dir / "scoring.json").write_text(json.dumps({"scores": []}), encoding="utf-8")
+    (past_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({"selected_instruments": [], "diagnostics": {"total_weight": 1.0}}), encoding="utf-8")
+    (past_dir / "trade_plan.yaml").write_text(yaml.safe_dump({"trades": []}), encoding="utf-8")
+    (past_dir / "memo_traceability.json").write_text(json.dumps({"coverage_ratio": 1.0}), encoding="utf-8")
+
+    result = run_decision(repo_root=str(tmp_path))
+
+    assert result == 0
+    assert (past_dir / "decision_report.json").exists()
