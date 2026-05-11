@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [0.5.0.0] — 2026-05-11
+## [0.6.0.0] — 2026-05-11
 
 ### Added
 - **News layer** (`news/`): feedparser-based RSS aggregator with SSRF DNS guard, 7-topic keyword classifier, URL + similarity-signature dedup, static FOMC/PBoC/WGC events calendar, pipeline that aggregates all feeds and returns per-topic counts.
@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Thesis-news score** (`scoring/factors/thesis_news`): replaces stub with real news-signals scoring factor.
 - **Correlation filter activation** (`allocation`): intra-class weight renormalization live; module-level Lock for OBB credential (TOCTOU fix).
 - **Feature-flagged active-fund tenure proxy** and resilient CN exchange price fetch carried forward from 0.4.0.0.
+- **Generated CN fund universe path**: `irc universe build-cn-funds` command, akshare open-fund catalog wrapper, deterministic CN fund classifier (`src/irc/discovery/cn_fund_universe.py`), optional generated universe merge in config loading, and discovery diagnostics CSV output (`discovery_diagnostics.csv`).
 
 ### Fixed
 - **Security — SSRF (CRITICAL)**: `ldr_client.py` now calls `_verify_host_resolves_publicly` on `LDR_BASE_URL` before any HTTP request; `rss_aggregator.py` applies DNS guard before feedparser; `discovery/reason_writer.py` sanitizes `instrument_id` in simplified mode before constructing LLM prompt.
@@ -41,6 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Performance — akshare cache**: `lru_cache` for full-table fetches; cleared in init.
 - **Schema — ChatResponse.raw**: bounded via opt-in env flag; default `None`.
 - **Schema — FailureKind.OK removed**: `classify_failure` returns only real failures.
+- **Pipeline correctness — research stage**: `run_research_pipeline` now returns non-zero when any theme research fails, so `irc run` halts instead of silently passing degraded research outputs.
+- **Concurrency hardening — akshare proxy path**: DXY macro fetch now wraps proxy-env mutation in a module-level lock to avoid cross-thread proxy-env contamination.
 
 ### Changed
 - Macro slot rename: `DTWEXBGS` → `DXY` across `_MACRO_SERIES` (`ingest_cmd.py`), `_macro_value` lookup (`gold_cmd.py`), `_AKSHARE_MACRO_HANDLERS` (`akshare_client.py`), and corresponding tests. The slot was always populated by the akshare DXY index (~95–115 range) which matches the DXY-calibrated thresholds in `gold_score._dxy_score` (95/105/115) and `gold_scenarios` (dxy<100, dxy>110); the FRED `DTWEXBGS` ID was a misnomer (real DTWEXBGS sits ~120). No data-quality change — purely a rename for clarity.

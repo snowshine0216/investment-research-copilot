@@ -22,12 +22,17 @@ cp .env.example .env
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
 
+# Build the CN fund universe from Akshare (optional, updates config/universe/cn_funds.generated.yaml):
+uv run irc universe build-cn-funds     # ~359 funds across equity/bond/ETF categories
+uv run irc config validate             # confirm generated file is accepted (universe grows to ~418)
+
 # Run the full 7-stage pipeline in one command:
 uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
 
 # Or run stages individually:
 uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
 uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
+                                       #                  + outputs/<date>/discovery_diagnostics.csv
 uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
 uv run irc gold                        # regime + band + scenarios → gold_regime.json + gold_band.yaml
 uv run irc allocate                    # target weights + top-K → proposed_allocation.yaml
@@ -43,7 +48,7 @@ uv run irc run --from score
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (285 tests)
+uv run pytest                                       # unit + integration (574 tests)
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
