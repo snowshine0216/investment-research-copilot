@@ -18,7 +18,7 @@ def derive_risk_metrics(values: pd.Series) -> dict[str, float]:
     downside = returns[returns < 0]
     return {
         "drawdown_3y": float(drawdowns.max()),
-        "vol_1y": float(returns.std(ddof=0) * math.sqrt(252)) if not returns.empty else math.nan,
+        "vol_1y": float(returns.std(ddof=1) * math.sqrt(252)) if not returns.empty else math.nan,
         "downside_capture": float(abs(downside.mean()) / abs(returns.mean())) if not downside.empty and returns.mean() != 0 else 0.0,
     }
 
@@ -72,17 +72,18 @@ def _coalesce(*values: Any) -> Any:
 
 
 def _instrument_base(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict[str, Any]:
-    result = con.execute(
+    df = con.execute(
         "SELECT expense_ratio, aum, manager_tenure_years FROM instruments WHERE instrument_id = ?",
         [instrument_id],
-    ).fetchone()
-    if result is None:
+    ).fetchdf()
+    if df.empty:
         return {}
-    return {"expense_ratio": result[0], "aum": result[1], "manager_tenure_years": result[2]}
+    row = df.iloc[0]
+    return {"expense_ratio": row["expense_ratio"], "aum": row["aum"], "manager_tenure_years": row["manager_tenure_years"]}
 
 
 def _latest_fund_metrics(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict[str, Any]:
-    result = con.execute(
+    df = con.execute(
         """
         SELECT drawdown_3y, vol_1y, downside_capture
         FROM fund_metrics
@@ -91,10 +92,11 @@ def _latest_fund_metrics(con: duckdb.DuckDBPyConnection, instrument_id: str) -> 
         LIMIT 1
         """,
         [instrument_id],
-    ).fetchone()
-    if result is None:
+    ).fetchdf()
+    if df.empty:
         return {}
-    return {"drawdown_3y": result[0], "vol_1y": result[1], "downside_capture": result[2]}
+    row = df.iloc[0]
+    return {"drawdown_3y": row["drawdown_3y"], "vol_1y": row["vol_1y"], "downside_capture": row["downside_capture"]}
 
 
 def _price_or_nav_series(con: duckdb.DuckDBPyConnection, instrument_id: str) -> pd.Series:

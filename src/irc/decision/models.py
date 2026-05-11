@@ -24,11 +24,11 @@ class DecisionRow:
     portfolio_action: PortfolioAction
     conviction: str
     data_completeness: float
-    missing_data: list[str]
+    missing_data: tuple[str, ...]
     target_weight_valid: bool
     venue_status: VenueStatus
     memo_evidence_status: str
-    blocking_reasons: list[str] = field(default_factory=list)
+    blocking_reasons: tuple[str, ...] = field(default_factory=tuple)
     reason: str = ""
     next_step: str = ""
 

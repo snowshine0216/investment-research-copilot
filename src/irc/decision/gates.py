@@ -54,7 +54,7 @@ def decide_row(
     except (TypeError, ValueError):
         completeness = 0.0
     raw_missing = score.get("missing_data")
-    missing_data = list(raw_missing) if raw_missing is not None else list(REQUIRED_METRIC_FIELDS)
+    missing_data = tuple(raw_missing) if raw_missing is not None else REQUIRED_METRIC_FIELDS
     venue_status = venue_status_for_trade(trade)
     evidence_status = memo_evidence_status(memo_traceability_coverage)
     blocking_reasons = _blocking_reasons(
@@ -84,7 +84,7 @@ def _build_decision_row(
     score: dict[str, Any],
     score_action: str,
     completeness: float,
-    missing_data: list[str],
+    missing_data: tuple[str, ...],
     target_weight_valid: bool,
     venue_status: VenueStatus,
     evidence_status: str,
@@ -103,7 +103,7 @@ def _build_decision_row(
         target_weight_valid=target_weight_valid,
         venue_status=venue_status,
         memo_evidence_status=evidence_status,
-        blocking_reasons=blocking_reasons,
+        blocking_reasons=tuple(blocking_reasons),
         reason=_reason(decision_status, blocking_reasons, score_action),
         next_step=_next_step(blocking_reasons, decision_status),
     )

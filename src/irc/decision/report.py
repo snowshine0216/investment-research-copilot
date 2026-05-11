@@ -35,6 +35,7 @@ def compose_decision_report(
 
 
 def render_decision_markdown(report: dict[str, Any]) -> str:
+    is_blocked = report["overall_status"] == "blocked"
     lines = [
         f"# Decision Report {report['date']}",
         "",
@@ -42,7 +43,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
         _verdict_section(report["overall_status"]),
         "",
-        "## Why Blocked",
+        "## Why Blocked" if is_blocked else "## Gates Passed",
         "",
     ]
     lines.extend(_blocking_section(report.get("blocking_reasons", [])))

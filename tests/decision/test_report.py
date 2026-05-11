@@ -132,6 +132,26 @@ def test_render_decision_markdown_ok_verdict_text() -> None:
     assert "At least one instrument passed decision-readiness gates" in markdown
 
 
+def test_compose_decision_report_pipeline_incomplete_when_most_scores_lack_action() -> None:
+    scores = [
+        {"instrument_id": "A", "asset_class": "gold", "action": None, "conviction": "low", "data_completeness": 1.0, "missing_data": []},
+        {"instrument_id": "B", "asset_class": "gold", "action": None, "conviction": "low", "data_completeness": 1.0, "missing_data": []},
+        {"instrument_id": "C", "asset_class": "gold", "action": "watch", "conviction": "low", "data_completeness": 1.0, "missing_data": []},
+    ]
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": scores},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"coverage_ratio": 1.0},
+        pipeline_halted=False,
+    )
+
+    assert report["pipeline_incomplete"] is True
+    assert report["overall_status"] == "blocked"
+    assert "pipeline_halted" in report["blocking_reasons"]
+
+
 def test_blocking_section_no_reasons_shows_no_blocking_message() -> None:
     report = compose_decision_report(
         date="2026-05-11",
@@ -145,3 +165,5 @@ def test_blocking_section_no_reasons_shows_no_blocking_message() -> None:
     markdown = render_decision_markdown(report)
 
     assert "No system-level blocking reason detected." in markdown
+    assert "## Gates Passed" in markdown
+    assert "## Why Blocked" not in markdown
