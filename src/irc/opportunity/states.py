@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 
+from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.types import (
     HeatState,
     OpportunityInput,
@@ -173,8 +174,6 @@ def classify_product_quality(inp: OpportunityInput) -> tuple[ProductQualityState
 # ---------------------------------------------------------------------------
 # Task 7: Opportunity state composer + evidence-gap tracking
 # ---------------------------------------------------------------------------
-
-from irc.opportunity.lookthrough import map_lookthrough  # noqa: E402
 
 
 def compose_opportunity_state(
