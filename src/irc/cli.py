@@ -100,6 +100,14 @@ def decision(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.command(help="Run opportunity/thesis/discipline layer; writes 3 outputs.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def opportunity(repo_root: str) -> None:
+    from irc.commands.opportunity_cmd import run_opportunity
+    rc = run_opportunity(repo_root=repo_root)
+    raise SystemExit(rc)
+
+
 @main.command(help="Compute proposed allocation from scores + gold tilt.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def allocate(repo_root: str) -> None:
