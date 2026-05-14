@@ -85,6 +85,7 @@ def _build_input(
     weight = None
     if holding is not None and portfolio_total_cny > 0:
         weight = holding.cost_basis_cny / portfolio_total_cny
+    # Empty available_venues means no venue restriction configured — treat as compatible.
     if available_venues and instr is not None and instr.venue_required:
         venue_ok = bool(set(instr.venue_required) & available_venues)
     else:
@@ -258,11 +259,11 @@ def run_opportunity(repo_root: str) -> int:
 
     # Demote active funds to small_watch when a passive alternative in the
     # same theme is at least as good (selection quality comparison).
-    kept_rows_t, _demoted_active = demote_unstable_active(list(kept_rows), qualities)
+    kept_rows_t, demoted_active = demote_unstable_active(list(kept_rows), qualities)
     kept_rows = list(kept_rows_t)
-    if _demoted_active:
+    if demoted_active:
         print(
-            f"INFO: demoted {len(_demoted_active)} active fund(s) to small_watch "
+            f"INFO: demoted {len(demoted_active)} active fund(s) to small_watch "
             "(passive alternative available in same theme)"
         )
 
