@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     ldr_base_url: str = "http://localhost:8080"
     ldr_api_token: SecretStr = SecretStr("")
 
+    # Optional — set DEBUG=true in .env for verbose logging + full tracebacks.
+    debug: bool = False
+
     # Optional (OpenBB extras)
     openbb_fmp_key: SecretStr = SecretStr("")
     openbb_tiingo_key: SecretStr = SecretStr("")
