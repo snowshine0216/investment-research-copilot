@@ -27,6 +27,10 @@ Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 
 - [ ] **`write_reason` silent failure**: bare `except Exception: pass` swallows all LLM errors; `run_discover` returns 0 even when 0 candidates found. Add structured logging for retried/failed instruments. (adversarial-review 2026-05-08)
 - [ ] **`fetch_fund_metadata` wrong record on miss**: falls back to `df.iloc[0]` when fund_code not found, returning metadata for a different fund. Raise `ValueError` or return `{}` instead. (adversarial-review 2026-05-08)
+- [ ] **Opportunity venue filtering not wired**: `OpportunityInput.venue_compatible` is always `True`; wire it from `bundle.account.venues` so venue-incompatible instruments are routed to `small_watch` instead of `core_dca`. (code-review 2026-05-14)
+- [ ] **Opportunity valuation/heat/product fields not wired from ingest**: `_build_input` always sets `valuation_percentile_self`, `drawdown_since_entry`, `expense_ratio`, `aum_cny`, `manager_tenure_years`, and momentum/flow fields to `None`. Wire from ingest output when those feeds are available. Until then, virtually all states degrade to `evidence_insufficient`. (code-review 2026-05-14)
+- [ ] **`reduce_same_index` per-index backup not in default pipeline**: `reduce_same_theme` Stage 1 keeps only one best representative per index key (no backup). `reduce_same_index` in `selection.py` is available for callers that need primary+backup, but is not wired into `run_opportunity`. Evaluate whether exposing a backup per-index improves display or fallback logic. (code-review 2026-05-14)
+- [ ] **`_bucket_rows` silent fallback on unknown `dca_action`**: unknown values silently land in "今日可定投" via `.get(..., default)`. Add a log warning or raise `KeyError` to surface new `dca_action` values that are missing from `_DCA_BUCKET`. (code-review 2026-05-14)
 
 ## Completed
 

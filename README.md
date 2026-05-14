@@ -2,11 +2,12 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 4 (theme-aware discovery) in progress. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Optional LDR research runs between ingest and discovery when `LDR_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation.
+> **Status:** Plan 5 (opportunity + thesis discipline) complete. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Optional LDR research runs between ingest and discovery when `LDR_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. Opportunity layer adds valuation/heat/thesis/product-quality states, thesis cards, and DCA discipline actions.
 
 ## Design references
 
 - MVP design: [docs/superpowers/specs/2026-05-07-investment-research-copilot-design.md](docs/superpowers/specs/2026-05-07-investment-research-copilot-design.md)
+- Opportunity + thesis discipline: [docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md](docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md)
 
 ## Quick start
 
@@ -59,6 +60,8 @@ uv run irc allocate                    # target weights + top-K → proposed_all
 uv run irc plan                        # buy method + triggers → trade_plan.yaml
 uv run irc memo                        # LLM synthesis → memo.md + memo_audit.txt + memo_traceability.json
 uv run irc decision                    # decision-readiness report → decision_report.json + decision_report.md
+uv run irc opportunity                 # opportunity/thesis/discipline → opportunity_report.json
+                                       #   + thesis_cards.yaml + discipline_report.md
 uv run irc ask "Is SGOL overvalued?"   # interactive Q&A grounded in today's outputs
 uv run irc freshness                   # data manifest summary
 
@@ -69,7 +72,7 @@ uv run irc run --from score
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (586 tests)
+uv run pytest                                       # unit + integration (799 tests)
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
@@ -95,6 +98,41 @@ After `irc init` you will have:
 - `config/universe/*.yaml` — candidate pools.
 
 Edit any of these and re-run `irc config validate`.
+
+## Opportunity and discipline layer
+
+### Where candidates come from
+
+Candidates are loaded from `config/universe/cn_funds.yaml` (curated) and `config/universe/cn_funds.generated.yaml` (generated). The curated file wins on conflict. Run `uv run irc universe build-cn-funds` to regenerate the generated file from Akshare — typically once a month.
+
+### Analysis cadence
+
+| Cadence | Scope | Command |
+|---|---|---|
+| Daily light | Holdings, thesis cards, watchlist only — check drawdown, heat, triggers | `irc opportunity` (fast) |
+| Weekly full | Merged configured universe, discovery, scoring, thesis card refresh | `irc run` then `irc opportunity` |
+| Monthly universe rebuild | Re-fetch broad fund catalog, regenerate `cn_funds.generated.yaml` | `irc universe build-cn-funds` |
+| Quarterly thesis research | Deep LDR research per theme — policy, earnings cycle, valuation context | `LDR_ENABLED=true irc run` |
+
+The system does not scan every fund deeply on every run. Universe generation runs monthly; weekly analysis operates on the already-filtered configured universe after deterministic caps.
+
+### Opportunity states
+
+- `core_dca` — cheap/reasonable-low valuation, not crowded, thesis intact, acceptable product. DCA normally or accelerate.
+- `small_watch` — attractive valuation but gaps in thesis, data, or product evidence. Monitor.
+- `pause_wait` — thesis may be intact, but valuation is unattractive, heat is crowded, or signals conflict. Do not add.
+- `exclude` — thesis falsified, poor product quality, unavailable venue, or evidence too weak.
+
+### How to read DCA and risk actions
+
+`dca_action`: `accelerate_dca` · `normal_dca` · `slow_dca` · `pause_dca` · `do_not_buy`
+
+`risk_action`: `none` · `review_required` · `trim_review` · `exit_review`
+
+Key rules:
+- A 20% drawdown triggers `review_required`, never an automatic sell. Selling requires thesis, product, or portfolio evidence.
+- `trim_review` fires when valuation is expensive/crowded or the position is overweight vs. target band.
+- `exit_review` fires when the thesis is falsified or product quality becomes poor.
 
 ## Conventions
 

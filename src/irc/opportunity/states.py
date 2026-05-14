@@ -181,10 +181,18 @@ def compose_opportunity_state(
     heat: HeatState,
     thesis: ThesisState,
     product_quality: ProductQualityState,
+    venue_compatible: bool = True,
 ) -> tuple[OpportunityState, str]:
     """Compose final opportunity state from four sub-states."""
+    # Priority order: thesis/quality failures → exclude (hardest gate);
+    # then venue incompatibility → small_watch (observe but don't buy);
+    # then valuation/heat signals → pause_wait or core_dca.
+    # A venue-incompatible instrument can never reach pause_wait or core_dca.
     if thesis == "falsified" or product_quality == "poor":
         return "exclude", "长期逻辑被证伪或产品质量过差，禁止建仓。"
+
+    if not venue_compatible:
+        return "small_watch", "标的无法在当前账户渠道购买，仅供观察。"
 
     cheap_or_low = valuation in ("cheap", "reasonable_low")
     expensive = valuation in ("expensive", "very_expensive")
@@ -206,7 +214,13 @@ def _evidence_gaps(inp: OpportunityInput) -> tuple[str, ...]:
     gaps: list[str] = []
     if inp.valuation_percentile_self is None and inp.valuation_percentile_vs_benchmark is None:
         gaps.append("valuation")
-    if inp.ret_3m is None and inp.ret_6m is None and inp.premium_discount_pct is None:
+    heat_n = sum(1 for x in [
+        inp.ret_1m, inp.ret_3m, inp.ret_6m, inp.ret_12m,
+        inp.premium_discount_pct, inp.flow_pct_30d,
+    ] if x is not None)
+    # Require at least 2 independent heat signals to classify heat reliably.
+    # With only 1 signal the direction of crowding cannot be confirmed.
+    if heat_n < 2:
         gaps.append("heat")
     if inp.theme is None:
         gaps.append("theme_thesis")
@@ -224,7 +238,7 @@ def build_opportunity_row(
     heat, heat_reason = classify_heat(inp)
     thesis, thesis_reason = classify_thesis(inp, theme_thesis)
     product, product_reason = classify_product_quality(inp)
-    state, state_reason = compose_opportunity_state(valuation, heat, thesis, product)
+    state, state_reason = compose_opportunity_state(valuation, heat, thesis, product, inp.venue_compatible)
     target = map_lookthrough(inp)
     gaps = _evidence_gaps(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])

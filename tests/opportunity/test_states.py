@@ -267,3 +267,29 @@ def test_build_opportunity_row_no_gaps_when_evidence_present():
     )
     row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
     assert row.evidence_gaps == ()
+
+
+def test_venue_incompatible_demotes_core_dca_to_small_watch():
+    """Issue 1 fix: venue_compatible=False must not produce core_dca."""
+    state, reason = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable", venue_compatible=False,
+    )
+    assert state == "small_watch"
+    assert "渠道" in reason or "观察" in reason
+
+
+def test_venue_incompatible_does_not_affect_exclude():
+    """Falsified thesis takes priority over venue incompatibility."""
+    state, _ = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="falsified",
+        product_quality="acceptable", venue_compatible=False,
+    )
+    assert state == "exclude"
+
+
+def test_heat_gap_added_when_only_one_heat_input():
+    """Issue 2 fix: n=1 heat inputs is evidence_insufficient, so gap must be flagged."""
+    inp = _make(theme="semiconductor", ret_3m=0.05)  # only 1 of 6 heat signals
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert "heat" in row.evidence_gaps

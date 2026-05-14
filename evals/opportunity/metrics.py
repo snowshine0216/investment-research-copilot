@@ -75,15 +75,15 @@ def drawdown_not_auto_sell(markdown: str, cards: list[dict]) -> float:
 
 def hot_chase_prevention(rows: list[dict]) -> float:
     """A row is hot-chasing if heat is crowded/overheated AND opportunity_state
-    puts it in a buy bucket (core_dca or small_watch)."""
+    is core_dca (active buy intent).  small_watch is observe-only and is not
+    penalised: it may legitimately watch a crowded instrument without buying."""
     if not rows:
         return 1.0
     hot_states = {"crowded", "overheated"}
-    buy_buckets = {"core_dca", "small_watch"}
     bad = sum(
         1 for r in rows
         if r.get("heat_state") in hot_states
-        and r.get("opportunity_state") in buy_buckets
+        and r.get("opportunity_state") == "core_dca"
     )
     return (len(rows) - bad) / len(rows)
 

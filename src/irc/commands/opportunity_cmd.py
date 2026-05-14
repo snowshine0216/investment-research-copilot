@@ -19,9 +19,9 @@ from irc.opportunity.report import (
     compose_opportunity_report,
     compose_thesis_cards_yaml,
 )
+from irc.commands.theme_thesis import load_theme_thesis
 from irc.opportunity.selection import SelectionQuality, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
-from irc.opportunity.theme_thesis import load_theme_thesis
 from irc.opportunity.types import (
     DisciplineRow,
     OpportunityInput,
@@ -119,6 +119,12 @@ def _selection_quality_from(input_row: OpportunityInput) -> SelectionQuality:
     )
 
 
+def _role_for(row: OpportunityRow, instr_index: dict[str, Instrument]) -> str:
+    """Return the role label for a row; falls back to 'watchlist' if not in universe index."""
+    instr = instr_index.get(row.instrument_id)
+    return (instr.theme or "watchlist") if instr is not None else "watchlist"
+
+
 def _discipline_row_from(
     row: OpportunityRow, position: PositionContext,
 ) -> DisciplineRow:
@@ -146,9 +152,17 @@ def run_opportunity(repo_root: str) -> int:
     if scoring_path is None:
         print("ERROR: no scoring.json; run `irc score` first.")
         return 2
+    # Outputs follow the convention outputs/{YYYY-MM-DD}/scoring.json;
+    # compare the parent directory name to today's date to detect staleness.
+    if scoring_path.parent.name != today:
+        print(f"WARNING: using stale scoring from {scoring_path.parent.name}")
     scores = _load_scores(scoring_path)
 
-    theme_thesis = load_theme_thesis(root)
+    try:
+        theme_thesis = load_theme_thesis(root)
+    except ValueError as exc:
+        print(f"ERROR: theme_thesis.yaml invalid: {exc}")
+        return 2
     instr_index = _instrument_index([
         bundle.universe_qdii_us, bundle.universe_qdii_hk,
         bundle.universe_cn_funds, bundle.universe_gold,
@@ -182,7 +196,28 @@ def run_opportunity(repo_root: str) -> int:
         )
         qualities[iid] = _selection_quality_from(inp)
 
+    # Warn when valuation/heat data is globally absent so the operator knows
+    # states are degraded. This happens when ingest hasn't wired the fields yet.
+    n_missing_val = sum(
+        1 for r in rows if r.valuation_state == "evidence_insufficient"
+    )
+    if rows and n_missing_val == len(rows):
+        print(
+            f"WARNING: all {len(rows)} instruments lack valuation data — "
+            "states degraded to evidence_insufficient. "
+            "Run `irc ingest` with complete data sources."
+        )
+    elif n_missing_val:
+        print(
+            f"WARNING: {n_missing_val}/{len(rows)} instruments missing "
+            "valuation data — those states degraded to evidence_insufficient."
+        )
+
     # Same-theme reduction inside each theme bucket.
+    # Note: reduce_same_index (per-index primary+backup selection) is available
+    # in irc.opportunity.selection for callers that need it directly. The
+    # reduce_same_theme Stage 1 already collapses each index key to a single
+    # best representative; wiring in per-index backups is deferred (see TODOS.md).
     by_theme: dict[str, list[OpportunityRow]] = {}
     for r in rows:
         by_theme.setdefault(r.theme or "_unthemed", []).append(r)
@@ -206,8 +241,7 @@ def run_opportunity(repo_root: str) -> int:
         build_thesis_card(
             row=r,
             position=positions[r.instrument_id],
-            role=instr_index[r.instrument_id].theme or "watchlist"
-            if r.instrument_id in instr_index else "watchlist",
+            role=_role_for(r, instr_index),
             entry_reason=r.opportunity_reason.split(" | ")[0] if r.opportunity_reason else "",
         )
         for r in kept_rows

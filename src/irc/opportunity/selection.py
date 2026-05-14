@@ -36,7 +36,14 @@ def reduce_same_index(
     qualities: dict[str, SelectionQuality],
 ) -> tuple[OpportunityRow, OpportunityRow | None, tuple[OpportunityRow, ...]]:
     """Pick one primary + at most one backup for instruments sharing
-    a lookthrough key. Remaining rows are returned as dropped."""
+    a lookthrough key. Remaining rows are returned as dropped.
+
+    This function is available for callers that need explicit per-index
+    primary+backup selection (e.g. displaying an alternative instrument).
+    The ``reduce_same_theme`` Stage 1 keeps only the single best per key
+    (no backup) to stay conservative; wiring per-index backups into the
+    default pipeline is tracked in TODOS.md.
+    """
     if not rows:
         raise ValueError("rows must be non-empty")
     sorted_rows = sorted(

@@ -90,3 +90,18 @@ def test_discipline_markdown_empty_categories_render_placeholder():
     md = compose_discipline_markdown([], date="2026-05-14")
     assert "## 今日可定投" in md
     assert "（无）" in md or "(none)" in md
+
+
+def test_slow_dca_routes_to_jianshu_bucket():
+    """Issue 3 fix: slow_dca must appear in 减速定投, not 今日可定投."""
+    rows = [
+        DisciplineRow("512760", "半导体", "cn_etf", "semiconductor", "small_watch",
+                      "slow_dca", "none", "观察仓位"),
+    ]
+    md = compose_discipline_markdown(rows, date="2026-05-14")
+    assert "## 减速定投" in md
+    # The instrument must appear under 减速定投, not 今日可定投
+    jianshu_section = md.split("## 减速定投")[1].split("##")[0]
+    assert "512760" in jianshu_section
+    jinkeri_section = md.split("## 今日可定投")[1].split("##")[0]
+    assert "512760" not in jinkeri_section

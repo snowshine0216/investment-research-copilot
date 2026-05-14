@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from irc.opportunity.theme_thesis import load_theme_thesis
+from irc.commands.theme_thesis import load_theme_thesis
 
 
 def test_missing_file_returns_empty_dict(tmp_path: Path):

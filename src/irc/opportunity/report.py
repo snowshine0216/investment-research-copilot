@@ -66,7 +66,7 @@ def compose_thesis_cards_yaml(cards: list[ThesisCard] | tuple[ThesisCard, ...]) 
 _DCA_BUCKET = {
     "accelerate_dca": "今日可定投",
     "normal_dca": "今日可定投",
-    "slow_dca": "今日可定投",
+    "slow_dca": "减速定投",
     "pause_dca": "暂停加仓",
     "do_not_buy": "暂停加仓",
 }
@@ -81,6 +81,7 @@ _RISK_BUCKET = {
 def _bucket_rows(rows: list[DisciplineRow] | tuple[DisciplineRow, ...]) -> dict[str, list[DisciplineRow]]:
     buckets: dict[str, list[DisciplineRow]] = {
         "今日可定投": [],
+        "减速定投": [],
         "暂停加仓": [],
         "风险复核": [],
         "调仓复核": [],
@@ -90,6 +91,8 @@ def _bucket_rows(rows: list[DisciplineRow] | tuple[DisciplineRow, ...]) -> dict[
         if r.risk_action in _RISK_BUCKET:
             buckets[_RISK_BUCKET[r.risk_action]].append(r)
         else:
+            # Unknown dca_action values fall back to "今日可定投"; see TODOS.md
+            # for a future robustness improvement (log or raise on unknown values).
             buckets[_DCA_BUCKET.get(r.dca_action, "今日可定投")].append(r)
     return buckets
 
@@ -127,6 +130,7 @@ def compose_discipline_markdown(
     parts = [
         f"# Discipline Report — {date}\n",
         _render_section("今日可定投", buckets["今日可定投"]),
+        _render_section("减速定投", buckets["减速定投"]),
         _render_section("暂停加仓", buckets["暂停加仓"]),
         _render_section("风险复核", buckets["风险复核"]),
         _render_section("调仓复核", buckets["调仓复核"]),

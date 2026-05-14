@@ -137,3 +137,34 @@ def test_opportunity_works_with_missing_scoring(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
     rc = run_opportunity(repo_root=str(tmp_path))
     assert rc == 0
+
+
+def test_opportunity_returns_error_for_invalid_theme_thesis(tmp_path: Path, monkeypatch, capsys):
+    """Issue 4 fix: invalid theme_thesis.yaml must return rc=2 with a clean error."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    _seed_minimal_repo(tmp_path)
+    (tmp_path / "config" / "opportunity").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "config" / "opportunity" / "theme_thesis.yaml").write_text(
+        "themes:\n  semiconductor: TYPO_STATE\n", encoding="utf-8"
+    )
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    rc = run_opportunity(repo_root=str(tmp_path))
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.out
+    assert "theme_thesis.yaml" in captured.out
+
+
+def test_opportunity_prints_warning_for_stale_scoring(tmp_path: Path, monkeypatch, capsys):
+    """Issue 5 fix: stale scoring.json fallback must emit a WARNING."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    _seed_minimal_repo(tmp_path)
+    today_dir = tmp_path / "outputs" / "2026-05-14"
+    older_dir = tmp_path / "outputs" / "2026-05-13"
+    older_dir.mkdir(parents=True)
+    (today_dir / "scoring.json").rename(older_dir / "scoring.json")
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    run_opportunity(repo_root=str(tmp_path))
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.out
+    assert "2026-05-13" in captured.out
