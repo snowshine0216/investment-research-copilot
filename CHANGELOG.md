@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.2.0] — 2026-05-14
+
+### Added
+- **Opportunity/thesis/discipline sidecar layer** (`src/irc/opportunity/`): pure-function modules for lookthrough mapping, valuation/heat/thesis/product-quality state classification, same-index and same-theme reduction (max 2 per theme), DCA + risk action derivation, thesis card generation, and JSON/YAML/Markdown report composition.
+- **`irc opportunity` CLI command**: reads today's scoring output, account holdings, and universe config; runs the full pure pipeline; writes three outputs — `opportunity_report.json`, `thesis_cards.yaml`, and `discipline_report.md`.
+- **Theme thesis config** (`config/opportunity/theme_thesis.yaml`): per-theme thesis state table (`intact` / `falsified` / `evidence_insufficient`); missing file defaults to all-insufficient.
+- **Discipline report** with 6 sections in Chinese: 今日可定投, 暂停加仓, 风险复核, 调仓复核, 退出复核, 关于回撤的说明. Drawdown ≥ 20% never auto-triggers exit — only falsified thesis or poor product quality triggers `exit_review`.
+- **Opportunity eval stage** (`evals/opportunity/`): 7 metric functions (thesis card completeness, evidence gap visibility, same-theme distinct-index limit, drawdown not auto-sell, hot-chase prevention, valid action enums, no external worktree path) + runner registered in `irc eval --all`.
+- **112 new tests**: 4 types, 8 lookthrough, 33 states, 4 selection, 11 discipline, 6 cards, 4 report, 3 theme_thesis, 5 command, 15 eval metrics, 3 eval runner, 2 integration pipeline, 1 integration decision-without-opportunity.
+
 ## [0.6.1.0] — 2026-05-11
 
 ### Added

@@ -1,5 +1,100 @@
 # Handoff Document
-*Last updated: 2026-05-08 19:30 CST*
+*Last updated: 2026-05-14 14:29 CST*
+
+---
+
+## Session: May 14 — Opportunity / Thesis / Discipline Strategy Design
+
+### Goal
+Enhance the investment research copilot so it can find Mainland China purchasable funds/ETFs that are cold or undervalued but whose long-term thesis is not broken, while also giving the user a disciplined hold/sell framework that prevents panic-selling after drawdowns.
+
+### Current Progress
+- Used `superpowers:brainstorming` for strategy design. The brainstorming gate is still active: implementation should not begin until the user reviews and approves the written spec, then the next skill should be `superpowers:writing-plans`.
+- Wrote and committed the design spec:
+  - `docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md`
+  - Commit: `72a2e8f docs: design opportunity thesis discipline`
+- Core product decisions captured:
+  - Use **方案 2: Thesis + Discipline closed loop**.
+  - Product scope: Mainland purchasable ETF/index funds as main line; active funds only as supplementary observation.
+  - Long-term sell discipline: mixed thesis/valuation/portfolio/risk framework, not automatic price stop-loss.
+  - Short-term layer: only DCA rhythm and risk warnings (`accelerate_dca`, `normal_dca`, `slow_dca`, `pause_dca`, `review_required`, `trim_review`, `exit_review`), not active 1-3 month rotation trading.
+- Spec details added at user request:
+  - Candidate source and performance model.
+  - Do not deeply analyze all public funds each run.
+  - Analysis cadence: daily light check, weekly full analysis, monthly universe rebuild, quarterly thesis research, event-triggered reviews.
+  - Same-theme fund selection rules.
+  - Generated-universe bootstrap rule.
+  - README follow-up requirement.
+- Candidate source clarified:
+  - Runtime should read current repo root files only: `config/universe/cn_funds.yaml` plus optional `config/universe/cn_funds.generated.yaml`, merged by `load_repo_configs()`.
+  - External worktree file `/Users/snow/Documents/Repository/investment-research-copilot.worktrees/copilot-subagent-driven-dev/config/universe/cn_funds.generated.yaml` is only a bootstrap reference, not a runtime dependency.
+  - If needed, copy/regenerate it into the current repo as `config/universe/cn_funds.generated.yaml`.
+- Compared universe files in `/Users/snow/Documents/Repository/investment-research-copilot/config/universe/`:
+  - `cn_funds.generated.yaml`: 359 instruments; broad generated pool, mostly `cn_off_exchange` and `cmb_fund`; includes 238 `cn_equity_fund`, 40 `cn_bond_fund`, 1 `cn_etf`, 40 `hk_etf`, 40 `us_etf`.
+  - `qdii_hk.yaml`: 13 hand-curated HK exposure products, all `hk_etf`, all `cn_on_exchange`.
+  - `qdii_us.yaml`: 13 hand-curated US exposure products, all `us_etf`, 10 `cn_on_exchange`, 3 `cn_off_exchange`.
+  - `gold.yaml`: 6 gold products, CMB paper gold plus 5 gold ETFs.
+  - No `instrument_id` overlap found between generated file and qdii/gold files.
+- Discussed eval requirements:
+  - Add one new eval stage: `evals/opportunity/`.
+  - Metrics should cover thesis card completeness, evidence gap visibility, same-theme limits, drawdown-not-auto-sell, hot-chase prevention, valid action enums, and absence of external worktree path references.
+  - Register `opportunity` in `src/irc/commands/eval_cmd.py`.
+  - Do not update architecture output-file eval until opportunity outputs are part of default `irc run`.
+
+### What Worked
+- Reading existing code before design was useful: the repo already has `discover`, `score`, `allocate`, `plan`, `memo`, and `decision`, so the new feature should be a sidecar opportunity/thesis/discipline layer first, not a replacement.
+- Related notes in `/Users/snow/Documents/Repository/snow-knowledge-database` were useful:
+  - Dexter: use research-orchestrator and scratchpad patterns, not final trade decisions.
+  - TradingAgents: role separation is useful later, but too heavy for first implementation.
+  - Kronos: only a future quantitative signal, not the buy/sell engine.
+  - Anthropic financial-services: thesis tracker, catalyst calendar, and rebalance workflow patterns map well to this feature.
+  - OpenBB/Scrapling/LDR: data layer, last-mile public data collection, and cited theme research respectively.
+- Candidate funnel design resolved performance concerns: thousands -> generated hundreds -> filtered tens -> thesis cards for holdings/watchlist/winners.
+- Explicitly treating a 20% drawdown as a review trigger, not a sell trigger, matches the user's behavioral problem.
+
+### What Didn't Work
+- Full-market LLM analysis was ruled out. It is slow, expensive, unstable, and unnecessary; deterministic filters and same-theme reduction must happen first.
+- Directly reading generated universe files from another worktree was ruled out. It makes runs non-reproducible and hides dependencies.
+- Multi-agent debate and Kronos were ruled out for first implementation. They are future enhancements after deterministic discipline is stable.
+- Updating existing architecture evals immediately was ruled out. Opportunity outputs should become required only after the command is wired into default `irc run`.
+
+### Next Steps
+1. Ask the user to review `docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md`. If they approve, invoke `superpowers:writing-plans` and create the implementation plan. Do not implement before approval.
+2. In the implementation plan, include `evals/opportunity/` from the beginning:
+   - `evals/opportunity/metrics.py`
+   - `evals/opportunity/runner.py`
+   - `tests/evals/test_opportunity_metrics.py`
+   - `tests/evals/test_opportunity_runner.py`
+   - CLI registration in `src/irc/commands/eval_cmd.py`
+3. Plan first implementation as a sidecar after scoring:
+   - `src/irc/opportunity/lookthrough.py`
+   - `src/irc/opportunity/states.py`
+   - `src/irc/opportunity/selection.py`
+   - `src/irc/opportunity/cards.py`
+   - `src/irc/opportunity/discipline.py`
+   - `src/irc/opportunity/report.py`
+   - `src/irc/commands/opportunity_cmd.py`
+4. If real candidate data is needed in the current worktree, copy or regenerate `config/universe/cn_funds.generated.yaml` into `/Users/snow/.codex/worktrees/6a85/investment-research-copilot/config/universe/`; do not read the external worktree path at runtime.
+5. Keep README changes for after implementation, as the spec says: README should get concise operational guidance once commands and outputs exist.
+
+### Key Files & Locations
+| File | Purpose |
+| :--- | :--- |
+| `docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md` | New approved-by-conversation design spec awaiting final user review |
+| `src/irc/config_loader.py` | Shows current universe merge behavior: curated `cn_funds.yaml` plus optional generated file |
+| `src/irc/discovery/universe.py` | Combines qdii US, qdii HK, CN funds, and gold universes, deduping by `instrument_id` |
+| `/Users/snow/Documents/Repository/investment-research-copilot/config/universe/cn_funds.generated.yaml` | Existing broad generated universe used for comparison |
+| `/Users/snow/Documents/Repository/investment-research-copilot/config/universe/qdii_hk.yaml` | Existing curated HK universe used for comparison |
+| `/Users/snow/Documents/Repository/investment-research-copilot/config/universe/qdii_us.yaml` | Existing curated US universe used for comparison |
+| `/Users/snow/Documents/Repository/investment-research-copilot/config/universe/gold.yaml` | Existing gold universe used for comparison |
+
+### Context & Notes
+- Current active workspace for code/spec work: `/Users/snow/.codex/worktrees/6a85/investment-research-copilot`.
+- The repository is currently on a detached HEAD after committing `72a2e8f`.
+- User prefers Chinese for investment/product reasoning; English is fine for code architecture.
+- The user's core finance goal is value-oriented long-term DCA without chasing hot funds, plus a technical/evidence framework for when to hold, pause, trim, or exit.
+- Avoid framing outputs as definitive financial advice. The system should produce research and discipline reports for human review.
+- Existing `HANDOFF.md` below contains older May 8 and May 7 context that may still matter for pipeline/data/universe debugging.
 
 ---
 

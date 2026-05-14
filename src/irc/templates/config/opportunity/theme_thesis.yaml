@@ -1,0 +1,17 @@
+# Theme-level long-term thesis state.
+# Refreshed quarterly via deep research (LDR or manual review).
+# Valid states: intact | under_pressure | falsified | evidence_insufficient
+# Any theme not listed here defaults to evidence_insufficient at runtime.
+themes:
+  broad: intact
+  dividend: intact
+  semiconductor: evidence_insufficient
+  tech: evidence_insufficient
+  healthcare: evidence_insufficient
+  new_energy: evidence_insufficient
+  consumer: evidence_insufficient
+  finance: evidence_insufficient
+  defense: evidence_insufficient
+  metals: evidence_insufficient
+  real_estate: evidence_insufficient
+  soe: evidence_insufficient
