@@ -4,7 +4,10 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from irc.observability.errors import ErrorTally
 
 import pandas as pd
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -220,9 +223,12 @@ def _metadata_fetcher_for(instrument: Any):
 def _fetch_metadata_by_id(
     instruments: list,
     active_fund_tenure_proxy_enabled: bool = True,
-) -> dict[str, dict[str, float | str | None]]:
+) -> tuple[dict[str, dict[str, float | str | None]], "ErrorTally"]:
+    from irc.observability import ErrorTally, progress_iter
+
     metadata_by_id: dict[str, dict[str, float | str | None]] = {}
-    for instrument in instruments:
+    tally = ErrorTally("metadata")
+    for instrument in progress_iter(instruments, "metadata", total=len(instruments)):
         if not _is_fund_like_ticker(instrument.ticker):
             continue
         try:
@@ -233,6 +239,7 @@ def _fetch_metadata_by_id(
                 enabled=active_fund_tenure_proxy_enabled,
             )
         except Exception as exc:
+            tally.add(instrument.instrument_id, exc)
             _log.warning(
                 "skipping %s: metadata fetch error: %s",
                 instrument.instrument_id,
@@ -242,6 +249,7 @@ def _fetch_metadata_by_id(
         missing = _missing_required_metadata(instrument, metadata)
         if missing:
             joined = ", ".join(missing)
+            tally.add(instrument.instrument_id, KeyError(f"missing required metadata: {joined}"))
             _log.warning(
                 "skipping %s: missing required metadata fields: %s",
                 instrument.instrument_id,
@@ -249,7 +257,7 @@ def _fetch_metadata_by_id(
             )
             continue
         metadata_by_id[instrument.instrument_id] = metadata
-    return metadata_by_id
+    return metadata_by_id, tally
 
 
 def _upsert_instruments(
@@ -386,7 +394,14 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_gold.instruments,
             *bundle.universe_cn_funds.instruments,
         ]
-        metadata_by_id = _fetch_metadata_by_id(
+        try:
+            from irc.settings import Settings as _S
+            _verbose = _S().debug
+        except Exception:
+            import os
+            _verbose = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        metadata_by_id, metadata_tally = _fetch_metadata_by_id(
             all_instruments,
             active_fund_tenure_proxy_enabled=feature_flags.active_fund_tenure_proxy_enabled,
         )
@@ -526,6 +541,7 @@ def run_ingest(repo_root: str) -> int:
         source="akshare", last_run_at=_now_iso(),
         schema_version=_SCHEMA_VERSION, record_counts=ak_counts,
     ))
+    metadata_tally.render(ok_count=len(metadata_by_id), verbose=_verbose)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
     if price_failures or nav_failures:
         print(
