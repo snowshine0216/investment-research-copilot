@@ -18,7 +18,22 @@ cd investment-research-copilot
 uv sync --all-extras
 cp .env.example .env
 # Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
-# Optional: set LDR_ENABLED=true when a self-hosted LDR service is reachable.
+
+# Optional: install and start Local Deep Research (LDR) for macro theme research.
+# LDR conflicts with openbb's xmltodict pin and must be installed separately.
+#
+# Install via pipx (pyenv users: install pipx first):
+#   python -m pip install --user pipx && python -m pipx ensurepath && pyenv rehash
+pipx install local-deep-research
+#
+# Start the web server in a separate terminal.
+# macOS: port 5000 is occupied by AirPlay Receiver — use LDR_WEB_PORT to override:
+LDR_WEB_PORT=5001 ldr-web
+#
+# Then in .env set:
+#   LDR_ENABLED=true
+#   LDR_BASE_URL=http://localhost:5001
+# (adjust port to match LDR_WEB_PORT above)
 
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
@@ -43,6 +58,7 @@ uv run irc gold                        # regime + band + scenarios → gold_regi
 uv run irc allocate                    # target weights + top-K → proposed_allocation.yaml
 uv run irc plan                        # buy method + triggers → trade_plan.yaml
 uv run irc memo                        # LLM synthesis → memo.md + memo_audit.txt + memo_traceability.json
+uv run irc decision                    # decision-readiness report → decision_report.json + decision_report.md
 uv run irc ask "Is SGOL overvalued?"   # interactive Q&A grounded in today's outputs
 uv run irc freshness                   # data manifest summary
 

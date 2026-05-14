@@ -47,6 +47,7 @@ def test_pipeline_produces_one_score_per_instrument(mock_macro) -> None:
     assert len(out["scores"]) == 1
     assert out["scores"][0]["instrument_id"] == "VTI"
     assert "composite_score" in out["scores"][0]
+    assert out["scores"][0]["missing_data"] == []
 
 
 @patch("irc.scoring.pipeline.score_macro_fit")
@@ -70,6 +71,15 @@ def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
     )
     score = out["scores"][0]
     assert score["data_completeness"] == 0.0
+    assert score["missing_data"] == [
+        "expense_ratio",
+        "drawdown_3y",
+        "vol_1y",
+        "downside_capture",
+        "aum_stability_pct",
+        "manager_tenure_years",
+        "holdings_concentration_top10",
+    ]
     assert not math.isnan(score["factor_breakdown"]["valuation_cost"]["score"])
     assert not math.isnan(score["factor_breakdown"]["risk"]["score"])
     assert not math.isnan(score["factor_breakdown"]["quality"]["score"])
@@ -103,3 +113,12 @@ def test_pipeline_instrument_missing_from_metrics_uses_defaults(mock_macro) -> N
     )
     assert len(out["scores"]) == 1
     assert out["scores"][0]["data_completeness"] == 0.0
+    assert out["scores"][0]["missing_data"] == [
+        "expense_ratio",
+        "drawdown_3y",
+        "vol_1y",
+        "downside_capture",
+        "aum_stability_pct",
+        "manager_tenure_years",
+        "holdings_concentration_top10",
+    ]

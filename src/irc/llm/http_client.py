@@ -25,7 +25,7 @@ _BLOCKED_NETS = (
 )
 
 
-def _verify_host_resolves_publicly(host: str) -> None:
+def verify_host_resolves_publicly(host: str) -> None:
     resolved = socket.gethostbyname(host)
     addr = ipaddress.ip_address(resolved)
     if any(addr in net for net in _BLOCKED_NETS):
@@ -73,7 +73,7 @@ def _post_request(
 ) -> tuple[httpx.Response, int]:
     parsed = urlparse(url)
     if parsed.hostname:
-        _verify_host_resolves_publicly(parsed.hostname)
+        verify_host_resolves_publicly(parsed.hostname)
     started = time.perf_counter()
     if client is not None:
         resp = client.post(url, headers=headers, json=payload, timeout=timeout_s)

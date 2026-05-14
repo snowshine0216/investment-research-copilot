@@ -63,3 +63,32 @@ def test_score_distribution_stability_shifted():
     a = [0.5, 0.5, 0.5]
     b = [0.7, 0.7, 0.7]
     assert abs(score_distribution_stability(a, b) - 0.2) < 1e-9
+
+
+from evals.scoring.metrics import (
+    buy_candidate_min_completeness,
+    scoring_data_completeness_avg,
+)
+
+
+def test_scoring_data_completeness_avg() -> None:
+    scores = [{"data_completeness": 1.0}, {"data_completeness": 0.5}]
+    assert scoring_data_completeness_avg(scores) == 0.75
+
+
+def test_scoring_data_completeness_empty_scores() -> None:
+    assert scoring_data_completeness_avg([]) == 1.0
+
+
+def test_buy_candidate_min_completeness_uses_only_buy_actions() -> None:
+    scores = [
+        {"action": "buy_candidate", "data_completeness": 0.7},
+        {"action": "strong_buy_candidate", "data_completeness": 0.9},
+        {"action": "watch", "data_completeness": 0.1},
+    ]
+
+    assert buy_candidate_min_completeness(scores) == 0.7
+
+
+def test_buy_candidate_min_completeness_no_buy_candidates() -> None:
+    assert buy_candidate_min_completeness([{"action": "watch", "data_completeness": 0.0}]) == 1.0

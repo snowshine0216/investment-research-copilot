@@ -10,6 +10,7 @@ from irc.config_loader import load_repo_configs
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+from irc.scoring.metrics_loader import load_scoring_metrics
 from irc.scoring.pipeline import run_scoring
 
 
@@ -44,15 +45,9 @@ def run_score(repo_root: str) -> int:
     try:
         ensure_schema(con)
         regime = _macro_summary(con)
+        metrics = load_scoring_metrics(con, watchlist["instrument_id"].astype(str).tolist())
     finally:
         con.close()
-
-    # Metrics from DB is a placeholder; full metrics join comes in Plan 3.
-    metrics = pd.DataFrame(columns=[
-        "instrument_id", "expense_ratio", "drawdown_3y", "vol_1y",
-        "downside_capture", "aum_stability_pct", "manager_tenure_years",
-        "holdings_concentration_top10",
-    ])
 
     route = resolve_route("scoring_rationale", bundle.llm)
     out = run_scoring(

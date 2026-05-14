@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1.0] — 2026-05-11
+
+### Added
+- **Decision-readiness layer** (`irc.decision`): pure `completeness`, `models`, `gates`, and `report` modules that compose scoring, allocation, trade-plan, traceability, and pipeline-health artifacts into a daily `decision_report.json` + `decision_report.md`.
+- **`irc decision` CLI command**: reads today's outputs; writes `decision_report.json` and `decision_report.md`; exit 0 on success, 2 when required artifacts are missing.
+- **6 hard gates** (Phase 1): pipeline-halted, data-completeness < 0.80, target-weights invalid, venue blocked without proxy, memo narrative-only, score-avoid signal. `portfolio_action` is always `no_trade` (Phase 3 ordering excluded).
+- **Scoring `missing_data` field**: every score row now lists the specific financial metric fields that were absent or NaN.
+- **Local scoring metrics loader** (`src/irc/scoring/metrics_loader.py`): derives `expense_ratio`, `drawdown_3y`, `vol_1y`, `downside_capture`, `manager_tenure_years`, and `holdings_concentration_top10` from local DuckDB tables; `aum_stability_pct` stays NaN (honest missing) until AUM-history ingestion lands.
+- **Scoring eval completeness gates** (Phase 2): `scoring_data_completeness_avg` (FAIL < 0.75, WARN < 0.90) and `buy_candidate_min_completeness` (FAIL < 0.80) metrics added to scoring eval runner; runner now reads `outputs/<date>/scoring.json` and handles `{"scores": [...]}` format.
+
+### Changed
+- `run_research()` in `ldr_client.py` refactored into `_start_research`, `_poll_until_complete`, and `_fetch_report` helpers; `research_id` from LDR server now validated against `[A-Za-z0-9_-]+` before URL interpolation to prevent path-traversal from a malicious server.
+- Magic numbers extracted as module-level constants across `ldr_client.py` (`_LOGIN_MAX_RETRIES`, `_LOGIN_BACKOFF_S`, `_HTTP_REQUEST_TIMEOUT_S`, etc.) and `metrics_loader.py` (`_TRADING_DAYS_PER_YEAR`); `DecisionStatus` Literal cleaned of unused `review_sell_later` variant.
+
+### Fixed
+- **`_write()` date decoupling** in `evals/scoring/runner.py`: eval report was written to today's date folder regardless of which historical scoring artifact was loaded; now derives the folder from the source file's parent date.
+- **Zero-denominator Inf in `derive_risk_metrics`**: zero-priced or negative-value price series caused `Inf` drawdown values (invalid JSON); safe-max guard replaces zero denominators with NaN before division.
+- Scoring eval runner previously read stale `outputs/scoring/scores.json` path and treated the file as a raw list; now reads dated output path and unwraps the dict wrapper — completeness gate now fires correctly on real artifacts.
+- **Falsy-list masking** in `gates.py`: `missing_data or REQUIRED_METRIC_FIELDS` incorrectly fell back to all-required-fields when the score had zero missing fields (empty list is falsy); fixed to explicit `is not None` check.
+- **Markdown injection** in decision report table: raw field values could contain `|` or `\n`, breaking Markdown table structure; `_md()` helper now escapes both characters.
+- **Null-safety** in `gates.py` / `report.py`: explicit `None` checks and `try/except` guards for `data_completeness`, `coverage_ratio`, and `target_weight` fields that may arrive as `None` from older output files.
+- **Pipeline-incomplete gate**: `_scores_missing_action()` detects when >50% of score rows lack an `action` field (scoring stage did not run) and auto-elevates `pipeline_halted`, preventing the decision layer from issuing advice on incomplete pipeline output.
+- **`MIN_BUY_COMPLETENESS` constant**: hardcoded `0.80` deduplicated into `completeness.py`; `gates.py` and `evals/scoring/runner.py` now import the single constant.
+- **Null-safety in `decision_cmd.py`**: `_resolve_output_dir` no longer raises when the `outputs/` directory does not exist.
+
 ## [0.6.0.0] — 2026-05-11
 
 ### Added

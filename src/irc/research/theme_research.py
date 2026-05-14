@@ -25,9 +25,16 @@ _THEME_QUERIES: dict[str, str] = {
 
 def build_theme_reports(themes: tuple[str, ...], time_budget_s: int = 90) -> list[ThemeReport]:
     out: list[ThemeReport] = []
-    for theme in themes:
+    total = len(themes)
+    for n, theme in enumerate(themes, start=1):
         query = _THEME_QUERIES.get(theme, f"Research summary for {theme}")
+        print(f"[{n}/{total}] {theme}", flush=True)
+        print(f"        query: {query[:80]}", flush=True)
         res = run_research(query=query, time_budget_s=time_budget_s)
+        if res.failure_reason:
+            print(f"        ✗ failed: {res.failure_reason}", flush=True)
+        else:
+            print(f"        ✓ done — {len(res.citations)} citation(s)", flush=True)
         out.append(ThemeReport(
             theme=theme, query=query,
             report_md=res.report_md, citations=res.citations,

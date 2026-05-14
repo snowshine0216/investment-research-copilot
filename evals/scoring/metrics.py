@@ -57,3 +57,20 @@ def score_distribution_stability(scores_a: list[float], scores_b: list[float]) -
     mean_a = sum(scores_a) / len(scores_a)
     mean_b = sum(scores_b) / len(scores_b)
     return abs(mean_a - mean_b)
+
+
+def scoring_data_completeness_avg(scores: list[dict]) -> float:
+    if not scores:
+        return 1.0
+    values = [float(score.get("data_completeness", 0.0)) for score in scores]
+    return sum(values) / len(values)
+
+
+def buy_candidate_min_completeness(scores: list[dict]) -> float:
+    buy_actions = {"buy_candidate", "strong_buy_candidate"}
+    values = [
+        float(score.get("data_completeness", 0.0))
+        for score in scores
+        if score.get("action") in buy_actions
+    ]
+    return min(values) if values else 1.0

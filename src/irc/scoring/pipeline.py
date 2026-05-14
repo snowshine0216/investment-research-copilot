@@ -6,6 +6,7 @@ from typing import Any
 
 import pandas as pd
 
+from irc.decision.completeness import REQUIRED_METRIC_FIELDS, is_missing, missing_required_fields
 from irc.schemas.scoring import ScoringConfig
 from irc.scoring.factors.macro_fit import MacroFitContext, score_macro_fit
 from irc.scoring.factors.quality import score_quality
@@ -23,30 +24,18 @@ def _sanitize(text: str, max_len: int = 200) -> str:
     return cleaned[:max_len]
 
 
-_REQUIRED = (
-    "expense_ratio", "drawdown_3y", "vol_1y", "downside_capture",
-    "aum_stability_pct", "manager_tenure_years", "holdings_concentration_top10",
-)
-
-
-def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return bool(pd.isna(value))
-    except (TypeError, ValueError):
-        return False
+_REQUIRED = REQUIRED_METRIC_FIELDS
 
 
 def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
-    present = sum(1 for k in required if not _is_missing(metric_row.get(k)))
+    present = sum(1 for k in required if not is_missing(metric_row.get(k)))
     return present / len(required)
 
 
 def _get(m: dict, key: str, default: float) -> float:
     """Return m[key] when present and finite enough to parse; otherwise return default."""
     val = m.get(key)
-    if _is_missing(val):
+    if is_missing(val):
         return default
     try:
         return float(val)
@@ -100,6 +89,7 @@ def run_scoring(
     for r in rows:
         m = by_id.get(r.instrument_id, {})
         completeness = _completeness(m, _REQUIRED)
+        missing_data = list(missing_required_fields(m, _REQUIRED))
         refs = tuple(r.cited_refs.split(",")) if isinstance(getattr(r, "cited_refs", None), str) else ()
         v = score_valuation_cost(
             expense_ratio=_get(m, "expense_ratio", 0.01),
@@ -138,6 +128,7 @@ def run_scoring(
             "conviction": score_obj.conviction,
             "factor_breakdown": score_obj.factor_breakdown,
             "data_completeness": score_obj.data_completeness,
+            "missing_data": missing_data,
             "weights_version": score_obj.weights_version,
         })
     return {"scores": out}
