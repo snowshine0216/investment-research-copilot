@@ -4,6 +4,8 @@ from typing import Any
 
 from irc.decision.gates import decide_row, target_weights_are_valid
 
+_PIPELINE_INCOMPLETE_THRESHOLD = 0.5
+
 
 def compose_decision_report(
     date: str,
@@ -41,7 +43,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
         "## Verdict",
         "",
-        _verdict_section(report["overall_status"]),
+        _render_verdict(report["overall_status"], report.get("summary", {})),
         "",
         "## Why Blocked" if is_blocked else "## Gates Passed",
         "",
@@ -53,12 +55,20 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_verdict(overall_status: str, summary: dict[str, int]) -> str:
+    if overall_status == "blocked":
+        return "No buy/sell decision is supported today."
+    if summary.get("actionable_buy_count", 0) == 0:
+        return "System gates are clear but no instrument has reached actionable_buy status. Review per-row statuses."
+    return "At least one instrument passed all decision-readiness gates. Review manually before execution."
+
+
 def _scores_missing_action(scores: list[dict[str, Any]]) -> bool:
     """Return True when >50% of scores lack an 'action' field (pipeline ran without scoring)."""
     if not scores:
         return False
     missing = sum(1 for s in scores if s.get("action") is None)
-    return missing / len(scores) > 0.5
+    return missing / len(scores) > _PIPELINE_INCOMPLETE_THRESHOLD
 
 
 def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool, target_weight_valid: bool) -> list[str]:
@@ -103,14 +113,6 @@ def _build_rows(
         )
         for score in scoring.get("scores", [])
     ]
-
-
-def _verdict_section(overall_status: str) -> str:
-    return (
-        "No buy/sell decision is supported today."
-        if overall_status == "blocked"
-        else "At least one instrument passed decision-readiness gates. Review manually before execution."
-    )
 
 
 def _blocking_section(blocking_reasons: list[str]) -> list[str]:

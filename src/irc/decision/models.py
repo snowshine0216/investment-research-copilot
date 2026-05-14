@@ -9,7 +9,7 @@ DecisionStatus = Literal[
     "watch_only",
     "avoid",
     "blocked",
-    "review_sell_later",
+    # TODO (Phase 3): add "review_sell_later" when sell/trim signal emission is implemented
 ]
 PortfolioAction = Literal["no_trade"]
 VenueStatus = Literal["direct", "proxy_available", "blocked_no_proxy", "unknown"]

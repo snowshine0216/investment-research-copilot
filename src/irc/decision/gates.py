@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from irc.decision.completeness import MIN_BUY_COMPLETENESS, REQUIRED_METRIC_FIELDS
-from irc.decision.models import DecisionRow, VenueStatus
+from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus
 
 
 _BUY_ACTIONS = {"buy_candidate", "strong_buy_candidate"}
@@ -134,7 +134,7 @@ def _blocking_reasons(
     return reasons
 
 
-def _decision_status(score_action: str, blocking_reasons: list[str], allocation_selected: bool) -> str:
+def _decision_status(score_action: str, blocking_reasons: list[str], allocation_selected: bool) -> DecisionStatus:
     if score_action in _AVOID_ACTIONS:
         return "avoid"
     if blocking_reasons:
