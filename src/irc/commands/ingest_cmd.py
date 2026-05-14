@@ -491,10 +491,11 @@ def run_ingest(repo_root: str) -> int:
                 continue
             seen_nav_ids.add(instr.instrument_id)
             nav_instruments.append(instr)
+        nav_tally = ErrorTally("nav")
         nav_failures: list[str] = []
         nav_attempts = 0
         nav_successes = 0
-        for instr in nav_instruments:
+        for instr in progress_iter(nav_instruments, "nav", total=len(nav_instruments)):
             nav_attempts += 1
             try:
                 df = fetch_fund_nav_history(instr.ticker)
@@ -503,6 +504,7 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_nav_history(df)
             except Exception as exc:
                 nav_failures.append(instr.instrument_id)
+                nav_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping NAV ingest for %s (ticker=%s): %s. "
                     "Other instruments will still be processed.",
@@ -547,6 +549,7 @@ def run_ingest(repo_root: str) -> int:
     ))
     metadata_tally.render(ok_count=len(metadata_by_id), verbose=_verbose)
     prices_tally.render(ok_count=price_successes, verbose=_verbose)
+    nav_tally.render(ok_count=nav_successes, verbose=_verbose)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
     if price_failures or nav_failures:
         print(
