@@ -230,3 +230,68 @@ def test_avoid_with_pipeline_halted_reports_both_reasons_and_status_is_avoid() -
     assert decision["decision_status"] == "avoid"
     assert "pipeline_halted" in decision["blocking_reasons"]
     assert "score_avoid" in decision["blocking_reasons"]
+
+
+# ---------------------------------------------------------------------------
+# _next_step: remaining text branches not yet asserted
+# ---------------------------------------------------------------------------
+
+def test_next_step_actionable_buy_text() -> None:
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert decision["decision_status"] == "actionable_buy"
+    assert "Review manually" in decision["next_step"]
+
+
+def test_next_step_pipeline_halted_text() -> None:
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=True,
+        memo_traceability_coverage=1.0,
+    )
+    assert "Fix the halted stage" in decision["next_step"]
+
+
+def test_next_step_data_incomplete_text() -> None:
+    decision = decide_row(
+        score=_score(data_completeness=0.0),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "Repair required financial metrics" in decision["next_step"]
+
+
+def test_next_step_venue_blocked_text() -> None:
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": False, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "Add a compatible account venue" in decision["next_step"]
+
+
+def test_next_step_memo_narrative_only_text() -> None:
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=0.0,
+    )
+    assert "memo traceability" in decision["next_step"]

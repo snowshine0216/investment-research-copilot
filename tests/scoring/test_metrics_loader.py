@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 
 from irc.data.duckdb_helper import connect, ensure_schema
-from irc.scoring.metrics_loader import derive_risk_metrics, load_scoring_metrics
+from irc.scoring.metrics_loader import _coalesce, derive_risk_metrics, load_scoring_metrics
 
 
 def test_derive_risk_metrics_from_price_series() -> None:
@@ -140,3 +140,52 @@ def test_load_scoring_metrics_uses_nav_history_when_prices_absent(tmp_path: Path
     assert row["instrument_id"] == "NAVONLY"
     assert not math.isnan(row["drawdown_3y"])
     con.close()
+
+
+# ---------------------------------------------------------------------------
+# derive_risk_metrics: all-zeros series — must not produce Inf (gap: line 21)
+# ---------------------------------------------------------------------------
+
+def test_derive_risk_metrics_all_zeros_produces_nan_not_inf() -> None:
+    """All-zero price series causes 0/0 in drawdown; result must be NaN, never Inf."""
+    series = pd.Series([0.0, 0.0, 0.0, 0.0, 0.0], index=pd.date_range("2026-01-01", periods=5))
+
+    metrics = derive_risk_metrics(series)
+
+    assert not math.isinf(metrics["drawdown_3y"])
+    assert not math.isinf(metrics["vol_1y"]) if not math.isnan(metrics["vol_1y"]) else True
+
+
+# ---------------------------------------------------------------------------
+# _coalesce: fund_metrics priority over price-derived when both present (gap: line 46)
+# ---------------------------------------------------------------------------
+
+def test_coalesce_prefers_first_valid_value_over_second() -> None:
+    """fund_metrics value (first arg) must win over price-derived value (second arg)."""
+    assert _coalesce(0.15, 0.99) == pytest.approx(0.15)
+
+
+def test_coalesce_falls_back_to_second_when_first_is_nan() -> None:
+    assert _coalesce(math.nan, 0.25) == pytest.approx(0.25)
+
+
+def test_coalesce_falls_back_to_second_when_first_is_none() -> None:
+    assert _coalesce(None, 0.33) == pytest.approx(0.33)
+
+
+def test_coalesce_returns_nan_when_all_values_missing() -> None:
+    assert math.isnan(_coalesce(None, math.nan, None))
+
+
+def test_derive_risk_metrics_zero_running_max_never_produces_inf() -> None:
+    """Negative/zero-priced series must produce NaN drawdown, not Inf (json-safe)."""
+    # Series starting at 0 then going negative — running_max stays at 0 which
+    # previously caused (running_max - series) / 0 = Inf, crashing json.dumps.
+    series = pd.Series([0.0, -1.0, -0.5], index=pd.date_range("2026-01-01", periods=3))
+
+    metrics = derive_risk_metrics(series)
+
+    assert not math.isinf(metrics["drawdown_3y"])
+    # Must survive JSON serialisation (no ValueError for Inf)
+    import json
+    json.dumps(metrics)  # must not raise
