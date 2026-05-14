@@ -18,6 +18,7 @@ def _get_runner(stage: str) -> Callable[[Path], int]:
         "queries":      "evals.queries.runner",
         "triggers":     "evals.triggers.runner",
         "architecture": "evals.architecture.runner",
+        "opportunity":  "evals.opportunity.runner",
     }
     if stage not in runners:
         raise KeyError(f"unknown eval stage: {stage}")
@@ -31,7 +32,8 @@ def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
         worst = 0
         for s in ("data", "news", "research", "discovery", "scoring",
                    "gold_score", "allocation", "trade_plan",
-                   "memo", "queries", "triggers", "architecture"):
+                   "memo", "queries", "triggers", "architecture",
+                   "opportunity"):
             try:
                 rc = _get_runner(s)(root)
                 worst = max(worst, rc)
