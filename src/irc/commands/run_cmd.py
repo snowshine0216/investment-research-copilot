@@ -49,9 +49,12 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
     else:
         stages = list(STAGE_NAMES)
     stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
-    for stage in stages:
-        fn = _runners_map()[stage]
-        rc = fn(repo_root)
+    total = len(stages)
+    from irc.observability import stage_banner
+    for index, stage in enumerate(stages, start=1):
+        with stage_banner(stage, index, total):
+            fn = _runners_map()[stage]
+            rc = fn(repo_root)
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted
