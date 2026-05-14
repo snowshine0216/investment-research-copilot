@@ -7,18 +7,23 @@ from typing import Any
 import duckdb
 import pandas as pd
 
+_TRADING_DAYS_PER_YEAR = 252
+
 
 def derive_risk_metrics(values: pd.Series) -> dict[str, float]:
     series = values.dropna().astype(float)
     if len(series) < 2:
         return {"drawdown_3y": math.nan, "vol_1y": math.nan, "downside_capture": math.nan}
     running_max = series.cummax()
-    drawdowns = (running_max - series) / running_max
+    # Guard against zero denominator (e.g. zero-priced corrupt data) which would
+    # produce Inf. Replace zeros with NaN so division yields NaN instead of Inf.
+    safe_max = running_max.where(running_max != 0, other=float("nan"))
+    drawdowns = (running_max - series) / safe_max
     returns = series.pct_change().dropna()
     downside = returns[returns < 0]
     return {
         "drawdown_3y": float(drawdowns.max()),
-        "vol_1y": float(returns.std(ddof=1) * math.sqrt(252)) if not returns.empty else math.nan,
+        "vol_1y": float(returns.std(ddof=1) * math.sqrt(_TRADING_DAYS_PER_YEAR)) if not returns.empty else math.nan,
         "downside_capture": float(abs(downside.mean()) / abs(returns.mean())) if not downside.empty and returns.mean() != 0 else 0.0,
     }
 
@@ -79,7 +84,11 @@ def _instrument_base(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict
     if df.empty:
         return {}
     row = df.iloc[0]
-    return {"expense_ratio": row["expense_ratio"], "aum": row["aum"], "manager_tenure_years": row["manager_tenure_years"]}
+    return {
+        "expense_ratio": row["expense_ratio"],
+        "aum": row["aum"],  # reserved for Phase 3 AUM-stability calculation
+        "manager_tenure_years": row["manager_tenure_years"],
+    }
 
 
 def _latest_fund_metrics(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict[str, Any]:

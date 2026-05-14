@@ -123,7 +123,9 @@ def run(repo_root: Path) -> int:
         metrics=metrics,
         overall=overall,
     )
-    _write(repo_root, report)
+    # Derive date from the source folder so the eval report is co-located with its artifact.
+    source_date = Path(source).parent.name
+    _write(repo_root, report, source_date)
     print(f"scoring eval: {overall}")
     return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
 
@@ -135,7 +137,8 @@ def _pass_report() -> StageReport:
     )
 
 
-def _write(repo_root: Path, report: StageReport) -> None:
-    out_dir = (repo_root / "outputs" / datetime.now(_TZ).date().isoformat() / "evals" / "scoring")
+def _write(repo_root: Path, report: StageReport, date_str: str | None = None) -> None:
+    date_str = date_str or datetime.now(_TZ).date().isoformat()
+    out_dir = (repo_root / "outputs" / date_str / "evals" / "scoring")
     out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_dir / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
