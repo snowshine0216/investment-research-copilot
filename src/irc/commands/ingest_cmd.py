@@ -6,8 +6,10 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from irc.observability import ErrorTally, progress_iter
+
 if TYPE_CHECKING:
-    from irc.observability.errors import ErrorTally
+    pass
 
 import pandas as pd
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -223,9 +225,7 @@ def _metadata_fetcher_for(instrument: Any):
 def _fetch_metadata_by_id(
     instruments: list,
     active_fund_tenure_proxy_enabled: bool = True,
-) -> tuple[dict[str, dict[str, float | str | None]], "ErrorTally"]:
-    from irc.observability import ErrorTally, progress_iter
-
+) -> tuple[dict[str, dict[str, float | str | None]], ErrorTally]:
     metadata_by_id: dict[str, dict[str, float | str | None]] = {}
     tally = ErrorTally("metadata")
     for instrument in progress_iter(instruments, "metadata", total=len(instruments)):
@@ -416,49 +416,53 @@ def run_ingest(repo_root: str) -> int:
             nonlocal eastmoney_unavailable
             eastmoney_unavailable = True
 
+        prices_tally = ErrorTally("prices")
+        price_candidates = [i for i in all_instruments if _has_price_history_source(i)]
+        for instr in progress_iter(price_candidates, "prices", total=len(price_candidates)):
+            price_attempts += 1
+            try:
+                df = fetch_etf_price_history(
+                    ticker=instr.ticker,
+                    start=start,
+                    end=end,
+                    skip_cn_eastmoney=eastmoney_unavailable,
+                    on_cn_eastmoney_exhausted=_mark_eastmoney_unavailable,
+                )
+                if df.empty:
+                    raise ValueError("empty price history")
+                df = _coerce_price_history(df)
+            except Exception as exc:
+                price_failures.append(instr.instrument_id)
+                prices_tally.add(instr.instrument_id, exc)
+                _log.warning(
+                    "skipping price ingest for %s (ticker=%s): %s. "
+                    "Other instruments will still be processed; rerun once "
+                    "the upstream source recovers.",
+                    instr.instrument_id, instr.ticker, exc,
+                )
+                continue
+            try:
+                price_source = _price_source_for(instr)
+                inserted = _upsert_prices(
+                    con,
+                    instr.instrument_id,
+                    df,
+                    source=price_source,
+                )
+                if price_source == "akshare":
+                    ak_counts["prices"] += inserted
+                else:
+                    ob_counts["prices"] += inserted
+            except Exception as exc:
+                print(
+                    f"ERROR: ingest failed while writing prices for "
+                    f"{instr.instrument_id}: {exc}"
+                )
+                return 1
+            price_successes += 1
+        # Log warning for instruments outside price_candidates that are not off-exchange
         for instr in all_instruments:
-            if _has_price_history_source(instr):
-                price_attempts += 1
-                try:
-                    df = fetch_etf_price_history(
-                        ticker=instr.ticker,
-                        start=start,
-                        end=end,
-                        skip_cn_eastmoney=eastmoney_unavailable,
-                        on_cn_eastmoney_exhausted=_mark_eastmoney_unavailable,
-                    )
-                    if df.empty:
-                        raise ValueError("empty price history")
-                    df = _coerce_price_history(df)
-                except Exception as exc:
-                    price_failures.append(instr.instrument_id)
-                    _log.warning(
-                        "skipping price ingest for %s (ticker=%s): %s. "
-                        "Other instruments will still be processed; rerun once "
-                        "the upstream source recovers.",
-                        instr.instrument_id, instr.ticker, exc,
-                    )
-                    continue
-                try:
-                    price_source = _price_source_for(instr)
-                    inserted = _upsert_prices(
-                        con,
-                        instr.instrument_id,
-                        df,
-                        source=price_source,
-                    )
-                    if price_source == "akshare":
-                        ak_counts["prices"] += inserted
-                    else:
-                        ob_counts["prices"] += inserted
-                except Exception as exc:
-                    print(
-                        f"ERROR: ingest failed while writing prices for "
-                        f"{instr.instrument_id}: {exc}"
-                    )
-                    return 1
-                price_successes += 1
-            elif not _is_off_exchange_fund(instr):
+            if not _has_price_history_source(instr) and not _is_off_exchange_fund(instr):
                 _log.warning(
                     "skipping price/nav ingest for %s (market=%s, ticker=%s): no source available",
                     instr.instrument_id, instr.market, instr.ticker,
@@ -542,6 +546,7 @@ def run_ingest(repo_root: str) -> int:
         schema_version=_SCHEMA_VERSION, record_counts=ak_counts,
     ))
     metadata_tally.render(ok_count=len(metadata_by_id), verbose=_verbose)
+    prices_tally.render(ok_count=price_successes, verbose=_verbose)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
     if price_failures or nav_failures:
         print(
