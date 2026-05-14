@@ -5,7 +5,9 @@ they auto-degrade to non-animated output when stderr is not a terminal.
 """
 from __future__ import annotations
 
+import time
 from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from typing import TypeVar
 
 from rich.progress import (
@@ -42,3 +44,22 @@ def progress_iter(
         for item in items:
             yield item
             progress.advance(task)
+
+
+@contextmanager
+def stage_banner(stage: str, index: int, total: int) -> Iterator[None]:
+    """Wraps a pipeline stage with a rule + start/done lines.
+
+    On exception: prints a FAILED line with elapsed seconds and re-raises.
+    """
+    console.rule(f"[{index}/{total}] {stage} — starting")
+    start = time.monotonic()
+    try:
+        yield
+    except Exception:
+        elapsed = int(time.monotonic() - start)
+        console.print(f"[{index}/{total}] {stage} — FAILED after {elapsed}s")
+        raise
+    else:
+        elapsed = int(time.monotonic() - start)
+        console.print(f"[{index}/{total}] {stage} — done in {elapsed}s")
