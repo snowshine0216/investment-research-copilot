@@ -6,7 +6,7 @@ from typing import Any
 
 import pandas as pd
 
-from irc.decision.completeness import REQUIRED_METRIC_FIELDS, missing_required_fields
+from irc.decision.completeness import REQUIRED_METRIC_FIELDS, is_missing, missing_required_fields
 from irc.schemas.scoring import ScoringConfig
 from irc.scoring.factors.macro_fit import MacroFitContext, score_macro_fit
 from irc.scoring.factors.quality import score_quality
@@ -27,24 +27,15 @@ def _sanitize(text: str, max_len: int = 200) -> str:
 _REQUIRED = REQUIRED_METRIC_FIELDS
 
 
-def _is_missing(value: Any) -> bool:
-    if value is None:
-        return True
-    try:
-        return bool(pd.isna(value))
-    except (TypeError, ValueError):
-        return False
-
-
 def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
-    present = sum(1 for k in required if not _is_missing(metric_row.get(k)))
+    present = sum(1 for k in required if not is_missing(metric_row.get(k)))
     return present / len(required)
 
 
 def _get(m: dict, key: str, default: float) -> float:
     """Return m[key] when present and finite enough to parse; otherwise return default."""
     val = m.get(key)
-    if _is_missing(val):
+    if is_missing(val):
         return default
     try:
         return float(val)

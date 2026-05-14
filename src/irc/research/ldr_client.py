@@ -6,7 +6,7 @@ import re
 import time
 from urllib.parse import urlparse
 import httpx
-from irc.llm.http_client import _verify_host_resolves_publicly, SSRFError
+from irc.llm.http_client import verify_host_resolves_publicly, SSRFError
 
 
 _POLL_INTERVAL_S = 5
@@ -108,7 +108,6 @@ def _sources_to_citations(sources: list) -> list[LDRCitation]:
     return cits
 
 
-_POLL_INTERVAL_S = 5
 _RESEARCH_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
 
 
@@ -117,7 +116,7 @@ def run_research(query: str, time_budget_s: int = 120) -> LDRResearchResult:
     host = urlparse(base).hostname or ""
     try:
         if not _is_loopback_host(host):
-            _verify_host_resolves_publicly(host)
+            verify_host_resolves_publicly(host)
     except SSRFError as e:
         return LDRResearchResult(report_md="", failure_reason=f"SSRF blocked: {e}")
 

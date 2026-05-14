@@ -32,6 +32,8 @@ def compose_decision_report(
         "blocking_reasons": blocking_reasons,
         "summary": _summary(rows),
         "rows": rows,
+        # pipeline_incomplete: True when >50% of score rows lack an 'action' field,
+        # signalling a corrupt/partial scoring run. Forces overall_status to 'blocked'.
         "pipeline_incomplete": pipeline_incomplete,
     }
 

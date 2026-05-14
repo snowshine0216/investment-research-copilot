@@ -2,7 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from urllib.parse import urlparse
 import feedparser
-from irc.llm.http_client import _verify_host_resolves_publicly, SSRFError
+from irc.llm.http_client import verify_host_resolves_publicly, SSRFError
 
 
 @dataclass(frozen=True)
@@ -20,7 +20,7 @@ def fetch_feeds(urls: list[str], topic: str) -> list[FeedItem]:
     for url in urls:
         host = urlparse(url).hostname or ""
         try:
-            _verify_host_resolves_publicly(host)
+            verify_host_resolves_publicly(host)
         except SSRFError:
             continue
         parsed = feedparser.parse(url)

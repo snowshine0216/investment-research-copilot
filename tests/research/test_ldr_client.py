@@ -39,7 +39,7 @@ def _mock_research_flow(base: str = "http://localhost:5000", research_id: str = 
 
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_run_research_happy_path(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -54,7 +54,7 @@ def test_ldr_run_research_happy_path(mock_ssrf, monkeypatch):
 
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_returns_empty_on_503(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -70,7 +70,7 @@ def test_ldr_returns_empty_on_503(mock_ssrf, monkeypatch):
 
 @respx.mock
 @patch(
-    "irc.research.ldr_client._verify_host_resolves_publicly",
+    "irc.research.ldr_client.verify_host_resolves_publicly",
     side_effect=AssertionError("localhost should bypass public DNS guard"),
 )
 def test_ldr_allows_loopback_host_without_public_dns_guard(_mock_ssrf, monkeypatch):
@@ -84,7 +84,7 @@ def test_ldr_allows_loopback_host_without_public_dns_guard(_mock_ssrf, monkeypat
 
 
 @patch(
-    "irc.research.ldr_client._verify_host_resolves_publicly",
+    "irc.research.ldr_client.verify_host_resolves_publicly",
     side_effect=SSRFError("private network"),
 )
 def test_ldr_keeps_public_dns_guard_for_non_loopback_hosts(mock_ssrf, monkeypatch):
@@ -107,7 +107,7 @@ def test_ldr_missing_credentials_returns_failure(monkeypatch):
 
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_login_failure_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -172,7 +172,7 @@ def test_ldr_non_loopback_host_detection():
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_login_post_non200_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -189,7 +189,7 @@ def test_ldr_login_post_non200_returns_failure(mock_ssrf, monkeypatch):
 
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_csrf_token_endpoint_non200_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -209,7 +209,7 @@ def test_ldr_csrf_token_endpoint_non200_returns_failure(mock_ssrf, monkeypatch):
 
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_empty_csrf_token_in_response_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -233,7 +233,7 @@ def test_ldr_empty_csrf_token_in_response_returns_failure(mock_ssrf, monkeypatch
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_no_research_id_in_start_response(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -252,7 +252,7 @@ def test_ldr_no_research_id_in_start_response(mock_ssrf, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_status_poll_non200_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -274,7 +274,7 @@ def test_ldr_status_poll_non200_returns_failure(mock_ssrf, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_status_failed_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -296,7 +296,7 @@ def test_ldr_status_failed_returns_failure(mock_ssrf, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_report_fetch_non200_returns_failure(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -321,7 +321,7 @@ def test_ldr_report_fetch_non200_returns_failure(mock_ssrf, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_search_tool_injected_in_payload(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")
@@ -349,7 +349,7 @@ def test_ldr_search_tool_injected_in_payload(mock_ssrf, monkeypatch):
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 @patch("irc.research.ldr_client.time.sleep")
 def test_ldr_login_429_retry_exhaustion_returns_failure(mock_sleep, mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
@@ -376,7 +376,7 @@ def test_ldr_login_429_retry_exhaustion_returns_failure(mock_sleep, mock_ssrf, m
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 @patch("irc.research.ldr_client.time.sleep")
 @patch("irc.research.ldr_client.time.monotonic")
 def test_ldr_polling_timeout_returns_failure(mock_monotonic, mock_sleep, mock_ssrf, monkeypatch):
@@ -399,7 +399,7 @@ def test_ldr_polling_timeout_returns_failure(mock_monotonic, mock_sleep, mock_ss
 # ---------------------------------------------------------------------------
 
 @respx.mock
-@patch("irc.research.ldr_client._verify_host_resolves_publicly")
+@patch("irc.research.ldr_client.verify_host_resolves_publicly")
 def test_ldr_invalid_research_id_path_traversal_rejected(mock_ssrf, monkeypatch):
     monkeypatch.setenv("LDR_BASE_URL", "http://localhost:5000")
     monkeypatch.setenv("LDR_USERNAME", "user")

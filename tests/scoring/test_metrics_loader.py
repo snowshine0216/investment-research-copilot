@@ -177,6 +177,7 @@ def test_coalesce_returns_nan_when_all_values_missing() -> None:
     assert math.isnan(_coalesce(None, math.nan, None))
 
 
+@pytest.mark.filterwarnings("ignore::RuntimeWarning")
 def test_derive_risk_metrics_zero_running_max_never_produces_inf() -> None:
     """Negative/zero-priced series must produce NaN drawdown, not Inf (json-safe)."""
     # Series starting at 0 then going negative — running_max stays at 0 which
