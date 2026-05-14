@@ -19,6 +19,8 @@ cd investment-research-copilot
 uv sync --all-extras
 cp .env.example .env
 # Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
+# Optional: set DEBUG=true in .env for verbose logging (full tracebacks, third-party DEBUG records).
+# Default DEBUG=false still shows progress bars and categorized ingest-error summaries.
 
 # Optional: install and start Local Deep Research (LDR) for macro theme research.
 # LDR conflicts with openbb's xmltodict pin and must be installed separately.
