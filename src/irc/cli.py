@@ -1,4 +1,5 @@
 from __future__ import annotations
+import os
 import click
 from dotenv import load_dotenv
 
@@ -7,6 +8,15 @@ from dotenv import load_dotenv
 def main() -> None:
     """Entry point for the `irc` CLI."""
     load_dotenv()
+    from irc.observability import setup_logging
+    try:
+        from irc.settings import Settings
+        debug = Settings().debug
+    except Exception:
+        # Settings() requires DEEPSEEK_API_KEY for full validation; fall back to
+        # raw env so `irc init` and `irc config validate` work without secrets.
+        debug = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+    setup_logging(debug=debug)
 
 
 @main.group(help="Configuration management.")
