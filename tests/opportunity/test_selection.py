@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 import pytest
 
 from irc.opportunity.selection import (
@@ -176,7 +177,6 @@ def test_exclude_state_never_demoted():
     passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
     active = _active_row("001234", theme="semiconductor")
     # Override to exclude
-    import dataclasses
     active = dataclasses.replace(active, opportunity_state="exclude")
     qualities = {
         "159995": _q(0.0015, 30e9),
@@ -186,3 +186,15 @@ def test_exclude_state_never_demoted():
     active_out = next(r for r in rows_out if r.instrument_id == "001234")
     assert active_out.opportunity_state == "exclude"
     assert len(demoted) == 0
+
+
+def test_demote_active_when_quality_is_tied():
+    """Active fund demoted when quality is identical to passive (prefer passive on tie)."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
+    active = _active_row("001234", theme="semiconductor")
+    tied_quality = _q(0.0050, 10e9)
+    qualities = {"159995": tied_quality, "001234": tied_quality}
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "small_watch"
+    assert len(demoted) == 1

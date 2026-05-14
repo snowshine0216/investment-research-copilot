@@ -20,7 +20,7 @@ from irc.opportunity.report import (
     compose_thesis_cards_yaml,
 )
 from irc.commands.theme_thesis import load_theme_thesis
-from irc.opportunity.selection import SelectionQuality, reduce_same_theme
+from irc.opportunity.selection import SelectionQuality, demote_unstable_active, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import (
     DisciplineRow,
@@ -75,7 +75,7 @@ def _build_input(
     holding: Holding | None,
     target_band: tuple[float, float] | None,
     portfolio_total_cny: float,
-    available_venues: set[str] | None = None,
+    available_venues: set[str],
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -85,7 +85,7 @@ def _build_input(
     weight = None
     if holding is not None and portfolio_total_cny > 0:
         weight = holding.cost_basis_cny / portfolio_total_cny
-    if available_venues is not None and instr is not None and instr.venue_required:
+    if available_venues and instr is not None and instr.venue_required:
         venue_ok = bool(set(instr.venue_required) & available_venues)
     else:
         venue_ok = True
@@ -255,6 +255,16 @@ def run_opportunity(repo_root: str) -> int:
     for r in dropped_rows:
         if r.instrument_id in held_ids and r not in kept_rows:
             kept_rows.append(r)
+
+    # Demote active funds to small_watch when a passive alternative in the
+    # same theme is at least as good (selection quality comparison).
+    kept_rows_t, _demoted_active = demote_unstable_active(list(kept_rows), qualities)
+    kept_rows = list(kept_rows_t)
+    if _demoted_active:
+        print(
+            f"INFO: demoted {len(_demoted_active)} active fund(s) to small_watch "
+            "(passive alternative available in same theme)"
+        )
 
     cards = [
         build_thesis_card(
