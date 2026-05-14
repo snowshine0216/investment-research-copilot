@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from dataclasses import dataclass
 
 from irc.opportunity.types import OpportunityRow
@@ -94,3 +95,46 @@ def reduce_same_theme(
         else:
             overflow.append(r)
     return tuple(kept), tuple(per_key_dropped + overflow)
+
+
+def demote_unstable_active(
+    rows: list[OpportunityRow] | tuple[OpportunityRow, ...],
+    qualities: dict[str, SelectionQuality],
+) -> tuple[tuple[OpportunityRow, ...], tuple[OpportunityRow, ...]]:
+    """Downgrade active fund rows to ``small_watch`` when a passive alternative
+    in the same theme exists with equal or better SelectionQuality.
+
+    Active funds are identified by ``lookthrough_target.kind == "active_fund"``.
+    A passive alternative is any row in the same theme where the kind is not
+    ``"active_fund"``. Demotion is applied only when the opportunity_state is
+    not already ``"exclude"`` (exits should not be upgraded to small_watch).
+
+    Returns ``(all_rows_with_demotions, demoted_rows)`` where demoted_rows is
+    a tuple of the original (pre-demotion) rows for logging / diagnostics.
+    """
+    # Build best passive quality per theme for comparison.
+    best_passive_key: dict[str | None, tuple] = {}
+    for r in rows:
+        if r.lookthrough_target.kind == "active_fund":
+            continue
+        q = qualities.get(r.instrument_id)
+        if q is None:
+            continue
+        key = _rank_key(q)
+        if r.theme not in best_passive_key or key < best_passive_key[r.theme]:
+            best_passive_key[r.theme] = key
+
+    out: list[OpportunityRow] = []
+    demoted: list[OpportunityRow] = []
+    for r in rows:
+        if (
+            r.lookthrough_target.kind == "active_fund"
+            and r.opportunity_state != "exclude"
+        ):
+            passive_best = best_passive_key.get(r.theme)
+            active_key = _rank_key(qualities[r.instrument_id]) if r.instrument_id in qualities else None
+            if passive_best is not None and active_key is not None and passive_best <= active_key:
+                demoted.append(r)
+                r = dataclasses.replace(r, opportunity_state="small_watch")
+        out.append(r)
+    return tuple(out), tuple(demoted)

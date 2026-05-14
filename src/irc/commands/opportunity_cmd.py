@@ -27,7 +27,7 @@ from irc.opportunity.types import (
     OpportunityInput,
     OpportunityRow,
 )
-from irc.schemas.inputs import AccountFile, Holding, PreferencesFile
+from irc.schemas.inputs import AccountFile, Holding
 from irc.schemas.universe import Instrument, UniverseConfig
 
 
@@ -75,6 +75,7 @@ def _build_input(
     holding: Holding | None,
     target_band: tuple[float, float] | None,
     portfolio_total_cny: float,
+    available_venues: set[str] | None = None,
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -84,8 +85,12 @@ def _build_input(
     weight = None
     if holding is not None and portfolio_total_cny > 0:
         weight = holding.cost_basis_cny / portfolio_total_cny
+    if available_venues is not None and instr is not None and instr.venue_required:
+        venue_ok = bool(set(instr.venue_required) & available_venues)
+    else:
+        venue_ok = True
     return OpportunityInput(
-        instrument_id=score_row["instrument_id"],
+        instrument_id=score_row.get("instrument_id", ""),
         asset_class=asset_class,
         market=market,
         theme=theme,
@@ -96,6 +101,7 @@ def _build_input(
         portfolio_weight=weight,
         target_band_low=target_band[0] if target_band else None,
         target_band_high=target_band[1] if target_band else None,
+        venue_compatible=venue_ok,
         drawdown_since_entry=None,
         valuation_percentile_self=None,
         valuation_percentile_vs_benchmark=None,
@@ -119,10 +125,9 @@ def _selection_quality_from(input_row: OpportunityInput) -> SelectionQuality:
     )
 
 
-def _role_for(row: OpportunityRow, instr_index: dict[str, Instrument]) -> str:
-    """Return the role label for a row; falls back to 'watchlist' if not in universe index."""
-    instr = instr_index.get(row.instrument_id)
-    return (instr.theme or "watchlist") if instr is not None else "watchlist"
+def _role_for(row: OpportunityRow, roles: dict[str, str]) -> str:
+    """Return the role label for a row; falls back to 'watchlist' if absent."""
+    return roles.get(row.instrument_id) or "watchlist"
 
 
 def _discipline_row_from(
@@ -147,6 +152,9 @@ def run_opportunity(repo_root: str) -> int:
     root = Path(repo_root)
     bundle = load_repo_configs(root)
     today = _today()
+    available_venues: set[str] = {
+        v for acc in bundle.account.accounts for v in acc.available_venues
+    }
 
     scoring_path = _locate_scoring(root, today)
     if scoring_path is None:
@@ -175,8 +183,12 @@ def run_opportunity(repo_root: str) -> int:
     rows: list[OpportunityRow] = []
     positions: dict[str, PositionContext] = {}
     qualities: dict[str, SelectionQuality] = {}
+    roles: dict[str, str] = {}
     for score in scores:
-        iid = score["instrument_id"]
+        iid = score.get("instrument_id", "")
+        if not iid:
+            print(f"WARNING: skipping score row with missing instrument_id: {score}")
+            continue
         instr = instr_index.get(iid)
         holding = holdings.get(iid)
         target_band: tuple[float, float] | None = None
@@ -184,7 +196,7 @@ def run_opportunity(repo_root: str) -> int:
             tgt = bundle.preferences.asset_class_targets.get(instr.asset_class)
             if tgt is not None:
                 target_band = (tgt.band[0], tgt.band[1])
-        inp = _build_input(score, instr, holding, target_band, portfolio_total_cny)
+        inp = _build_input(score, instr, holding, target_band, portfolio_total_cny, available_venues)
         row = build_opportunity_row(inp, theme_thesis or None)
         rows.append(row)
         positions[iid] = PositionContext(
@@ -195,23 +207,30 @@ def run_opportunity(repo_root: str) -> int:
             is_holding=inp.is_holding,
         )
         qualities[iid] = _selection_quality_from(inp)
+        roles[iid] = inp.role or (instr.theme if instr else "") or ""
 
-    # Warn when valuation/heat data is globally absent so the operator knows
-    # states are degraded. This happens when ingest hasn't wired the fields yet.
-    n_missing_val = sum(
-        1 for r in rows if r.valuation_state == "evidence_insufficient"
-    )
-    if rows and n_missing_val == len(rows):
-        print(
-            f"WARNING: all {len(rows)} instruments lack valuation data — "
-            "states degraded to evidence_insufficient. "
-            "Run `irc ingest` with complete data sources."
-        )
-    elif n_missing_val:
-        print(
-            f"WARNING: {n_missing_val}/{len(rows)} instruments missing "
-            "valuation data — those states degraded to evidence_insufficient."
-        )
+    # Warn when all classifiers globally lack data (skeleton mode).
+    # This happens when ingest hasn't wired signal fields yet (Phase 1 gap).
+    if rows:
+        _insuf = "evidence_insufficient"
+        all_val = all(r.valuation_state == _insuf for r in rows)
+        all_heat = all(r.heat_state == _insuf for r in rows)
+        all_thesis = all(r.thesis_state == _insuf for r in rows)
+        all_product = all(r.product_quality_state == _insuf for r in rows)
+        if all_val and all_heat and all_thesis and all_product:
+            print(
+                f"WARNING: opportunity layer running in skeleton mode — "
+                f"valuation/heat/thesis/product data not yet wired from ingest; "
+                f"all {len(rows)} instruments show evidence_insufficient. "
+                "See TODOS.md."
+            )
+        else:
+            n_missing_val = sum(1 for r in rows if r.valuation_state == _insuf)
+            if n_missing_val:
+                print(
+                    f"WARNING: {n_missing_val}/{len(rows)} instruments missing "
+                    "valuation data — those states degraded to evidence_insufficient."
+                )
 
     # Same-theme reduction inside each theme bucket.
     # Note: reduce_same_index (per-index primary+backup selection) is available
@@ -241,7 +260,7 @@ def run_opportunity(repo_root: str) -> int:
         build_thesis_card(
             row=r,
             position=positions[r.instrument_id],
-            role=_role_for(r, instr_index),
+            role=_role_for(r, roles),
             entry_reason=r.opportunity_reason.split(" | ")[0] if r.opportunity_reason else "",
         )
         for r in kept_rows
