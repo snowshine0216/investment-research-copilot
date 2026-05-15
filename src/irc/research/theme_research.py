@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from irc.llm._types import ResolvedRoute
 from irc.research.search.dispatch import (
@@ -43,7 +44,7 @@ _THEME_QUERIES: dict[str, str] = {
     "holdings_sector": "用户组合涉及行业的最新新闻和研报要点，附原始出处。",
 }
 
-FRESHNESS_DAYS_BY_THEME: dict[str, int] = {
+FRESHNESS_DAYS_BY_THEME: dict[str, int] = MappingProxyType({
     "us_monetary": 7,
     "us_fiscal_politics": 7,
     "cn_monetary": 7,
@@ -51,7 +52,7 @@ FRESHNESS_DAYS_BY_THEME: dict[str, int] = {
     "geopolitics": 7,
     "gold_drivers": 30,
     "holdings_sector": 14,
-}
+})
 _DEFAULT_FRESHNESS_DAYS = 14
 
 _LOCALE_BY_PREFIX: tuple[tuple[str, Locale], ...] = (

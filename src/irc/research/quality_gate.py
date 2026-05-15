@@ -28,6 +28,31 @@ class QualityVerdict:
     reasons: tuple[str, ...]
 
 
+def _dead_locale_reasons(reports: list[ThemeReport]) -> list[str]:
+    by_locale: dict[str, list[ThemeReport]] = defaultdict(list)
+    for r in reports:
+        by_locale[r.locale].append(r)
+    return [
+        f"all {len(items)} {locale} themes failed; downstream analysis cannot "
+        f"draw on {locale}-language evidence"
+        for locale, items in by_locale.items()
+        if items and all(r.failure_reason for r in items)
+    ]
+
+
+def _rate_and_reasons(
+    reports: list[ThemeReport],
+) -> tuple[float, list[str]]:
+    successes = sum(1 for r in reports if not r.failure_reason)
+    rate = successes / len(reports)
+    reasons: list[str] = []
+    if rate < _FAIL_SUCCESS_FLOOR:
+        reasons.append(
+            f"success rate {rate:.0%} is below the {_FAIL_SUCCESS_FLOOR:.0%} floor"
+        )
+    return rate, reasons
+
+
 def evaluate_research_quality(reports: list[ThemeReport]) -> QualityVerdict:
     if not reports:
         return QualityVerdict(
@@ -35,26 +60,9 @@ def evaluate_research_quality(reports: list[ThemeReport]) -> QualityVerdict:
             reasons=("no theme reports were produced",),
         )
 
-    reasons: list[str] = []
-
-    # Locale liveness: if every theme of a locale failed, that whole locale is dead.
-    by_locale: dict[str, list[ThemeReport]] = defaultdict(list)
-    for r in reports:
-        by_locale[r.locale].append(r)
-    for locale, items in by_locale.items():
-        if items and all(r.failure_reason for r in items):
-            reasons.append(
-                f"all {len(items)} {locale} themes failed; downstream analysis cannot "
-                f"draw on {locale}-language evidence"
-            )
-
-    successes = sum(1 for r in reports if not r.failure_reason)
-    rate = successes / len(reports)
-
-    if rate < _FAIL_SUCCESS_FLOOR:
-        reasons.append(
-            f"success rate {rate:.0%} is below the {_FAIL_SUCCESS_FLOOR:.0%} floor"
-        )
+    reasons = _dead_locale_reasons(reports)
+    rate, rate_reasons = _rate_and_reasons(reports)
+    reasons.extend(rate_reasons)
 
     if reasons:
         return QualityVerdict(

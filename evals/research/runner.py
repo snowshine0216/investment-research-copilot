@@ -5,6 +5,9 @@ import json
 from irc.io_utils import atomic_write_text
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
+    input_age_days,
     missing_input_report,
     write_missing_input_report,
 )
@@ -18,6 +21,7 @@ from evals.research.metrics import (
 )
 
 _TZ = timezone(timedelta(hours=8))
+_MAX_RESEARCH_AGE_DAYS = 7
 _THEME_TH = {"warn_below": 7, "fail_below": 5}
 _SUCCESS_TH = {"warn_below": 0.8, "fail_below": 0.5}
 _CITATION_TH = {"warn_below": 0.9, "fail_below": 0.7}
@@ -84,19 +88,27 @@ def run(repo_root: Path) -> int:
             threshold=_VISIBILITY_TH,
         ),
     ]
-    overall = worst_status([m.status for m in metrics])
+    age = input_age_days(status_file)
+    staleness_note = ""
+    if age > _MAX_RESEARCH_AGE_DAYS:
+        staleness_note = (
+            f"research_status.json is {age:.1f}d old "
+            f"(limit {_MAX_RESEARCH_AGE_DAYS}d) — re-run `irc research`"
+        )
+    overall = worst_status(
+        [m.status for m in metrics] + (["WARN"] if staleness_note else [])
+    )
     report = StageReport(
         stage="research",
         ran_at=datetime.now(_TZ).isoformat(),
         based_on=[str(status_file)],
         metrics=metrics,
         overall=overall,
+        notes=staleness_note,
     )
     _write(repo_root, report)
     print(f"research eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
-
-
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
 
 def _write(repo_root: Path, report: StageReport) -> None:

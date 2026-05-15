@@ -20,6 +20,12 @@ EVAL_RC_WARN = 1
 EVAL_RC_FAIL = 2
 
 _TZ = timezone(timedelta(hours=8))
+_SECS_PER_DAY = 86_400.0
+
+
+def input_age_days(path: Path) -> float:
+    """Return file age in fractional days based on mtime."""
+    return (datetime.now(timezone.utc).timestamp() - path.stat().st_mtime) / _SECS_PER_DAY
 
 
 def missing_input_report(

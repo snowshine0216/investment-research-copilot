@@ -5,6 +5,8 @@ import json
 from irc.io_utils import atomic_write_text
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
     missing_input_report,
     write_missing_input_report,
 )
@@ -61,7 +63,7 @@ def run(repo_root: Path) -> int:
     out_eval.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_eval / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
     print(f"architecture eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
 
 def _write(repo_root: Path, report: StageReport) -> None:

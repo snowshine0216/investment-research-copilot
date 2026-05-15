@@ -8,6 +8,8 @@ import yaml
 
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
     missing_input_report,
     write_missing_input_report,
 )
@@ -125,7 +127,7 @@ def run(repo_root: Path) -> int:
     )
     _write(root, report, date_str)
     print(f"opportunity eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
 
 def _write(repo_root: Path, report: StageReport, date_str: str) -> None:

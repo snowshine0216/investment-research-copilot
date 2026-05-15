@@ -11,7 +11,7 @@ from irc.research.theme_research import build_theme_reports
 _log = logging.getLogger(__name__)
 
 
-def _print_summary(reports: list) -> None:
+def _print_summary(reports: list[ThemeReport]) -> None:
     ok = [r for r in reports if not r.failure_reason]
     failed = [r for r in reports if r.failure_reason]
     print(
@@ -50,5 +50,5 @@ def run_research_pipeline(
         else:
             _log.error("research quality FAIL: %s", reason)
     if not verdict.passed:
-        print("ERROR: research quality gate failed — see warnings above for details")
+        print("ERROR: research quality gate failed — see errors above for details")
     return verdict.exit_code

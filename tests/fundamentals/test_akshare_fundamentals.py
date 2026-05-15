@@ -172,6 +172,20 @@ def test_fetch_cn_broker_reports_happy_path_returns_recent_first() -> None:
     assert out[0].target_price is None  # no target_price column in EastMoney feed
 
 
+def test_fetch_cn_broker_reports_strips_exchange_suffix_for_akshare() -> None:
+    with patch(
+        "irc.fundamentals.akshare_filing._ak_call"
+    ) as mocked, patch(
+        "irc.fundamentals.akshare_filing._today_iso",
+        return_value="2026-05-15",
+    ):
+        mocked.return_value = _REPORT_FRAME
+        out = fetch_cn_broker_reports("600519.SH", days=90, max_reports=1)
+
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert out[0].symbol == "600519.SH"
+
+
 def test_fetch_cn_broker_reports_respects_max_reports() -> None:
     with patch(
         "irc.fundamentals.akshare_filing._ak_call"
@@ -222,6 +236,17 @@ def test_fetch_cn_filing_digest_computes_yoy_and_margin_for_latest_quarter() -> 
     assert digest.gross_margin == pytest.approx(1 - 17.19 / 54.70, rel=1e-3)
     assert "vFD_FinanceSummary" in digest.source_url
     assert "600519" in digest.source_url
+
+
+def test_fetch_cn_filing_digest_strips_exchange_suffix_for_akshare() -> None:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = _ABSTRACT_FRAME
+        digest = fetch_cn_filing_digest("600519.SH")
+
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert digest is not None
+    assert digest.symbol == "600519.SH"
+    assert "600519.SH" not in digest.source_url
 
 
 def test_fetch_cn_filing_digest_maps_fy_period_for_year_end_column() -> None:
