@@ -11,6 +11,7 @@ from irc.opportunity.types import (
     DisciplineRow,
     LookthroughTarget,
     OpportunityRow,
+    ThesisEvidence,
 )
 
 
@@ -64,6 +65,33 @@ def test_thesis_cards_yaml_includes_required_fields():
     assert "instrument_id: '510300'" in payload or 'instrument_id: "510300"' in payload
     assert "do_not_sell_just_because:" in payload
     assert "drawdown_since_entry >= 0.20" in payload
+
+
+def test_thesis_cards_yaml_serializes_thesis_evidence():
+    """Each thesis_evidence entry must round-trip into YAML as a mapping with
+    type/source/url/date/summary keys, per the May-14 spec."""
+    evidence = (
+        ThesisEvidence(
+            type="filing", source="600519",
+            url="https://example.com/filing/600519",
+            date="2026-04-28",
+            summary="600519 营收同比 +12%",
+        ),
+        ThesisEvidence(
+            type="broker", source="中信证券",
+            url="https://example.com/broker/600519",
+            date="2026-05-02",
+            summary="维持买入",
+        ),
+    )
+    row = _row(thesis_evidence=evidence)
+    pos = PositionContext(0.05, 0.0, 0.30, None, True)
+    card = build_thesis_card(row, pos, "core", "x")
+    payload = compose_thesis_cards_yaml([card])
+    assert "thesis_evidence:" in payload
+    assert "type: filing" in payload
+    assert "中信证券" in payload
+    assert "https://example.com/filing/600519" in payload
 
 
 def test_discipline_markdown_has_chinese_action_sections():

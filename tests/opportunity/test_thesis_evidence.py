@@ -1,0 +1,220 @@
+"""Tests for the deterministic thesis-state derivation from ConstituentSnapshot
++ ThemeReport. Replaces the prior table-based path with concrete fundamentals."""
+from __future__ import annotations
+
+from irc.fundamentals.types import (
+    BrokerReport,
+    Constituent,
+    ConstituentSnapshot,
+    FilingDigest,
+)
+from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
+from irc.research.synthesize import Citation
+from irc.research.theme_research import ThemeReport
+
+
+def _filing(symbol: str, yoy: float | None, *, period: str = "Q1") -> FilingDigest:
+    return FilingDigest(
+        symbol=symbol,
+        fiscal_period=period,
+        filed_at_iso="2026-04-28",
+        revenue_yoy=yoy,
+        net_income_yoy=None,
+        gross_margin=None,
+        guidance_text="",
+        source_url=f"https://example.com/filing/{symbol}",
+    )
+
+
+def _broker(symbol: str, rating: str, days_ago: int = 5) -> BrokerReport:
+    from datetime import date, timedelta
+    pub = (date(2026, 5, 15) - timedelta(days=days_ago)).isoformat()
+    return BrokerReport(
+        symbol=symbol,
+        broker="中信证券",
+        rating=rating,
+        target_price=None,
+        published_iso=pub,
+        title=f"{symbol} 研报",
+        source_url=f"https://example.com/broker/{symbol}",
+    )
+
+
+def _snapshot(filings: tuple[FilingDigest, ...], brokers: tuple[BrokerReport, ...] = ()) -> ConstituentSnapshot:
+    cons = tuple(
+        Constituent(symbol=f.symbol, name=f.symbol, weight=0.05, market="cn")
+        for f in filings
+    )
+    return ConstituentSnapshot(
+        lookthrough_target="半导体",
+        as_of_iso="2026-05-15",
+        constituents=cons,
+        filings=filings,
+        broker_reports=brokers,
+    )
+
+
+def _theme_report(report_md: str = "Recent industry news.", *, citations: list[Citation] | None = None) -> ThemeReport:
+    return ThemeReport(
+        theme="semiconductor",
+        query="q",
+        locale="zh",
+        report_md=report_md,
+        citations=citations or [],
+        failure_reason="",
+    )
+
+
+# ---------------------------------------------------------------------------
+# Evidence-insufficient paths
+# ---------------------------------------------------------------------------
+
+def test_evidence_insufficient_when_snapshot_and_theme_report_both_none():
+    state, _reason, evidence, gaps = derive_thesis_from_evidence(None, None)
+    assert state == "evidence_insufficient"
+    assert evidence == ()
+    assert "missing_constituent_snapshot" in gaps
+    assert "missing_recent_news" in gaps
+
+
+def test_evidence_insufficient_when_snapshot_has_no_filings():
+    snap = _snapshot(filings=())
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None)
+    assert state == "evidence_insufficient"
+    assert "missing_constituent_snapshot" in gaps
+
+
+def test_evidence_insufficient_when_all_filings_lack_yoy():
+    snap = _snapshot(filings=tuple(_filing(f"S{i}", None) for i in range(5)))
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None)
+    assert state == "evidence_insufficient"
+    assert "missing_constituent_snapshot" in gaps
+
+
+def test_evidence_insufficient_when_theme_report_failed():
+    snap = _snapshot(filings=())
+    tr = ThemeReport(theme="x", query="q", locale="zh", report_md="",
+                     citations=[], failure_reason="all providers down")
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
+    assert state == "evidence_insufficient"
+    assert "missing_recent_news" in gaps
+
+
+# ---------------------------------------------------------------------------
+# Intact path
+# ---------------------------------------------------------------------------
+
+def test_intact_when_strong_majority_positive_yoy_and_neutral_brokers():
+    """Strong majority positive (≥60% pos AND <30% neg) with no broker signal → intact."""
+    filings = tuple(
+        [_filing(f"P{i}", 0.15) for i in range(8)]
+        + [_filing(f"N{i}", -0.05) for i in range(2)]
+    )
+    snap = _snapshot(filings=filings)
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert state == "intact"
+    assert "missing_constituent_snapshot" not in gaps
+
+
+def test_intact_when_majority_positive_and_buy_broker_consensus():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(7))
+    brokers = tuple(_broker(f"S{i}", rating="买入") for i in range(5))
+    snap = _snapshot(filings=filings, brokers=brokers)
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert state == "intact"
+    assert "missing_broker_coverage" not in gaps
+
+
+# ---------------------------------------------------------------------------
+# Under-pressure path
+# ---------------------------------------------------------------------------
+
+def test_under_pressure_when_30pct_negative_yoy():
+    filings = tuple(
+        [_filing(f"P{i}", 0.05) for i in range(7)]
+        + [_filing(f"N{i}", -0.10) for i in range(3)]
+    )
+    snap = _snapshot(filings=filings)
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert state == "under_pressure"
+
+
+def test_under_pressure_when_broker_consensus_negative():
+    """Majority positive YoY but broker ratings collapsed → under_pressure."""
+    filings = tuple(_filing(f"S{i}", 0.08) for i in range(7))
+    brokers = tuple(_broker(f"S{i}", rating="减持") for i in range(5))
+    snap = _snapshot(filings=filings, brokers=brokers)
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert state == "under_pressure"
+
+
+# ---------------------------------------------------------------------------
+# Falsified path
+# ---------------------------------------------------------------------------
+
+def test_falsified_when_majority_negative_yoy():
+    filings = tuple(
+        [_filing(f"N{i}", -0.15) for i in range(7)]
+        + [_filing(f"P{i}", 0.05) for i in range(3)]
+    )
+    snap = _snapshot(filings=filings)
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert state == "falsified"
+
+
+# ---------------------------------------------------------------------------
+# Evidence assembly
+# ---------------------------------------------------------------------------
+
+def test_evidence_includes_filing_entries():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
+    snap = _snapshot(filings=filings)
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert any(e.type == "filing" for e in evidence)
+    filing_e = next(e for e in evidence if e.type == "filing")
+    assert filing_e.url.startswith("https://example.com/filing/")
+    assert filing_e.date == "2026-04-28"
+
+
+def test_evidence_includes_broker_entries():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(3))
+    brokers = (_broker("S0", rating="买入"),)
+    snap = _snapshot(filings=filings, brokers=brokers)
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert any(e.type == "broker" for e in evidence)
+    broker_e = next(e for e in evidence if e.type == "broker")
+    assert broker_e.source == "中信证券"
+
+
+def test_evidence_includes_news_from_theme_report_citations():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(3))
+    snap = _snapshot(filings=filings)
+    tr = _theme_report(citations=[
+        Citation(index=1, title="Policy news", url="https://x.example/news",
+                 published_iso="2026-05-10"),
+    ])
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, tr)
+    assert any(e.type == "news" for e in evidence)
+
+
+def test_evidence_capped_to_keep_card_readable():
+    """Cap each evidence kind at a small N so cards don't bloat."""
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(20))
+    brokers = tuple(_broker(f"S{i}", rating="买入") for i in range(10))
+    snap = _snapshot(filings=filings, brokers=brokers)
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    n_filing = sum(1 for e in evidence if e.type == "filing")
+    n_broker = sum(1 for e in evidence if e.type == "broker")
+    assert n_filing <= 3
+    assert n_broker <= 2
+
+
+# ---------------------------------------------------------------------------
+# Gap typing
+# ---------------------------------------------------------------------------
+
+def test_missing_broker_coverage_gap_when_no_broker_reports():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
+    snap = _snapshot(filings=filings, brokers=())
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    assert "missing_broker_coverage" in gaps

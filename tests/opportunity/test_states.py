@@ -250,15 +250,17 @@ def test_small_watch_when_evidence_insufficient_but_not_excluded():
 
 
 def test_build_opportunity_row_records_evidence_gaps():
-    """Spec test 9: missing data produces explicit evidence_gaps."""
+    """Spec test 9: missing data produces explicit typed evidence_gaps."""
     inp = _make(theme="semiconductor")
     row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
-    assert "valuation" in row.evidence_gaps
-    assert "heat" in row.evidence_gaps
-    assert "product_quality" in row.evidence_gaps
+    assert "missing_valuation_data" in row.evidence_gaps
+    assert "missing_flow_or_return_data" in row.evidence_gaps
+    assert "missing_product_metadata" in row.evidence_gaps
 
 
-def test_build_opportunity_row_no_gaps_when_evidence_present():
+def test_build_opportunity_row_no_structural_gaps_when_metrics_present():
+    """With all four classifier dimensions populated, the only remaining gaps
+    are the thesis-fundamentals gaps (no snapshot / no theme report)."""
     inp = _make(
         theme="broad", tracked_index="csi300", asset_class="cn_etf",
         valuation_percentile_self=0.25,
@@ -266,7 +268,8 @@ def test_build_opportunity_row_no_gaps_when_evidence_present():
         expense_ratio=0.0015, aum_cny=20e9,
     )
     row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
-    assert row.evidence_gaps == ()
+    structural = {"missing_valuation_data", "missing_flow_or_return_data", "missing_product_metadata"}
+    assert structural.isdisjoint(set(row.evidence_gaps))
 
 
 def test_venue_incompatible_demotes_core_dca_to_small_watch():
@@ -292,4 +295,63 @@ def test_heat_gap_added_when_only_one_heat_input():
     """Issue 2 fix: n=1 heat inputs is evidence_insufficient, so gap must be flagged."""
     inp = _make(theme="semiconductor", ret_3m=0.05)  # only 1 of 6 heat signals
     row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
-    assert "heat" in row.evidence_gaps
+    assert "missing_flow_or_return_data" in row.evidence_gaps
+
+
+# ---------------------------------------------------------------------------
+# build_opportunity_row + ConstituentSnapshot / ThemeReport integration
+# ---------------------------------------------------------------------------
+
+def _make_full_input(**overrides):
+    """Build an input with all four classifier dimensions populated, so only the
+    thesis path varies across the next tests."""
+    base = dict(
+        theme="semiconductor", tracked_index="csi300", asset_class="cn_etf",
+        valuation_percentile_self=0.25,
+        ret_3m=0.02, ret_6m=0.05,
+        expense_ratio=0.0015, aum_cny=20e9,
+    )
+    base.update(overrides)
+    return _make(**base)
+
+
+def test_build_opportunity_row_uses_snapshot_when_provided():
+    """When a ConstituentSnapshot is supplied, thesis state should be derived
+    from concrete filings rather than the table."""
+    from irc.fundamentals.types import ConstituentSnapshot, Constituent, FilingDigest
+    filings = tuple(
+        FilingDigest(symbol=f"S{i}", fiscal_period="Q1", filed_at_iso="2026-04-28",
+                     revenue_yoy=-0.20, net_income_yoy=None, gross_margin=None,
+                     source_url=f"https://x/{i}")
+        for i in range(8)
+    ) + tuple(
+        FilingDigest(symbol=f"P{i}", fiscal_period="Q1", filed_at_iso="2026-04-28",
+                     revenue_yoy=0.05, net_income_yoy=None, gross_margin=None,
+                     source_url=f"https://x/p{i}")
+        for i in range(2)
+    )
+    cons = tuple(Constituent(symbol=f.symbol, name=f.symbol, weight=0.05, market="cn") for f in filings)
+    snap = ConstituentSnapshot(
+        lookthrough_target="半导体", as_of_iso="2026-05-15",
+        constituents=cons, filings=filings, broker_reports=(),
+    )
+    inp = _make_full_input()
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"}, snapshot=snap)
+    assert row.thesis_state == "falsified"
+    assert row.thesis_evidence  # populated, not empty
+    assert any(e.type == "filing" for e in row.thesis_evidence)
+
+
+def test_build_opportunity_row_falls_back_to_table_when_no_snapshot():
+    """No snapshot → use the legacy table-based thesis classifier path."""
+    inp = _make_full_input()
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert row.thesis_state == "intact"
+    assert row.thesis_evidence == ()
+
+
+def test_build_opportunity_row_marks_missing_snapshot_gap_when_table_used():
+    """Even when the table says intact, mark missing_constituent_snapshot as a typed gap."""
+    inp = _make_full_input()
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert "missing_constituent_snapshot" in row.evidence_gaps
