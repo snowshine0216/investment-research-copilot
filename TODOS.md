@@ -31,6 +31,7 @@ Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 - [ ] **Opportunity valuation/heat/product fields not wired from ingest**: `_build_input` always sets `valuation_percentile_self`, `drawdown_since_entry`, `expense_ratio`, `aum_cny`, `manager_tenure_years`, and momentum/flow fields to `None`. Wire from ingest output when those feeds are available. Until then, virtually all states degrade to `evidence_insufficient`. (code-review 2026-05-14)
 - [ ] **`reduce_same_index` per-index backup not in default pipeline**: `reduce_same_theme` Stage 1 keeps only one best representative per index key (no backup). `reduce_same_index` in `selection.py` is available for callers that need primary+backup, but is not wired into `run_opportunity`. Evaluate whether exposing a backup per-index improves display or fallback logic. (code-review 2026-05-14)
 - [ ] **`_bucket_rows` silent fallback on unknown `dca_action`**: unknown values silently land in "今日可定投" via `.get(..., default)`. Add a log warning or raise `KeyError` to surface new `dca_action` values that are missing from `_DCA_BUCKET`. (code-review 2026-05-14)
+- [ ] **`demote_unstable_active` treats `theme=None` as a shared bucket**: all instruments with `theme=None` share one passive-quality bucket; a single unrelated passive instrument can demote every active fund that also has `theme=None`. Guard with `if r.theme is None: continue` in the best-passive scan, or treat `None` as unmatched. (adversarial-review 2026-05-15)
 
 ## Completed
 

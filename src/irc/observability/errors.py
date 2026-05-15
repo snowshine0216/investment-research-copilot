@@ -22,7 +22,7 @@ class _Rule:
 _RULES: tuple[_Rule, ...] = (
     _Rule(
         "ssl",
-        lambda e: isinstance(e, ssl.SSLError) or "SSL" in type(e).__name__ or "SSL" in repr(e),
+        lambda e: isinstance(e, ssl.SSLError) or "SSL" in type(e).__name__,
         "SSL handshake failure (transient — rerun usually fixes)",
     ),
     _Rule(
