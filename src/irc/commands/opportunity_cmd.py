@@ -208,6 +208,10 @@ def run_opportunity(repo_root: str) -> int:
         inp = _build_input(score, instr, holding, target_band, portfolio_total_cny, available_venues)
         target = map_lookthrough(inp)
         target_name = target.display_cn
+        # V1 scope: broad CN-index targets (沪深300, 中证500, …) resolve to real
+        # snapshots via _TARGET_REGISTRY. Sector themes (半导体, 医药, …) and QDII
+        # targets (纳斯达克100, 恒生科技, …) miss the registry and fall through to
+        # snapshot=None — intentional for V1; expansion is tracked separately.
         if target_name not in snapshot_cache:
             snapshot_cache[target_name] = load_latest_cached_snapshot(
                 target_name, root / "data"
