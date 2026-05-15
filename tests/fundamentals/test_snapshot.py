@@ -193,3 +193,24 @@ def test_load_cached_snapshot_returns_none_when_schema_drift(tmp_path: Path) -> 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"foo": "bar"}), encoding="utf-8")
     assert load_cached_snapshot("drift", "2026Q1", tmp_path) is None
+
+
+def test_load_latest_cached_snapshot_picks_newest_quarter(tmp_path: Path) -> None:
+    from irc.fundamentals.snapshot import load_latest_cached_snapshot
+
+    old = ConstituentSnapshot("沪深300", "2026-02-01", (), (), (), ())
+    new = ConstituentSnapshot("沪深300", "2026-05-15", (), (), (), ())
+    write_snapshot(old, tmp_path)
+    write_snapshot(new, tmp_path)
+
+    loaded = load_latest_cached_snapshot("沪深300", tmp_path)
+
+    assert loaded is not None
+    assert loaded.as_of_iso == "2026-05-15"
+
+
+def test_load_latest_cached_snapshot_returns_none_when_absent(tmp_path: Path) -> None:
+    from irc.fundamentals.snapshot import load_latest_cached_snapshot
+
+    result = load_latest_cached_snapshot("沪深300", tmp_path)
+    assert result is None

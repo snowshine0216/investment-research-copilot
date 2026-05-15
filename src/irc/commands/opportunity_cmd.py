@@ -185,6 +185,14 @@ def run_opportunity(repo_root: str) -> int:
     positions: dict[str, PositionContext] = {}
     qualities: dict[str, SelectionQuality] = {}
     roles: dict[str, str] = {}
+
+    from irc.fundamentals.snapshot import load_latest_cached_snapshot
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.research.persistence import load_theme_reports
+
+    theme_reports = load_theme_reports(root)
+    snapshot_cache: dict[str, object] = {}
+
     for score in scores:
         iid = score.get("instrument_id", "")
         if not iid:
@@ -198,7 +206,18 @@ def run_opportunity(repo_root: str) -> int:
             if tgt is not None:
                 target_band = (tgt.band[0], tgt.band[1])
         inp = _build_input(score, instr, holding, target_band, portfolio_total_cny, available_venues)
-        row = build_opportunity_row(inp, theme_thesis or None)
+        target = map_lookthrough(inp)
+        target_name = target.display_cn
+        if target_name not in snapshot_cache:
+            snapshot_cache[target_name] = load_latest_cached_snapshot(
+                target_name, root / "data"
+            )
+        row = build_opportunity_row(
+            inp,
+            theme_thesis or None,
+            snapshot=snapshot_cache[target_name],
+            theme_report=theme_reports.get(inp.theme or ""),
+        )
         rows.append(row)
         positions[iid] = PositionContext(
             portfolio_weight=inp.portfolio_weight,

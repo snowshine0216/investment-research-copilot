@@ -241,3 +241,27 @@ def load_cached_snapshot(
     if not isinstance(body, dict):
         return None
     return _snapshot_from_dict(body)
+
+
+def load_latest_cached_snapshot(
+    lookthrough_target: str,
+    root: Path,
+) -> ConstituentSnapshot | None:
+    """Return the most recent cached snapshot for `lookthrough_target`.
+
+    Scans `root/fundamentals/*/` for quarter directories containing
+    `<lookthrough_target>.json`, sorts lexicographically (which works for
+    <YYYY>Q<N> format), and tries the most recent first.
+
+    Returns None when no snapshot exists for the target.
+    """
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/{lookthrough_target}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.name
+        loaded = load_cached_snapshot(lookthrough_target, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None

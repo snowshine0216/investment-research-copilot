@@ -218,3 +218,61 @@ def test_build_input_empty_venues_treats_instrument_as_compatible():
         instr, None, None, 0.0, set()  # empty venues
     )
     assert inp.venue_compatible is True
+
+
+def test_opportunity_cmd_passes_snapshot_when_available(tmp_path: Path, monkeypatch) -> None:
+    """When snapshot data is available, it is passed into build_opportunity_row."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.fundamentals.snapshot import write_snapshot
+    from irc.fundamentals.types import ConstituentSnapshot
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+
+    snap = ConstituentSnapshot(
+        lookthrough_target="沪深300",
+        as_of_iso="2026-05-15",
+        constituents=(),
+        filings=(),
+        broker_reports=(),
+        failure_reasons=(),
+    )
+    write_snapshot(snap, tmp_path / "data")
+
+    captured_kwargs: list[dict] = []
+    import irc.commands.opportunity_cmd as opp_mod
+    original_build = opp_mod.build_opportunity_row
+
+    def capturing_build(inp, theme_thesis, *, snapshot=None, theme_report=None):
+        captured_kwargs.append({"snapshot": snapshot, "theme_report": theme_report})
+        return original_build(inp, theme_thesis, snapshot=snapshot, theme_report=theme_report)
+
+    monkeypatch.setattr(opp_mod, "build_opportunity_row", capturing_build)
+
+    rc = run_opportunity(repo_root=str(tmp_path))
+
+    assert rc == 0
+    assert any(c["snapshot"] is not None for c in captured_kwargs)
+
+
+def test_opportunity_cmd_passes_none_snapshot_when_no_cache(tmp_path: Path, monkeypatch) -> None:
+    """When no snapshot exists, snapshot=None is passed (degrade-not-halt)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+
+    captured_kwargs: list[dict] = []
+    import irc.commands.opportunity_cmd as opp_mod
+    original_build = opp_mod.build_opportunity_row
+
+    def capturing_build(inp, theme_thesis, *, snapshot=None, theme_report=None):
+        captured_kwargs.append({"snapshot": snapshot, "theme_report": theme_report})
+        return original_build(inp, theme_thesis, snapshot=snapshot, theme_report=theme_report)
+
+    monkeypatch.setattr(opp_mod, "build_opportunity_row", capturing_build)
+
+    rc = run_opportunity(repo_root=str(tmp_path))
+
+    assert rc == 0
+    assert all(c["snapshot"] is None for c in captured_kwargs)
