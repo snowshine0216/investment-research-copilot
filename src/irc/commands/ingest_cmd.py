@@ -4,12 +4,9 @@ import logging
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from irc.observability import ErrorTally, progress_iter
-
-if TYPE_CHECKING:
-    pass
 
 import pandas as pd
 from pydantic_settings import BaseSettings, SettingsConfigDict
