@@ -148,6 +148,21 @@ def universe_build_cn_funds(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.group(help="Fundamentals snapshot cache management.")
+def fundamentals() -> None:
+    pass
+
+
+@fundamentals.command("snapshot", help="Rebuild cached constituent snapshot(s).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--target", "targets", multiple=True, required=True, help="Lookthrough target to rebuild. Repeat for multiple targets.")
+@click.option("--top-n", type=int, default=10, show_default=True, help="Top constituents to fetch per target.")
+def fundamentals_snapshot(repo_root: str, targets: tuple[str, ...], top_n: int) -> None:
+    from irc.commands.fundamentals_cmd import run_snapshot_rebuild
+    rc = run_snapshot_rebuild(repo_root=repo_root, targets=targets, top_n=top_n)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:
