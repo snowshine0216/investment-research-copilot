@@ -12,10 +12,12 @@ import pandas as pd
 import pytest
 
 from irc.fundamentals.akshare_fundamentals import (
-    fetch_cn_broker_reports,
     fetch_cn_etf_holdings,
-    fetch_cn_filing_digest,
     fetch_cn_index_constituents,
+)
+from irc.fundamentals.akshare_filing import (
+    fetch_cn_broker_reports,
+    fetch_cn_filing_digest,
 )
 from irc.fundamentals.types import BrokerReport, Constituent, FilingDigest
 
@@ -152,9 +154,9 @@ _REPORT_FRAME = pd.DataFrame({
 
 def test_fetch_cn_broker_reports_happy_path_returns_recent_first() -> None:
     with patch(
-        "irc.fundamentals.akshare_fundamentals._ak_call"
+        "irc.fundamentals.akshare_filing._ak_call"
     ) as mocked, patch(
-        "irc.fundamentals.akshare_fundamentals._today_iso",
+        "irc.fundamentals.akshare_filing._today_iso",
         return_value="2026-05-15",
     ):
         mocked.return_value = _REPORT_FRAME
@@ -172,9 +174,9 @@ def test_fetch_cn_broker_reports_happy_path_returns_recent_first() -> None:
 
 def test_fetch_cn_broker_reports_respects_max_reports() -> None:
     with patch(
-        "irc.fundamentals.akshare_fundamentals._ak_call"
+        "irc.fundamentals.akshare_filing._ak_call"
     ) as mocked, patch(
-        "irc.fundamentals.akshare_fundamentals._today_iso",
+        "irc.fundamentals.akshare_filing._today_iso",
         return_value="2026-05-15",
     ):
         mocked.return_value = _REPORT_FRAME
@@ -183,7 +185,7 @@ def test_fetch_cn_broker_reports_respects_max_reports() -> None:
 
 
 def test_fetch_cn_broker_reports_returns_empty_on_failure() -> None:
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
         mocked.side_effect = RuntimeError("eastmoney 5xx")
         out = fetch_cn_broker_reports("600519")
     assert out == ()
@@ -205,7 +207,7 @@ _ABSTRACT_FRAME = pd.DataFrame({
 
 
 def test_fetch_cn_filing_digest_computes_yoy_and_margin_for_latest_quarter() -> None:
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
         mocked.return_value = _ABSTRACT_FRAME
         digest = fetch_cn_filing_digest("600519")
     assert mocked.call_args[0][0] == "stock_financial_abstract"
@@ -229,7 +231,7 @@ def test_fetch_cn_filing_digest_maps_fy_period_for_year_end_column() -> None:
         "20251231": [82.32e9, 172.05e9, 57.37e9],
         "20241231": [86.22e9, 174.14e9, 54.52e9],
     })
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
         mocked.return_value = fy_frame
         digest = fetch_cn_filing_digest("600519")
     assert digest is not None
@@ -240,7 +242,7 @@ def test_fetch_cn_filing_digest_maps_fy_period_for_year_end_column() -> None:
 
 
 def test_fetch_cn_filing_digest_returns_none_on_failure() -> None:
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
         mocked.side_effect = RuntimeError("sina 502")
         digest = fetch_cn_filing_digest("600519")
     assert digest is None
@@ -250,7 +252,7 @@ def test_fetch_cn_filing_digest_returns_none_when_metrics_missing() -> None:
     bad_frame = pd.DataFrame({
         "选项": ["盈利能力"], "指标": ["净资产收益率"], "20260331": [0.18],
     })
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
         mocked.return_value = bad_frame
         digest = fetch_cn_filing_digest("600519")
     assert digest is None

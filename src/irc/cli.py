@@ -148,6 +148,21 @@ def universe_build_cn_funds(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.group(help="Fundamentals snapshot cache management.")
+def fundamentals() -> None:
+    pass
+
+
+@fundamentals.command("snapshot", help="Rebuild cached constituent snapshot(s).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--target", "targets", multiple=True, required=True, help="Lookthrough target to rebuild. Repeat for multiple targets.")
+@click.option("--top-n", type=int, default=10, show_default=True, help="Top constituents to fetch per target.")
+def fundamentals_snapshot(repo_root: str, targets: tuple[str, ...], top_n: int) -> None:
+    from irc.commands.fundamentals_cmd import run_snapshot_rebuild
+    rc = run_snapshot_rebuild(repo_root=repo_root, targets=targets, top_n=top_n)
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:
@@ -156,11 +171,12 @@ def freshness(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
-@main.command(help="Run web-research jobs across 7 themes; write data/research/<theme>.md.")
+@main.command(help="Run web-research jobs; write data/research/<theme>.md.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
-def research(repo_root: str) -> None:
+@click.option("--theme", "themes", multiple=True, help="Theme key to run. Repeat for multiple themes. Defaults to all configured research themes.")
+def research(repo_root: str, themes: tuple[str, ...]) -> None:
     from irc.commands.research_cmd import run_research
-    rc = run_research(repo_root=repo_root)
+    rc = run_research(repo_root=repo_root, themes=themes or None)
     raise SystemExit(rc)
 
 

@@ -50,3 +50,26 @@ def test_research_cmd_loads_env_and_calls_pipeline_when_providers_present(
     providers = mock_pipeline.call_args.kwargs["providers"]
     assert len(providers) == 1
     assert providers[0].name == "tavily"
+
+
+def test_research_cmd_accepts_selected_themes(tmp_path: Path, monkeypatch) -> None:
+    repo_root = tmp_path / "repo"
+    other_cwd = tmp_path / "elsewhere"
+    repo_root.mkdir()
+    other_cwd.mkdir()
+    (repo_root / ".env").write_text(
+        "DEEPSEEK_API_KEY=sk-test\nTAVILY_API_KEY=tvly-test\nBOCHA_API_KEY=bocha-test\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(other_cwd)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+
+    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=0) as mock_pipeline, \
+         patch("irc.commands.research_cmd.load_repo_configs") as mock_cfg, \
+         patch("irc.commands.research_cmd.resolve_route") as mock_route:
+        mock_cfg.return_value.llm = object()
+        mock_route.return_value = object()
+        rc = run_research(repo_root=str(repo_root), themes=("us_monetary", "cn_monetary"))
+
+    assert rc == 0
+    assert mock_pipeline.call_args.kwargs["themes"] == ("us_monetary", "cn_monetary")

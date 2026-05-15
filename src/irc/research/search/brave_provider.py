@@ -1,8 +1,7 @@
 from __future__ import annotations
 from urllib.parse import urlparse
 
-import httpx
-
+from irc.research.search._http import get_json
 from irc.research.search.types import Locale, SearchHit, SearchResult
 
 
@@ -45,45 +44,17 @@ class BraveNewsProvider:
         params: dict[str, str | int] = {"q": query, "count": max_results}
         if freshness_days is not None:
             params["freshness"] = _freshness_bucket(freshness_days)
-        headers = {
-            "X-Subscription-Token": self._api_key,
-            "Accept": "application/json",
-        }
-        try:
-            resp = httpx.get(
-                _ENDPOINT,
-                params=params,
-                headers=headers,
-                timeout=self._timeout_s,
-            )
-        except httpx.TimeoutException as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"timeout: {exc}",
-            )
-        except httpx.HTTPError as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"http error: {exc}",
-            )
-        if resp.status_code != 200:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"http {resp.status_code}: {resp.text[:200]}",
-            )
-        try:
-            body = resp.json()
-        except ValueError as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"invalid JSON: {exc}",
-            )
+        headers = {"X-Subscription-Token": self._api_key, "Accept": "application/json"}
+        body, err = get_json(
+            _ENDPOINT, params=params, headers=headers, timeout_s=self._timeout_s,
+            query=query, locale=self.locale, provider=self.name,
+        )
+        if err is not None:
+            return err
         results = body.get("results")
         if not isinstance(results, list):
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason="missing 'results' array in response",
-            )
+            return SearchResult(query=query, locale=self.locale, provider=self.name,
+                                failure_reason="missing 'results' array in response")
         hits = tuple(_to_hit(r) for r in results if isinstance(r, dict))
         if include_domains:
             allowed = {d.lower() for d in include_domains}
@@ -91,9 +62,7 @@ class BraveNewsProvider:
         if exclude_domains:
             blocked = {d.lower() for d in exclude_domains}
             hits = tuple(h for h in hits if h.source_domain.lower() not in blocked)
-        return SearchResult(
-            query=query, locale=self.locale, hits=hits, provider=self.name,
-        )
+        return SearchResult(query=query, locale=self.locale, hits=hits, provider=self.name)
 
 
 def _to_hit(raw: dict) -> SearchHit:

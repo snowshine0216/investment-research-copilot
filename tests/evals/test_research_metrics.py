@@ -1,49 +1,70 @@
 from __future__ import annotations
-from evals.research.metrics import theme_coverage, ldr_citation_validity
+from evals.research.metrics import (
+    theme_coverage,
+    research_success_rate,
+    research_citation_validity,
+    research_failure_visibility,
+)
 
 
-def _make_reports():
+def _status_themes():
     return [
-        {"theme": "macro", "type": "ldr", "citations": ["src1"]},
-        {"theme": "sector_rotation", "type": "ldr", "citations": ["src2"]},
-        {"theme": "credit", "type": "summary", "citations": []},
-        {"theme": "commodity", "type": "ldr", "citations": ["src3"]},
-        {"theme": "geopolitics", "type": "ldr", "citations": []},
-        {"theme": "rates", "type": "ldr", "citations": ["src4"]},
-        {"theme": "equity_valuation", "type": "ldr", "citations": ["src5"]},
+        {"theme": "us_monetary", "citation_count": 2, "failure_reason": ""},
+        {"theme": "cn_monetary", "citation_count": 1, "failure_reason": ""},
+        {"theme": "gold_drivers", "citation_count": 0, "failure_reason": "timeout"},
     ]
+
+
+def test_theme_coverage_counts_matching_required_themes():
+    themes = _status_themes()
+    # us_monetary and cn_monetary match; gold_drivers also matches; 3 total
+    assert theme_coverage(themes) == 3
 
 
 def test_theme_coverage_all_seven():
-    reports = _make_reports()
-    assert theme_coverage(reports) == 7
-
-
-def test_theme_coverage_partial():
-    reports = [
-        {"theme": "macro", "type": "ldr", "citations": ["x"]},
-        {"theme": "rates", "type": "ldr", "citations": ["y"]},
+    themes = [
+        {"theme": t, "citation_count": 1, "failure_reason": ""}
+        for t in ("us_monetary", "us_fiscal_politics", "cn_monetary",
+                  "cn_equity_property_policy", "geopolitics", "gold_drivers", "holdings_sector")
     ]
-    assert theme_coverage(reports) == 2
+    assert theme_coverage(themes) == 7
 
 
 def test_theme_coverage_empty():
     assert theme_coverage([]) == 0
 
 
-def test_ldr_citation_validity_all_valid():
-    reports = _make_reports()
-    # 6 LDR reports; sample_size=5 takes first 5:
-    # macro(valid), sector_rotation(valid), commodity(valid), geopolitics(invalid), rates(valid)
-    # → 4/5 = 0.8
-    rate = ldr_citation_validity(reports)
-    assert abs(rate - 4 / 5) < 1e-9
+def test_research_success_rate_counts_non_failed_themes():
+    assert research_success_rate(_status_themes()) == 2 / 3
 
 
-def test_ldr_citation_validity_no_ldr():
-    reports = [{"theme": "macro", "type": "summary", "citations": []}]
-    assert ldr_citation_validity(reports) == 1.0
+def test_research_success_rate_empty():
+    assert research_success_rate([]) == 1.0
 
 
-def test_ldr_citation_validity_empty():
-    assert ldr_citation_validity([]) == 1.0
+def test_research_citation_validity_requires_citations_on_successful_themes():
+    # 2 successful themes: us_monetary (count=2, ok) and cn_monetary (count=1, ok)
+    assert research_citation_validity(_status_themes()) == 1.0
+
+
+def test_research_citation_validity_no_successful_themes():
+    themes = [{"theme": "x", "citation_count": 0, "failure_reason": "error"}]
+    assert research_citation_validity(themes) == 1.0
+
+
+def test_research_failure_visibility_requires_reason_for_failed_themes():
+    assert research_failure_visibility(_status_themes()) == 1.0
+
+
+def test_research_failure_visibility_missing_reason():
+    themes = [{"theme": "x", "citation_count": 0, "failure_reason": ""}]
+    # failure_reason="" is falsy → not failed → visibility = 1.0
+    assert research_failure_visibility(themes) == 1.0
+
+
+def test_research_failure_visibility_truly_invisible_failure():
+    # A theme where failure_reason has whitespace only
+    themes = [{"theme": "x", "citation_count": 0, "failure_reason": "  "}]
+    # "  " is truthy → this is a failure
+    # "  ".strip() = "" → not visible → 0/1 = 0.0
+    assert research_failure_visibility(themes) == 0.0

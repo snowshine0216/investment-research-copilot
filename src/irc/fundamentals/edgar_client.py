@@ -11,6 +11,7 @@ Returns None on any failure; the snapshot orchestrator records the diagnostic.
 """
 from __future__ import annotations
 
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -22,7 +23,16 @@ from irc.llm.http_client import verify_host_resolves_publicly
 
 _TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 _FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json"
-_USER_AGENT = "irc-research (HarryGrimesiun@mail.com)"
+
+# SEC fair-use policy requires a valid contact email in the User-Agent.
+# Set EDGAR_CONTACT_EMAIL in .env. Without it, requests use a placeholder
+# that SEC may rate-limit or block.
+_EDGAR_CONTACT = os.environ.get("EDGAR_CONTACT_EMAIL", "")
+_USER_AGENT = (
+    f"irc-research ({_EDGAR_CONTACT})"
+    if _EDGAR_CONTACT
+    else "irc-research (set EDGAR_CONTACT_EMAIL in .env)"
+)
 
 _REVENUE_TAGS = (
     "Revenues",

@@ -20,6 +20,8 @@ from irc.opportunity.report import (
     compose_thesis_cards_yaml,
 )
 from irc.commands.theme_thesis import load_theme_thesis
+from irc.fundamentals.snapshot import load_latest_cached_snapshot
+from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.selection import SelectionQuality, demote_unstable_active, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import (
@@ -28,6 +30,7 @@ from irc.opportunity.types import (
     OpportunityRow,
 )
 from irc.schemas.inputs import AccountFile, Holding
+from irc.research.persistence import load_theme_reports
 from irc.schemas.universe import Instrument, UniverseConfig
 
 
@@ -149,6 +152,153 @@ def _discipline_row_from(
     )
 
 
+def _build_rows(
+    scores: list[dict],
+    instr_index: dict[str, Instrument],
+    holdings: dict[str, Holding],
+    portfolio_total_cny: float,
+    available_venues: set[str],
+    theme_thesis: object,
+    theme_reports: dict,
+    root: Path,
+    asset_class_targets: dict,
+) -> tuple[list[OpportunityRow], dict, dict, dict]:
+    """Build opportunity rows for each score entry; return (rows, positions, qualities, roles)."""
+    rows: list[OpportunityRow] = []
+    positions: dict[str, PositionContext] = {}
+    qualities: dict[str, SelectionQuality] = {}
+    roles: dict[str, str] = {}
+    snapshot_cache: dict[str, object] = {}
+    for score in scores:
+        iid = score.get("instrument_id", "")
+        if not iid:
+            print(f"WARNING: skipping score row with missing instrument_id: {score}")
+            continue
+        instr = instr_index.get(iid)
+        holding = holdings.get(iid)
+        target_band: tuple[float, float] | None = None
+        if instr is not None:
+            tgt = asset_class_targets.get(instr.asset_class)
+            if tgt is not None:
+                target_band = (tgt.band[0], tgt.band[1])
+        inp = _build_input(
+            score, instr, holding,
+            target_band,
+            portfolio_total_cny, available_venues,
+        )
+        target_name = map_lookthrough(inp).display_cn
+        if target_name not in snapshot_cache:
+            snapshot_cache[target_name] = load_latest_cached_snapshot(
+                target_name, root / "data"
+            )
+        row = build_opportunity_row(
+            inp,
+            theme_thesis or None,
+            snapshot=snapshot_cache[target_name],
+            theme_report=theme_reports.get(inp.theme or ""),
+        )
+        rows.append(row)
+        positions[iid] = PositionContext(
+            portfolio_weight=inp.portfolio_weight,
+            target_band_low=inp.target_band_low,
+            target_band_high=inp.target_band_high,
+            drawdown_since_entry=inp.drawdown_since_entry,
+            is_holding=inp.is_holding,
+        )
+        qualities[iid] = _selection_quality_from(inp)
+        roles[iid] = inp.role or (instr.theme if instr else "") or ""
+    return rows, positions, qualities, roles
+
+
+def _print_quality_warnings(rows: list[OpportunityRow]) -> None:
+    """Print skeleton-mode or partial data warnings to stdout."""
+    _insuf = "evidence_insufficient"
+    all_insuf = all(
+        r.valuation_state == _insuf
+        and r.heat_state == _insuf
+        and r.thesis_state == _insuf
+        and r.product_quality_state == _insuf
+        for r in rows
+    )
+    if all_insuf:
+        print(
+            f"WARNING: opportunity layer running in skeleton mode — "
+            f"valuation/heat/thesis/product data not yet wired from ingest; "
+            f"all {len(rows)} instruments show evidence_insufficient. "
+            "See TODOS.md."
+        )
+    else:
+        n_missing_val = sum(1 for r in rows if r.valuation_state == _insuf)
+        if n_missing_val:
+            print(
+                f"WARNING: {n_missing_val}/{len(rows)} instruments missing "
+                "valuation data — those states degraded to evidence_insufficient."
+            )
+
+
+def _apply_reduction(
+    rows: list[OpportunityRow],
+    qualities: dict[str, SelectionQuality],
+    held_ids: set[str],
+) -> list[OpportunityRow]:
+    """Apply same-theme reduction, hold-preservation, and active-fund demotion."""
+    by_theme: dict[str, list[OpportunityRow]] = {}
+    for r in rows:
+        by_theme.setdefault(r.theme or "_unthemed", []).append(r)
+    kept: list[OpportunityRow] = []
+    dropped: list[OpportunityRow] = []
+    for theme, group in by_theme.items():
+        if theme == "_unthemed":
+            kept.extend(group)
+            continue
+        k, d = reduce_same_theme(group, qualities, max_per_theme=2)
+        kept.extend(k)
+        dropped.extend(d)
+    for r in dropped:
+        if r.instrument_id in held_ids and r not in kept:
+            kept.append(r)
+    kept_t, demoted_active = demote_unstable_active(kept, qualities)
+    if demoted_active:
+        print(
+            f"INFO: demoted {len(demoted_active)} active fund(s) to small_watch "
+            "(passive alternative available in same theme)"
+        )
+    return list(kept_t)
+
+
+def _write_opportunity_outputs(
+    kept_rows: list[OpportunityRow],
+    positions: dict[str, PositionContext],
+    qualities: dict[str, SelectionQuality],
+    roles: dict[str, str],
+    holdings: dict[str, Holding],
+    out_dir: Path,
+    today: str,
+) -> None:
+    cards = [
+        build_thesis_card(
+            row=r,
+            position=positions[r.instrument_id],
+            role=_role_for(r, roles),
+            entry_reason=r.opportunity_reason.split(" | ")[0] if r.opportunity_reason else "",
+        )
+        for r in kept_rows
+        if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
+    ]
+    discipline_rows = [_discipline_row_from(r, positions[r.instrument_id]) for r in kept_rows]
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(
+        out_dir / "opportunity_report.json",
+        json.dumps(compose_opportunity_report(kept_rows, today), ensure_ascii=False, indent=2),
+    )
+    atomic_write_text(out_dir / "thesis_cards.yaml", compose_thesis_cards_yaml(cards))
+    atomic_write_text(out_dir / "discipline_report.md", compose_discipline_markdown(discipline_rows, today))
+    print(
+        f"opportunity OK: {len(kept_rows)} rows, {len(cards)} cards, "
+        f"{len(discipline_rows)} discipline entries -> {out_dir}"
+    )
+
+
 def run_opportunity(repo_root: str) -> int:
     root = Path(repo_root)
     bundle = load_repo_configs(root)
@@ -156,17 +306,13 @@ def run_opportunity(repo_root: str) -> int:
     available_venues: set[str] = {
         v for acc in bundle.account.accounts for v in acc.available_venues
     }
-
     scoring_path = _locate_scoring(root, today)
     if scoring_path is None:
         print("ERROR: no scoring.json; run `irc score` first.")
         return 2
-    # Outputs follow the convention outputs/{YYYY-MM-DD}/scoring.json;
-    # compare the parent directory name to today's date to detect staleness.
     if scoring_path.parent.name != today:
         print(f"WARNING: using stale scoring from {scoring_path.parent.name}")
     scores = _load_scores(scoring_path)
-
     try:
         theme_thesis = load_theme_thesis(root)
     except ValueError as exc:
@@ -180,126 +326,14 @@ def run_opportunity(repo_root: str) -> int:
     portfolio_total_cny = sum(
         h.cost_basis_cny for acc in bundle.account.accounts for h in acc.holdings
     )
-
-    rows: list[OpportunityRow] = []
-    positions: dict[str, PositionContext] = {}
-    qualities: dict[str, SelectionQuality] = {}
-    roles: dict[str, str] = {}
-    for score in scores:
-        iid = score.get("instrument_id", "")
-        if not iid:
-            print(f"WARNING: skipping score row with missing instrument_id: {score}")
-            continue
-        instr = instr_index.get(iid)
-        holding = holdings.get(iid)
-        target_band: tuple[float, float] | None = None
-        if instr is not None:
-            tgt = bundle.preferences.asset_class_targets.get(instr.asset_class)
-            if tgt is not None:
-                target_band = (tgt.band[0], tgt.band[1])
-        inp = _build_input(score, instr, holding, target_band, portfolio_total_cny, available_venues)
-        row = build_opportunity_row(inp, theme_thesis or None)
-        rows.append(row)
-        positions[iid] = PositionContext(
-            portfolio_weight=inp.portfolio_weight,
-            target_band_low=inp.target_band_low,
-            target_band_high=inp.target_band_high,
-            drawdown_since_entry=inp.drawdown_since_entry,
-            is_holding=inp.is_holding,
-        )
-        qualities[iid] = _selection_quality_from(inp)
-        roles[iid] = inp.role or (instr.theme if instr else "") or ""
-
-    # Warn when all classifiers globally lack data (skeleton mode).
-    # This happens when ingest hasn't wired signal fields yet (Phase 1 gap).
+    theme_reports = load_theme_reports(root)
+    rows, positions, qualities, roles = _build_rows(
+        scores, instr_index, holdings, portfolio_total_cny,
+        available_venues, theme_thesis, theme_reports, root,
+        bundle.preferences.asset_class_targets,
+    )
     if rows:
-        _insuf = "evidence_insufficient"
-        all_val = all(r.valuation_state == _insuf for r in rows)
-        all_heat = all(r.heat_state == _insuf for r in rows)
-        all_thesis = all(r.thesis_state == _insuf for r in rows)
-        all_product = all(r.product_quality_state == _insuf for r in rows)
-        if all_val and all_heat and all_thesis and all_product:
-            print(
-                f"WARNING: opportunity layer running in skeleton mode — "
-                f"valuation/heat/thesis/product data not yet wired from ingest; "
-                f"all {len(rows)} instruments show evidence_insufficient. "
-                "See TODOS.md."
-            )
-        else:
-            n_missing_val = sum(1 for r in rows if r.valuation_state == _insuf)
-            if n_missing_val:
-                print(
-                    f"WARNING: {n_missing_val}/{len(rows)} instruments missing "
-                    "valuation data — those states degraded to evidence_insufficient."
-                )
-
-    # Same-theme reduction inside each theme bucket.
-    # Note: reduce_same_index (per-index primary+backup selection) is available
-    # in irc.opportunity.selection for callers that need it directly. The
-    # reduce_same_theme Stage 1 already collapses each index key to a single
-    # best representative; wiring in per-index backups is deferred (see TODOS.md).
-    by_theme: dict[str, list[OpportunityRow]] = {}
-    for r in rows:
-        by_theme.setdefault(r.theme or "_unthemed", []).append(r)
-    kept_rows: list[OpportunityRow] = []
-    dropped_rows: list[OpportunityRow] = []
-    for theme, group in by_theme.items():
-        if theme == "_unthemed":
-            kept_rows.extend(group)
-            continue
-        kept, dropped = reduce_same_theme(group, qualities, max_per_theme=2)
-        kept_rows.extend(kept)
-        dropped_rows.extend(dropped)
-
-    # Always include current holdings even if reduction dropped them.
-    held_ids = set(holdings.keys())
-    for r in dropped_rows:
-        if r.instrument_id in held_ids and r not in kept_rows:
-            kept_rows.append(r)
-
-    # Demote active funds to small_watch when a passive alternative in the
-    # same theme is at least as good (selection quality comparison).
-    kept_rows_t, demoted_active = demote_unstable_active(list(kept_rows), qualities)
-    kept_rows = list(kept_rows_t)
-    if demoted_active:
-        print(
-            f"INFO: demoted {len(demoted_active)} active fund(s) to small_watch "
-            "(passive alternative available in same theme)"
-        )
-
-    cards = [
-        build_thesis_card(
-            row=r,
-            position=positions[r.instrument_id],
-            role=_role_for(r, roles),
-            entry_reason=r.opportunity_reason.split(" | ")[0] if r.opportunity_reason else "",
-        )
-        for r in kept_rows
-        if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
-    ]
-
-    discipline_rows = [
-        _discipline_row_from(r, positions[r.instrument_id]) for r in kept_rows
-    ]
-
-    out_dir = root / "outputs" / today
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    atomic_write_text(
-        out_dir / "opportunity_report.json",
-        json.dumps(compose_opportunity_report(kept_rows, today), ensure_ascii=False, indent=2),
-    )
-    atomic_write_text(
-        out_dir / "thesis_cards.yaml",
-        compose_thesis_cards_yaml(cards),
-    )
-    atomic_write_text(
-        out_dir / "discipline_report.md",
-        compose_discipline_markdown(discipline_rows, today),
-    )
-
-    print(
-        f"opportunity OK: {len(kept_rows)} rows, {len(cards)} cards, "
-        f"{len(discipline_rows)} discipline entries -> {out_dir}"
-    )
+        _print_quality_warnings(rows)
+    kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
+    _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, root / "outputs" / today, today)
     return 0
