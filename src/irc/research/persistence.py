@@ -71,16 +71,19 @@ def load_theme_reports(root: Path) -> dict[str, ThemeReport]:
         theme = str(item.get("theme", ""))
         if not theme:
             continue
-        md_path = root / item.get("report_path", f"data/research/{theme}.md")
-        report_md = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
-        citations = [Citation(**c) for c in item.get("citations", [])]
-        reports[theme] = ThemeReport(
-            theme=theme,
-            query=str(item.get("query", "")),
-            locale=str(item.get("locale", "")),
-            report_md=report_md,
-            citations=citations,
-            failure_reason=str(item.get("failure_reason", "")),
-            provider_failures=tuple(item.get("provider_failures", ())),
-        )
+        try:
+            md_path = root / item.get("report_path", f"data/research/{theme}.md")
+            report_md = md_path.read_text(encoding="utf-8") if md_path.exists() else ""
+            citations = [Citation(**c) for c in item.get("citations", [])]
+            reports[theme] = ThemeReport(
+                theme=theme,
+                query=str(item.get("query", "")),
+                locale=str(item.get("locale", "")),
+                report_md=report_md,
+                citations=citations,
+                failure_reason=str(item.get("failure_reason", "")),
+                provider_failures=tuple(item.get("provider_failures", ())),
+            )
+        except (TypeError, KeyError, OSError):
+            continue
     return reports

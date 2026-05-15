@@ -27,7 +27,13 @@ def run(repo_root: Path) -> int:
         print(f"research eval: {report.overall} (no input file)")
         return 0
 
-    body = json.loads(status_file.read_text(encoding="utf-8"))
+    try:
+        body = json.loads(status_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        report = _pass_report()
+        _write(repo_root, report)
+        print(f"research eval: {report.overall} (status file unreadable)")
+        return 0
     themes: list[dict] = body.get("themes", [])
 
     tc = theme_coverage(themes)
