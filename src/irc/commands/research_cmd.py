@@ -23,10 +23,10 @@ def run_research(repo_root: str, themes: tuple[str, ...] | None = None) -> int:
     providers = build_providers(settings)
     if not providers:
         print(
-            "research skipped: no search provider keys configured. "
+            "ERROR: research cannot run — no search provider keys configured. "
             "Set TAVILY_API_KEY, BRAVE_API_KEY, or BOCHA_API_KEY in .env."
         )
-        return 0
+        return 2
     extractor = build_extractor(settings)
     bundle = load_repo_configs(root)
     route = resolve_route("research_synth", bundle.llm)

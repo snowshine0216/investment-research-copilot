@@ -19,7 +19,7 @@ def test_research_cmd_skips_when_no_providers_configured(tmp_path: Path, monkeyp
     with patch("irc.commands.research_cmd.run_research_pipeline") as mock_pipeline:
         rc = run_research(repo_root=str(repo_root))
 
-    assert rc == 0
+    assert rc == 2
     assert mock_pipeline.call_count == 0
 
 

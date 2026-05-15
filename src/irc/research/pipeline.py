@@ -1,10 +1,14 @@
 from __future__ import annotations
+import logging
 from pathlib import Path
 
 from irc.llm._types import ResolvedRoute
+from irc.research.quality_gate import evaluate_research_quality
 from irc.research.search.types import ContentExtractor, SearchProvider
 from irc.research.persistence import write_research_outputs
 from irc.research.theme_research import build_theme_reports
+
+_log = logging.getLogger(__name__)
 
 
 def run_research_pipeline(
@@ -15,15 +19,22 @@ def run_research_pipeline(
     extractor: ContentExtractor,
     route: ResolvedRoute,
 ) -> int:
-    """Run the research pipeline for all themes.
+    """Run all theme research; persist outputs; return rc per the quality gate.
 
-    Returns 0 for all completed runs, including degraded runs where individual themes failed.
-    Returns non-zero only for unrecoverable conditions: pipeline-level exceptions or IO failures.
-    Per-theme failures are represented in research_status.json with failure_reason set.
+    0 = pass (or warn, run continues); 2 = fail (caller should halt).
     """
     out_dir = repo_root / "data" / "research"
     reports = build_theme_reports(
         themes=themes, providers=providers, extractor=extractor, route=route,
     )
     write_research_outputs(out_dir, reports)
-    return 0
+
+    verdict = evaluate_research_quality(reports)
+    for reason in verdict.reasons:
+        if verdict.passed:
+            _log.warning("research quality WARN: %s", reason)
+        else:
+            _log.error("research quality FAIL: %s", reason)
+    if not verdict.passed:
+        print("ERROR: research quality gate failed — see warnings above for details")
+    return verdict.exit_code
