@@ -7,6 +7,7 @@ from irc.opportunity.types import (
     OpportunityInput,
     OpportunityRow,
     ThesisCard,
+    ThesisEvidence,
     DisciplineRow,
     VALUATION_STATES,
     HEAT_STATES,
@@ -64,6 +65,28 @@ def test_opportunity_row_required_fields():
         evidence_gaps=(),
     )
     assert row.opportunity_state == "core_dca"
+
+
+def test_thesis_evidence_is_frozen_dataclass():
+    """ThesisEvidence pairs a typed source with a citable URL + date + summary.
+    Used inside ThesisCard.thesis_evidence and OpportunityRow.thesis_evidence."""
+    ev = ThesisEvidence(
+        type="filing",
+        source="巨潮资讯",
+        url="http://www.cninfo.com.cn/foo",
+        date="2026-04-28",
+        summary="中芯国际 2026Q1 营收同比 +18%。",
+    )
+    assert ev.type == "filing"
+    with pytest.raises(FrozenInstanceError):
+        ev.source = "x"  # type: ignore[misc]
+
+
+def test_thesis_evidence_type_must_be_known_kind():
+    """Allowed kinds: filing | broker | news | policy | snapshot."""
+    for kind in ("filing", "broker", "news", "policy", "snapshot"):
+        ev = ThesisEvidence(type=kind, source="s", url="u", date="d", summary="x")
+        assert ev.type == kind
 
 
 def test_thesis_card_defaults_immutable_collections():

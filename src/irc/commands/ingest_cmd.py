@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+from irc.observability import ErrorTally, progress_iter
+
 import pandas as pd
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -220,9 +222,10 @@ def _metadata_fetcher_for(instrument: Any):
 def _fetch_metadata_by_id(
     instruments: list,
     active_fund_tenure_proxy_enabled: bool = True,
-) -> dict[str, dict[str, float | str | None]]:
+) -> tuple[dict[str, dict[str, float | str | None]], ErrorTally]:
     metadata_by_id: dict[str, dict[str, float | str | None]] = {}
-    for instrument in instruments:
+    tally = ErrorTally("metadata")
+    for instrument in progress_iter(instruments, "metadata", total=len(instruments)):
         if not _is_fund_like_ticker(instrument.ticker):
             continue
         try:
@@ -233,6 +236,7 @@ def _fetch_metadata_by_id(
                 enabled=active_fund_tenure_proxy_enabled,
             )
         except Exception as exc:
+            tally.add(instrument.instrument_id, exc)
             _log.warning(
                 "skipping %s: metadata fetch error: %s",
                 instrument.instrument_id,
@@ -242,6 +246,7 @@ def _fetch_metadata_by_id(
         missing = _missing_required_metadata(instrument, metadata)
         if missing:
             joined = ", ".join(missing)
+            tally.add(instrument.instrument_id, KeyError(f"missing required metadata: {joined}"))
             _log.warning(
                 "skipping %s: missing required metadata fields: %s",
                 instrument.instrument_id,
@@ -249,7 +254,7 @@ def _fetch_metadata_by_id(
             )
             continue
         metadata_by_id[instrument.instrument_id] = metadata
-    return metadata_by_id
+    return metadata_by_id, tally
 
 
 def _upsert_instruments(
@@ -386,7 +391,14 @@ def run_ingest(repo_root: str) -> int:
             *bundle.universe_gold.instruments,
             *bundle.universe_cn_funds.instruments,
         ]
-        metadata_by_id = _fetch_metadata_by_id(
+        try:
+            from irc.settings import Settings as _S
+            _verbose = _S().debug
+        except Exception:
+            import os
+            _verbose = os.environ.get("DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
+
+        metadata_by_id, metadata_tally = _fetch_metadata_by_id(
             all_instruments,
             active_fund_tenure_proxy_enabled=feature_flags.active_fund_tenure_proxy_enabled,
         )
@@ -401,49 +413,53 @@ def run_ingest(repo_root: str) -> int:
             nonlocal eastmoney_unavailable
             eastmoney_unavailable = True
 
+        prices_tally = ErrorTally("prices")
+        price_candidates = [i for i in all_instruments if _has_price_history_source(i)]
+        for instr in progress_iter(price_candidates, "prices", total=len(price_candidates)):
+            price_attempts += 1
+            try:
+                df = fetch_etf_price_history(
+                    ticker=instr.ticker,
+                    start=start,
+                    end=end,
+                    skip_cn_eastmoney=eastmoney_unavailable,
+                    on_cn_eastmoney_exhausted=_mark_eastmoney_unavailable,
+                )
+                if df.empty:
+                    raise ValueError("empty price history")
+                df = _coerce_price_history(df)
+            except Exception as exc:
+                price_failures.append(instr.instrument_id)
+                prices_tally.add(instr.instrument_id, exc)
+                _log.warning(
+                    "skipping price ingest for %s (ticker=%s): %s. "
+                    "Other instruments will still be processed; rerun once "
+                    "the upstream source recovers.",
+                    instr.instrument_id, instr.ticker, exc,
+                )
+                continue
+            try:
+                price_source = _price_source_for(instr)
+                inserted = _upsert_prices(
+                    con,
+                    instr.instrument_id,
+                    df,
+                    source=price_source,
+                )
+                if price_source == "akshare":
+                    ak_counts["prices"] += inserted
+                else:
+                    ob_counts["prices"] += inserted
+            except Exception as exc:
+                print(
+                    f"ERROR: ingest failed while writing prices for "
+                    f"{instr.instrument_id}: {exc}"
+                )
+                return 1
+            price_successes += 1
+        # Log warning for instruments outside price_candidates that are not off-exchange
         for instr in all_instruments:
-            if _has_price_history_source(instr):
-                price_attempts += 1
-                try:
-                    df = fetch_etf_price_history(
-                        ticker=instr.ticker,
-                        start=start,
-                        end=end,
-                        skip_cn_eastmoney=eastmoney_unavailable,
-                        on_cn_eastmoney_exhausted=_mark_eastmoney_unavailable,
-                    )
-                    if df.empty:
-                        raise ValueError("empty price history")
-                    df = _coerce_price_history(df)
-                except Exception as exc:
-                    price_failures.append(instr.instrument_id)
-                    _log.warning(
-                        "skipping price ingest for %s (ticker=%s): %s. "
-                        "Other instruments will still be processed; rerun once "
-                        "the upstream source recovers.",
-                        instr.instrument_id, instr.ticker, exc,
-                    )
-                    continue
-                try:
-                    price_source = _price_source_for(instr)
-                    inserted = _upsert_prices(
-                        con,
-                        instr.instrument_id,
-                        df,
-                        source=price_source,
-                    )
-                    if price_source == "akshare":
-                        ak_counts["prices"] += inserted
-                    else:
-                        ob_counts["prices"] += inserted
-                except Exception as exc:
-                    print(
-                        f"ERROR: ingest failed while writing prices for "
-                        f"{instr.instrument_id}: {exc}"
-                    )
-                    return 1
-                price_successes += 1
-            elif not _is_off_exchange_fund(instr):
+            if not _has_price_history_source(instr) and not _is_off_exchange_fund(instr):
                 _log.warning(
                     "skipping price/nav ingest for %s (market=%s, ticker=%s): no source available",
                     instr.instrument_id, instr.market, instr.ticker,
@@ -472,10 +488,11 @@ def run_ingest(repo_root: str) -> int:
                 continue
             seen_nav_ids.add(instr.instrument_id)
             nav_instruments.append(instr)
+        nav_tally = ErrorTally("nav")
         nav_failures: list[str] = []
         nav_attempts = 0
         nav_successes = 0
-        for instr in nav_instruments:
+        for instr in progress_iter(nav_instruments, "nav", total=len(nav_instruments)):
             nav_attempts += 1
             try:
                 df = fetch_fund_nav_history(instr.ticker)
@@ -484,6 +501,7 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_nav_history(df)
             except Exception as exc:
                 nav_failures.append(instr.instrument_id)
+                nav_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping NAV ingest for %s (ticker=%s): %s. "
                     "Other instruments will still be processed.",
@@ -526,6 +544,9 @@ def run_ingest(repo_root: str) -> int:
         source="akshare", last_run_at=_now_iso(),
         schema_version=_SCHEMA_VERSION, record_counts=ak_counts,
     ))
+    metadata_tally.render(ok_count=len(metadata_by_id), verbose=_verbose)
+    prices_tally.render(ok_count=price_successes, verbose=_verbose)
+    nav_tally.render(ok_count=nav_successes, verbose=_verbose)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
     if price_failures or nav_failures:
         print(

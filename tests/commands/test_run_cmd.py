@@ -56,8 +56,8 @@ def test_invalid_only_stage_returns_error():
     assert rc == 1
 
 
-def test_default_pipeline_skips_research_when_ldr_disabled(monkeypatch):
-    monkeypatch.delenv("LDR_ENABLED", raising=False)
+def test_default_pipeline_skips_research_when_research_disabled(monkeypatch):
+    monkeypatch.delenv("RESEARCH_ENABLED", raising=False)
     called: list[str] = []
 
     with patch("irc.commands.run_cmd._runners_map", return_value=_recording_runners(called)):
@@ -70,7 +70,7 @@ def test_default_pipeline_skips_research_when_ldr_disabled(monkeypatch):
 
 
 def test_pipeline_fails_fast_on_enabled_research_failure(monkeypatch, tmp_path):
-    monkeypatch.setenv("LDR_ENABLED", "true")
+    monkeypatch.setenv("RESEARCH_ENABLED", "true")
     called: list[str] = []
     runners = _recording_runners(called)
 
@@ -86,8 +86,8 @@ def test_pipeline_fails_fast_on_enabled_research_failure(monkeypatch, tmp_path):
     assert called == ["ingest", "research"]
 
 
-def test_only_research_runs_when_explicit_even_if_ldr_disabled(monkeypatch):
-    monkeypatch.delenv("LDR_ENABLED", raising=False)
+def test_only_research_runs_when_explicit_even_if_research_disabled(monkeypatch):
+    monkeypatch.delenv("RESEARCH_ENABLED", raising=False)
     called: list[str] = []
 
     with patch("irc.commands.run_cmd._runners_map", return_value=_recording_runners(called)):
@@ -97,8 +97,8 @@ def test_only_research_runs_when_explicit_even_if_ldr_disabled(monkeypatch):
     assert called == ["research"]
 
 
-def test_from_research_runs_research_when_explicit_even_if_ldr_disabled(monkeypatch):
-    monkeypatch.delenv("LDR_ENABLED", raising=False)
+def test_from_research_runs_research_when_explicit_even_if_research_disabled(monkeypatch):
+    monkeypatch.delenv("RESEARCH_ENABLED", raising=False)
     called: list[str] = []
 
     with patch("irc.commands.run_cmd._runners_map", return_value=_recording_runners(called)):

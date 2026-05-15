@@ -2,16 +2,20 @@ from __future__ import annotations
 
 import math
 
+from irc.fundamentals.types import ConstituentSnapshot
 from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
 from irc.opportunity.types import (
     HeatState,
     OpportunityInput,
     OpportunityRow,
     OpportunityState,
     ProductQualityState,
+    ThesisEvidence,
     ThesisState,
     ValuationState,
 )
+from irc.research.theme_research import ThemeReport
 
 
 # ---------------------------------------------------------------------------
@@ -210,10 +214,13 @@ def compose_opportunity_state(
     return "small_watch", "证据不完整或信号不一致，列入小仓位观察。"
 
 
-def _evidence_gaps(inp: OpportunityInput) -> tuple[str, ...]:
+def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
+    """Gaps for the non-thesis classifier inputs, using the typed labels from
+    the May-14 spec (`missing_valuation_data`, `missing_flow_or_return_data`,
+    `missing_product_metadata`)."""
     gaps: list[str] = []
     if inp.valuation_percentile_self is None and inp.valuation_percentile_vs_benchmark is None:
-        gaps.append("valuation")
+        gaps.append("missing_valuation_data")
     heat_n = sum(1 for x in [
         inp.ret_1m, inp.ret_3m, inp.ret_6m, inp.ret_12m,
         inp.premium_discount_pct, inp.flow_pct_30d,
@@ -221,26 +228,46 @@ def _evidence_gaps(inp: OpportunityInput) -> tuple[str, ...]:
     # Require at least 2 independent heat signals to classify heat reliably.
     # With only 1 signal the direction of crowding cannot be confirmed.
     if heat_n < 2:
-        gaps.append("heat")
-    if inp.theme is None:
-        gaps.append("theme_thesis")
+        gaps.append("missing_flow_or_return_data")
     if inp.expense_ratio is None and inp.aum_cny is None:
-        gaps.append("product_quality")
-    return tuple(gaps)
+        gaps.append("missing_product_metadata")
+    return gaps
 
 
 def build_opportunity_row(
     inp: OpportunityInput,
     theme_thesis: dict[str, str] | None,
+    *,
+    snapshot: ConstituentSnapshot | None = None,
+    theme_report: ThemeReport | None = None,
 ) -> OpportunityRow:
-    """Compose a full OpportunityRow for a single instrument. Pure function."""
+    """Compose a full OpportunityRow for a single instrument. Pure function.
+
+    Thesis state is preferentially derived from `snapshot` + `theme_report`
+    via `derive_thesis_from_evidence` (concrete fundamentals). When neither
+    is provided, fall back to the table-based `classify_thesis` path so the
+    function stays usable in CLI contexts where the fundamentals layer has
+    not yet been wired in. Either way, typed evidence-gap labels surface in
+    `evidence_gaps`.
+    """
     valuation, val_reason = classify_valuation(inp)
     heat, heat_reason = classify_heat(inp)
-    thesis, thesis_reason = classify_thesis(inp, theme_thesis)
     product, product_reason = classify_product_quality(inp)
-    state, state_reason = compose_opportunity_state(valuation, heat, thesis, product, inp.venue_compatible)
+
+    structural_gaps = _structural_evidence_gaps(inp)
+    if snapshot is not None or theme_report is not None:
+        thesis, thesis_reason, evidence, thesis_gaps = derive_thesis_from_evidence(
+            snapshot, theme_report,
+        )
+    else:
+        thesis, thesis_reason = classify_thesis(inp, theme_thesis)
+        evidence = ()
+        thesis_gaps = ("missing_constituent_snapshot", "missing_recent_news")
+
+    state, state_reason = compose_opportunity_state(
+        valuation, heat, thesis, product, inp.venue_compatible,
+    )
     target = map_lookthrough(inp)
-    gaps = _evidence_gaps(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
     return OpportunityRow(
         instrument_id=inp.instrument_id,
@@ -254,5 +281,6 @@ def build_opportunity_row(
         product_quality_state=product,
         opportunity_state=state,
         opportunity_reason=reason,
-        evidence_gaps=gaps,
+        evidence_gaps=tuple(structural_gaps + list(thesis_gaps)),
+        thesis_evidence=evidence,
     )

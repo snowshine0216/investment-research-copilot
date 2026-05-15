@@ -1,26 +1,29 @@
 from __future__ import annotations
 from pathlib import Path
+
+from irc.llm._types import ResolvedRoute
+from irc.research.search.types import ContentExtractor, SearchProvider
+from irc.research.persistence import write_research_outputs
 from irc.research.theme_research import build_theme_reports
-from irc.io_utils import atomic_write_text
-
-
-def _format_report(theme: str, body_md: str, citations: list, failure_reason: str) -> str:
-    if failure_reason:
-        return f"# {theme}\n\n_research failed: {failure_reason}_\n"
-    cit_lines = "\n".join(f"[{c.index}] {c.title} — {c.url}" for c in citations)
-    return f"# {theme}\n\n{body_md}\n\n## Citations\n{cit_lines}\n"
 
 
 def run_research_pipeline(
-    repo_root: Path, themes: tuple[str, ...], time_budget_s: int,
+    repo_root: Path,
+    themes: tuple[str, ...],
+    *,
+    providers: tuple[SearchProvider, ...],
+    extractor: ContentExtractor,
+    route: ResolvedRoute,
 ) -> int:
+    """Run the research pipeline for all themes.
+
+    Returns 0 for all completed runs, including degraded runs where individual themes failed.
+    Returns non-zero only for unrecoverable conditions: pipeline-level exceptions or IO failures.
+    Per-theme failures are represented in research_status.json with failure_reason set.
+    """
     out_dir = repo_root / "data" / "research"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    reports = build_theme_reports(themes=themes, time_budget_s=time_budget_s)
-    for r in reports:
-        atomic_write_text(
-            out_dir / f"{r.theme}.md",
-            _format_report(r.theme, r.report_md, r.citations, r.failure_reason),
-        )
-    has_failures = any(r.failure_reason for r in reports)
-    return 2 if has_failures else 0
+    reports = build_theme_reports(
+        themes=themes, providers=providers, extractor=extractor, route=route,
+    )
+    write_research_outputs(out_dir, reports)
+    return 0

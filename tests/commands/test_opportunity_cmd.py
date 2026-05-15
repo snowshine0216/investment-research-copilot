@@ -168,3 +168,111 @@ def test_opportunity_prints_warning_for_stale_scoring(tmp_path: Path, monkeypatc
     captured = capsys.readouterr()
     assert "WARNING" in captured.out
     assert "2026-05-13" in captured.out
+
+
+def test_empty_available_venues_treats_all_instruments_as_compatible(tmp_path: Path, monkeypatch, capsys):
+    """Empty available_venues (no restriction configured) means venue_compatible=True for all.
+
+    An account with no venues declared should not block every instrument;
+    'no venue restriction configured' is treated as 'allow all'.
+    """
+    from irc.commands.opportunity_cmd import run_opportunity
+    _seed_minimal_repo(tmp_path)
+    # Override account.yaml to have no available_venues
+    (tmp_path / "inputs" / "account.yaml").write_text(
+        "accounts:\n"
+        "  - broker: cmb\n"
+        "    currency: cny\n"
+        "    available_venues: []\n"
+        "    holdings:\n"
+        "      - asset_class: cn_etf\n"
+        "        instrument_id: '510300'\n"
+        "        cost_basis_cny: 10000\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    rc = run_opportunity(repo_root=str(tmp_path))
+    assert rc == 0
+    # With empty venues, no instrument should be in exclude state due to venue.
+    # Since scoring row has no venue_required in the minimal seed, all rows should be non-exclude.
+    out_path = tmp_path / "outputs" / "2026-05-14" / "opportunity_report.json"
+    data = json.loads(out_path.read_text(encoding="utf-8"))
+    rows = data.get("rows", [])
+    excluded = [r for r in rows if r.get("opportunity_state") == "exclude"]
+    assert not excluded, f"No rows should be venue-excluded when available_venues is empty: {excluded}"
+
+
+def test_build_input_empty_venues_treats_instrument_as_compatible():
+    """Unit test: _build_input with empty set() treats venue_required instruments as compatible."""
+    from irc.commands.opportunity_cmd import _build_input
+    from unittest.mock import MagicMock
+    instr = MagicMock()
+    instr.asset_class = "cn_etf"
+    instr.market = "cn_brokerage"
+    instr.theme = "broad"
+    instr.tracked_index = "沪深300"
+    instr.name_cn = "沪深300ETF"
+    instr.venue_required = ["cn_brokerage"]
+    inp = _build_input(
+        {"instrument_id": "510300", "role": ""},
+        instr, None, None, 0.0, set()  # empty venues
+    )
+    assert inp.venue_compatible is True
+
+
+def test_opportunity_cmd_passes_snapshot_when_available(tmp_path: Path, monkeypatch) -> None:
+    """When snapshot data is available, it is passed into build_opportunity_row."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.fundamentals.snapshot import write_snapshot
+    from irc.fundamentals.types import ConstituentSnapshot
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+
+    snap = ConstituentSnapshot(
+        lookthrough_target="沪深300",
+        as_of_iso="2026-05-15",
+        constituents=(),
+        filings=(),
+        broker_reports=(),
+        failure_reasons=(),
+    )
+    write_snapshot(snap, tmp_path / "data")
+
+    captured_kwargs: list[dict] = []
+    import irc.commands.opportunity_cmd as opp_mod
+    original_build = opp_mod.build_opportunity_row
+
+    def capturing_build(inp, theme_thesis, *, snapshot=None, theme_report=None):
+        captured_kwargs.append({"snapshot": snapshot, "theme_report": theme_report})
+        return original_build(inp, theme_thesis, snapshot=snapshot, theme_report=theme_report)
+
+    monkeypatch.setattr(opp_mod, "build_opportunity_row", capturing_build)
+
+    rc = run_opportunity(repo_root=str(tmp_path))
+
+    assert rc == 0
+    assert any(c["snapshot"] is not None for c in captured_kwargs)
+
+
+def test_opportunity_cmd_passes_none_snapshot_when_no_cache(tmp_path: Path, monkeypatch) -> None:
+    """When no snapshot exists, snapshot=None is passed (degrade-not-halt)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+
+    captured_kwargs: list[dict] = []
+    import irc.commands.opportunity_cmd as opp_mod
+    original_build = opp_mod.build_opportunity_row
+
+    def capturing_build(inp, theme_thesis, *, snapshot=None, theme_report=None):
+        captured_kwargs.append({"snapshot": snapshot, "theme_report": theme_report})
+        return original_build(inp, theme_thesis, snapshot=snapshot, theme_report=theme_report)
+
+    monkeypatch.setattr(opp_mod, "build_opportunity_row", capturing_build)
+
+    rc = run_opportunity(repo_root=str(tmp_path))
+
+    assert rc == 0
+    assert all(c["snapshot"] is None for c in captured_kwargs)

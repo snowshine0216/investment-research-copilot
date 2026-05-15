@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plan 5 (opportunity + thesis discipline) complete. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Optional LDR research runs between ingest and discovery when `LDR_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. Opportunity layer adds valuation/heat/thesis/product-quality states, thesis cards, and DCA discipline actions.
+> **Status:** Plans 1–6 complete. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Web-search research (Tavily/Brave/Bocha/Jina) runs between ingest and discovery when `RESEARCH_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. Opportunity layer adds valuation/heat/thesis/product-quality states, thesis cards, and DCA discipline actions.
 
 ## Design references
 
@@ -19,22 +19,18 @@ cd investment-research-copilot
 uv sync --all-extras
 cp .env.example .env
 # Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
+# Optional: set DEBUG=true in .env for verbose logging (full tracebacks, third-party DEBUG records).
+# Default DEBUG=false still shows progress bars and categorized ingest-error summaries.
 
-# Optional: install and start Local Deep Research (LDR) for macro theme research.
-# LDR conflicts with openbb's xmltodict pin and must be installed separately.
-#
-# Install via pipx (pyenv users: install pipx first):
-#   python -m pip install --user pipx && python -m pipx ensurepath && pyenv rehash
-pipx install local-deep-research
-#
-# Start the web server in a separate terminal.
-# macOS: port 5000 is occupied by AirPlay Receiver — use LDR_WEB_PORT to override:
-LDR_WEB_PORT=5001 ldr-web
-#
-# Then in .env set:
-#   LDR_ENABLED=true
-#   LDR_BASE_URL=http://localhost:5001
-# (adjust port to match LDR_WEB_PORT above)
+### Web research setup
+
+Research uses provider API keys from `.env`:
+
+- `TAVILY_API_KEY` or `BRAVE_API_KEY` for English themes.
+- `BOCHA_API_KEY` for Mainland-China themes.
+- `JINA_API_KEY` is optional; without it, Jina Reader uses the rate-limited free tier.
+
+Set `RESEARCH_ENABLED=true` only when you want `irc run` to include the research stage.
 
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
@@ -46,12 +42,20 @@ uv run irc config validate             # confirm generated file is accepted (uni
 # Run the default 7-stage pipeline in one command:
 uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
 
-# Or include optional LDR research between ingest and discovery:
-LDR_ENABLED=true uv run irc run         # ingest → research → discover → score → gold → allocate → plan → memo
+# Or include optional web research between ingest and discovery:
+RESEARCH_ENABLED=true uv run irc run    # ingest → research → discover → score → gold → allocate → plan → memo
 
 # Or run stages individually:
 uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
-uv run irc research                    # LDR research → data/research/<theme>.md (requires reachable LDR)
+uv run irc research                    # web research → data/research/<theme>.md + research_status.json
+uv run irc research --theme us_monetary  # targeted single-theme smoke test
+uv run irc fundamentals snapshot --target 沪深300 --top-n 10  # quarterly constituent snapshot rebuild
+
+# Inspect research outputs:
+ls data/research
+jq '.themes[] | {theme, citation_count, failure_reason, provider_failures}' data/research/research_status.json
+jq '.themes[] | select(.failure_reason != "")' data/research/research_status.json
+uv run irc eval research
 uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
                                        #                  + outputs/<date>/discovery_diagnostics.csv
 uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
@@ -112,7 +116,7 @@ Candidates are loaded from `config/universe/cn_funds.yaml` (curated) and `config
 | Daily light | Holdings, thesis cards, watchlist only — check drawdown, heat, triggers | `irc opportunity` (fast) |
 | Weekly full | Merged configured universe, discovery, scoring, thesis card refresh | `irc run` then `irc opportunity` |
 | Monthly universe rebuild | Re-fetch broad fund catalog, regenerate `cn_funds.generated.yaml` | `irc universe build-cn-funds` |
-| Quarterly thesis research | Deep LDR research per theme — policy, earnings cycle, valuation context | `LDR_ENABLED=true irc run` |
+| Quarterly thesis research | Theme search + citations and constituent snapshot refresh | `uv run irc research` plus `uv run irc fundamentals snapshot --target 沪深300` |
 
 The system does not scan every fund deeply on every run. Universe generation runs monthly; weekly analysis operates on the already-filtered configured universe after deterministic caps.
 

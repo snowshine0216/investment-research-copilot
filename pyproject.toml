@@ -19,6 +19,7 @@ dependencies = [
     "openbb>=4.3",
     "akshare>=1.13",
     "feedparser>=6.0",
+    "rich>=13.0",
 ]
 
 [project.optional-dependencies]
@@ -52,5 +53,6 @@ target-version = "py312"
 
 [dependency-groups]
 dev = [
+    "pytest>=9.0.3",
     "respx>=0.23.1",
 ]

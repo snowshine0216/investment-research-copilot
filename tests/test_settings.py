@@ -26,6 +26,10 @@ def test_settings_missing_deepseek_fails(monkeypatch):
 def test_settings_optional_fields_default_empty(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "x")
     monkeypatch.setenv("OPENROUTER_API_KEY", "y")
+    # Clear optional keys that the user's local .env may have populated.
+    for key in ("OPENBB_FMP_KEY", "OPENBB_TIINGO_KEY", "TUSHARE_TOKEN",
+                "TAVILY_API_KEY", "BRAVE_API_KEY", "BOCHA_API_KEY", "JINA_API_KEY"):
+        monkeypatch.delenv(key, raising=False)
     s = Settings(_env_file=None)
     assert s.openbb_fmp_key.get_secret_value() == ""
     assert s.tushare_token.get_secret_value() == ""
@@ -39,12 +43,16 @@ def test_provider_secrets_are_secretstr(monkeypatch):
     monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-xxx")
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-xxx")
     monkeypatch.setenv("TUSHARE_TOKEN", "tu-xxx")
-    monkeypatch.setenv("LDR_API_TOKEN", "ldr-xxx")
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-xxx")
+    monkeypatch.setenv("BRAVE_API_KEY", "brv-xxx")
+    monkeypatch.setenv("BOCHA_API_KEY", "bocha-xxx")
+    monkeypatch.setenv("JINA_API_KEY", "jina-xxx")
     monkeypatch.setenv("OPENBB_FMP_KEY", "fmp-xxx")
     monkeypatch.setenv("OPENBB_TIINGO_KEY", "tg-xxx")
     from irc.settings import Settings
     s = Settings(_env_file=None)
-    for name in ("anthropic_api_key", "tushare_token", "ldr_api_token",
+    for name in ("anthropic_api_key", "tushare_token",
+                 "tavily_api_key", "brave_api_key", "bocha_api_key", "jina_api_key",
                  "openbb_fmp_key", "openbb_tiingo_key"):
         assert isinstance(getattr(s, name), SecretStr)
         assert str(getattr(s, name)) == "**********"

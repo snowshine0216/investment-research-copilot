@@ -84,6 +84,24 @@ class OpportunityInput:
     venue_compatible: bool = True
 
 
+ThesisEvidenceKind = Literal["filing", "broker", "news", "policy", "snapshot"]
+
+
+@dataclass(frozen=True)
+class ThesisEvidence:
+    """Primary-source citation backing a `thesis_state`.
+
+    `type` distinguishes the evidence shape: a filing digest, a broker report,
+    a news article, a policy statement, or a snapshot summary line. Renderers
+    can group by type; consumers should not infer state directly from `summary`.
+    """
+    type: ThesisEvidenceKind
+    source: str
+    url: str
+    date: str
+    summary: str
+
+
 @dataclass(frozen=True)
 class OpportunityRow:
     instrument_id: str
@@ -98,6 +116,7 @@ class OpportunityRow:
     opportunity_state: OpportunityState
     opportunity_reason: str
     evidence_gaps: tuple[str, ...]
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -121,6 +140,7 @@ class ThesisCard:
     do_not_sell_just_because: tuple[str, ...]
     review_cadence: str
     evidence_gaps: tuple[str, ...]
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
 
 
 @dataclass(frozen=True)

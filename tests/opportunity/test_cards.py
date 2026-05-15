@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import PositionContext
-from irc.opportunity.types import LookthroughTarget, OpportunityRow
+from irc.opportunity.types import LookthroughTarget, OpportunityRow, ThesisEvidence
 
 
 def _row(**overrides) -> OpportunityRow:
@@ -70,6 +70,27 @@ def test_card_propagates_evidence_gaps():
     row = _row(evidence_gaps=("valuation", "product_quality"))
     card = build_thesis_card(row=row, position=_pos(), role="x", entry_reason="x")
     assert card.evidence_gaps == ("valuation", "product_quality")
+
+
+def test_card_propagates_thesis_evidence():
+    """Thesis-evidence citations from the OpportunityRow should reach the card."""
+    evidence = (
+        ThesisEvidence(
+            type="filing", source="600519",
+            url="https://example.com/filing/600519",
+            date="2026-04-28",
+            summary="600519 营收同比 +12%",
+        ),
+        ThesisEvidence(
+            type="broker", source="中信证券",
+            url="https://example.com/broker/600519",
+            date="2026-05-02",
+            summary="维持买入",
+        ),
+    )
+    row = _row(thesis_evidence=evidence)
+    card = build_thesis_card(row=row, position=_pos(), role="x", entry_reason="x")
+    assert card.thesis_evidence == evidence
 
 
 def test_card_dca_and_risk_actions_match_state():

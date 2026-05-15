@@ -1,7 +1,9 @@
 from __future__ import annotations
+import dataclasses
 import pytest
 
 from irc.opportunity.selection import (
+    demote_unstable_active,
     reduce_same_index,
     reduce_same_theme,
     SelectionQuality,
@@ -107,3 +109,92 @@ def test_same_theme_collapses_same_index_first():
     # 510310 must be dropped as a same-index clone of 510300
     assert "510310" not in kept_ids
     assert kept_ids == {"510300", "159949"}
+
+
+# ---------------------------------------------------------------------------
+# demote_unstable_active tests
+# ---------------------------------------------------------------------------
+
+def _active_row(instrument_id: str, theme: str = "semiconductor") -> OpportunityRow:
+    return OpportunityRow(
+        instrument_id=instrument_id,
+        name_cn=f"主动基金-{instrument_id}",
+        asset_class="cn_equity_fund",
+        theme=theme,
+        lookthrough_target=LookthroughTarget("active_fund", f"active:{instrument_id}", "display"),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="core_dca",
+        opportunity_reason="",
+        evidence_gaps=(),
+    )
+
+
+def test_demote_active_when_passive_beats_it():
+    """Active fund demoted to small_watch when a passive ETF in same theme is at least as good."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
+    active = _active_row("001234", theme="semiconductor")
+    qualities = {
+        "159995": _q(0.0015, 30e9),   # better ER + AUM
+        "001234": _q(0.0100, 5e9),    # worse ER + AUM
+    }
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "small_watch"
+    assert len(demoted) == 1
+    assert demoted[0].instrument_id == "001234"
+    assert demoted[0].opportunity_state == "core_dca"  # original state preserved in demoted
+
+
+def test_no_demotion_when_active_beats_passive():
+    """Active fund NOT demoted when it has better quality than the passive."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
+    active = _active_row("001234", theme="semiconductor")
+    qualities = {
+        "159995": _q(0.0100, 5e9),    # worse
+        "001234": _q(0.0015, 30e9),   # better
+    }
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "core_dca"
+    assert len(demoted) == 0
+
+
+def test_no_demotion_when_no_passive_in_theme():
+    """Active fund NOT demoted when no passive exists in the same theme."""
+    active = _active_row("001234", theme="semiconductor")
+    qualities = {"001234": _q(0.0100, 5e9)}
+    rows_out, demoted = demote_unstable_active([active], qualities)
+    active_out = rows_out[0]
+    assert active_out.opportunity_state == "core_dca"
+    assert len(demoted) == 0
+
+
+def test_exclude_state_never_demoted():
+    """Rows with opportunity_state=exclude are never touched by demotion."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
+    active = _active_row("001234", theme="semiconductor")
+    # Override to exclude
+    active = dataclasses.replace(active, opportunity_state="exclude")
+    qualities = {
+        "159995": _q(0.0015, 30e9),
+        "001234": _q(0.0100, 5e9),
+    }
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "exclude"
+    assert len(demoted) == 0
+
+
+def test_demote_active_when_quality_is_tied():
+    """Active fund demoted when quality is identical to passive (prefer passive on tie)."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme="semiconductor")
+    active = _active_row("001234", theme="semiconductor")
+    tied_quality = _q(0.0050, 10e9)
+    qualities = {"159995": tied_quality, "001234": tied_quality}
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "small_watch"
+    assert len(demoted) == 1

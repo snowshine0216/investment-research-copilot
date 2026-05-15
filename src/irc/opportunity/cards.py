@@ -58,4 +58,5 @@ def build_thesis_card(
         do_not_sell_just_because=_DO_NOT_SELL_JUST_BECAUSE,
         review_cadence=review_cadence,
         evidence_gaps=row.evidence_gaps,
+        thesis_evidence=row.thesis_evidence,
     )

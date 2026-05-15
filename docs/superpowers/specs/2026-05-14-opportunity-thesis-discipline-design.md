@@ -34,6 +34,7 @@ ETF and index products are the main line. Active funds are allowed as supplement
 - Do not run deep LLM research over thousands of funds every time.
 - Do not treat a 20% drawdown as an automatic sell signal.
 - Do not use the generated universe from another worktree as a hidden runtime dependency.
+- Do not use Local Deep Research (LDR) or any self-hosted agent loop for thesis research. LDR is removed from the project.
 
 ## Candidate Source
 
@@ -138,10 +139,16 @@ This keeps the candidate pool current without adding churn to every weekly run.
 
 Scope:
 
-- Theme-level deep research for sectors such as healthcare, semiconductor, consumer, new energy, finance, gold, US equity, and HK tech.
+- Theme-level research for sectors such as healthcare, semiconductor, consumer, new energy, finance, gold, US equity, and HK tech.
 - Long-term logic, policy direction, earnings cycle, valuation context, and falsification conditions.
+- Constituent-level evidence: top-N holdings of each `lookthrough_target`, their latest filings, broker coverage, and recent news.
 
-This should use Local Deep Research or similar cited research. It updates theme thesis evidence, not daily actions.
+The research stack is defined in `2026-05-15-research-adapter-signatures.md`. Two layers cooperate:
+
+1. **Search adapters** (`src/irc/research/search/`) — pluggable web search per locale (Tavily / Brave for English, Bocha for Mainland Chinese), plus Jina Reader for URL → markdown. Output is normalized `SearchHit` dataclasses.
+2. **Fundamentals snapshot** (`src/irc/fundamentals/`) — structured fetchers for index constituents (AkShare), CN filings (CNINFO via AkShare), US filings (SEC EDGAR), HK filings (HKEX), and broker reports. Output is a cached `ConstituentSnapshot` per `lookthrough_target` per quarter.
+
+Synthesis is one bounded LLM call (`synthesize_report`) over (search hits + extracted pages + constituent snapshot). Target wall-clock per theme: ≤30 s. Theme research updates thesis evidence and the constituent-snapshot cache; it does not trigger daily actions.
 
 ### Event-Triggered Review
 
@@ -249,6 +256,33 @@ Preferred evidence:
 - Manager tenure and style stability for active funds.
 - Holdings concentration and style drift where available.
 
+## Constituent Fundamentals
+
+The four state labels above need evidence below the fund wrapper. A semiconductor ETF thesis is really a thesis on its top-10 constituents and the industry cycle they are in. Without constituent-level data, `thesis_state` collapses into free-text LLM prose, which is exactly what this design tries to avoid.
+
+For each `lookthrough_target`, the system materializes a `ConstituentSnapshot` (see `2026-05-15-research-adapter-signatures.md`) containing:
+
+- Top-N constituents (default N=10) with name, symbol, weight, market.
+- Latest periodic-filing digest per constituent (revenue YoY, net income YoY, gross margin, short guidance excerpt, source URL). 年报 / 季报 for CN, 10-K / 10-Q for US, interim / annual for HK.
+- Recent broker reports per constituent (rating, target price, broker, publish date) over a 90-day window for CN; analyst coverage from FMP / EDGAR-linked sources for US.
+
+Sources:
+
+- CN equities: AkShare endpoints — `stock_research_report_em` (broker reports), `stock_financial_abstract`, `stock_zh_a_disclosure_relation_cninfo`, `fund_portfolio_hold_em`, `index_stock_cons_weight_csindex`.
+- US equities: SEC EDGAR JSON (`https://data.sec.gov/submissions/CIK*.json`), plus OpenBB FMP for analyst coverage when `OPENBB_FMP_KEY` is set.
+- HK equities: HKEX disclosure feed.
+
+Cache layout: `data/fundamentals/<quarter>/<lookthrough_target>.json`. The cache is refreshed quarterly (aligned with earnings season). Weekly runs read the cached snapshot and only re-fetch the news delta via search adapters.
+
+`thesis_state` is then derived from snapshot facts plus the latest theme search results, not from free-text reasoning alone. Example concrete rules (final thresholds tuned during implementation):
+
+- `intact`: ≥60 percent of top-N constituents show positive revenue YoY in the latest filing AND consensus broker rating leans buy/overweight AND no policy news in the last 30 days flagged as negative.
+- `under_pressure`: ≥30 percent of top-N constituents show negative revenue YoY OR consensus broker target prices have been cut ≥10 percent in the last 90 days.
+- `falsified`: structural impairment (top constituents in earnings decline ≥2 consecutive quarters, regulatory action, or index methodology change that removes the theme's economic exposure).
+- `evidence_insufficient`: snapshot is missing or older than one quarter AND search adapters returned no usable hits.
+
+Constituent fundamentals are inputs to opportunity state. They are **not** rendered verbatim in `opportunity_report.json` or `discipline_report.md` — only the derived state and the `thesis_evidence` citations are.
+
 ## Opportunity State
 
 The four state labels produce `opportunity_state`:
@@ -337,7 +371,20 @@ do_not_sell_just_because:
   - "drawdown_since_entry >= 0.20"
 review_cadence: "weekly_light_monthly_full"
 evidence_gaps: []
+thesis_evidence:
+  - type: "filing"         # filing | broker | news | policy | snapshot
+    source: "巨潮资讯"
+    url: "http://www.cninfo.com.cn/..."
+    date: "2026-04-28"
+    summary: "中芯国际 2026Q1 营收同比 +18%，毛利率回升至 22%。"
+  - type: "broker"
+    source: "中信证券"
+    url: "https://eastmoney.com/research/..."
+    date: "2026-05-02"
+    summary: "维持买入评级，目标价上调 12%。"
 ```
+
+`thesis_evidence` is required for `thesis_state` to be anything other than `evidence_insufficient`. Each entry points to a primary source captured during quarterly research and refreshed weekly via the news delta.
 
 The card is the durable record of why the instrument is held, watched, paused, trimmed, or exited.
 
@@ -429,12 +476,53 @@ The opportunity layer should remain pure as far as possible. I/O belongs in comm
 Recommended module boundaries:
 
 - `src/irc/opportunity/lookthrough.py`: map an instrument to underlying exposure.
-- `src/irc/opportunity/states.py`: classify valuation, heat, thesis, and product quality states.
+- `src/irc/opportunity/states.py`: classify valuation, heat, thesis, and product quality states (consumes `ConstituentSnapshot` and `ThemeReport`).
 - `src/irc/opportunity/selection.py`: same-theme and same-index reduction.
-- `src/irc/opportunity/cards.py`: build thesis card dictionaries.
+- `src/irc/opportunity/cards.py`: build thesis card dictionaries (populates `thesis_evidence`).
 - `src/irc/opportunity/discipline.py`: derive DCA and risk actions.
 - `src/irc/opportunity/report.py`: compose JSON/YAML/Markdown payloads.
 - `src/irc/commands/opportunity_cmd.py`: read current artifacts and write opportunity outputs.
+- `src/irc/research/search/` and `src/irc/research/synthesize.py`: search adapters and LLM synthesis (see `2026-05-15-research-adapter-signatures.md`).
+- `src/irc/fundamentals/`: constituent-level fetchers and snapshot cache.
+
+## Configuration And Setup
+
+The research stack is keyed by environment variables loaded by `irc.settings.Settings` (pydantic-settings, `.env` file). The user needs to obtain three search API keys plus an optional Jina key.
+
+### Required (at least one English + one Chinese provider)
+
+- `TAVILY_API_KEY` — English search. Sign up at https://app.tavily.com/, free tier 1000 calls/month. Used for US / HK QDII themes, global macro, Fed / SEC primary sources.
+- `BOCHA_API_KEY` — Mainland Chinese search via 博查 AI. Sign up at https://open.bochaai.com/, pay-as-you-go. Used for any theme with Locale.ZH (semiconductor, healthcare, consumer, etc.). Covers eastmoney, xueqiu, cls, wallstreetcn, gov.cn.
+
+### Recommended
+
+- `BRAVE_API_KEY` — English news with an independent index. Sign up at https://api.search.brave.com/, free tier 2000 calls/month. Use alongside Tavily for breaking news and freshness filtering.
+- `JINA_API_KEY` — URL → markdown extraction. Free tier at https://jina.ai/reader/ works without a key but is rate-limited; paid tier raises throughput. Required as an effective complement to any search provider that returns only snippets.
+
+### Optional fundamentals upgrades
+
+- `OPENBB_FMP_KEY` — already declared; enables US analyst coverage for `fundamentals/edgar_client.py`.
+- SEC EDGAR and HKEX are free and require no key, but EDGAR requires a `User-Agent` header with contact email per their API terms — captured in code, not configuration.
+
+### Removed
+
+LDR is removed entirely. The following env vars in `.env` and `.env.example` are deleted: `LDR_ENABLED`, `LDR_BASE_URL`, `LDR_USERNAME`, `LDR_PASSWORD`, `LDR_TIMEOUT_S`, `LDR_SEARCH_TOOL`. The matching fields are removed from `Settings`. The `local-deep-research` install step in README is removed.
+
+### First-run checklist
+
+1. Copy `.env.example` to `.env`.
+2. Set `TAVILY_API_KEY` and `BOCHA_API_KEY` (minimum viable).
+3. Optionally set `BRAVE_API_KEY` and `JINA_API_KEY` for better coverage.
+4. Run `uv run irc research --theme us_monetary` to smoke-test the English path.
+5. Run `uv run irc research --theme cn_equity_property_policy` to smoke-test the Chinese path.
+6. Each successful run writes a citations-bearing markdown report under `data/research/<theme>.md`.
+
+### Failure behavior
+
+- Missing `TAVILY_API_KEY` and `BRAVE_API_KEY`: EN themes produce `failure_reason="no EN search provider configured"`. ZH themes still run.
+- Missing `BOCHA_API_KEY`: ZH themes produce `failure_reason="no ZH search provider configured"`. EN themes still run.
+- Missing `JINA_API_KEY`: synthesis runs on search snippets only; report quality is lower but the pipeline does not crash.
+- Any provider returning HTTP 5xx or timing out is recorded in `failure_reason`; the affected theme degrades thesis evidence rather than halting the pipeline.
 
 ## Outputs
 
@@ -502,24 +590,33 @@ This should be a later implementation step. The first opportunity implementation
 
 ## Error Handling
 
-- Missing valuation evidence produces `valuation_state: evidence_insufficient`.
-- Missing heat evidence produces `heat_state: evidence_insufficient`.
-- Missing thesis evidence produces `thesis_state: evidence_insufficient`.
-- Missing product data produces `product_quality_state: evidence_insufficient`.
-- Evidence gaps should demote actions; they should never be hidden.
-- Invalid or missing generated universe should not block current holdings analysis.
-- LLM research failure should degrade thesis evidence, not fabricate a state.
-- Venue incompatibility should prevent executable actions but can still allow watchlist tracking.
+- Missing valuation evidence produces `valuation_state: evidence_insufficient` with typed gap `missing_valuation_data`.
+- Missing heat evidence produces `heat_state: evidence_insufficient` with typed gap `missing_flow_or_return_data`.
+- Missing thesis evidence produces `thesis_state: evidence_insufficient` with typed gap from {`missing_constituent_snapshot`, `missing_recent_news`, `missing_broker_coverage`, `missing_policy_data`}.
+- Missing product data produces `product_quality_state: evidence_insufficient` with typed gap `missing_product_metadata`.
+- `evidence_gaps` is a list of these typed labels and is rendered in `opportunity_report.json`, `thesis_cards.yaml`, and `discipline_report.md`. Gaps demote actions; they are never hidden.
+- Invalid or missing generated universe must not block current holdings analysis.
+- Search provider failure (any of Tavily / Brave / Bocha) degrades thesis evidence to `evidence_insufficient` for the affected theme; it never fabricates a state and never halts the pipeline.
+- Jina Reader failure produces synthesis on search snippets alone; the pipeline does not halt.
+- LLM synthesis failure produces `failure_reason` on the report; opportunity composition continues using whatever structured evidence is available.
+- Venue incompatibility prevents executable actions but still allows watchlist tracking.
 
 ## Performance Contract
 
-The opportunity layer should be bounded by candidate counts.
+The opportunity layer must be bounded by candidate counts and wall-clock per stage.
 
 - Universe generation can inspect the broad catalog, but it runs monthly or on demand.
-- Weekly analysis should operate on the merged configured universe after deterministic caps.
-- LLM calls should be theme-level or shortlisted-instrument-level, not full-universe-level.
-- Same-theme reduction should happen before LLM reasoning whenever possible.
-- Daily light checks should operate only on holdings, thesis cards, and existing watchlist.
+- Weekly analysis operates on the merged configured universe after deterministic caps.
+- LLM calls are theme-level or shortlisted-instrument-level, not full-universe-level.
+- Same-theme reduction happens before LLM reasoning whenever possible.
+- Daily light checks operate only on holdings, thesis cards, and existing watchlist.
+
+Wall-clock targets (full-pipeline weekly run, ≈20 themes):
+
+- Per-theme search + extract + synthesize: ≤30 s.
+- Total weekly research stage: ≤5 minutes.
+- Daily light check (no theme research): ≤30 s end-to-end.
+- Constituent fundamentals snapshot rebuild (quarterly): ≤15 minutes for full universe.
 
 The design target is stable, explainable output rather than maximal coverage.
 
@@ -537,8 +634,13 @@ Required unit tests:
 6. Same-index ETF selection keeps one primary and one backup.
 7. Same-theme different-index selection can keep two representatives when targets differ.
 8. Active funds are demoted when style stability or manager evidence is missing.
-9. Missing data produces explicit `evidence_gaps`.
-10. LLM research failure degrades thesis evidence without crashing pure opportunity composition.
+9. Missing data produces explicit typed `evidence_gaps`.
+10. Search-provider failure (Tavily / Brave / Bocha) degrades thesis evidence without crashing pure opportunity composition.
+11. `TavilyProvider`, `BraveNewsProvider`, `BochaProvider`, `JinaReader` each: happy path, HTTP 5xx, timeout, malformed response (all mocked via httpx).
+12. `multi_provider_search` dedupes by URL and respects `include_domains`.
+13. `synthesize_report` produces non-empty `report_md` with citation indices matching `pages`.
+14. `build_snapshot` records per-symbol failures in `failure_reasons` rather than raising.
+15. `thesis_evidence` is populated when `ConstituentSnapshot` is present and empty (with appropriate gap) when absent.
 
 Required integration tests:
 
@@ -546,6 +648,7 @@ Required integration tests:
 2. The same mock inputs produce `thesis_cards.yaml`.
 3. The Markdown report starts with Chinese actionable sections for DCA, pause, review, trim, and exit.
 4. Existing decision command still works when opportunity outputs are absent.
+5. Theme research path runs end-to-end with mocked search + extractor + LLM and produces `data/research/<theme>.md` with citations.
 
 ## README Follow-Up
 
@@ -567,19 +670,27 @@ The full methodology should remain in this spec. README should stay operational 
 - The system can explain why a hot profitable fund is paused instead of chased.
 - The system can explain why a 20% drawdown is a review trigger rather than an automatic sell.
 - The output distinguishes DCA, pause, review, trim, and exit review.
-- Evidence gaps are visible in JSON/YAML and Markdown.
+- Typed evidence gaps are visible in JSON, YAML, and Markdown.
 - Active funds remain supplementary unless stronger product-quality evidence exists.
+- LDR is fully removed: `src/irc/research/ldr_client.py` and its tests are deleted, `Settings` no longer has `ldr_*` fields, and `.env.example` no longer documents `LDR_*` variables.
+- Search adapters for Tavily, Brave, Bocha, and Jina Reader are present and individually unit-tested with mocked HTTP.
+- Weekly research stage completes in ≤5 minutes against a ≈20-theme universe.
+- Quarterly fundamentals snapshot is cached on disk under `data/fundamentals/<quarter>/` and reused by weekly runs.
+- Each `thesis_card` with `thesis_state != evidence_insufficient` carries at least one `thesis_evidence` entry pointing to a primary source with a date.
 
 ## Implementation Plan Scope
 
 The next implementation plan should cover the first usable loop:
 
-1. Pure lookthrough mapping.
-2. Pure state classification from available metrics.
-3. Same-theme selection.
-4. Thesis card generation.
-5. Discipline action generation.
-6. CLI command writing the three output files.
-7. Tests for the rules above.
+1. Search adapter layer per `2026-05-15-research-adapter-signatures.md` — Tavily, Brave, Bocha, Jina Reader, dispatch, synthesize. Rewrite `theme_research.py`. Delete `ldr_client.py` and its tests.
+2. Settings + `.env.example` update — add `TAVILY_API_KEY`, `BRAVE_API_KEY`, `BOCHA_API_KEY`, `JINA_API_KEY`; remove all `LDR_*`.
+3. Fundamentals layer per the same signatures doc — AkShare CN fetchers, EDGAR client, HKEX client, snapshot cache.
+4. Pure lookthrough mapping.
+5. Pure state classification from available metrics + `ConstituentSnapshot` + `ThemeReport`.
+6. Same-theme selection.
+7. Thesis card generation including `thesis_evidence`.
+8. Discipline action generation.
+9. CLI command writing the three output files.
+10. Tests for the rules above (see Testing Strategy).
 
 Do not implement multi-agent debate, Kronos features, or full portfolio sell sizing in the first plan. Those are later enhancements after the deterministic discipline layer is stable.

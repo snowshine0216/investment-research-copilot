@@ -27,10 +27,13 @@ def _explicit_research_requested(from_stage: str | None, only_stage: str | None)
 def _without_disabled_optional_stages(
     stages: list[str], from_stage: str | None, only_stage: str | None,
 ) -> list[str]:
-    if _env_flag_enabled("LDR_ENABLED") or _explicit_research_requested(from_stage, only_stage):
+    if _env_flag_enabled("RESEARCH_ENABLED") or _explicit_research_requested(from_stage, only_stage):
         return stages
     if "research" in stages:
-        print("research skipped: set LDR_ENABLED=true to run LDR research")
+        print(
+            "research skipped: set RESEARCH_ENABLED=true to run web research "
+            "(requires TAVILY_API_KEY, BRAVE_API_KEY, or BOCHA_API_KEY)"
+        )
     return [stage for stage in stages if stage != "research"]
 
 
@@ -49,9 +52,22 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
     else:
         stages = list(STAGE_NAMES)
     stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
-    for stage in stages:
-        fn = _runners_map()[stage]
-        rc = fn(repo_root)
+    total = len(stages)
+    from irc.observability import stage_banner
+
+    class _StageFailed(Exception):
+        pass
+
+    for index, stage in enumerate(stages, start=1):
+        rc = 0
+        try:
+            with stage_banner(stage, index, total):
+                fn = _runners_map()[stage]
+                rc = fn(repo_root)
+                if rc != 0:
+                    raise _StageFailed(stage, rc)
+        except _StageFailed:
+            pass  # stage_banner already printed FAILED; rc is set correctly
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted
