@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta, date
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
 from irc.io_utils import atomic_write_text

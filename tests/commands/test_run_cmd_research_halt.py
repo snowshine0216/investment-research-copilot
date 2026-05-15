@@ -1,6 +1,4 @@
 from __future__ import annotations
-import os
-from pathlib import Path
 
 
 def test_run_pipeline_halts_at_research_when_gate_fails(tmp_path, monkeypatch):

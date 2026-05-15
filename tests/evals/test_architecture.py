@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-import pytest
 from evals.architecture.metrics import (
     dag_acyclic_check, max_file_loc, output_files_present,
 )
