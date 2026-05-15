@@ -1,5 +1,5 @@
 # Handoff Document
-*Last updated: 2026-05-15 late night CST*
+*Last updated: 2026-05-15 late night CST (post-push)*
 
 ---
 
@@ -41,7 +41,7 @@ Per the May-14 spec ("Constituent Fundamentals" + acceptance criterion #15: "`th
 - **Initial `_evidence_insufficient_when_all_filings_lack_yoy`** test expected `missing_constituent_snapshot` in gaps; first impl only marked that when `snapshot is None or empty filings`. Added the same label when filings exist but none have YoY (so the downstream `evidence_gaps` consistently distinguishes "no snapshot at all" vs. "snapshot too sparse to use").
 
 ### Next Steps
-1. **Commit this slice.** Single commit: "feat(opportunity): derive thesis_state from ConstituentSnapshot + ThemeReport". Branch `feat/opportunity-thesis-discipline` already has clean prior commits for fundamentals + research stack; this is the natural next commit.
+1. ~~**Commit this slice.**~~ Done — `79f0833 feat(opportunity): derive thesis_state from ConstituentSnapshot + ThemeReport`, pushed to `origin/feat/opportunity-thesis-discipline`.
 2. **Wire snapshots into `opportunity_cmd.py`.** Currently `build_opportunity_row(inp, theme_thesis or None)` is called without `snapshot` / `theme_report`. To exercise the new path end-to-end, the CLI should:
    - Build a `lookthrough_target` → `ConstituentSnapshot` map (load from `data/fundamentals/<quarter>/<target>.json` via `irc.fundamentals.snapshot.load_cached_snapshot`).
    - Build a `theme` → `ThemeReport` map (read `data/research/<theme>.md` artifacts, or re-run if `--refresh-research` is passed — needs design).
@@ -61,7 +61,7 @@ Per the May-14 spec ("Constituent Fundamentals" + acceptance criterion #15: "`th
 | `tests/opportunity/test_types.py`, `test_states.py`, `test_cards.py`, `test_report.py` | Extended for new fields + typed gaps. |
 
 ### Context & Notes
-- **Branch**: `feat/opportunity-thesis-discipline`. The previous two commits (`09a6011 research adapter stack`, `f73e2e4 fundamentals layer`) are already on the branch; this slice is now uncommitted.
+- **Branch**: `feat/opportunity-thesis-discipline`, now 3 commits ahead of `main` for this initiative: `09a6011 research adapter stack`, `f73e2e4 fundamentals layer`, `79f0833 thesis_state from snapshot`. All pushed to origin.
 - **All tests run under 25 s** (full suite + e2e). The slice keeps the codebase fast.
 - **Spec divergence noted**: the intact rule's literal spec wording would conflict with the under_pressure rule at the boundary. The implementation resolves it deterministically (intact requires both ≥60% positive AND <30% negative AND non-negative broker consensus) and the function docstring documents the resolution. If quarterly real-world testing produces too few `intact` rows, relax the negative cap from 30% to 35% as a first knob.
 - **No CLI wiring yet** — `opportunity_cmd.py` still uses the table-based path. This is intentional: it keeps the slice atomic and reviewable. Wiring is the very next step (see Next Steps #2).
