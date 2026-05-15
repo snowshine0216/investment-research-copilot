@@ -67,7 +67,7 @@ def _seed_outputs(tmp_path: Path) -> Path:
 
 def test_runner_returns_zero_when_no_inputs(tmp_path: Path):
     rc = run(tmp_path)
-    assert rc == 0
+    assert rc == 2  # missing input is now FAIL, not PASS
     candidates = list((tmp_path / "outputs").glob("*/evals/opportunity/report.json"))
     assert candidates, "runner must always write a report"
 
@@ -105,3 +105,12 @@ def test_runner_fails_when_external_worktree_path_referenced(tmp_path: Path, mon
     assert rc == 2
     report = json.loads((out / "evals" / "opportunity" / "report.json").read_text())
     assert report["overall"] == "FAIL"
+
+
+def test_opportunity_runner_fails_when_input_missing(tmp_path: Path):
+    rc = run(tmp_path)
+    assert rc == 2
+    candidates = list(tmp_path.rglob("evals/opportunity/report.json"))
+    assert candidates, "runner must write a FAIL report"
+    body = json.loads(candidates[0].read_text(encoding="utf-8"))
+    assert body["overall"] == "FAIL"

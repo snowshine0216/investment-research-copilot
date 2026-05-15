@@ -3,6 +3,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
 from irc.io_utils import atomic_write_text
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.status import classify_status, worst_status
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.trade_plan.metrics import (
@@ -20,10 +25,14 @@ _TRIGGER_TH = {"warn_below": 1.0, "fail_below": 0.9}
 def run(repo_root: Path) -> int:
     plan_file = repo_root / "outputs" / "trade_plan" / "trades.json"
     if not plan_file.exists():
-        report = _pass_report()
-        _write(repo_root, report)
+        report = missing_input_report(
+            stage="trade_plan",
+            reason="outputs/trade_plan/trades.json is missing — trade_plan stage did not run",
+            based_on_path="outputs/trade_plan/trades.json",
+        )
+        write_missing_input_report(repo_root, report)
         print(f"trade_plan eval: {report.overall} (no input file)")
-        return 0
+        return EVAL_RC_FAIL
 
     trades: list[dict] = json.loads(plan_file.read_text(encoding="utf-8"))
 

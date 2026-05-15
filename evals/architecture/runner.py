@@ -3,6 +3,11 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
 from irc.io_utils import atomic_write_text
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.status import classify_status, worst_status
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.architecture.metrics import dag_acyclic_check, max_file_loc, output_files_present
@@ -14,12 +19,16 @@ def run(repo_root: Path) -> int:
     today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     out_dir = repo_root / "outputs" / today
     
-    # If output directory doesn't exist, return PASS (graceful pattern)
+    # If output directory doesn't exist, return FAIL (missing input pattern)
     if not out_dir.exists():
-        report = _pass_report()
-        _write(repo_root, report)
-        print(f"architecture eval: {report.overall} (no outputs yet)")
-        return 0
+        report = missing_input_report(
+            stage="architecture",
+            reason="outputs/ is missing — architecture stage did not run",
+            based_on_path="outputs/",
+        )
+        write_missing_input_report(repo_root, report)
+        print(f"architecture eval: {report.overall} (no input file)")
+        return EVAL_RC_FAIL
     
     files = output_files_present(out_dir)
     metrics = [
@@ -53,13 +62,6 @@ def run(repo_root: Path) -> int:
     atomic_write_text(out_eval / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
     print(f"architecture eval: {overall}")
     return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
-
-
-def _pass_report() -> StageReport:
-    return StageReport(
-        stage="architecture", ran_at=datetime.now(timezone(timedelta(hours=8))).isoformat(),
-        based_on=[], metrics=[], overall="PASS",
-    )
 
 
 def _write(repo_root: Path, report: StageReport) -> None:

@@ -6,6 +6,11 @@ from pathlib import Path
 
 import yaml
 
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.report_schema import MetricReport, StageReport, report_to_dict
 from evals._shared.status import classify_status, worst_status
 from evals.opportunity.metrics import (
@@ -59,13 +64,14 @@ def run(repo_root: Path) -> int:
     report_path, cards_path, md_path, date_str = _locate_inputs(root)
 
     if report_path is None:
-        empty = StageReport(
-            stage="opportunity", ran_at=datetime.now(_TZ).isoformat(),
-            based_on=[], metrics=[], overall="PASS",
+        report = missing_input_report(
+            stage="opportunity",
+            reason="no opportunity_report.json found — opportunity stage did not run",
+            based_on_path=None,
         )
-        _write(root, empty, date_str)
-        print(f"opportunity eval: PASS (no input file)")
-        return 0
+        write_missing_input_report(root, report)
+        print(f"opportunity eval: {report.overall} (no input file)")
+        return EVAL_RC_FAIL
 
     rows = json.loads(report_path.read_text(encoding="utf-8")).get("rows", [])
     cards = (
