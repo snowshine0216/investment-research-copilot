@@ -29,18 +29,21 @@ def _get_runner(stage: str) -> Callable[[Path], int]:
 def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
     root = Path(repo_root)
     if all_stages:
-        worst = 0
-        for s in ("data", "news", "research", "discovery", "scoring",
-                   "gold_score", "allocation", "trade_plan",
-                   "memo", "queries", "triggers", "architecture",
-                   "opportunity"):
+        stages = (
+            "data", "news", "research", "discovery", "scoring",
+            "gold_score", "allocation", "trade_plan",
+            "memo", "queries", "triggers", "architecture", "opportunity",
+        )
+        by_stage: dict[str, int] = {}
+        for s in stages:
             try:
                 rc = _get_runner(s)(root)
-                worst = max(worst, rc)
             except Exception as e:
-                print(f"eval {s} failed: {e}")
-                worst = max(worst, 2)
-        return worst
+                print(f"eval {s} raised: {e}")
+                rc = 2
+            by_stage[s] = rc
+        _print_eval_summary(by_stage)
+        return max(by_stage.values())
     if stage is None:
         print("ERROR: provide a stage or --all")
         return 2
@@ -49,3 +52,13 @@ def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
     except KeyError as e:
         print(f"ERROR: {e}")
         return 2
+
+
+def _print_eval_summary(by_stage: dict[str, int]) -> None:
+    def label(rc: int) -> str:
+        return {0: "PASS", 1: "WARN", 2: "FAIL"}.get(rc, f"rc={rc}")
+    print("eval summary:")
+    for stage, rc in by_stage.items():
+        print(f"  {label(rc):4} {stage}")
+    worst = max(by_stage.values())
+    print(f"overall: {label(worst)}")
