@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- **Eval discipline:** Every stage eval now returns `FAIL` (exit code 2) when its
+  input file is missing or unreadable, instead of the previous silent `PASS`.
+  Affects 12 runners: allocation, architecture, discovery, gold_score, memo,
+  news, opportunity, queries, research, scoring, trade_plan, triggers.
+- **Research pipeline halt:** The pipeline now stops at the research stage when
+  the quality gate fails (an entire locale dead, or success rate < 50%). Halt
+  reason and remediation are written to `outputs/<date>/PIPELINE_HALTED.md`.
+- **Search-provider visibility:** Every Tavily/Brave/Bocha/Jina failure is now
+  logged at `WARNING` (visible without `DEBUG=true`), and the research stage
+  prints a per-theme pass/fail summary at the end.
+- **Time-filtered search:** Theme queries now pass `freshness_days` per theme
+  (7-30 days) so providers return dated news articles instead of homepages.
+- **`eval --all` summary:** Prints per-stage and overall PASS/WARN/FAIL.
+
 ## [0.8.0.0] — 2026-05-15
 
 ### Changed
