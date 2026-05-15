@@ -27,10 +27,13 @@ def _explicit_research_requested(from_stage: str | None, only_stage: str | None)
 def _without_disabled_optional_stages(
     stages: list[str], from_stage: str | None, only_stage: str | None,
 ) -> list[str]:
-    if _env_flag_enabled("LDR_ENABLED") or _explicit_research_requested(from_stage, only_stage):
+    if _env_flag_enabled("RESEARCH_ENABLED") or _explicit_research_requested(from_stage, only_stage):
         return stages
     if "research" in stages:
-        print("research skipped: set LDR_ENABLED=true to run LDR research")
+        print(
+            "research skipped: set RESEARCH_ENABLED=true to run web research "
+            "(requires TAVILY_API_KEY, BRAVE_API_KEY, or BOCHA_API_KEY)"
+        )
     return [stage for stage in stages if stage != "research"]
 
 

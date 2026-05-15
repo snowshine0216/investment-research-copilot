@@ -1,38 +1,123 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from irc.research.ldr_client import run_research, LDRCitation
+
+from irc.llm._types import ResolvedRoute
+from irc.research.search.dispatch import (
+    extract_top_pages,
+    multi_provider_search,
+    providers_for_locale,
+)
+from irc.research.search.types import (
+    ContentExtractor,
+    Locale,
+    SearchProvider,
+)
+from irc.research.synthesize import Citation, synthesize_report
 
 
 @dataclass(frozen=True)
 class ThemeReport:
     theme: str
     query: str
+    locale: str
     report_md: str
-    citations: list[LDRCitation]
+    citations: list[Citation]
     failure_reason: str
 
 
 _THEME_QUERIES: dict[str, str] = {
-    "us_monetary":               "What did the Fed say or do this past week? Cite primary sources.",
-    "us_fiscal_politics":        "Recent US fiscal / political news affecting markets, with citations.",
-    "cn_monetary":                "PBoC actions and statements this week with primary sources.",
-    "cn_equity_property_policy": "China equity / property regulatory news with primary sources.",
-    "geopolitics":                "Material geopolitical events (Russia-Ukraine, Middle East, Taiwan) this week with primary sources.",
-    "gold_drivers":               "Recent moves in real yields, USD, central bank gold purchases, ETF flows; cite primary sources.",
-    "holdings_sector":            "News for sectors held in user portfolio; cite primary sources.",
+    "us_monetary": "What did the Fed say or do this past week? Cite primary sources.",
+    "us_fiscal_politics": "Recent US fiscal / political news affecting markets, with citations.",
+    "cn_monetary": "央行最近一周的货币政策操作和表态，附原始出处。",
+    "cn_equity_property_policy": "中国股市/地产监管和政策最新进展，附原始出处。",
+    "geopolitics": (
+        "Material geopolitical events (Russia-Ukraine, Middle East, Taiwan) this week "
+        "with primary sources."
+    ),
+    "gold_drivers": (
+        "Recent moves in real yields, USD, central bank gold purchases, ETF flows; "
+        "cite primary sources."
+    ),
+    "holdings_sector": "用户组合涉及行业的最新新闻和研报要点，附原始出处。",
 }
 
+_LOCALE_BY_PREFIX: tuple[tuple[str, Locale], ...] = (
+    ("us_", Locale.EN),
+    ("gold", Locale.EN),
+    ("geopolitics", Locale.EN),
+    ("cn_", Locale.ZH),
+    ("hk_", Locale.ZH),
+    ("holdings", Locale.ZH),
+)
 
-def build_theme_reports(themes: tuple[str, ...], time_budget_s: int = 90) -> list[ThemeReport]:
+
+def theme_locale(theme: str) -> Locale:
+    """Map a theme key to the search locale that fits its source ecosystem."""
+    for prefix, locale in _LOCALE_BY_PREFIX:
+        if theme.startswith(prefix):
+            return locale
+    return Locale.EN
+
+
+def _query_for(theme: str) -> str:
+    return _THEME_QUERIES.get(theme, f"Research summary for {theme}")
+
+
+def _build_one(
+    theme: str,
+    query: str,
+    locale: Locale,
+    providers: tuple[SearchProvider, ...],
+    extractor: ContentExtractor,
+    route: ResolvedRoute,
+    max_hits: int,
+    top_pages: int,
+) -> ThemeReport:
+    try:
+        matched = providers_for_locale(locale, providers)
+    except ValueError as exc:
+        return ThemeReport(
+            theme=theme, query=query, locale=locale.value,
+            report_md="", citations=[], failure_reason=str(exc),
+        )
+    hits = multi_provider_search(query, locale, matched, max_results=max_hits)
+    pages = extract_top_pages(hits, extractor, top_k=top_pages)
+    result = synthesize_report(
+        query=query, hits=hits, pages=pages, route=route,
+    )
+    return ThemeReport(
+        theme=theme, query=query, locale=locale.value,
+        report_md=result.report_md, citations=result.citations,
+        failure_reason=result.failure_reason,
+    )
+
+
+def build_theme_reports(
+    themes: tuple[str, ...],
+    *,
+    providers: tuple[SearchProvider, ...],
+    extractor: ContentExtractor,
+    route: ResolvedRoute,
+    max_hits: int = 8,
+    top_pages: int = 5,
+) -> list[ThemeReport]:
+    """For each theme: pick locale → fan-out search → extract top pages → LLM synth.
+
+    Per-theme failures (no provider, no hits, LLM error) are recorded in the report's
+    failure_reason; other themes still run. Wall-clock target ≤30 s per theme.
+    """
     from irc.observability import progress_iter
 
     out: list[ThemeReport] = []
     for theme in progress_iter(themes, "research", total=len(themes)):
-        query = _THEME_QUERIES.get(theme, f"Research summary for {theme}")
-        res = run_research(query=query, time_budget_s=time_budget_s)
-        out.append(ThemeReport(
-            theme=theme, query=query,
-            report_md=res.report_md, citations=res.citations,
-            failure_reason=res.failure_reason,
+        out.append(_build_one(
+            theme=theme,
+            query=_query_for(theme),
+            locale=theme_locale(theme),
+            providers=providers,
+            extractor=extractor,
+            route=route,
+            max_hits=max_hits,
+            top_pages=top_pages,
         ))
     return out

@@ -1,8 +1,12 @@
 from __future__ import annotations
-import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+from irc.config_loader import load_repo_configs
+from irc.llm.gateway import resolve_route
 from irc.research.pipeline import run_research_pipeline
+from irc.research.search.factory import build_extractor, build_providers
+from irc.settings import Settings
 
 
 _DEFAULT_THEMES: tuple[str, ...] = (
@@ -10,13 +14,26 @@ _DEFAULT_THEMES: tuple[str, ...] = (
     "cn_monetary", "cn_equity_property_policy",
     "geopolitics", "gold_drivers", "holdings_sector",
 )
-_DEFAULT_TIMEOUT_S = 300
 
 
 def run_research(repo_root: str) -> int:
     root = Path(repo_root)
     load_dotenv(root / ".env")
-    time_budget_s = int(os.environ.get("LDR_TIMEOUT_S", _DEFAULT_TIMEOUT_S))
+    settings = Settings()
+    providers = build_providers(settings)
+    if not providers:
+        print(
+            "research skipped: no search provider keys configured. "
+            "Set TAVILY_API_KEY, BRAVE_API_KEY, or BOCHA_API_KEY in .env."
+        )
+        return 0
+    extractor = build_extractor(settings)
+    bundle = load_repo_configs(root)
+    route = resolve_route("research_synth", bundle.llm)
     return run_research_pipeline(
-        repo_root=root, themes=_DEFAULT_THEMES, time_budget_s=time_budget_s,
+        repo_root=root,
+        themes=_DEFAULT_THEMES,
+        providers=providers,
+        extractor=extractor,
+        route=route,
     )
