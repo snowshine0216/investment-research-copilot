@@ -755,6 +755,7 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest" },
     { name = "respx" },
 ]
 
@@ -784,7 +785,10 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "respx", specifier = ">=0.23.1" }]
+dev = [
+    { name = "pytest", specifier = ">=9.0.3" },
+    { name = "respx", specifier = ">=0.23.1" },
+]
 
 [[package]]
 name = "itsdangerous"
