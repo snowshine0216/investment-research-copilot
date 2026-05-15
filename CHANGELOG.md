@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0.0] — 2026-05-15
+
+### Added
+- **`src/irc/observability/` package** with four modules: `console.py` (shared `rich.Console` writing to stderr + `setup_logging`), `progress.py` (`progress_iter` wraps any iterable in a Rich progress bar; `stage_banner` context manager prints rule/done/FAILED with elapsed time), `errors.py` (pure `classify_exception` maps exceptions to 8 categories; stateful `ErrorTally` collects skips per loop and renders a tree summary), and `__init__.py` re-exporting the public API.
+- **`DEBUG` setting** in `Settings` and `.env.example`: set `DEBUG=true` to enable verbose Rich logging (full tracebacks, DEBUG-level third-party records). Default is `WARNING`-only from third parties with one-line repr for errors.
+- **Pipeline stage banners** in `irc run`: each stage is now wrapped in `stage_banner`, printing `[N/T] stage — starting` / `done in Xs` / `FAILED after Xs` to stderr.
+- **Progress bars + error tallies** in `irc ingest`: `progress_iter` over metadata, prices, and NAV loops; `ErrorTally` collects skipped instruments per loop and renders a categorized tree (ssl / proxy / timeout / data-key / schema / not-found / empty / other) after each loop completes.
+- **Progress bar in `irc research`**: `progress_iter` over the themes loop replaces manual `[N/T]` print statements.
+- **`demote_unstable_active`** in `src/irc/opportunity/selection.py`: downgrades active-fund rows to `small_watch` when a passive alternative in the same theme has equal or better `SelectionQuality`.
+- **33 new observability tests** across 5 test files covering all public API paths, edge cases, and the non-TTY rendering path.
+- **4 new selection tests** for `demote_unstable_active` covering no-passive, no-quality, already-exclude, and demotion scenarios.
+
+### Changed
+- `_fetch_metadata_by_id` now returns `(metadata_by_id, ErrorTally)` instead of `metadata_by_id` alone; callers updated accordingly.
+- Per-theme `print` statements in `theme_research.py` replaced with `progress_iter` progress bar.
+
 ## [0.6.2.0] — 2026-05-14
 
 ### Added
