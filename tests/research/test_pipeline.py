@@ -116,3 +116,28 @@ def test_run_research_pipeline_returns_2_when_quality_gate_fails(tmp_path, monke
     assert status_path.exists(), "status file must be written even on gate failure"
     status = json.loads(status_path.read_text())
     assert len(status["themes"]) == 2
+
+
+def test_run_research_pipeline_prints_summary(tmp_path, monkeypatch, capsys):
+    from irc.research import pipeline as p
+    from irc.research.theme_research import ThemeReport
+
+    def _mixed(themes, **_):
+        return [
+            ThemeReport(theme="us_monetary", query="q", locale="en", report_md="x",
+                        citations=[], failure_reason=""),
+            ThemeReport(theme="cn_monetary", query="q", locale="zh", report_md="",
+                        citations=[], failure_reason="bocha 403"),
+        ]
+    monkeypatch.setattr(p, "build_theme_reports", _mixed)
+
+    p.run_research_pipeline(
+        repo_root=tmp_path, themes=("us_monetary", "cn_monetary"),
+        providers=(), extractor=object(), route=object(),
+    )
+    captured = capsys.readouterr()
+    out = captured.out + captured.err
+    # User must see both the OK and the failing theme by name.
+    assert "us_monetary" in out, f"us_monetary not in output: {out!r}"
+    assert "cn_monetary" in out, f"cn_monetary not in output: {out!r}"
+    assert "bocha 403" in out, f"failure reason not in output: {out!r}"

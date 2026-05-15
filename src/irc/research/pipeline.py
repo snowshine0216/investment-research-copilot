@@ -11,6 +11,19 @@ from irc.research.theme_research import build_theme_reports
 _log = logging.getLogger(__name__)
 
 
+def _print_summary(reports: list) -> None:
+    ok = [r for r in reports if not r.failure_reason]
+    failed = [r for r in reports if r.failure_reason]
+    print(
+        f"research summary: {len(ok)} ok / {len(failed)} failed "
+        f"(total {len(reports)})"
+    )
+    for r in failed:
+        print(f"  \u2717 {r.theme} [{r.locale}] \u2014 {r.failure_reason}")
+    for r in ok:
+        print(f"  \u2713 {r.theme} [{r.locale}] \u2014 {len(r.citations)} citations")
+
+
 def run_research_pipeline(
     repo_root: Path,
     themes: tuple[str, ...],
@@ -28,6 +41,7 @@ def run_research_pipeline(
         themes=themes, providers=providers, extractor=extractor, route=route,
     )
     write_research_outputs(out_dir, reports)
+    _print_summary(reports)
 
     verdict = evaluate_research_quality(reports)
     for reason in verdict.reasons:
