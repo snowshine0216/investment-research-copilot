@@ -40,10 +40,24 @@ class _TargetSpec:
     symbols: tuple[str, ...] = ()
 
 
+# Keys MUST equal values produced by
+# `irc.opportunity.lookthrough.map_lookthrough(...).display_cn`. The coupling test
+# in tests/opportunity/test_lookthrough.py prevents silent drift.
+#
+# V1 scope: broad CN equity indices only. Sector themes (`半导体`, `医药`, …)
+# and QDII targets (`纳斯达克100`, `恒生科技`, …) resolve to `evidence_insufficient`
+# thesis_state via the snapshot=None path in opportunity_cmd until their
+# corresponding _TargetSpec entries are added.
 _TARGET_REGISTRY: dict[str, _TargetSpec] = {
-    # CN index baskets (extend as themes onboard).
-    "沪深300": _TargetSpec(kind="cn_index", code="000300"),
-    "中证500": _TargetSpec(kind="cn_index", code="000905"),
+    "沪深300":   _TargetSpec(kind="cn_index", code="000300"),
+    "中证500":   _TargetSpec(kind="cn_index", code="000905"),
+    "中证1000":  _TargetSpec(kind="cn_index", code="000852"),
+    "中证A500":  _TargetSpec(kind="cn_index", code="000510"),  # TODO: verify AkShare code for CSI A500
+    "上证50":    _TargetSpec(kind="cn_index", code="000016"),
+    "科创50":    _TargetSpec(kind="cn_index", code="000688"),
+    "创业板":    _TargetSpec(kind="cn_index", code="399006"),
+    "中证红利":  _TargetSpec(kind="cn_index", code="000922"),
+    "红利低波":  _TargetSpec(kind="cn_index", code="930740"),
 }
 
 

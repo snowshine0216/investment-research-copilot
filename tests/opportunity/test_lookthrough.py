@@ -96,3 +96,11 @@ def test_unknown_index_falls_back_to_kind_with_display_key():
     assert target.kind == "broad_index"
     assert target.key == "some_obscure_index_v2"
     assert target.display_cn  # non-empty fallback
+
+
+def test_target_registry_covers_broad_index_display_table() -> None:
+    from irc.fundamentals.snapshot import _TARGET_REGISTRY
+    from irc.opportunity.lookthrough import _BROAD_INDEX_DISPLAY
+
+    missing = sorted(set(_BROAD_INDEX_DISPLAY.values()) - set(_TARGET_REGISTRY))
+    assert missing == [], f"missing broad-index registry entries: {missing}"
