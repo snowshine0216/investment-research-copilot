@@ -188,3 +188,24 @@ def test_build_records_failure_when_search_returns_no_hits():
         )
     assert m.call_count == 0
     assert "no sources" in out[0].failure_reason.lower()
+
+
+def test_build_theme_reports_captures_provider_failures():
+    """Provider failures are captured in provider_failures field."""
+    failing_provider = _FakeProvider(name="failing", locale=Locale.EN, failure="timeout")
+    ok_provider = _FakeProvider(name="ok", locale=Locale.EN, hits=(_hit("https://x"),))
+    extractor = _FakeExtractor(md_by_url={"https://x": "content"})
+
+    with patch(
+        "irc.research.synthesize.call_chat",
+        return_value=ChatResponse(text="body", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
+    ):
+        reports = build_theme_reports(
+            themes=("us_monetary",),
+            providers=(failing_provider, ok_provider),
+            extractor=extractor,
+            route=_route(),
+        )
+
+    assert len(reports) == 1
+    assert "failing: timeout" in reports[0].provider_failures

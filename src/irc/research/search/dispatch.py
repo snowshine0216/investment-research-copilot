@@ -7,6 +7,7 @@ from irc.research.search.types import (
     Locale,
     SearchHit,
     SearchProvider,
+    SearchResult,
 )
 
 
@@ -57,6 +58,42 @@ def multi_provider_search(
             out.append(hit)
             if len(out) >= max_results:
                 return tuple(out)
+    return tuple(out)
+
+
+def provider_results(
+    query: str,
+    locale: Locale,
+    providers: tuple[SearchProvider, ...],
+    *,
+    max_results: int = 10,
+    freshness_days: int | None = None,
+    include_domains: tuple[str, ...] = (),
+) -> tuple[SearchResult, ...]:
+    """Fan out to all locale-matching providers; return one SearchResult per provider.
+
+    Unlike multi_provider_search, this preserves failure_reason for each provider
+    instead of silently dropping failed providers. Exceptions from a provider's
+    search() method are caught and converted to a failed SearchResult.
+    """
+    out: list[SearchResult] = []
+    for provider in providers:
+        if provider.locale != locale:
+            continue
+        try:
+            out.append(provider.search(
+                query,
+                max_results=max_results,
+                freshness_days=freshness_days,
+                include_domains=include_domains,
+            ))
+        except Exception as exc:
+            out.append(SearchResult(
+                query=query,
+                locale=locale,
+                provider=provider.name,
+                failure_reason=f"provider raised: {exc}",
+            ))
     return tuple(out)
 
 

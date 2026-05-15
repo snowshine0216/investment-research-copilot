@@ -5,6 +5,7 @@ from irc.llm._types import ResolvedRoute
 from irc.research.search.dispatch import (
     extract_top_pages,
     multi_provider_search,
+    provider_results,
     providers_for_locale,
 )
 from irc.research.search.types import (
@@ -23,6 +24,7 @@ class ThemeReport:
     report_md: str
     citations: list[Citation]
     failure_reason: str
+    provider_failures: tuple[str, ...] = ()
 
 
 _THEME_QUERIES: dict[str, str] = {
@@ -79,7 +81,14 @@ def _build_one(
         return ThemeReport(
             theme=theme, query=query, locale=locale.value,
             report_md="", citations=[], failure_reason=str(exc),
+            provider_failures=(),
         )
+    raw_results = provider_results(query, locale, matched, max_results=max_hits)
+    failures = tuple(
+        f"{r.provider}: {r.failure_reason}"
+        for r in raw_results
+        if r.failure_reason
+    )
     hits = multi_provider_search(query, locale, matched, max_results=max_hits)
     pages = extract_top_pages(hits, extractor, top_k=top_pages)
     result = synthesize_report(
@@ -89,6 +98,7 @@ def _build_one(
         theme=theme, query=query, locale=locale.value,
         report_md=result.report_md, citations=result.citations,
         failure_reason=result.failure_reason,
+        provider_failures=failures,
     )
 
 

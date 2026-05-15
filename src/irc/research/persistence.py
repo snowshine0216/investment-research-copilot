@@ -35,6 +35,7 @@ def status_for_reports(reports: list[ThemeReport]) -> dict[str, Any]:
                 "citation_count": len(r.citations),
                 "citations": [asdict(c) for c in r.citations],
                 "failure_reason": r.failure_reason,
+                "provider_failures": list(r.provider_failures),
             }
             for r in reports
         ],

@@ -59,6 +59,17 @@ def test_status_for_reports_partial_failure():
     assert status["themes"][1]["failure_reason"] == "timeout"
 
 
+def test_status_for_reports_includes_provider_failures():
+    report = ThemeReport(
+        theme="us_monetary", query="q", locale="en",
+        report_md="body", citations=[],
+        failure_reason="",
+        provider_failures=("brave: http 503",),
+    )
+    status = status_for_reports([report])
+    assert status["themes"][0]["provider_failures"] == ["brave: http 503"]
+
+
 def test_write_research_outputs_creates_files(tmp_path: Path):
     reports = [_ok_report("us_monetary"), _failed_report("gold_drivers", "timeout")]
     write_research_outputs(tmp_path, reports)

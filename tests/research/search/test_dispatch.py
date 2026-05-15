@@ -11,6 +11,7 @@ import pytest
 from irc.research.search.dispatch import (
     extract_top_pages,
     multi_provider_search,
+    provider_results,
     providers_for_locale,
 )
 from irc.research.search.types import (
@@ -191,3 +192,40 @@ def test_extract_top_pages_catches_extractor_exceptions():
     assert len(pages) == 2
     assert pages[0].failure_reason != ""
     assert pages[1].failure_reason == ""
+
+
+# provider_results -----------------------------------------------------------
+
+def test_provider_results_keeps_failure_reasons():
+    a = FakeProvider(name="a", locale=Locale.EN, failure="timeout")
+    b = FakeProvider(name="b", locale=Locale.EN, hits_to_return=(_hit("https://x/1"),))
+
+    results = provider_results("q", Locale.EN, (a, b), max_results=5)
+
+    assert [r.provider for r in results] == ["a", "b"]
+    assert results[0].failure_reason == "timeout"
+    assert results[1].hits[0].url == "https://x/1"
+
+
+def test_provider_results_skips_wrong_locale():
+    en_provider = FakeProvider(name="en", locale=Locale.EN, hits_to_return=(_hit("https://x"),))
+    zh_provider = FakeProvider(name="zh", locale=Locale.ZH, hits_to_return=(_hit("https://y"),))
+
+    results = provider_results("q", Locale.EN, (en_provider, zh_provider))
+
+    assert len(results) == 1
+    assert results[0].provider == "en"
+
+
+def test_provider_results_catches_exceptions():
+    class RaisingProvider:
+        name = "raiser"
+        locale = Locale.EN
+
+        def search(self, query, **_):
+            raise RuntimeError("network error")
+
+    results = provider_results("q", Locale.EN, (RaisingProvider(),))
+
+    assert len(results) == 1
+    assert "provider raised" in results[0].failure_reason
