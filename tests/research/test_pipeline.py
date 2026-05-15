@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -47,7 +48,7 @@ def test_research_pipeline_writes_markdown_per_theme(mock_build, tmp_path: Path)
 
 
 @patch("irc.research.pipeline.build_theme_reports")
-def test_research_pipeline_returns_nonzero_when_any_theme_fails(mock_build, tmp_path: Path):
+def test_research_pipeline_returns_zero_and_writes_warn_status_when_any_theme_fails(mock_build, tmp_path: Path):
     mock_build.return_value = [
         _ok_report("us_monetary"),
         _failed_report("gold_drivers", "timeout"),
@@ -59,5 +60,29 @@ def test_research_pipeline_returns_nonzero_when_any_theme_fails(mock_build, tmp_
         extractor=None,  # type: ignore[arg-type]
         route=_route(),
     )
-    assert rc == 2
+    assert rc == 0
+    status_path = tmp_path / "data/research/research_status.json"
+    body = json.loads(status_path.read_text(encoding="utf-8"))
+    assert body["overall"] == "warn"
     assert "research failed" in (tmp_path / "data/research/gold_drivers.md").read_text()
+
+
+@patch("irc.research.pipeline.build_theme_reports")
+def test_research_pipeline_writes_status_json(mock_build, tmp_path: Path):
+    mock_build.return_value = [_ok_report("us_monetary"), _failed_report("gold_drivers", "timeout")]
+    rc = run_research_pipeline(
+        repo_root=tmp_path,
+        themes=("us_monetary", "gold_drivers"),
+        providers=(),
+        extractor=None,  # type: ignore[arg-type]
+        route=_route(),
+    )
+
+    status_path = tmp_path / "data/research/research_status.json"
+    assert rc == 0
+    assert status_path.exists()
+    body = json.loads(status_path.read_text(encoding="utf-8"))
+    assert body["overall"] == "warn"
+    assert body["themes"][0]["theme"] == "us_monetary"
+    assert body["themes"][0]["citation_count"] == 1
+    assert body["themes"][1]["failure_reason"] == "timeout"
