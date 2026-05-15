@@ -1,0 +1,195 @@
+"""TDD tests for snapshot orchestration + JSON cache.
+
+Fetchers are patched at the snapshot module's import site so each test exercises
+the orchestration logic with deterministic fake data."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from irc.fundamentals import snapshot
+from irc.fundamentals.snapshot import (
+    build_snapshot,
+    cache_path,
+    load_cached_snapshot,
+    write_snapshot,
+)
+from irc.fundamentals.types import (
+    BrokerReport,
+    Constituent,
+    ConstituentSnapshot,
+    FilingDigest,
+)
+
+
+# ---------- registry / build_snapshot ----------
+
+
+@pytest.fixture
+def cn_target_registry(monkeypatch):
+    """Pin 白酒指数 to a CN index spec for the duration of the test."""
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "白酒指数",
+        snapshot._TargetSpec(kind="cn_index", code="399997"),
+    )
+
+
+def test_build_snapshot_cn_index_dispatches_to_akshare(monkeypatch, cn_target_registry):
+    constituents = (
+        Constituent(symbol="600519.SH", name="贵州茅台", weight=0.40, market="cn"),
+        Constituent(symbol="000858.SZ", name="五粮液", weight=0.30, market="cn"),
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-29",
+        revenue_yoy=0.06, net_income_yoy=0.05, gross_margin=0.92,
+    )
+    report = BrokerReport(
+        symbol="600519.SH", broker="中信证券", rating="买入", target_price=None,
+        published_iso="2026-05-08", title="一季报点评",
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_index_constituents", lambda code, *, top_n=10: constituents,
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_filing_digest",
+        lambda sym: digest if sym == "600519.SH" else None,
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_broker_reports",
+        lambda sym, **_: (report,) if sym == "600519.SH" else (),
+    )
+    snap = build_snapshot("白酒指数", top_n=2, as_of_iso="2026-05-15")
+    assert isinstance(snap, ConstituentSnapshot)
+    assert snap.lookthrough_target == "白酒指数"
+    assert snap.as_of_iso == "2026-05-15"
+    assert snap.constituents == constituents
+    # Filing for 600519 returned a digest; 000858 returned None → recorded as failure
+    assert snap.filings == (digest,)
+    assert any("000858" in reason for reason in snap.failure_reasons)
+    assert snap.broker_reports == (report,)
+
+
+def test_build_snapshot_unknown_target_returns_empty_with_failure_reason() -> None:
+    snap = build_snapshot("never-seen-target", top_n=5, as_of_iso="2026-05-15")
+    assert snap.constituents == ()
+    assert snap.filings == ()
+    assert snap.broker_reports == ()
+    assert any("never-seen-target" in r for r in snap.failure_reasons)
+
+
+def test_build_snapshot_us_symbols_dispatches_to_edgar(monkeypatch):
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "Mag7",
+        snapshot._TargetSpec(kind="us_symbols", symbols=("AAPL", "MSFT")),
+    )
+    aapl_digest = FilingDigest(
+        symbol="AAPL", fiscal_period="2026Q2", filed_at_iso="2026-05-02",
+        revenue_yoy=0.06, net_income_yoy=0.09, gross_margin=0.45,
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_us_filing_digest",
+        lambda sym: aapl_digest if sym == "AAPL" else None,
+    )
+    snap = build_snapshot("Mag7", as_of_iso="2026-05-15")
+    assert snap.constituents == (
+        Constituent(symbol="AAPL", name="AAPL", weight=0.0, market="us"),
+        Constituent(symbol="MSFT", name="MSFT", weight=0.0, market="us"),
+    )
+    assert snap.filings == (aapl_digest,)
+    assert any("MSFT" in r for r in snap.failure_reasons)
+    assert snap.broker_reports == ()
+
+
+def test_build_snapshot_hk_symbols_dispatches_to_hkex(monkeypatch):
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "HK-Tech",
+        snapshot._TargetSpec(kind="hk_symbols", symbols=("0700.HK",)),
+    )
+    tencent_digest = FilingDigest(
+        symbol="0700.HK", fiscal_period="2026Q1", filed_at_iso="2026-03-31",
+        revenue_yoy=0.22, net_income_yoy=0.14, gross_margin=0.57,
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_hk_filing_digest",
+        lambda sym: tencent_digest if sym == "0700.HK" else None,
+    )
+    snap = build_snapshot("HK-Tech", as_of_iso="2026-05-15")
+    assert snap.filings == (tencent_digest,)
+    assert snap.broker_reports == ()
+
+
+# ---------- cache_path / round-trip ----------
+
+
+def test_cache_path_format(tmp_path: Path) -> None:
+    path = cache_path("半导体指数", "2026Q1", tmp_path)
+    assert path == tmp_path / "fundamentals" / "2026Q1" / "半导体指数.json"
+
+
+def test_write_snapshot_creates_directory_and_returns_path(tmp_path: Path) -> None:
+    snap = ConstituentSnapshot(
+        lookthrough_target="白酒指数",
+        as_of_iso="2026-05-15",
+        constituents=(
+            Constituent(symbol="600519.SH", name="贵州茅台", weight=0.07, market="cn"),
+        ),
+        filings=(),
+        broker_reports=(),
+    )
+    out = write_snapshot(snap, tmp_path)
+    assert out.exists()
+    assert "白酒指数.json" in str(out)
+    body = json.loads(out.read_text(encoding="utf-8"))
+    assert body["lookthrough_target"] == "白酒指数"
+    assert body["constituents"][0]["symbol"] == "600519.SH"
+
+
+def test_write_then_load_round_trips_all_fields(tmp_path: Path) -> None:
+    snap = ConstituentSnapshot(
+        lookthrough_target="半导体指数",
+        as_of_iso="2026-05-15",
+        constituents=(
+            Constituent(symbol="688981.SH", name="中芯国际", weight=0.12, market="cn"),
+        ),
+        filings=(
+            FilingDigest(
+                symbol="688981.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+                revenue_yoy=0.18, net_income_yoy=-0.05, gross_margin=0.21,
+                guidance_text="产能利用率提升", source_url="https://example.com/a",
+            ),
+        ),
+        broker_reports=(
+            BrokerReport(
+                symbol="688981.SH", broker="中信证券", rating="增持",
+                target_price=98.5, published_iso="2026-05-10", title="季报点评",
+                source_url="https://example.com/r",
+            ),
+        ),
+        failure_reasons=("edgar 503",),
+    )
+    write_snapshot(snap, tmp_path)
+    loaded = load_cached_snapshot("半导体指数", "2026Q1", tmp_path)
+    assert loaded == snap
+
+
+def test_load_cached_snapshot_returns_none_when_missing(tmp_path: Path) -> None:
+    assert load_cached_snapshot("missing", "2026Q1", tmp_path) is None
+
+
+def test_load_cached_snapshot_returns_none_when_malformed(tmp_path: Path) -> None:
+    path = cache_path("bad", "2026Q1", tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not json", encoding="utf-8")
+    assert load_cached_snapshot("bad", "2026Q1", tmp_path) is None
+
+
+def test_load_cached_snapshot_returns_none_when_schema_drift(tmp_path: Path) -> None:
+    path = cache_path("drift", "2026Q1", tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"foo": "bar"}), encoding="utf-8")
+    assert load_cached_snapshot("drift", "2026Q1", tmp_path) is None
