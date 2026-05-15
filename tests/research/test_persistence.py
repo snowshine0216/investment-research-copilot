@@ -80,3 +80,72 @@ def test_write_research_outputs_creates_files(tmp_path: Path):
     assert status_path.exists()
     body = json.loads(status_path.read_text(encoding="utf-8"))
     assert body["overall"] == "warn"
+
+
+# ---------- load_theme_reports round-trip ----------
+
+
+from irc.research.persistence import load_theme_reports  # noqa: E402
+
+
+def test_load_theme_reports_returns_empty_when_no_status_file(tmp_path: Path):
+    assert load_theme_reports(tmp_path) == {}
+
+
+def test_load_theme_reports_round_trips_successful_theme(tmp_path: Path):
+    reports = [_ok_report("us_monetary")]
+    write_research_outputs(tmp_path / "data" / "research", reports)
+    loaded = load_theme_reports(tmp_path)
+    assert "us_monetary" in loaded
+    r = loaded["us_monetary"]
+    assert r.failure_reason == ""
+    assert r.theme == "us_monetary"
+    assert len(r.citations) == 1
+
+
+def test_load_theme_reports_round_trips_failed_theme(tmp_path: Path):
+    reports = [_failed_report("gold_drivers", "timeout")]
+    write_research_outputs(tmp_path / "data" / "research", reports)
+    loaded = load_theme_reports(tmp_path)
+    assert "gold_drivers" in loaded
+    r = loaded["gold_drivers"]
+    assert r.failure_reason == "timeout"
+
+
+def test_load_theme_reports_round_trips_provider_failures(tmp_path: Path):
+    report = ThemeReport(
+        theme="cn_monetary", query="q", locale="zh",
+        report_md="body", citations=[],
+        failure_reason="",
+        provider_failures=("brave: http 429", "bocha: timeout"),
+    )
+    write_research_outputs(tmp_path / "data" / "research", [report])
+    loaded = load_theme_reports(tmp_path)
+    assert loaded["cn_monetary"].provider_failures == ("brave: http 429", "bocha: timeout")
+
+
+def test_load_theme_reports_successful_theme_has_empty_failure_reason(tmp_path: Path):
+    """Regression: failure_reason=null in JSON must deserialise to '' not 'None'."""
+    status = {
+        "generated_at_iso": "2026-05-15T00:00:00+00:00",
+        "overall": "pass",
+        "theme_count": 1,
+        "failure_count": 0,
+        "themes": [{
+            "theme": "us_monetary",
+            "query": "us fed rate",
+            "locale": "en",
+            "report_path": "data/research/us_monetary.md",
+            "citation_count": 0,
+            "citations": [],
+            "failure_reason": None,      # null in JSON — the risky case
+            "provider_failures": [],
+        }],
+    }
+    research_dir = tmp_path / "data" / "research"
+    research_dir.mkdir(parents=True, exist_ok=True)
+    (research_dir / "research_status.json").write_text(
+        json.dumps(status), encoding="utf-8"
+    )
+    loaded = load_theme_reports(tmp_path)
+    assert loaded["us_monetary"].failure_reason == ""

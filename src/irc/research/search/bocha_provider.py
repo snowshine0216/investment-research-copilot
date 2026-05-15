@@ -1,8 +1,7 @@
 from __future__ import annotations
 from urllib.parse import urlparse
 
-import httpx
-
+from irc.research.search._http import post_json
 from irc.research.search.types import Locale, SearchHit, SearchResult
 
 
@@ -44,70 +43,31 @@ class BochaProvider:
         include_domains: tuple[str, ...] = (),
         exclude_domains: tuple[str, ...] = (),
     ) -> SearchResult:
-        payload: dict = {
-            "query": query,
-            "count": max_results,
-            "summary": True,
-        }
+        payload: dict = {"query": query, "count": max_results, "summary": True}
         if freshness_days is not None:
             payload["freshness"] = _freshness_bucket(freshness_days)
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-        }
-        try:
-            resp = httpx.post(
-                _ENDPOINT,
-                json=payload,
-                headers=headers,
-                timeout=self._timeout_s,
-            )
-        except httpx.TimeoutException as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"timeout: {exc}",
-            )
-        except httpx.HTTPError as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"http error: {exc}",
-            )
-        if resp.status_code != 200:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"http {resp.status_code}: {resp.text[:200]}",
-            )
-        try:
-            body = resp.json()
-        except ValueError as exc:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"invalid JSON: {exc}",
-            )
-        code = body.get("code")
-        if code != 200:
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason=f"bocha error {code}: {body.get('msg', '')}",
-            )
+        headers = {"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"}
+        body, err = post_json(
+            _ENDPOINT, payload=payload, headers=headers, timeout_s=self._timeout_s,
+            query=query, locale=self.locale, provider=self.name,
+        )
+        if err is not None:
+            return err
+        if body.get("code") != 200:
+            return SearchResult(query=query, locale=self.locale, provider=self.name,
+                                failure_reason=f"bocha error {body.get('code')}: {body.get('msg', '')}")
         data = body.get("data")
         if not isinstance(data, dict):
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason="missing 'data' object in response",
-            )
+            return SearchResult(query=query, locale=self.locale, provider=self.name,
+                                failure_reason="missing 'data' object in response")
         web_pages = data.get("webPages")
         if not isinstance(web_pages, dict):
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason="missing 'webPages' object in response",
-            )
+            return SearchResult(query=query, locale=self.locale, provider=self.name,
+                                failure_reason="missing 'webPages' object in response")
         values = web_pages.get("value")
         if not isinstance(values, list):
-            return SearchResult(
-                query=query, locale=self.locale, provider=self.name,
-                failure_reason="missing 'webPages.value' array in response",
-            )
+            return SearchResult(query=query, locale=self.locale, provider=self.name,
+                                failure_reason="missing 'webPages.value' array in response")
         hits = tuple(_to_hit(r) for r in values if isinstance(r, dict))
         if include_domains:
             allowed = {d.lower() for d in include_domains}
@@ -115,9 +75,7 @@ class BochaProvider:
         if exclude_domains:
             blocked = {d.lower() for d in exclude_domains}
             hits = tuple(h for h in hits if h.source_domain.lower() not in blocked)
-        return SearchResult(
-            query=query, locale=self.locale, hits=hits, provider=self.name,
-        )
+        return SearchResult(query=query, locale=self.locale, hits=hits, provider=self.name)
 
 
 def _to_hit(raw: dict) -> SearchHit:
@@ -125,7 +83,10 @@ def _to_hit(raw: dict) -> SearchHit:
     return SearchHit(
         title=raw.get("name", "") or "",
         url=url,
-        snippet=raw.get("snippet", "") or "",
+        snippet=raw.get("summary", "") or raw.get("snippet", "") or "",
         published_iso=raw.get("datePublished", "") or "",
         source_domain=urlparse(url).hostname or "" if url else "",
     )
+
+
+

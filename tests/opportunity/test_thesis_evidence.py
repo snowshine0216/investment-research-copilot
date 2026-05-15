@@ -218,3 +218,13 @@ def test_missing_broker_coverage_gap_when_no_broker_reports():
     snap = _snapshot(filings=filings, brokers=())
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
     assert "missing_broker_coverage" in gaps
+
+
+def test_empty_report_md_with_no_failure_reason_adds_missing_recent_news_gap():
+    """ThemeReport with empty body but no failure_reason should yield a gap, not be treated as failed."""
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
+    snap = _snapshot(filings=filings)
+    tr = _theme_report(report_md="")  # empty report, no failure_reason
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
+    assert "missing_recent_news" in gaps
+

@@ -121,6 +121,35 @@ def _theme_report_usable(report: ThemeReport | None) -> bool:
     return report is not None and not report.failure_reason and bool(report.report_md)
 
 
+def _classify_state(
+    pct_pos: float,
+    pct_neg: float,
+    consensus: int,
+) -> tuple[ThesisState, str]:
+    """Map YoY percentages + broker consensus to (state, reason). Pure."""
+    if pct_neg >= _FALSIFIED_NEGATIVE_PCT:
+        return (
+            "falsified",
+            f"成分股 {pct_neg:.0%} 营收同比为负，长期逻辑实质受损。",
+        )
+    if pct_pos >= _INTACT_POSITIVE_PCT and pct_neg < _UNDER_PRESSURE_NEGATIVE_PCT and consensus >= 0:
+        return (
+            "intact",
+            f"成分股 {pct_pos:.0%} 营收同比为正，长期逻辑完好。",
+        )
+    if pct_neg >= _UNDER_PRESSURE_NEGATIVE_PCT or consensus < 0:
+        reason = (
+            f"成分股营收同比正向比例 {pct_pos:.0%}，但券商一致评级偏空。"
+            if consensus < 0
+            else f"成分股 {pct_neg:.0%} 营收同比为负，行业景气承压。"
+        )
+        return ("under_pressure", reason)
+    return (
+        "evidence_insufficient",
+        f"成分股营收同比方向不明确（正 {pct_pos:.0%}/负 {pct_neg:.0%}）。",
+    )
+
+
 def derive_thesis_from_evidence(
     snapshot: ConstituentSnapshot | None,
     theme_report: ThemeReport | None,
@@ -165,37 +194,5 @@ def derive_thesis_from_evidence(
         + _news_evidence(theme_report)
     )
 
-    pct_pos = pos / total
-    pct_neg = neg / total
-
-    if pct_neg >= _FALSIFIED_NEGATIVE_PCT:
-        return (
-            "falsified",
-            f"成分股 {pct_neg:.0%} 营收同比为负，长期逻辑实质受损。",
-            evidence,
-            tuple(gaps),
-        )
-
-    if pct_pos >= _INTACT_POSITIVE_PCT and pct_neg < _UNDER_PRESSURE_NEGATIVE_PCT and consensus >= 0:
-        return (
-            "intact",
-            f"成分股 {pct_pos:.0%} 营收同比为正，长期逻辑完好。",
-            evidence,
-            tuple(gaps),
-        )
-
-    if pct_neg >= _UNDER_PRESSURE_NEGATIVE_PCT or consensus < 0:
-        if consensus < 0:
-            reason = (
-                f"成分股营收同比正向比例 {pct_pos:.0%}，但券商一致评级偏空。"
-            )
-        else:
-            reason = f"成分股 {pct_neg:.0%} 营收同比为负，行业景气承压。"
-        return ("under_pressure", reason, evidence, tuple(gaps))
-
-    return (
-        "evidence_insufficient",
-        f"成分股营收同比方向不明确（正 {pct_pos:.0%}/负 {pct_neg:.0%}）。",
-        evidence,
-        tuple(gaps),
-    )
+    state, reason = _classify_state(pos / total, neg / total, consensus)
+    return (state, reason, evidence, tuple(gaps))

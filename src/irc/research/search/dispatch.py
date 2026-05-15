@@ -97,6 +97,30 @@ def provider_results(
     return tuple(out)
 
 
+def hits_from_results(
+    results: tuple[SearchResult, ...],
+    max_results: int = 10,
+) -> tuple[SearchHit, ...]:
+    """Extract deduplicated hits from pre-fetched SearchResult objects.
+
+    Use instead of multi_provider_search when results were already fetched via
+    provider_results — avoids a second HTTP fan-out.
+    """
+    seen: set[str] = set()
+    out: list[SearchHit] = []
+    for result in results:
+        if result.failure_reason:
+            continue
+        for hit in result.hits:
+            if not hit.url or hit.url in seen:
+                continue
+            seen.add(hit.url)
+            out.append(hit)
+            if len(out) >= max_results:
+                return tuple(out)
+    return tuple(out)
+
+
 def extract_top_pages(
     hits: tuple[SearchHit, ...],
     extractor: ContentExtractor,

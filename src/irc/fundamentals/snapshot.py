@@ -1,31 +1,35 @@
-"""Constituent snapshot orchestration + on-disk JSON cache.
+"""Constituent snapshot orchestration.
 
 `build_snapshot(lookthrough_target)` composes constituents → filings → broker
 reports for one theme by dispatching to the right per-market adapter. Per-symbol
 failures get recorded in `failure_reasons`, never raised.
 
-The on-disk cache lives at `<root>/fundamentals/<quarter>/<lookthrough_target>.json`.
+On-disk cache helpers live in `snapshot_cache`; this module re-exports them
+for backward compatibility so callers can import from either location.
 """
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from datetime import date
-import json
 from pathlib import Path
-from typing import Any
 
-from irc.fundamentals.akshare_fundamentals import (
+from irc.fundamentals.akshare_fundamentals import fetch_cn_index_constituents
+from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
-    fetch_cn_index_constituents,
 )
 from irc.fundamentals.edgar_client import fetch_us_filing_digest
 from irc.fundamentals.hkex_client import fetch_hk_filing_digest
+from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
+    cache_path,
+    infer_quarter as _infer_quarter,
+    load_cached_snapshot,
+    load_latest_cached_snapshot,
+    write_snapshot,
+)
 from irc.fundamentals.types import (
-    BrokerReport,
     Constituent,
     ConstituentSnapshot,
-    FilingDigest,
 )
 
 
@@ -174,108 +178,3 @@ def _build_hk_snapshot(
         failure_reasons=tuple(failures),
     )
 
-
-# ---------- on-disk cache ----------
-
-
-def cache_path(lookthrough_target: str, quarter: str, root: Path) -> Path:
-    return root / "fundamentals" / quarter / f"{lookthrough_target}.json"
-
-
-def _infer_quarter(as_of_iso: str) -> str:
-    """Label a snapshot with the most-recently-reported fiscal quarter.
-
-    Earnings season for Qn ends ~midway through calendar Q(n+1), so the
-    snapshot for an as_of date in calendar Qx is tagged Q(x-1)."""
-    try:
-        ts = date.fromisoformat(as_of_iso)
-    except (TypeError, ValueError):
-        ts = date.today()
-    cal_q = (ts.month - 1) // 3 + 1
-    if cal_q == 1:
-        return f"{ts.year - 1}Q4"
-    return f"{ts.year}Q{cal_q - 1}"
-
-
-def _snapshot_to_dict(snap: ConstituentSnapshot) -> dict[str, Any]:
-    return {
-        "lookthrough_target": snap.lookthrough_target,
-        "as_of_iso": snap.as_of_iso,
-        "constituents": [asdict(c) for c in snap.constituents],
-        "filings": [asdict(f) for f in snap.filings],
-        "broker_reports": [asdict(r) for r in snap.broker_reports],
-        "failure_reasons": list(snap.failure_reasons),
-    }
-
-
-def _snapshot_from_dict(body: dict[str, Any]) -> ConstituentSnapshot | None:
-    needed = {"lookthrough_target", "as_of_iso", "constituents", "filings",
-              "broker_reports"}
-    if not needed.issubset(body):
-        return None
-    try:
-        constituents = tuple(Constituent(**c) for c in body["constituents"])
-        filings = tuple(FilingDigest(**f) for f in body["filings"])
-        broker_reports = tuple(BrokerReport(**r) for r in body["broker_reports"])
-    except TypeError:
-        return None
-    return ConstituentSnapshot(
-        lookthrough_target=str(body["lookthrough_target"]),
-        as_of_iso=str(body["as_of_iso"]),
-        constituents=constituents,
-        filings=filings,
-        broker_reports=broker_reports,
-        failure_reasons=tuple(body.get("failure_reasons", ())),
-    )
-
-
-def write_snapshot(snapshot: ConstituentSnapshot, root: Path) -> Path:
-    quarter = _infer_quarter(snapshot.as_of_iso)
-    path = cache_path(snapshot.lookthrough_target, quarter, root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(
-        json.dumps(_snapshot_to_dict(snapshot), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
-    return path
-
-
-def load_cached_snapshot(
-    lookthrough_target: str,
-    quarter: str,
-    root: Path,
-) -> ConstituentSnapshot | None:
-    path = cache_path(lookthrough_target, quarter, root)
-    if not path.exists():
-        return None
-    try:
-        body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    if not isinstance(body, dict):
-        return None
-    return _snapshot_from_dict(body)
-
-
-def load_latest_cached_snapshot(
-    lookthrough_target: str,
-    root: Path,
-) -> ConstituentSnapshot | None:
-    """Return the most recent cached snapshot for `lookthrough_target`.
-
-    Scans `root/fundamentals/*/` for quarter directories containing
-    `<lookthrough_target>.json`, sorts lexicographically (which works for
-    <YYYY>Q<N> format), and tries the most recent first.
-
-    Returns None when no snapshot exists for the target.
-    """
-    base = root / "fundamentals"
-    if not base.exists():
-        return None
-    candidates = sorted(base.glob(f"*/{lookthrough_target}.json"))
-    for path in reversed(candidates):
-        quarter = path.parent.name
-        loaded = load_cached_snapshot(lookthrough_target, quarter, root)
-        if loaded is not None:
-            return loaded
-    return None

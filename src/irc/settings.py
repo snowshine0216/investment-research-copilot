@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     openbb_fmp_key: SecretStr = SecretStr("")
     openbb_tiingo_key: SecretStr = SecretStr("")
 
+    # SEC EDGAR fundamentals — set to your real contact email per SEC fair-use policy.
+    edgar_contact_email: str = Field(default="")
+
     # Roadmap (declared so .env doesn't error on extras)
     tushare_token: SecretStr = SecretStr("")
     anthropic_api_key: SecretStr = SecretStr("")

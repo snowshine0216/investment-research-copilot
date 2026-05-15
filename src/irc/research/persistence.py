@@ -77,11 +77,11 @@ def load_theme_reports(root: Path) -> dict[str, ThemeReport]:
             citations = [Citation(**c) for c in item.get("citations", [])]
             reports[theme] = ThemeReport(
                 theme=theme,
-                query=str(item.get("query", "")),
-                locale=str(item.get("locale", "")),
+                query=str(item.get("query") or ""),
+                locale=str(item.get("locale") or ""),
                 report_md=report_md,
                 citations=citations,
-                failure_reason=str(item.get("failure_reason", "")),
+                failure_reason=item.get("failure_reason") or "",
                 provider_failures=tuple(item.get("provider_failures", ())),
             )
         except (TypeError, KeyError, OSError):
