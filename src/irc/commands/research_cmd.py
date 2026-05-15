@@ -16,7 +16,7 @@ _DEFAULT_THEMES: tuple[str, ...] = (
 )
 
 
-def run_research(repo_root: str) -> int:
+def run_research(repo_root: str, themes: tuple[str, ...] | None = None) -> int:
     root = Path(repo_root)
     load_dotenv(root / ".env")
     settings = Settings()
@@ -32,7 +32,7 @@ def run_research(repo_root: str) -> int:
     route = resolve_route("research_synth", bundle.llm)
     return run_research_pipeline(
         repo_root=root,
-        themes=_DEFAULT_THEMES,
+        themes=themes if themes is not None else _DEFAULT_THEMES,
         providers=providers,
         extractor=extractor,
         route=route,
