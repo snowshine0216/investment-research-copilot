@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- Completed the web research stack operational wiring: targeted `irc research --theme` runs, machine-readable `data/research/research_status.json`, research evals based on the new status file, fundamentals snapshot rebuild command, and README setup/output/error instructions.
+
 ## [0.7.0.0] — 2026-05-15
 
 ### Added
