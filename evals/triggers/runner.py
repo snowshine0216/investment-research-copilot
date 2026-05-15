@@ -1,30 +1,20 @@
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import json
-from irc.io_utils import atomic_write_text
-from evals._shared.status import worst_status
-from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
-
-_TZ = timezone(timedelta(hours=8))
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    missing_input_report,
+    write_missing_input_report,
+)
 
 
 def run(repo_root: Path) -> int:
-    # For now, return PASS if trigger data is missing (graceful pattern)
-    report = _pass_report()
-    _write(repo_root, report)
-    print(f"triggers eval: {report.overall} (no input data)")
-    return 0
-
-
-def _pass_report() -> StageReport:
-    return StageReport(
-        stage="triggers", ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[], metrics=[], overall="PASS",
+    # Triggers eval has no metrics implemented yet. Returning PASS would mask
+    # missing functionality — fail loudly until the metric module lands.
+    report = missing_input_report(
+        stage="triggers",
+        reason="trigger evaluation not yet implemented; emitting FAIL to avoid masking absent functionality",
+        based_on_path=None,
     )
-
-
-def _write(repo_root: Path, report: StageReport) -> None:
-    out_dir = (repo_root / "outputs" / datetime.now(_TZ).date().isoformat() / "evals" / "triggers")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
+    write_missing_input_report(repo_root, report)
+    print(f"triggers eval: {report.overall} (not implemented)")
+    return EVAL_RC_FAIL
