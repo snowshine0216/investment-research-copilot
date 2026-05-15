@@ -6,12 +6,12 @@ from evals.spot_check.runner import sample_for_review, append_queue
 
 def test_sample_for_review_round_robin(tmp_path: Path):
     items = {
-        "ldr_citations": ["c1", "c2", "c3"],
+        "research_citations": ["c1", "c2", "c3"],
         "discovery_reasons": ["r1", "r2"],
         "memo_claims": ["m1"],
         "query_responses": ["q1"],
     }
-    sample = sample_for_review(pools=items, sizes={"ldr_citations": 2,
+    sample = sample_for_review(pools=items, sizes={"research_citations": 2,
                                                     "discovery_reasons": 1,
                                                     "memo_claims": 1, "query_responses": 1},
                                 seed=42)
@@ -21,7 +21,7 @@ def test_sample_for_review_round_robin(tmp_path: Path):
 def test_append_queue_writes_csv(tmp_path: Path):
     queue = tmp_path / "queue.csv"
     append_queue(queue, week="2026-05-07", entries=[
-        {"stage": "ldr_citations", "sample_id": "c1", "content_ref": "x", "why_sampled": "weekly"},
+        {"stage": "research_citations", "sample_id": "c1", "content_ref": "x", "why_sampled": "weekly"},
     ])
     assert queue.exists()
     text = queue.read_text(encoding="utf-8")
