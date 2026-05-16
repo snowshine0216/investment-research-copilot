@@ -18,82 +18,212 @@ git clone <this repo>
 cd investment-research-copilot
 uv sync --all-extras
 cp .env.example .env
-# Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
-# Optional: set DEBUG=true in .env for verbose logging (full tracebacks, third-party DEBUG records).
-# Default DEBUG=false still shows progress bars and categorized ingest-error summaries.
+# Edit .env before the first LLM-backed run. See Environment setup below.
+uv run irc init
+uv run irc config validate
+uv run irc run
 ```
 
-### Web research setup
+`irc run` executes the default pipeline: ingest -> discover -> score -> gold -> allocate -> plan -> memo. It skips web research unless `RESEARCH_ENABLED=true`, does not rebuild fundamentals snapshots, and does not run the opportunity layer unless you call `irc opportunity` separately.
 
-Research uses provider API keys from `.env`:
+## Environment setup
 
-- `TAVILY_API_KEY` or `BRAVE_API_KEY` for English themes.
-- `BOCHA_API_KEY` for Mainland-China themes.
-- `JINA_API_KEY` is optional; without it, Jina Reader uses the rate-limited free tier.
+Copy `.env.example` to `.env`, keep every secret there, and treat `.env.example` as the complete reference. The table below groups the variables by the workflows that need them.
 
-Set `RESEARCH_ENABLED=true` only when you want `irc run` to include the research stage.
+| Variable | Needed for | Notes |
+|---|---|---|
+| `DEEPSEEK_API_KEY` | Required for default config | Used by research synthesis, scoring rationales, thesis checks, and interactive Q&A. `Settings()` also requires it for full validation. |
+| `OPENROUTER_API_KEY` | Required by default memo routes | `config/llm.yaml` routes `memo_synthesis` and `memo_audit` through OpenRouter Anthropic models. Re-route those tasks if you want a DeepSeek-only setup. |
+| `RESEARCH_ENABLED` | Optional web research in `irc run` | Leave `false` for faster default runs. Set `true` to insert research between ingest and discovery. |
+| `TAVILY_API_KEY` | English web research | Use Tavily or Brave for EN themes. Tavily is the main EN search provider. |
+| `BRAVE_API_KEY` | English web/news research | Optional complement to Tavily, useful for news freshness and independent coverage. |
+| `BOCHA_API_KEY` | Mainland-China web research | Required for full ZH theme coverage. Missing Bocha makes ZH themes degrade with a recorded failure reason. |
+| `JINA_API_KEY` | URL-to-markdown extraction | Optional. Free tier works without a key, but rate limits are lower. |
+| `EDGAR_CONTACT_EMAIL` | SEC EDGAR fundamentals | Set a real reachable email before quarterly snapshots that touch US filings. SEC fair-use policy expects this in the User-Agent. |
+| `OPENBB_FMP_KEY`, `OPENBB_TIINGO_KEY` | Optional OpenBB premium data | MVP works without these; they improve premium provider coverage when available. |
+| `FRED_API_KEY`, `INTRINIO_API_KEY` | Optional FRED macro data | Used when OpenBB pulls live FRED macro series. Without them, the ingest stage falls back where possible. |
+| `ACTIVE_FUND_TENURE_PROXY_ENABLED` | Active fund discovery behavior | Defaults to `true`; set `false` to require real manager-tenure data for active funds. |
+| `{PROVIDER}_HTTPS_PROXY` | Per-LLM-provider proxy | Examples: `OPENROUTER_HTTPS_PROXY`, `DEEPSEEK_HTTPS_PROXY`. Only that provider's LLM calls use the proxy. |
+| `AKSHARE_HTTPS_PROXY` | AkShare/EastMoney proxy | Use only when EastMoney endpoints are geo-restricted or disconnecting. |
+| `DEBUG` | Troubleshooting | Set `DEBUG=true` for verbose CLI logging and full tracebacks. Default output still includes progress bars and categorized error summaries. |
 
-### Common workflows
+Minimum local `.env` for the default config:
+
+```dotenv
+DEEPSEEK_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-or-...
+```
+
+Add these for research-backed runs:
+
+```dotenv
+RESEARCH_ENABLED=true
+TAVILY_API_KEY=tvly-...
+BOCHA_API_KEY=bocha-...
+# Optional but recommended for richer extraction/news coverage:
+BRAVE_API_KEY=
+JINA_API_KEY=
+```
+
+Add these before quarterly fundamentals refreshes that include US filings or live macro data:
+
+```dotenv
+EDGAR_CONTACT_EMAIL=you@example.com
+FRED_API_KEY=
+INTRINIO_API_KEY=
+OPENBB_FMP_KEY=
+```
+
+## Workflows by cadence
+
+Run these from the repo root.
+
+### First-time setup
 
 ```bash
-uv run irc init                        # writes inputs/ + config/ defaults
-uv run irc config validate             # validates all 14 YAML files
+uv run irc init
+uv run irc config validate
+```
 
-# Build the CN fund universe from Akshare (optional, updates config/universe/cn_funds.generated.yaml):
-uv run irc universe build-cn-funds     # ~359 funds across equity/bond/ETF categories
-uv run irc config validate             # confirm generated file is accepted (universe grows to ~418)
+`irc init` writes editable defaults under `inputs/` and `config/`. Re-run `irc config validate` after changing YAML.
 
-# Run the default pipeline in one command. This does not rebuild fundamentals snapshots
-# and does not run the opportunity layer.
-uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
+### Daily light check
 
-# Include optional web research between ingest and discovery:
-RESEARCH_ENABLED=true uv run irc run    # ingest → research → discover → score → gold → allocate → plan → memo
+Use this when you want a fast read on current holdings, drawdowns, thesis cards, and decision readiness while reusing the latest deeper research artifacts.
 
-# Full weekly run with all currently-supported opportunity evidence:
-uv run irc ingest                       # refresh market/fund data first
-uv run irc research                     # macro/news/theme citations → data/research/
+```bash
+uv run irc ingest
+uv run irc opportunity
+uv run irc decision
+uv run irc freshness
+```
+
+### Weekly default run
+
+Use this for the normal weekly recommendation memo without refreshing web research or fundamentals snapshots.
+
+```bash
+uv run irc run
+uv run irc opportunity
+uv run irc decision
+```
+
+### Weekly run with research
+
+Use this when you want fresh macro/news/theme citations included before discovery and scoring.
+
+```bash
+RESEARCH_ENABLED=true uv run irc run
+uv run irc opportunity
+uv run irc decision
+```
+
+### Monthly universe maintenance
+
+Use this to refresh the generated Mainland China fund universe from AkShare.
+
+```bash
+uv run irc universe build-cn-funds
+uv run irc config validate
+```
+
+### Quarterly thesis refresh
+
+Use this when you want decision-grade thesis cards backed by fresh theme research plus constituent filings and broker reports.
+
+```bash
+uv run irc research
 uv run irc fundamentals snapshot --target all --top-n 10
-                                       # constituent filings + broker reports for all registered snapshot targets
-uv run irc run --from discover          # discover → score → gold → allocate → plan → memo
-uv run irc opportunity                  # consumes scoring + data/research + data/fundamentals
-uv run irc decision                     # optional decision-readiness report
+uv run irc run --from discover
+uv run irc opportunity
+uv run irc decision
+```
 
-# Or run stages individually:
-uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
-uv run irc research                    # web research → data/research/<theme>.md + research_status.json
-uv run irc research --theme us_monetary  # targeted single-theme smoke test
-uv run irc fundamentals snapshot --target 沪深300 --top-n 10  # quarterly constituent snapshot rebuild
-uv run irc fundamentals snapshot --target all --top-n 10      # rebuild every registered snapshot target
+`fundamentals snapshot --target all --top-n 10` is intentionally not part of `irc run`; it can take several minutes because it fetches filings and reports target by target.
 
-# Inspect research outputs:
+## Debug session: run phases individually
+
+Use this playbook when one stage failed, when you want to inspect intermediate artifacts, or when you fixed an upstream issue and do not want to rerun everything.
+
+```bash
+# 1. Validate config before chasing runtime issues.
+uv run irc config validate
+
+# 2. Refresh raw market/fund data.
+uv run irc ingest
+
+# 3. Run web research only, or smoke-test one theme.
+uv run irc research
+uv run irc research --theme us_monetary
+uv run irc research --theme cn_equity_property_policy
+
+# 4. Inspect research health.
 ls data/research
+jq '.themes[] | {theme, citation_count, failure_reason, provider_failures}' data/research/research_status.json
+jq '.themes[] | select(.failure_reason != "")' data/research/research_status.json
+uv run irc eval research
+
+# 5. Rebuild fundamentals snapshots.
+uv run irc fundamentals snapshot --target 沪深300 --top-n 10
+uv run irc fundamentals snapshot --target all --top-n 10
+
+# 6. Run default pipeline stages one by one.
+uv run irc discover
+uv run irc score
+uv run irc gold
+uv run irc allocate
+uv run irc plan
+uv run irc memo
+
+# 7. Run post-pipeline decision layers.
+uv run irc opportunity
+uv run irc decision
+
+# 8. Ask grounded questions against today's outputs.
+uv run irc ask "Is SGOL overvalued?"
+
+# 9. Resume the pipeline after fixing or refreshing an upstream artifact.
+uv run irc run --from score
+uv run irc run --from discover
+
+# 10. Run one stage with verbose tracebacks.
+DEBUG=true uv run irc ingest
+DEBUG=true uv run irc research
+DEBUG=true uv run irc run --from discover
+```
+
+You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun. Valid stages are `ingest`, `research`, `discover`, `score`, `gold`, `allocate`, `plan`, and `memo`.
+
+## Output inspection cheatsheet
+
+| Command | Main outputs |
+|---|---|
+| `uv run irc ingest` | `data/local.duckdb`, provider manifests under `data/_manifest/` |
+| `uv run irc research` | `data/research/*.md`, `data/research/research_status.json` |
+| `uv run irc fundamentals snapshot` | `data/fundamentals/<quarter>/*.json` |
+| `uv run irc discover` | `outputs/<date>/discovered_watchlist.csv`, `outputs/<date>/discovery_diagnostics.csv` |
+| `uv run irc score` | `outputs/<date>/scoring.json` |
+| `uv run irc gold` | Gold regime and band outputs under `outputs/<date>/` |
+| `uv run irc allocate` | `outputs/<date>/proposed_allocation.yaml` |
+| `uv run irc plan` | `outputs/<date>/trade_plan.yaml` |
+| `uv run irc memo` | `outputs/<date>/memo.md`, `memo_audit.txt`, `memo_traceability.json` |
+| `uv run irc opportunity` | `outputs/<date>/opportunity_report.json`, `thesis_cards.yaml`, `discipline_report.md` |
+| `uv run irc decision` | `outputs/<date>/decision_report.json`, `decision_report.md` |
+
+Useful inspection commands:
+
+```bash
 jq '.themes[] | {theme, citation_count, failure_reason, provider_failures}' data/research/research_status.json
 jq '.themes[] | select(.failure_reason != "")' data/research/research_status.json
 ls data/fundamentals/*
 jq '{target: .lookthrough_target, filings: (.filings|length), broker_reports: (.broker_reports|length), failures: (.failure_reasons|length)}' data/fundamentals/*/*.json
 uv run irc eval research
-uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
-                                       #                  + outputs/<date>/discovery_diagnostics.csv
-uv run irc score                       # 5-factor scoring → outputs/<date>/scoring.json
-uv run irc gold                        # regime + band + scenarios → gold_regime.json + gold_band.yaml
-uv run irc allocate                    # target weights + top-K → proposed_allocation.yaml
-uv run irc plan                        # buy method + triggers → trade_plan.yaml
-uv run irc memo                        # LLM synthesis → memo.md + memo_audit.txt + memo_traceability.json
-uv run irc decision                    # decision-readiness report → decision_report.json + decision_report.md
-uv run irc opportunity                 # opportunity/thesis/discipline → opportunity_report.json
-                                       #   + thesis_cards.yaml + discipline_report.md
-uv run irc ask "Is SGOL overvalued?"   # interactive Q&A grounded in today's outputs
-uv run irc freshness                   # data manifest summary
-
-# Resume from a specific stage (skip earlier stages if outputs exist):
-uv run irc run --from score
 ```
 
 ## Tests
 
 ```bash
-uv run pytest                                       # unit + integration (799 tests)
+uv run pytest                                       # unit + integration
 RUN_LIVE_LLM_TESTS=1 uv run pytest tests/llm/test_live_smoke.py
                                                     # verify live API credentials
 ```
@@ -149,7 +279,10 @@ The system does not scan every fund deeply on every run. Universe generation run
 
 `--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 
-### How `fundamentals snapshot` data drives `thesis_state`
+<details>
+<summary>Deep dive: how `fundamentals snapshot` data drives `thesis_state`</summary>
+
+### Snapshot-to-thesis flow
 
 ```
 ┌──────────────────────────────────────────────────────────────────┐
@@ -200,6 +333,8 @@ The system does not scan every fund deeply on every run. Universe generation run
 - The snapshot loads but `total_with_revenue_yoy == 0` (filings present but all missing the YoY field).
 
 Snapshot collection is **sequential and serial**: one target after another in the outer loop, and within each target one symbol after another. `--target all` with `--top-n 10` for the 9 registered targets is ~90 filing fetches + ~90 broker-report fetches — typically 5–15 minutes wall time and bounded by the slowest upstream. It does **not** run as part of `irc run`; treat it as a quarterly job.
+
+</details>
 
 ### Opportunity states
 
