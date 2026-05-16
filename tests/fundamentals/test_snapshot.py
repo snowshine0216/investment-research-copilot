@@ -123,6 +123,37 @@ def test_build_snapshot_hk_symbols_dispatches_to_hkex(monkeypatch):
     assert snap.broker_reports == ()
 
 
+def test_build_snapshot_hk_index_dispatches_to_hk_constituents(monkeypatch):
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "HSI-test",
+        snapshot._TargetSpec(kind="hk_index", code="恒生指数"),
+    )
+    constituents = (
+        Constituent(symbol="00700.HK", name="腾讯控股", weight=0.10, market="hk"),
+        Constituent(symbol="09988.HK", name="阿里巴巴-W", weight=0.08, market="hk"),
+    )
+    digest = FilingDigest(
+        symbol="00700.HK", fiscal_period="2026Q1", filed_at_iso="2026-03-31",
+        revenue_yoy=0.22, net_income_yoy=0.14, gross_margin=0.57,
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_hk_index_constituents",
+        lambda code, *, top_n=10: constituents if code == "恒生指数" else (),
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_hk_filing_digest",
+        lambda sym: digest if sym == "00700.HK" else None,
+    )
+
+    snap = build_snapshot("HSI-test", top_n=2, as_of_iso="2026-05-16")
+
+    assert snap.lookthrough_target == "HSI-test"
+    assert snap.constituents == constituents
+    assert snap.filings == (digest,)
+    assert any("09988.HK" in r for r in snap.failure_reasons)
+
+
 # ---------- cache_path / round-trip ----------
 
 

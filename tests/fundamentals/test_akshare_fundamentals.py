@@ -332,3 +332,38 @@ def test_fetch_cn_filing_digest_returns_none_when_metrics_missing() -> None:
         mocked.return_value = bad_frame
         digest = fetch_cn_filing_digest("600519")
     assert digest is None
+
+
+# ---------- fetch_hk_index_constituents ----------
+
+
+def test_fetch_hk_index_constituents_happy_path() -> None:
+    from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
+    
+    # Use placeholder column names - adjust when actual AkShare function is discovered
+    fake_df = pd.DataFrame([
+        {"代码": "00700", "名称": "腾讯控股", "权重": 10.0},
+        {"代码": "09988", "名称": "阿里巴巴-W", "权重": 8.0},
+        {"代码": "01299", "名称": "友邦保险", "权重": 6.0},
+    ])
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = fake_df
+        out = fetch_hk_index_constituents("HSI", top_n=2)
+
+    assert len(out) == 2
+    assert out[0] == Constituent(
+        symbol="00700.HK", name="腾讯控股", weight=0.10, market="hk"
+    )
+    assert out[1] == Constituent(
+        symbol="09988.HK", name="阿里巴巴-W", weight=0.08, market="hk"
+    )
+
+
+def test_fetch_hk_index_constituents_returns_empty_on_failure() -> None:
+    from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
+    
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = RuntimeError("akshare network error")
+        out = fetch_hk_index_constituents("HSI", top_n=10)
+    
+    assert out == ()

@@ -13,7 +13,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
-from irc.fundamentals.akshare_fundamentals import fetch_cn_index_constituents
+from irc.fundamentals.akshare_fundamentals import (
+    fetch_cn_index_constituents,
+    fetch_hk_index_constituents,
+)
 from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
@@ -116,6 +119,8 @@ def build_snapshot(
         return _build_us_snapshot(lookthrough_target, spec, timestamp)
     if spec.kind == "hk_symbols":
         return _build_hk_snapshot(lookthrough_target, spec, timestamp)
+    if spec.kind == "hk_index":
+        return _build_hk_index_snapshot(lookthrough_target, spec, top_n, timestamp)
     return ConstituentSnapshot(
         lookthrough_target=lookthrough_target,
         as_of_iso=timestamp,
@@ -202,6 +207,34 @@ def _build_hk_snapshot(
         digest = fetch_hk_filing_digest(symbol)
         if digest is None:
             failures.append(f"missing filing digest: {symbol}")
+        else:
+            filings.append(digest)
+    return ConstituentSnapshot(
+        lookthrough_target=target,
+        as_of_iso=as_of_iso,
+        constituents=constituents,
+        filings=tuple(filings),
+        broker_reports=(),
+        failure_reasons=tuple(failures),
+    )
+
+
+def _build_hk_index_snapshot(
+    target: str, spec: _TargetSpec, top_n: int, as_of_iso: str,
+) -> ConstituentSnapshot:
+    """Build snapshot for HK index by fetching constituents then per-symbol filings."""
+    constituents = fetch_hk_index_constituents(spec.code, top_n=top_n)
+    if not constituents:
+        return ConstituentSnapshot(
+            lookthrough_target=target, as_of_iso=as_of_iso,
+            constituents=(), filings=(), broker_reports=(),
+            failure_reasons=(f"hk_index {spec.code} returned no constituents",),
+        )
+    filings, failures = [], []
+    for c in constituents:
+        digest = fetch_hk_filing_digest(c.symbol)
+        if digest is None:
+            failures.append(f"missing filing digest: {c.symbol}")
         else:
             filings.append(digest)
     return ConstituentSnapshot(

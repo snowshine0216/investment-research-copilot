@@ -155,5 +155,67 @@ def fetch_cn_etf_holdings(
     )
 
 
+def _to_qualified_hk_symbol(code: str) -> str:
+    """Normalize to 5-digit zero-padded + '.HK' suffix."""
+    digits = "".join(ch for ch in str(code) if ch.isdigit())
+    return f"{digits.zfill(5)}.HK" if digits else ""
+
+
+def _parse_hk_index_frame(df: pd.DataFrame, top_n: int) -> tuple[Constituent, ...]:
+    """Parse HK index constituent DataFrame from AkShare.
+    
+    NOTE: AkShare does not currently have a working HK index constituent endpoint.
+    The column names below are placeholders based on typical patterns.
+    When a real endpoint is discovered, update these column names.
+    """
+    # Placeholder column names - update when actual AkShare function is discovered
+    code_col, name_col, weight_col = "代码", "名称", "权重"
+    needed = {code_col, name_col}
+    if not needed.issubset(df.columns):
+        return ()
+    has_weight = weight_col in df.columns
+    if has_weight:
+        df = df.sort_values(weight_col, ascending=False)
+    head = df.head(top_n)
+    return tuple(
+        Constituent(
+            symbol=_to_qualified_hk_symbol(row[code_col]),
+            name=str(row[name_col]),
+            weight=(float(row[weight_col]) / 100) if has_weight else 0.0,
+            market="hk",
+        )
+        for _, row in head.iterrows()
+    )
+
+
+def fetch_hk_index_constituents(
+    index_code: str,
+    *,
+    top_n: int = 10,
+) -> tuple[Constituent, ...]:
+    """Top-N HK index constituents by weight, market='hk'. Returns () on failure.
+    
+    NOTE: AkShare does not currently provide HK index constituent data through
+    a standard API. This function is a stub that will return empty results until
+    a working endpoint is discovered. When implemented, it should follow the
+    pattern of fetch_cn_index_constituents: try a primary source, fall back to
+    an alternative if available, and degrade gracefully to () on all failures.
+    
+    Potential future approaches:
+    - Wait for AkShare to add stock_hk_index_constituent_em or similar
+    - Use alternative data sources (HKEX, Bloomberg, manual data files)
+    - Create a hardcoded mapping for major indices (HSI, HSTECH, etc.)
+    """
+    try:
+        # Placeholder: No working AkShare function exists yet
+        # When discovered, replace "PLACEHOLDER_FUNCTION" with actual function name
+        df = _ak_call("PLACEHOLDER_FUNCTION", symbol=index_code)
+    except Exception:
+        return ()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return ()
+    return _parse_hk_index_frame(df, top_n)
+
+
 # Re-exports removed — import fetch_cn_broker_reports / fetch_cn_filing_digest
 # from irc.fundamentals.akshare_filing directly.
