@@ -90,6 +90,24 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "纳斯达克100": _TargetSpec(kind="us_symbols", symbols=(
         "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST",
     )),
+    # HK QDII indices — hardcoded top-10 by weight (AkShare lacks HK index constituent endpoint)
+    # STALENESS_AFTER: 2026-08-16 — refresh quarterly
+    "恒生指数": _TargetSpec(kind="hk_symbols", symbols=(
+        "00700.HK", "09988.HK", "03690.HK", "01299.HK", "02318.HK",
+        "00941.HK", "02388.HK", "01398.HK", "00005.HK", "09999.HK",
+    )),
+    "恒生科技": _TargetSpec(kind="hk_symbols", symbols=(
+        "00700.HK", "09988.HK", "03690.HK", "09618.HK", "09999.HK",
+        "09888.HK", "09961.HK", "02015.HK", "09663.HK", "00268.HK",
+    )),
+    "港股红利": _TargetSpec(kind="hk_symbols", symbols=(
+        "00857.HK", "01288.HK", "01088.HK", "02628.HK", "03988.HK",
+        "01339.HK", "00386.HK", "00002.HK", "02333.HK", "00881.HK",
+    )),
+    "中概互联": _TargetSpec(kind="hk_symbols", symbols=(
+        "09988.HK", "00700.HK", "09618.HK", "03690.HK", "00241.HK",
+        "09961.HK", "09888.HK", "09626.HK", "09999.HK", "09066.HK",
+    )),
 }
 
 # ISO date after which the hardcoded US index constituent lists should be refreshed.
