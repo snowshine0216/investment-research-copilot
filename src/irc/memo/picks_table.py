@@ -42,6 +42,7 @@ def _action_cn(row: PickRow) -> str:
 
 
 def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
+    # Safety-net dedup; canonical dedup is performed by callers (e.g. _build_pick_rows).
     seen: set[str] = set()
     unique: list[PickRow] = []
     for r in rows:

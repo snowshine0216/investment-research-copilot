@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
@@ -113,7 +113,12 @@ def _build_input(
         target_band_high=target_band[1] if target_band else None,
         venue_compatible=venue_ok,
     )
-    entry_date = None  # Holding has hold_since (str), not entry_date; wiring ready for future
+    entry_date: date | None = None
+    if holding is not None and holding.hold_since:
+        try:
+            entry_date = date.fromisoformat(holding.hold_since)
+        except ValueError:
+            pass  # Malformed date string; drawdown_since_entry will remain None
     return populate_inputs(con, skeleton, holding_entry_date=entry_date)
 
 
@@ -169,8 +174,8 @@ def _resolve_research_theme(
         return theme_reports.get("cn_monetary")
     if inp.asset_class in ("us_etf", "hk_etf"):
         return theme_reports.get("geopolitics")
-    # Sector/active funds → holdings_sector
-    if inp.theme or inp.asset_class == "cn_equity_fund":
+    # CN equity funds without a direct theme match → holdings_sector
+    if inp.asset_class == "cn_equity_fund":
         return theme_reports.get("holdings_sector")
     return None
 

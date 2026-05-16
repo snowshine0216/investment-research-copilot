@@ -50,7 +50,7 @@ def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> li
     op_by_id = {r["instrument_id"]: r for r in (opportunity.get("rows") or [])}
     score_by_id = {s["instrument_id"]: s for s in (scoring.get("scores") or [])}
     rows: list[PickRow] = []
-    seen: set[str] = set()
+    seen: set[str] = set()  # Canonical dedup; render_picks_table has a safety-net guard.
     for t in trades:
         iid = t.get("target")
         if not iid or iid in seen:

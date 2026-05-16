@@ -56,7 +56,6 @@ def build_evidence_pool(
     then instruments in plan_trades order, then remaining opportunity rows.
     """
     score_by_id = {s.get("instrument_id"): s for s in scoring_rows}
-    trade_by_id = {t.get("target"): t for t in plan_trades}
     op_by_id = {r.get("instrument_id"): r for r in opportunity_rows}
 
     pool: list[str] = []
