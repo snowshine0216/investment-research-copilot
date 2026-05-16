@@ -210,3 +210,33 @@ def test_pipeline_can_return_diagnostics(mock_writer) -> None:
     assert {"universe", "hard_filter", "quality_filter", "role_bucket"}.issubset(
         set(result.diagnostics["stage"])
     )
+
+
+def test_run_discovery_with_diagnostics_returns_rejections_dataframe() -> None:
+    import pandas as pd
+    from irc.discovery.pipeline import run_discovery_with_diagnostics
+    from irc.discovery.universe import UniverseRow
+
+    universe = (
+        UniverseRow(
+            instrument_id="159352", ticker="159352", market="cn_on_exchange",
+            name_cn="A500ETF南方", asset_class="cn_etf", currency="cny",
+            tracked_index=None, theme="broad", venue_required=(),
+        ),
+    )
+    metadata = pd.DataFrame([{
+        "instrument_id": "159352", "inception_date": "2024-09-25",
+        "aum_cny": 1e10, "expense_ratio": 0.002, "daily_volume_cny": 1e8,
+        "manager_tenure_years": 0.0,
+    }])
+    metrics = pd.DataFrame(columns=["instrument_id", "drawdown_3y", "tracking_error", "manager_tenure_years"])
+
+    res = run_discovery_with_diagnostics(
+        universe=universe, metadata=metadata, metrics=metrics,
+        risk_band_max_dd_upper=0.20, cfg_overrides=None, cfg_discovery=None,
+        route=lambda *_a, **_kw: None, peer_summary="", macro_snapshot="",
+        raw_ref_pool=(), excluded_themes=(),
+    )
+
+    assert hasattr(res, "rejections")
+    assert "instrument_id" in res.rejections.columns

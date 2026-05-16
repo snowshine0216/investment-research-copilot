@@ -10,6 +10,7 @@ from irc.discovery.diagnostics import build_discovery_diagnostics
 from irc.discovery.hard_filter import apply_hard_filter
 from irc.discovery.quality_filter import apply_quality_filter
 from irc.discovery.reason_writer import WriteReasonContext, write_reason
+from irc.discovery.rejections import build_discovery_rejections
 from irc.discovery.role_bucket import bucket_by_role
 from irc.discovery.universe import UniverseRow
 from irc.schemas.discovery import DiscoveryConfig
@@ -30,6 +31,7 @@ _MAX_REFS_PER_INSTRUMENT = 30
 class DiscoveryRunResult:
     watchlist: pd.DataFrame
     diagnostics: pd.DataFrame
+    rejections: pd.DataFrame
 
 
 def _index_refs_by_instrument(
@@ -165,9 +167,11 @@ def run_discovery_with_diagnostics(
                 "relaxed": role in bucketed.relaxed_roles,
             })
     diagnostics = build_discovery_diagnostics(universe, hard, quality, bucketed)
+    rejections = build_discovery_rejections(universe, hard, quality, bucketed)
     return DiscoveryRunResult(
         watchlist=pd.DataFrame(rows, columns=list(_WATCHLIST_COLUMNS)),
         diagnostics=diagnostics,
+        rejections=rejections,
     )
 
 
