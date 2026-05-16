@@ -69,6 +69,18 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "创业板":    _TargetSpec(kind="cn_index", code="399006"),
     "中证红利":  _TargetSpec(kind="cn_index", code="000922"),
     "红利低波":  _TargetSpec(kind="cn_index", code="930740"),
+    # Sector indices — verified codes via scripts/verify_sector_index_codes.py (2026-05-16)
+    "半导体":   _TargetSpec(kind="cn_index", code="H30184"),
+    "医药":     _TargetSpec(kind="cn_index", code="000933"),
+    "新能源":   _TargetSpec(kind="cn_index", code="399808"),
+    "消费":     _TargetSpec(kind="cn_index", code="000932"),
+    "金融":     _TargetSpec(kind="cn_index", code="000934"),
+    "军工":     _TargetSpec(kind="cn_index", code="399967"),
+    "有色金属": _TargetSpec(kind="cn_index", code="H30202"),
+    "房地产":   _TargetSpec(kind="cn_index", code="000952"),
+    "国企改革": _TargetSpec(kind="cn_index", code="000861"),
+    "科技":     _TargetSpec(kind="cn_index", code="931087"),
+    "红利":     _TargetSpec(kind="cn_index", code="000922"),  # 中证红利; maps to dividend theme
     # QDII US — top-10 by index weight as of 2026-05-16; update quarterly.
     # STALENESS_AFTER: 2026-08-16 — after this date, run `irc fundamentals snapshot
     # --target 标普500` and `--target 纳斯达克100` to pick up rebalance changes.
