@@ -144,8 +144,11 @@ def run_discover(repo_root: str) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     watchlist_path = out_dir / "discovered_watchlist.csv"
     diagnostics_path = out_dir / "discovery_diagnostics.csv"
+    rejections_path = out_dir / "discovery_rejections.csv"
     atomic_write_text(watchlist_path, result.watchlist.to_csv(index=False))
     atomic_write_text(diagnostics_path, result.diagnostics.to_csv(index=False))
+    atomic_write_text(rejections_path, result.rejections.to_csv(index=False))
     print(f"discover OK: {len(result.watchlist)} candidates → {watchlist_path}")
     print(f"diagnostics OK: {len(result.diagnostics)} rows → {diagnostics_path}")
+    print(f"rejections OK: {len(result.rejections)} rows → {rejections_path}")
     return 0

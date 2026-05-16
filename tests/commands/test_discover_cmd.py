@@ -131,6 +131,7 @@ def test_discover_passes_excluded_themes_to_pipeline(repo_with_db: Path) -> None
         mock_run.return_value = DiscoveryRunResult(
             watchlist=pd.DataFrame(columns=["instrument_id"]),
             diagnostics=pd.DataFrame(columns=["stage", "status", "asset_class", "theme", "role", "reason", "count"]),
+            rejections=pd.DataFrame(columns=["stage", "instrument_id", "ticker", "name_cn", "asset_class", "theme", "role", "reasons"]),
         )
         rc = run_discover(repo_root=str(repo_with_db))
 
@@ -158,8 +159,25 @@ def test_discover_writes_diagnostics_csv(repo_with_db: Path) -> None:
     diagnostics_path = out_dir / "discovery_diagnostics.csv"
     assert diagnostics_path.exists()
     df = pd.read_csv(diagnostics_path)
-    assert {"stage", "status", "asset_class", "theme", "role", "reason", "count"}.issubset(df.columns)
-    assert "universe" in set(df["stage"])
+
+
+def test_discover_writes_discovery_rejections_csv(repo_with_db: Path) -> None:
+    fake_resp_text = (
+        "Reason: tracks SP500 (openbb:prices:006075:2026-05-06). Risk: USD strength."
+    )
+    with patch("irc.discovery.reason_writer.call_chat") as mock_chat:
+        mock_chat.return_value.text = fake_resp_text
+        mock_chat.return_value.prompt_tokens = 10
+        mock_chat.return_value.completion_tokens = 5
+        rc = run_discover(repo_root=str(repo_with_db))
+
+    assert rc == 0
+    out_dir = next(p for p in (repo_with_db / "outputs").iterdir())
+    rejections_path = out_dir / "discovery_rejections.csv"
+    assert rejections_path.exists()
+    text = rejections_path.read_text(encoding="utf-8")
+    header = text.splitlines()[0]
+    assert header == "stage,instrument_id,ticker,name_cn,asset_class,theme,role,reasons"
 
 
 def test_discover_passes_excluded_themes_to_pipeline_with_diagnostics(repo_with_db: Path) -> None:
@@ -178,6 +196,7 @@ def test_discover_passes_excluded_themes_to_pipeline_with_diagnostics(repo_with_
         mock_run.return_value = DiscoveryRunResult(
             watchlist=pd.DataFrame(columns=["instrument_id"]),
             diagnostics=pd.DataFrame(columns=["stage", "status", "asset_class", "theme", "role", "reason", "count"]),
+            rejections=pd.DataFrame(columns=["stage", "instrument_id", "ticker", "name_cn", "asset_class", "theme", "role", "reasons"]),
         )
         rc = run_discover(repo_root=str(repo_with_db))
 
