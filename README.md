@@ -21,6 +21,7 @@ cp .env.example .env
 # Edit .env to fill DEEPSEEK_API_KEY and OPENROUTER_API_KEY.
 # Optional: set DEBUG=true in .env for verbose logging (full tracebacks, third-party DEBUG records).
 # Default DEBUG=false still shows progress bars and categorized ingest-error summaries.
+```
 
 ### Web research setup
 
@@ -32,6 +33,9 @@ Research uses provider API keys from `.env`:
 
 Set `RESEARCH_ENABLED=true` only when you want `irc run` to include the research stage.
 
+### Common workflows
+
+```bash
 uv run irc init                        # writes inputs/ + config/ defaults
 uv run irc config validate             # validates all 14 YAML files
 
@@ -39,22 +43,35 @@ uv run irc config validate             # validates all 14 YAML files
 uv run irc universe build-cn-funds     # ~359 funds across equity/bond/ETF categories
 uv run irc config validate             # confirm generated file is accepted (universe grows to ~418)
 
-# Run the default 7-stage pipeline in one command:
+# Run the default pipeline in one command. This does not rebuild fundamentals snapshots
+# and does not run the opportunity layer.
 uv run irc run                         # ingest → discover → score → gold → allocate → plan → memo
 
-# Or include optional web research between ingest and discovery:
+# Include optional web research between ingest and discovery:
 RESEARCH_ENABLED=true uv run irc run    # ingest → research → discover → score → gold → allocate → plan → memo
+
+# Full weekly run with all currently-supported opportunity evidence:
+uv run irc ingest                       # refresh market/fund data first
+uv run irc research                     # macro/news/theme citations → data/research/
+uv run irc fundamentals snapshot --target all --top-n 10
+                                       # constituent filings + broker reports for all registered snapshot targets
+uv run irc run --from discover          # discover → score → gold → allocate → plan → memo
+uv run irc opportunity                  # consumes scoring + data/research + data/fundamentals
+uv run irc decision                     # optional decision-readiness report
 
 # Or run stages individually:
 uv run irc ingest                      # pulls OpenBB + AKShare data into data/local.duckdb
 uv run irc research                    # web research → data/research/<theme>.md + research_status.json
 uv run irc research --theme us_monetary  # targeted single-theme smoke test
 uv run irc fundamentals snapshot --target 沪深300 --top-n 10  # quarterly constituent snapshot rebuild
+uv run irc fundamentals snapshot --target all --top-n 10      # rebuild every registered snapshot target
 
 # Inspect research outputs:
 ls data/research
 jq '.themes[] | {theme, citation_count, failure_reason, provider_failures}' data/research/research_status.json
 jq '.themes[] | select(.failure_reason != "")' data/research/research_status.json
+ls data/fundamentals/*
+jq '{target: .lookthrough_target, filings: (.filings|length), broker_reports: (.broker_reports|length), failures: (.failure_reasons|length)}' data/fundamentals/*/*.json
 uv run irc eval research
 uv run irc discover                    # 5-step funnel → outputs/<date>/discovered_watchlist.csv
                                        #                  + outputs/<date>/discovery_diagnostics.csv
@@ -116,9 +133,21 @@ Candidates are loaded from `config/universe/cn_funds.yaml` (curated) and `config
 | Daily light | Holdings, thesis cards, watchlist only — check drawdown, heat, triggers | `irc opportunity` (fast) |
 | Weekly full | Merged configured universe, discovery, scoring, thesis card refresh | `irc run` then `irc opportunity` |
 | Monthly universe rebuild | Re-fetch broad fund catalog, regenerate `cn_funds.generated.yaml` | `irc universe build-cn-funds` |
-| Quarterly thesis research | Theme search + citations and constituent snapshot refresh | `uv run irc research` plus `uv run irc fundamentals snapshot --target 沪深300` |
+| Quarterly thesis research | Theme search + citations and constituent snapshot refresh | `uv run irc research` plus `uv run irc fundamentals snapshot --target all --top-n 10` |
 
 The system does not scan every fund deeply on every run. Universe generation runs monthly; weekly analysis operates on the already-filtered configured universe after deterministic caps.
+
+### Evidence refresh order
+
+`irc opportunity` reads cached evidence; it does not fetch it live. Refresh inputs in this order when you want decision-grade thesis cards:
+
+1. `uv run irc ingest` — refresh local market/fund data used by discovery and scoring.
+2. `uv run irc research` — refresh macro, policy, gold-driver, geopolitics, and holdings-sector citations under `data/research/`.
+3. `uv run irc fundamentals snapshot --target all --top-n 10` — refresh constituent filings and broker reports for every registered snapshot target under `data/fundamentals/`.
+4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, and memo from the refreshed inputs.
+5. `uv run irc opportunity` — generate `opportunity_report.json`, `thesis_cards.yaml`, and `discipline_report.md`.
+
+`--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 
 ### Opportunity states
 

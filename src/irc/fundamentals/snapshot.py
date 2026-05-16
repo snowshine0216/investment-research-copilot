@@ -65,6 +65,10 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
 }
 
 
+def registered_snapshot_targets() -> tuple[str, ...]:
+    return tuple(_TARGET_REGISTRY.keys())
+
+
 def _today_iso() -> str:
     return date.today().isoformat()
 

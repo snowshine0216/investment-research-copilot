@@ -155,7 +155,10 @@ def fundamentals() -> None:
 
 @fundamentals.command("snapshot", help="Rebuild cached constituent snapshot(s).")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
-@click.option("--target", "targets", multiple=True, required=True, help="Lookthrough target to rebuild. Repeat for multiple targets.")
+@click.option(
+    "--target", "targets", multiple=True, required=True,
+    help="Lookthrough target to rebuild. Repeat for multiple targets; use 'all' for every registered target.",
+)
 @click.option("--top-n", type=int, default=10, show_default=True, help="Top constituents to fetch per target.")
 def fundamentals_snapshot(repo_root: str, targets: tuple[str, ...], top_n: int) -> None:
     from irc.commands.fundamentals_cmd import run_snapshot_rebuild
