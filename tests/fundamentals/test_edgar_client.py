@@ -249,7 +249,7 @@ def test_diag_happy_path_returns_digest_and_none_code() -> None:
 def test_diag_reports_missing_email_without_network_call(monkeypatch) -> None:
     """When EDGAR_CONTACT_EMAIL is empty, short-circuit with missing_email."""
     monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
-    monkeypatch.setattr(edgar_mod, "_warned_missing_email", False, raising=False)
+    edgar_mod._reset_warned_missing_email()
     # Any httpx call would explode (no respx mock set), so a short-circuit is the
     # only way this test can pass.
     digest, code = fetch_us_filing_digest_diag("AAPL")
@@ -259,7 +259,7 @@ def test_diag_reports_missing_email_without_network_call(monkeypatch) -> None:
 
 def test_warn_missing_email_prints_once(monkeypatch, capsys) -> None:
     monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
-    monkeypatch.setattr(edgar_mod, "_warned_missing_email", False, raising=False)
+    edgar_mod._reset_warned_missing_email()
     fetch_us_filing_digest_diag("AAPL")
     first = capsys.readouterr().err
     fetch_us_filing_digest_diag("MSFT")
@@ -271,6 +271,6 @@ def test_warn_missing_email_prints_once(monkeypatch, capsys) -> None:
 def test_legacy_fetch_us_filing_digest_returns_digest_only(monkeypatch) -> None:
     """The legacy single-return signature is preserved for the snapshot orchestrator."""
     monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
-    monkeypatch.setattr(edgar_mod, "_warned_missing_email", True, raising=False)
+    # sentinel already True — just call the warn-once path without resetting
     result = fetch_us_filing_digest("AAPL")
     assert result is None

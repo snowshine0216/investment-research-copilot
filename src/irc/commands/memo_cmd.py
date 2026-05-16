@@ -58,7 +58,8 @@ def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> li
         seen.add(iid)
         op = op_by_id.get(iid) or {}
         sc = score_by_id.get(iid) or {}
-        reason = (op.get("opportunity_reason") or "").split(" | ")[0]
+        # Sanitize: strip newlines before the string enters the LLM skeleton.
+        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace("\n", " ").strip()
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
                "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(opp_state, "slow_dca")

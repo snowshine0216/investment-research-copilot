@@ -81,6 +81,9 @@ def build_evidence_pool(
         iid = op.get("instrument_id")
         if iid in seen_ids:
             continue
+        # Watchlist-only instruments (small_watch, not in plan_trades) are excluded
+        # from the evidence pool: they lack trade context and would dilute the
+        # actionable picks. They appear in the opportunity report instead.
         if op.get("opportunity_state") == "small_watch":
             continue
         seen_ids.add(iid)

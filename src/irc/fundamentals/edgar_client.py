@@ -75,6 +75,12 @@ def _maybe_warn_missing_email() -> None:
     )
 
 
+def _reset_warned_missing_email() -> None:
+    """Reset the warn-once sentinel. For use in tests only."""
+    global _warned_missing_email
+    _warned_missing_email = False
+
+
 def _fetch_json(url: str, *, timeout_s: float = 15.0) -> tuple[Any | None, str | None]:
     host = urlparse(url).hostname
     if not host:
