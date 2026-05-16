@@ -5,7 +5,7 @@ import math
 from irc.fundamentals.types import ConstituentSnapshot
 from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.thesis_evidence import (
-    _NON_INDEXABLE_ASSET_CLASSES,
+    NON_INDEXABLE_ASSET_CLASSES,
     derive_thesis_from_evidence,
 )
 from irc.opportunity.types import (
@@ -269,7 +269,7 @@ def _refined_table_gap(asset_class: str | None) -> str | None:
     """Refined gap label for the table-fallback path (no snapshot, no theme_report)."""
     if asset_class is None:
         return None
-    if asset_class in _NON_INDEXABLE_ASSET_CLASSES:
+    if asset_class in NON_INDEXABLE_ASSET_CLASSES:
         return "constituent_not_applicable"
     return "constituent_missing"
 

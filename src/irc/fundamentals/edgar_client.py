@@ -114,7 +114,10 @@ def _lookup_cik(ticker: str) -> tuple[str | None, str | None]:
             cik = entry.get("cik_str")
             if cik is None:
                 return None, EDGAR_ERROR_CIK_MISS
-            return str(int(cik)).zfill(10), None
+            try:
+                return str(int(cik)).zfill(10), None
+            except (ValueError, TypeError):
+                return None, EDGAR_ERROR_DECODE
     return None, EDGAR_ERROR_CIK_MISS
 
 

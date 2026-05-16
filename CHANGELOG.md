@@ -5,7 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.2.0] — 2026-05-16
+## [0.8.3.0] — 2026-05-16
+
+### Added
+- **Typed EDGAR error codes:** `edgar_client` now returns one of six typed
+  constants (`EDGAR_ERROR_MISSING_EMAIL`, `EDGAR_ERROR_HTTP_4XX`,
+  `EDGAR_ERROR_HTTP_5XX`, `EDGAR_ERROR_NETWORK`, `EDGAR_ERROR_DECODE`,
+  `EDGAR_ERROR_CIK_MISS`) on every failure path instead of raw `None`.
+  The CIK integer parse path is now guarded against malformed SEC data.
+- **EDGAR error code propagation:** US fundamentals snapshot failures now tag
+  `ConstituentSnapshot.failure_reasons` with the typed error code from EDGAR,
+  making diagnostics visible in `evidence_gaps`.
+- **Sina fallback for SZSE index constituents:** `akshare_fundamentals` falls
+  back to Sina Finance when the CSI index API returns no data for 399xxx codes
+  (e.g. 创业板指), using the same parsing pipeline as the primary path.
+- **Refined `evidence_gaps` constituent labels:** `constituent_fetch_failed` is
+  now distinguished from `constituent_missing` by checking `failure_reasons`;
+  snapshots with no failure record but empty filings are correctly classified
+  as `constituent_missing` rather than a fetch failure.
+- **`constituent_not_applicable` label exported publicly:** `NON_INDEXABLE_ASSET_CLASSES`
+  is now a public constant in `thesis_evidence`; `states.py` imports the public
+  symbol instead of the private alias.
+
+### Fixed
+- **Memo TL;DR mode source:** `_derive_tldr_lines` now reads the trade-plan
+  `mode` field (e.g. `steady_accumulate`) from `plan.yaml` instead of the
+  allocation YAML, eliminating the "build" fallback that contradicted the
+  memo body on every run.
+- **Weak-link reason in `small_watch` state:** `compose_opportunity_state` now
+  threads the weakest classifier's reason into the `small_watch` catch-all,
+  making the evidence chain auditable.
+- **`asset_class` threading:** `opportunity_cmd` now passes `asset_class`
+  through to `derive_thesis_from_evidence` so non-indexable classes correctly
+  skip the constituent gap check.
+
 
 ### Added
 - **DuckDB evidence wiring:** Opportunity inputs loader now queries DuckDB for

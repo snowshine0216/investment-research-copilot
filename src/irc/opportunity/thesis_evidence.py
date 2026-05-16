@@ -166,9 +166,10 @@ def _classify_state(
     )
 
 
-_NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
+NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
     "gold", "cn_bond_fund", "cn_equity_fund",
 })
+_NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
 
 
 def _classify_constituent_gap(
@@ -193,7 +194,7 @@ def _classify_constituent_gap(
     if snapshot is None:
         return "constituent_missing"
     if not snapshot.filings:
-        return "constituent_fetch_failed"
+        return "constituent_fetch_failed" if snapshot.failure_reasons else "constituent_missing"
     return None
 
 
