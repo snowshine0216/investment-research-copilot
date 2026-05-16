@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.2.0] — 2026-05-16
+
+### Added
+- **DuckDB evidence wiring:** Opportunity inputs loader now queries DuckDB for
+  rolling returns, max drawdown, and percentile rank per instrument — populating
+  `evidence_returns` fields that drive valuation/heat decisions.
+- **Memo picks table:** Pre-rendered Markdown table of top picks with action
+  labels, deduplicated across allocation and trade plan sources. Inlined into
+  the LLM memo skeleton for grounded recommendations.
+- **Memo evidence pool:** Per-instrument numeric facts (1Y return, drawdown,
+  percentile) surfaced alongside thesis and valuation data in the LLM prompt.
+- **Sector proxy snapshots:** Instruments mapped to sector themes now fall back
+  to proxy snapshot data when no direct snapshot target exists.
+- **QDII lookthrough normalization:** QDII fund display names (标普500, 纳斯达克100)
+  now correctly map to registered snapshot targets.
+- **Theme-report-only thesis:** Instruments without a fundamentals snapshot can
+  still derive thesis state from research theme reports alone.
+
+### Changed
+- Memo reference budget widened from 200 to 400 characters per citation.
+- Opportunity command prints quality warnings when thesis or valuation coverage
+  falls below thresholds.
+
 ## [0.8.1.0] — 2026-05-16
 
 ### Fixed
