@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.8.1.0] — 2026-05-15
+## [0.8.1.0] — 2026-05-16
 
 ### Fixed
 - **Eval discipline:** Every stage eval now returns `FAIL` (exit code 2) when its
@@ -18,11 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Search-provider visibility:** Every Tavily/Brave/Bocha/Jina failure is now
   logged at `WARNING` (visible without `DEBUG=true`), and the research stage
   prints a per-theme pass/fail summary at the end.
+- **Quality gate refactoring:** Split `evaluate_research_quality` into focused
+  helpers; wrap `FRESHNESS_DAYS_BY_THEME` as immutable `MappingProxyType`.
+- **Eval staleness check:** Research eval now warns when `research_status.json`
+  is older than 7 days.
 
 ### Added
 - **Time-filtered search:** Theme queries now pass `freshness_days` per theme
   (7-30 days) so providers return dated news articles instead of homepages.
 - **`eval --all` summary:** Prints per-stage and overall PASS/WARN/FAIL.
+- **All-target fundamentals snapshot:** `irc fundamentals snapshot --all` runs
+  every registered target in one invocation.
 
 ## [0.8.0.0] — 2026-05-15
 
