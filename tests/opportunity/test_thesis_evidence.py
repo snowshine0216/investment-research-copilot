@@ -269,3 +269,80 @@ def test_empty_report_md_with_no_failure_reason_adds_missing_recent_news_gap():
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
     assert "missing_recent_news" in gaps
 
+
+# ---------------------------------------------------------------------------
+# Refined constituent-gap labels (in addition to legacy missing_constituent_snapshot)
+# ---------------------------------------------------------------------------
+
+
+def test_refined_label_constituent_not_applicable_for_gold():
+    """Gold has no equity-style constituents; emit constituent_not_applicable
+    alongside the legacy label."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="gold",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_not_applicable_for_bond():
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_bond_fund",
+    )
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_not_applicable_for_active_fund():
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_equity_fund",
+    )
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_fetch_failed_when_snapshot_empty():
+    """Snapshot object exists but filings is empty AND failure_reasons records
+    a fetch problem → constituent_fetch_failed."""
+    snap = ConstituentSnapshot(
+        lookthrough_target="纳斯达克100",
+        as_of_iso="2026-05-16",
+        constituents=(Constituent(symbol="AAPL", name="AAPL", weight=0.0, market="us"),),
+        filings=(),
+        broker_reports=(),
+        failure_reasons=("missing filing digest: AAPL (missing_email)",),
+    )
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        snap, _theme_report(), asset_class="us_etf",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_fetch_failed" in gaps
+
+
+def test_refined_label_constituent_missing_when_snapshot_none_for_indexable_class():
+    """ETF whose lookthrough target is not yet registered → constituent_missing."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_etf",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_missing" in gaps
+
+
+def test_no_refined_label_when_snapshot_usable():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
+    snap = _snapshot(filings=filings)
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        snap, _theme_report(), asset_class="cn_etf",
+    )
+    assert "missing_constituent_snapshot" not in gaps
+    assert "constituent_not_applicable" not in gaps
+    assert "constituent_fetch_failed" not in gaps
+    assert "constituent_missing" not in gaps
+
+
+def test_no_refined_label_when_asset_class_omitted():
+    """Backward-compatible: without asset_class, only legacy label appears."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(None, _theme_report())
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_not_applicable" not in gaps
+    assert "constituent_fetch_failed" not in gaps
+    assert "constituent_missing" not in gaps
+
