@@ -25,7 +25,6 @@ from irc.opportunity.report import (
 from irc.commands.theme_thesis import load_theme_thesis
 from irc.fundamentals.snapshot import load_latest_cached_snapshot
 from irc.opportunity.lookthrough import map_lookthrough
-from irc.opportunity.sector_proxy import proxy_target_for_theme
 from irc.opportunity.selection import SelectionQuality, demote_unstable_active, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import (
@@ -218,12 +217,7 @@ def _build_rows(
         )
         target_name = map_lookthrough(inp).display_cn
         if target_name not in snapshot_cache:
-            snap = load_latest_cached_snapshot(target_name, root / "data")
-            if snap is None:
-                proxy = proxy_target_for_theme(inp.theme)
-                if proxy is not None:
-                    snap = load_latest_cached_snapshot(proxy, root / "data")
-            snapshot_cache[target_name] = snap
+            snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
         row = build_opportunity_row(
             inp,
             theme_thesis or None,
