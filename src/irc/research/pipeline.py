@@ -6,7 +6,7 @@ from irc.llm._types import ResolvedRoute
 from irc.research.quality_gate import evaluate_research_quality
 from irc.research.search.types import ContentExtractor, SearchProvider
 from irc.research.persistence import write_research_outputs
-from irc.research.theme_research import build_theme_reports
+from irc.research.theme_research import ThemeReport, build_theme_reports
 
 _log = logging.getLogger(__name__)
 

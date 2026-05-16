@@ -149,6 +149,58 @@ The system does not scan every fund deeply on every run. Universe generation run
 
 `--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 
+### How `fundamentals snapshot` data drives `thesis_state`
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│  uv run irc fundamentals snapshot --target <X>                   │
+│                                                                  │
+│  Per target, fetches three lists via AkShare / EDGAR / HKEX:     │
+│    • constituents   — top-N holdings (symbol, name, weight)      │
+│    • filings        — per holding: revenue_yoy, net_income_yoy,  │
+│                       gross_margin, fiscal_period, source_url    │
+│    • broker_reports — per holding (CN only): rating, target_pr,  │
+│                       broker, published_iso, title               │
+│  Writes data/fundamentals/<quarter>/<target>.json (one per call).│
+└─────────────────────────────┬────────────────────────────────────┘
+                              │
+                              ▼
+┌──────────────────────────────────────────────────────────────────┐
+│  uv run irc opportunity                                          │
+│                                                                  │
+│  For each instrument in scoring.json:                            │
+│    1. lookthrough = map_lookthrough(instrument)  →  display_cn   │
+│       (e.g. 510050 → "上证50", 006075 → "标普500")               │
+│    2. load_latest_cached_snapshot(display_cn, root/"data")       │
+│       reads data/fundamentals/<latest-Q>/<display_cn>.json       │
+│    3. derive_thesis_from_evidence(snapshot, theme_report):       │
+│         pos, neg, total = count of revenue_yoy>0 / <0 / present  │
+│         consensus = Σ rating_sentiment(broker_reports)           │
+│         classify:                                                │
+│           neg/total ≥ 60%                       → falsified      │
+│           pos/total ≥ 60% AND neg/total<30%                      │
+│              AND consensus ≥ 0                  → intact         │
+│           neg/total ≥ 30% OR consensus < 0      → under_pressure │
+│           otherwise                             → evidence_insufficient│
+│    4. attach top-3 filings + top-2 broker reports as             │
+│       `thesis_evidence` on the thesis card.                      │
+└──────────────────────────────────────────────────────────────────┘
+```
+
+**Real example** (`data/fundamentals/2026Q1/上证50.json`):
+
+- 10 constituents (贵州茅台 9.4%, 中国平安 6.9%, 紫金矿业 6.0%, …)
+- 10 filings with revenue_yoy (茅台 +6.3%, 平安 -6.2%, 紫金 +24.8%, 招商银行 +3.8%, 寒武纪 +159.5%, …)
+- Result: `pos/total = 80%`, `neg/total = 10%`, consensus ≈ 0 → `thesis_state = intact`. Instruments tracking 上证50 (e.g. `510050 上证50ETF华夏`) inherit this thesis and surface lines like `贵州茅台 2026Q1 营收同比 +6.3%。` on their thesis cards.
+
+**When `thesis_state = evidence_insufficient`**, the cause is one of:
+
+- `lookthrough_target` does not match a `_TargetSpec` in `_TARGET_REGISTRY` (e.g. `标普500`, `纳斯达克100`, `中证央企创新驱动`, sector themes, gold/bond/active funds). The snapshot file does not exist.
+- The snapshot file exists but every filing fetch failed (e.g. `data/fundamentals/2026Q1/创业板.json` is 206 bytes — all `failure_reasons`).
+- The snapshot loads but `total_with_revenue_yoy == 0` (filings present but all missing the YoY field).
+
+Snapshot collection is **sequential and serial**: one target after another in the outer loop, and within each target one symbol after another. `--target all` with `--top-n 10` for the 9 registered targets is ~90 filing fetches + ~90 broker-report fetches — typically 5–15 minutes wall time and bounded by the slowest upstream. It does **not** run as part of `irc run`; treat it as a quarterly job.
+
 ### Opportunity states
 
 - `core_dca` — cheap/reasonable-low valuation, not crowded, thesis intact, acceptable product. DCA normally or accelerate.

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -44,7 +45,7 @@ _THEME_QUERIES: dict[str, str] = {
     "holdings_sector": "用户组合涉及行业的最新新闻和研报要点，附原始出处。",
 }
 
-FRESHNESS_DAYS_BY_THEME: dict[str, int] = MappingProxyType({
+FRESHNESS_DAYS_BY_THEME: Mapping[str, int] = MappingProxyType({
     "us_monetary": 7,
     "us_fiscal_politics": 7,
     "cn_monetary": 7,

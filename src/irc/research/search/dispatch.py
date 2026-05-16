@@ -158,10 +158,11 @@ def extract_top_pages(
                 fetched_at_iso=datetime.now(tz=timezone.utc).isoformat(),
                 failure_reason=f"extractor raised: {exc}",
             )
-        if page.failure_reason:
-            _log.warning(
-                "extractor %s failed on %s: %s",
-                extractor.name, hit.url, page.failure_reason,
-            )
+        else:
+            if page.failure_reason:
+                _log.warning(
+                    "extractor %s failed on %s: %s",
+                    extractor.name, hit.url, page.failure_reason,
+                )
         out.append(page)
     return tuple(out)
