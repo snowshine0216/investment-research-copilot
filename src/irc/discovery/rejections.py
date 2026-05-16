@@ -41,4 +41,20 @@ def build_discovery_rejections(
     rows: list[dict[str, str]] = []
     rows.extend(_row_for_rejection("hard_filter", rej, universe_by_id) for rej in hard.rejected)
     rows.extend(_row_for_rejection("quality_filter", rej, universe_by_id) for rej in quality.rejected)
+    bucketed_ids: set[str] = {
+        r.instrument_id for items in bucketed.buckets.values() for r in items
+    }
+    quality_passed_ids = {r.instrument_id for r in quality.passed}
+    for orphan_id in sorted(quality_passed_ids - bucketed_ids):
+        row = universe_by_id.get(orphan_id)
+        rows.append({
+            "stage": "role_bucket",
+            "instrument_id": orphan_id,
+            "ticker": row.ticker if row else orphan_id,
+            "name_cn": row.name_cn if row else "",
+            "asset_class": row.asset_class if row else "",
+            "theme": (row.theme if row and row.theme is not None else ""),
+            "role": "",
+            "reasons": "no_role_match",
+        })
     return pd.DataFrame(rows, columns=list(REJECTION_COLUMNS))

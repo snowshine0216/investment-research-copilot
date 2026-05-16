@@ -79,3 +79,48 @@ def test_build_discovery_rejections_quality_filter_rows() -> None:
         "role": "",
         "reasons": "drawdown_3y 0.388 > 0.28",
     } in records
+
+
+def test_build_discovery_rejections_joins_multiple_reasons() -> None:
+    universe = (_row("000001", "cn_equity_fund"),)
+    hard = HardFilterResult(
+        passed=(),
+        rejected=(
+            Rejection("000001", ("missing inception_years", "missing aum_cny")),
+        ),
+    )
+    quality = HardFilterResult(passed=(), rejected=())
+    bucketed = RoleBucketResult(buckets={}, relaxed_roles=(), failed_roles=())
+
+    out = build_discovery_rejections(universe, hard, quality, bucketed)
+
+    record = next(r for r in out.to_dict("records") if r["instrument_id"] == "000001")
+    assert record["reasons"] == "missing inception_years; missing aum_cny"
+
+
+def test_build_discovery_rejections_role_bucket_no_match() -> None:
+    universe = (
+        _row("005051", "cn_equity_fund", "defense", "诺安成长"),
+        _row("510300", "cn_etf", "broad", "华泰柏瑞沪深300ETF"),
+    )
+    hard = HardFilterResult(passed=universe, rejected=())
+    quality = HardFilterResult(passed=universe, rejected=())
+    bucketed = RoleBucketResult(
+        buckets={"core_cn_equity": (universe[1],)},
+        relaxed_roles=(),
+        failed_roles=(),
+    )
+
+    out = build_discovery_rejections(universe, hard, quality, bucketed)
+
+    records = out.to_dict("records")
+    assert {
+        "stage": "role_bucket",
+        "instrument_id": "005051",
+        "ticker": "005051",
+        "name_cn": "诺安成长",
+        "asset_class": "cn_equity_fund",
+        "theme": "defense",
+        "role": "",
+        "reasons": "no_role_match",
+    } in records
