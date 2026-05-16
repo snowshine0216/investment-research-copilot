@@ -34,6 +34,7 @@ from irc.opportunity.types import (
 )
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
+from irc.research.theme_research import ThemeReport
 from irc.schemas.universe import Instrument, UniverseConfig
 
 
@@ -152,6 +153,27 @@ def _discipline_row_from(
     )
 
 
+def _resolve_research_theme(
+    inp: OpportunityInput,
+    theme_reports: dict[str, ThemeReport],
+) -> ThemeReport | None:
+    """Map an instrument to its relevant research theme report."""
+    # Direct theme match first
+    if inp.theme and inp.theme in theme_reports:
+        return theme_reports[inp.theme]
+    # Asset-class based mapping
+    if inp.asset_class == "gold":
+        return theme_reports.get("gold_drivers")
+    if inp.asset_class == "cn_bond_fund":
+        return theme_reports.get("cn_monetary")
+    if inp.asset_class in ("us_etf", "hk_etf"):
+        return theme_reports.get("geopolitics")
+    # Sector/active funds → holdings_sector
+    if inp.theme or inp.asset_class == "cn_equity_fund":
+        return theme_reports.get("holdings_sector")
+    return None
+
+
 def _build_rows(
     scores: list[dict],
     instr_index: dict[str, Instrument],
@@ -197,7 +219,7 @@ def _build_rows(
             inp,
             theme_thesis or None,
             snapshot=snapshot_cache[target_name],
-            theme_report=theme_reports.get(inp.theme or ""),
+            theme_report=_resolve_research_theme(inp, theme_reports),
         )
         rows.append(row)
         positions[iid] = PositionContext(

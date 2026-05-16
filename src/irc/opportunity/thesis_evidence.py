@@ -121,6 +121,22 @@ def _theme_report_usable(report: ThemeReport | None) -> bool:
     return report is not None and not report.failure_reason and bool(report.report_md)
 
 
+_MIN_RESEARCH_CITATIONS = 3
+
+
+def _thesis_from_theme_report(
+    report: ThemeReport,
+) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...]]:
+    """Conservative rule: usable report with ≥3 citations → intact (research-backed)."""
+    if len(report.citations) < _MIN_RESEARCH_CITATIONS:
+        return "evidence_insufficient", "", ()
+    return (
+        "intact",
+        f"长期逻辑由主题研究背书（citations={len(report.citations)}），暂未触发证伪。",
+        _news_evidence(report),
+    )
+
+
 def _classify_state(
     pct_pos: float,
     pct_neg: float,
@@ -161,38 +177,39 @@ def derive_thesis_from_evidence(
     """
     gaps: list[str] = []
 
-    if snapshot is None or not snapshot.filings:
+    snapshot_usable = snapshot is not None and bool(snapshot.filings)
+    if not snapshot_usable:
         gaps.append("missing_constituent_snapshot")
     if not _theme_report_usable(theme_report):
         gaps.append("missing_recent_news")
 
-    if snapshot is None or not snapshot.filings:
-        return (
-            "evidence_insufficient",
-            "缺少底层成分股财报数据，无法判定长期逻辑。",
-            (),
-            tuple(gaps),
-        )
+    # Path A: snapshot present and usable → constituent-driven thesis (authoritative)
+    if snapshot_usable:
+        pos, neg, total = _yoy_split(snapshot.filings)
+        if total == 0:
+            # Snapshot exists but no YoY data → fall through to theme_report path
+            gaps.append("missing_constituent_snapshot")
+        else:
+            if not snapshot.broker_reports:
+                gaps.append("missing_broker_coverage")
+            consensus = _broker_consensus(snapshot.broker_reports)
+            evidence = (
+                _filing_evidence(snapshot.filings)
+                + _broker_evidence(snapshot.broker_reports)
+                + _news_evidence(theme_report)
+            )
+            state, reason = _classify_state(pos / total, neg / total, consensus)
+            return (state, reason, evidence, tuple(gaps))
 
-    pos, neg, total = _yoy_split(snapshot.filings)
-    if total == 0:
-        gaps.append("missing_constituent_snapshot")
-        return (
-            "evidence_insufficient",
-            "底层成分股最新财报缺少营收同比数据。",
-            (),
-            tuple(gaps),
-        )
+    # Path B: no usable snapshot → try theme_report-only thesis
+    if theme_report is not None and _theme_report_usable(theme_report):
+        state, reason, evidence = _thesis_from_theme_report(theme_report)
+        if state != "evidence_insufficient":
+            return state, reason, evidence, tuple(gaps)
 
-    if not snapshot.broker_reports:
-        gaps.append("missing_broker_coverage")
-    consensus = _broker_consensus(snapshot.broker_reports)
-
-    evidence = (
-        _filing_evidence(snapshot.filings)
-        + _broker_evidence(snapshot.broker_reports)
-        + _news_evidence(theme_report)
+    return (
+        "evidence_insufficient",
+        "缺少底层成分股财报数据，且主题研究证据不足，无法判定长期逻辑。",
+        (),
+        tuple(gaps),
     )
-
-    state, reason = _classify_state(pos / total, neg / total, consensus)
-    return (state, reason, evidence, tuple(gaps))
