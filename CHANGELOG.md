@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.4.0] — 2026-05-16
+
+### Added
+- **`discovery_rejections.csv`:** Discovery now writes per-instrument rejection
+  records to `outputs/<date>/discovery_rejections.csv`. Covers three stages —
+  `hard_filter`, `quality_filter`, and `role_bucket` (no-role-match orphans) —
+  with multiple rejection reasons joined. Gives full traceability of why each
+  instrument was dropped before scoring.
+- **CSI sector indices in `_TARGET_REGISTRY`:** Ten sector targets registered
+  (半导体, 医药, 新能源, 消费, 金融, 军工, 有色金属, 房地产, 国企改革, 科技) so
+  sector-theme instruments can resolve to real constituent snapshots instead of
+  `evidence_insufficient`. Codes verified against AkShare.
+- **HK QDII targets in `_TARGET_REGISTRY`:** Four HK indices registered
+  (恒生指数, 恒生科技, 港股红利, 中概互联) with top-10 hardcoded holdings via
+  a new `hk_index` spec kind and `fetch_hk_index_constituents` adapter stub.
+- **US extras in `_TARGET_REGISTRY`:** 道琼斯, 美国50, 美股大盘 registered for
+  US lookthrough coverage.
+- **红利 sector target:** 000922 (中证红利) registered as an additional sector index.
+
+### Changed
+- **Sector proxy layer removed:** `sector_proxy.py` deleted; `opportunity_cmd`
+  now resolves sector themes via direct snapshot lookup using the expanded
+  registry, eliminating the broad-fallback approximation.
+- **`DiscoveryRunResult` extended:** Carries a `rejections` DataFrame field;
+  `discover_cmd` writes it to CSV alongside watchlist and diagnostics.
+
 ## [0.8.3.0] — 2026-05-16
 
 ### Added
