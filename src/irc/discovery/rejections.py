@@ -31,6 +31,19 @@ def _row_for_rejection(stage: str, rej: Rejection, universe_by_id: dict[str, Uni
     }
 
 
+def _build_orphan_row(orphan_id: str, row: UniverseRow | None) -> dict[str, str]:
+    return {
+        "stage": "role_bucket",
+        "instrument_id": orphan_id,
+        "ticker": row.ticker if row else orphan_id,
+        "name_cn": row.name_cn if row else "",
+        "asset_class": row.asset_class if row else "",
+        "theme": (row.theme if row and row.theme is not None else ""),
+        "role": "",
+        "reasons": "no_role_match",
+    }
+
+
 def _collect_orphan_rows(
     quality_passed: tuple[UniverseRow, ...],
     bucketed: RoleBucketResult,
@@ -43,16 +56,7 @@ def _collect_orphan_rows(
     orphan_rows: list[dict[str, str]] = []
     for orphan_id in sorted(quality_passed_ids - bucketed_ids):
         row = universe_by_id.get(orphan_id)
-        orphan_rows.append({
-            "stage": "role_bucket",
-            "instrument_id": orphan_id,
-            "ticker": row.ticker if row else orphan_id,
-            "name_cn": row.name_cn if row else "",
-            "asset_class": row.asset_class if row else "",
-            "theme": (row.theme if row and row.theme is not None else ""),
-            "role": "",
-            "reasons": "no_role_match",
-        })
+        orphan_rows.append(_build_orphan_row(orphan_id, row))
     return orphan_rows
 
 
