@@ -45,9 +45,32 @@ _QDII_HK_DISPLAY: dict[str, str] = {
     "china_internet": "中概互联",
 }
 
+_QDII_US_ALIASES: dict[str, str] = {
+    "s&p500": "sp500", "s&p 500": "sp500", "sp500": "sp500", "spx": "sp500", "标普500": "sp500",
+    "nasdaq100": "nasdaq100", "nasdaq 100": "nasdaq100", "ndx": "nasdaq100", "纳斯达克100": "nasdaq100",
+    "dow jones": "dow_jones", "dow": "dow_jones", "道琼斯": "dow_jones",
+}
+
+_QDII_HK_ALIASES: dict[str, str] = {
+    "hstech": "hstech", "恒生科技": "hstech", "hs tech": "hstech",
+    "hsi": "hsi", "恒生指数": "hsi", "hang seng": "hsi",
+    "hs_dividend": "hs_dividend", "港股红利": "hs_dividend",
+    "china_internet": "china_internet", "中概互联": "china_internet",
+}
+
 _BROAD_INDEX_KEYS: frozenset[str] = frozenset(_BROAD_INDEX_DISPLAY.keys())
 _QDII_US_KEYS: frozenset[str] = frozenset(_QDII_US_DISPLAY.keys())
 _QDII_HK_KEYS: frozenset[str] = frozenset(_QDII_HK_DISPLAY.keys())
+
+
+def _normalize_qdii_key(raw: str, aliases: dict[str, str]) -> str | None:
+    """Try to match raw (already lowercased) against known aliases."""
+    if raw in aliases:
+        return aliases[raw]
+    no_spaces = raw.replace(" ", "")
+    if no_spaces in aliases:
+        return aliases[no_spaces]
+    return None
 
 
 def _display_for(key: str, table: dict[str, str], fallback: str) -> str:
@@ -71,13 +94,15 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
     theme = (inp.theme or "").strip().lower() or None
 
     if inp.asset_class == "us_etf":
-        key = tracked or theme or "us_equity"
+        raw = tracked or theme or "us_equity"
+        key = _normalize_qdii_key(raw, _QDII_US_ALIASES) or raw
         return LookthroughTarget(
             "qdii_us", key, _display_for(key, _QDII_US_DISPLAY, key),
         )
 
     if inp.asset_class == "hk_etf":
-        key = tracked or theme or "hsi"
+        raw = tracked or theme or "hsi"
+        key = _normalize_qdii_key(raw, _QDII_HK_ALIASES) or raw
         return LookthroughTarget(
             "qdii_hk", key, _display_for(key, _QDII_HK_DISPLAY, key),
         )

@@ -205,7 +205,9 @@ def test_empty_available_venues_treats_all_instruments_as_compatible(tmp_path: P
 def test_build_input_empty_venues_treats_instrument_as_compatible():
     """Unit test: _build_input with empty set() treats venue_required instruments as compatible."""
     from irc.commands.opportunity_cmd import _build_input
+    from irc.data.duckdb_helper import ensure_schema
     from unittest.mock import MagicMock
+    import duckdb
     instr = MagicMock()
     instr.asset_class = "cn_etf"
     instr.market = "cn_brokerage"
@@ -213,10 +215,16 @@ def test_build_input_empty_venues_treats_instrument_as_compatible():
     instr.tracked_index = "沪深300"
     instr.name_cn = "沪深300ETF"
     instr.venue_required = ["cn_brokerage"]
-    inp = _build_input(
-        {"instrument_id": "510300", "role": ""},
-        instr, None, None, 0.0, set()  # empty venues
-    )
+    con = duckdb.connect(":memory:")
+    ensure_schema(con)
+    try:
+        inp = _build_input(
+            {"instrument_id": "510300", "role": ""},
+            instr, None, None, 0.0, set(),  # empty venues
+            con,
+        )
+    finally:
+        con.close()
     assert inp.venue_compatible is True
 
 

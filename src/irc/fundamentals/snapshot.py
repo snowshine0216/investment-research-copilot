@@ -62,6 +62,13 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "创业板":    _TargetSpec(kind="cn_index", code="399006"),
     "中证红利":  _TargetSpec(kind="cn_index", code="000922"),
     "红利低波":  _TargetSpec(kind="cn_index", code="930740"),
+    # QDII US — top-10 by index weight as of 2026-05-16; update quarterly
+    "标普500": _TargetSpec(kind="us_symbols", symbols=(
+        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "GOOG", "AVGO", "TSLA",
+    )),
+    "纳斯达克100": _TargetSpec(kind="us_symbols", symbols=(
+        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST",
+    )),
 }
 
 

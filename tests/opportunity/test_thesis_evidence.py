@@ -220,6 +220,47 @@ def test_missing_broker_coverage_gap_when_no_broker_reports():
     assert "missing_broker_coverage" in gaps
 
 
+# ---------------------------------------------------------------------------
+# Theme-report-only thesis derivation (Path B)
+# ---------------------------------------------------------------------------
+
+def _research_theme_report(n_citations: int, *, failure: str = "") -> ThemeReport:
+    return ThemeReport(
+        theme="gold_drivers",
+        query="gold drivers",
+        locale="en",
+        report_md="# gold drivers\n\nContent body.\n",
+        citations=[
+            Citation(index=i, title=f"t{i}", url=f"https://x/{i}", published_iso="2026-05-01")
+            for i in range(n_citations)
+        ],
+        failure_reason=failure,
+    )
+
+
+def test_theme_report_with_3plus_citations_yields_intact_when_no_snapshot():
+    state, reason, evidence, gaps = derive_thesis_from_evidence(None, _research_theme_report(3))
+    assert state == "intact"
+    assert "研究" in reason or "research" in reason or "citations" in reason
+    assert any(e.type == "news" for e in evidence)
+    assert "missing_constituent_snapshot" in gaps
+
+
+def test_theme_report_with_failure_falls_back_to_insufficient():
+    state, _, _, gaps = derive_thesis_from_evidence(None, _research_theme_report(5, failure="provider 429"))
+    assert state == "evidence_insufficient"
+
+
+def test_theme_report_with_too_few_citations_falls_back_to_insufficient():
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(1))
+    assert state == "evidence_insufficient"
+
+
+def test_theme_report_with_zero_citations_insufficient():
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(0))
+    assert state == "evidence_insufficient"
+
+
 def test_empty_report_md_with_no_failure_reason_adds_missing_recent_news_gap():
     """ThemeReport with empty body but no failure_reason should yield a gap, not be treated as failed."""
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
