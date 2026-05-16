@@ -11,7 +11,7 @@ _SYSTEM = (
 
 def _sanitize_ref(ref: str) -> str:
     """Strip control characters to prevent prompt injection from external data sources."""
-    return ref.replace("\n", " ").replace("\r", " ").strip()[:200]
+    return ref.replace("\n", " ").replace("\r", " ").strip()[:400]
 
 
 def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute) -> ChatResponse:
