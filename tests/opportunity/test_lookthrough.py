@@ -98,9 +98,20 @@ def test_unknown_index_falls_back_to_kind_with_display_key():
     assert target.display_cn  # non-empty fallback
 
 
-def test_target_registry_covers_broad_index_display_table() -> None:
+def test_target_registry_covers_every_lookthrough_display() -> None:
     from irc.fundamentals.snapshot import _TARGET_REGISTRY
-    from irc.opportunity.lookthrough import _BROAD_INDEX_DISPLAY
+    from irc.opportunity.lookthrough import (
+        _BROAD_INDEX_DISPLAY,
+        _QDII_HK_DISPLAY,
+        _QDII_US_DISPLAY,
+        _SECTOR_THEME_DISPLAY,
+    )
 
-    missing = sorted(set(_BROAD_INDEX_DISPLAY.values()) - set(_TARGET_REGISTRY))
-    assert missing == [], f"missing broad-index registry entries: {missing}"
+    required = (
+        set(_BROAD_INDEX_DISPLAY.values())
+        | set(_QDII_US_DISPLAY.values())
+        | set(_QDII_HK_DISPLAY.values())
+        | {display for key, display in _SECTOR_THEME_DISPLAY.items() if key != "broad"}
+    )
+    missing = sorted(required - set(_TARGET_REGISTRY))
+    assert missing == [], f"missing registry entries for display names: {missing}"
