@@ -95,11 +95,11 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "道琼斯": _TargetSpec(kind="us_symbols", symbols=(
         "UNH", "GS", "MSFT", "HD", "MCD", "CRM", "V", "CAT", "AMGN", "AXP",
     )),
-    "美国50": _TargetSpec(kind="us_symbols", symbols=(
-        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "GOOG", "AVGO", "TSLA",
+    "美国50": _TargetSpec(kind="us_symbols", symbols=(  # FTSE US 50 (华夏美国50ETF)
+        "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "BRK.B", "AVGO", "JPM",
     )),
-    "美股大盘": _TargetSpec(kind="us_symbols", symbols=(
-        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "GOOG", "AVGO", "TSLA",
+    "美股大盘": _TargetSpec(kind="us_symbols", symbols=(  # S&P 500 broad market
+        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "GOOG", "AVGO", "LLY",
     )),
     # HK QDII indices — hardcoded top-10 by weight (AkShare lacks HK index constituent endpoint)
     # STALENESS_AFTER: 2026-08-16 — refresh quarterly

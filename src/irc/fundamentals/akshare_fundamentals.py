@@ -32,26 +32,26 @@ def _suffix_for_code(code: str) -> str:
 
 
 def _to_qualified_symbol(code: str) -> str:
-    code = str(code).strip()
+    code = str(code).strip().upper()
     if "." in code:
         return code
+    if len(code) > 2 and code[:2] in ("SZ", "SH"):
+        code = code[2:]
     return f"{code}.{_suffix_for_code(code)}"
 
 
 def _sina_index_symbol(index_code: str) -> str | None:
-    """Map a numeric CN index code to its Sina-prefixed symbol.
+    """Map a numeric CN index code to the format accepted by Sina endpoint.
 
-    Leading 6/5 → Shanghai (`sh`); leading 3/0 → Shenzhen (`sz`).
-    Codes whose first character is not in {0,3,5,6} return None so the caller
-    can short-circuit without an AkShare round-trip.
+    AkShare's `index_stock_cons_sina` currently resolves CN indices from plain
+    numeric codes (e.g. `399006`) and returns empty frames for prefixed forms
+    like `sz399006` / `sh000300`.
     """
     if not index_code:
         return None
     head = index_code[:1]
-    if head in ("6", "5"):
-        return f"sh{index_code}"
-    if head in ("3", "0"):
-        return f"sz{index_code}"
+    if head in ("0", "3", "5", "6"):
+        return index_code
     return None
 
 
@@ -77,14 +77,20 @@ def _parse_sina_frame(df: pd.DataFrame, top_n: int) -> tuple[Constituent, ...]:
     Equal-weight (weight=0.0) is acceptable downstream: the thesis classifier
     counts YoY signs across constituents, never multiplies by weight.
     """
-    needed = {"品种代码", "品种名称"}
-    if not needed.issubset(df.columns):
+    code_col = ""
+    name_col = ""
+    if {"品种代码", "品种名称"}.issubset(df.columns):
+        code_col, name_col = "品种代码", "品种名称"
+    elif {"symbol", "name"}.issubset(df.columns):
+        # Current AkShare schema for index_stock_cons_sina.
+        code_col, name_col = "symbol", "name"
+    else:
         return ()
     head = df.head(top_n)
     return tuple(
         Constituent(
-            symbol=_to_qualified_symbol(str(row["品种代码"])),
-            name=str(row["品种名称"]),
+            symbol=_to_qualified_symbol(str(row[code_col])),
+            name=str(row[name_col]),
             weight=0.0,
             market="cn",
         )

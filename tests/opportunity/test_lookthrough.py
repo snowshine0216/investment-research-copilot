@@ -107,6 +107,8 @@ def test_target_registry_covers_every_lookthrough_display() -> None:
         _SECTOR_THEME_DISPLAY,
     )
 
+    # "broad" → "宽基" intentionally has no registry entry: broad-theme instruments
+    # resolve via a theme-level fallback path in opportunity_cmd, not a snapshot target.
     required = (
         set(_BROAD_INDEX_DISPLAY.values())
         | set(_QDII_US_DISPLAY.values())
