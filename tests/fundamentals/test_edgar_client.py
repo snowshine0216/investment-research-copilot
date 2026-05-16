@@ -58,10 +58,12 @@ def _facts_payload() -> dict:
 
 @pytest.fixture(autouse=True)
 def _stub_dns(monkeypatch):
-    """Bypass DNS-based SSRF check so respx mocks aren't shadowed by network resolution."""
+    """Bypass DNS-based SSRF check and set a fake email for EDGAR tests."""
     monkeypatch.setattr(
         "irc.fundamentals.edgar_client.verify_host_resolves_publicly", lambda host: None,
     )
+    monkeypatch.setattr("irc.fundamentals.edgar_client._EDGAR_CONTACT", "test@example.com")
+    monkeypatch.setattr("irc.fundamentals.edgar_client._USER_AGENT", "irc-research (test@example.com)")
 
 
 @respx.mock
@@ -173,3 +175,102 @@ def test_fetch_us_filing_digest_sends_user_agent_header() -> None:
     # SEC's fair-use policy requires a descriptive User-Agent
     ua = route.calls[0].request.headers.get("user-agent", "")
     assert ua and "irc" in ua.lower()
+
+
+# ---------- typed error codes via diag fetcher ----------
+
+import os
+import sys
+import importlib
+
+from irc.fundamentals import edgar_client as edgar_mod
+from irc.fundamentals.edgar_client import (
+    EDGAR_ERROR_MISSING_EMAIL,
+    EDGAR_ERROR_HTTP_4XX,
+    EDGAR_ERROR_HTTP_5XX,
+    EDGAR_ERROR_NETWORK,
+    EDGAR_ERROR_DECODE,
+    EDGAR_ERROR_CIK_MISS,
+    fetch_us_filing_digest_diag,
+)
+
+
+@respx.mock
+def test_diag_returns_http_4xx_when_sec_blocks_request() -> None:
+    respx.get(_TICKERS_URL).mock(return_value=httpx.Response(403, text="forbidden"))
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert digest is None
+    assert code == EDGAR_ERROR_HTTP_4XX
+
+
+@respx.mock
+def test_diag_returns_http_5xx_when_sec_errors() -> None:
+    respx.get(_TICKERS_URL).mock(return_value=httpx.Response(503))
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert digest is None
+    assert code == EDGAR_ERROR_HTTP_5XX
+
+
+@respx.mock
+def test_diag_returns_network_when_request_raises() -> None:
+    respx.get(_TICKERS_URL).mock(side_effect=httpx.ConnectError("boom"))
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert digest is None
+    assert code == EDGAR_ERROR_NETWORK
+
+
+@respx.mock
+def test_diag_returns_cik_not_found_when_ticker_absent() -> None:
+    respx.get(_TICKERS_URL).mock(return_value=httpx.Response(200, json=_tickers_payload()))
+    digest, code = fetch_us_filing_digest_diag("ZZZZ")
+    assert digest is None
+    assert code == EDGAR_ERROR_CIK_MISS
+
+
+@respx.mock
+def test_diag_returns_decode_error_when_json_invalid() -> None:
+    respx.get(_TICKERS_URL).mock(return_value=httpx.Response(200, text="not json"))
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert digest is None
+    assert code == EDGAR_ERROR_DECODE
+
+
+@respx.mock
+def test_diag_happy_path_returns_digest_and_none_code() -> None:
+    respx.get(_TICKERS_URL).mock(return_value=httpx.Response(200, json=_tickers_payload()))
+    respx.get(_facts_url("0000320193")).mock(
+        return_value=httpx.Response(200, json=_facts_payload())
+    )
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert isinstance(digest, FilingDigest)
+    assert code is None
+
+
+def test_diag_reports_missing_email_without_network_call(monkeypatch) -> None:
+    """When EDGAR_CONTACT_EMAIL is empty, short-circuit with missing_email."""
+    monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
+    monkeypatch.setattr(edgar_mod, "_warned_missing_email", False, raising=False)
+    # Any httpx call would explode (no respx mock set), so a short-circuit is the
+    # only way this test can pass.
+    digest, code = fetch_us_filing_digest_diag("AAPL")
+    assert digest is None
+    assert code == EDGAR_ERROR_MISSING_EMAIL
+
+
+def test_warn_missing_email_prints_once(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
+    monkeypatch.setattr(edgar_mod, "_warned_missing_email", False, raising=False)
+    fetch_us_filing_digest_diag("AAPL")
+    first = capsys.readouterr().err
+    fetch_us_filing_digest_diag("MSFT")
+    second = capsys.readouterr().err
+    assert "EDGAR_CONTACT_EMAIL" in first
+    assert second == ""
+
+
+def test_legacy_fetch_us_filing_digest_returns_digest_only(monkeypatch) -> None:
+    """The legacy single-return signature is preserved for the snapshot orchestrator."""
+    monkeypatch.setattr(edgar_mod, "_EDGAR_CONTACT", "")
+    monkeypatch.setattr(edgar_mod, "_warned_missing_email", True, raising=False)
+    result = fetch_us_filing_digest("AAPL")
+    assert result is None
