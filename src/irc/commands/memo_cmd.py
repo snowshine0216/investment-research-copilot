@@ -29,7 +29,7 @@ def _load_yaml(p: Path) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
 
 
-def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict) -> tuple[str, ...]:
+def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -> tuple[str, ...]:
     summary = opportunity.get("summary") or {}
     n_core = summary.get("core_dca_count", 0)
     n_watch = summary.get("small_watch_count", 0)
@@ -39,7 +39,7 @@ def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict) -> tuple[str,
         f"黄金：regime={gold.get('regime', '?')}，zone={gold.get('zone', '?')}，"
         f"仓位倾斜={alloc.get('gold_tilt', '?')}。"
     )
-    lines.append(f"建仓模式：{alloc.get('mode') or 'build'}（按节奏定投，不一次性投入）。")
+    lines.append(f"建仓模式：{plan.get('mode') or 'build'}（按节奏定投，不一次性投入）。")
     lines.append(
         f"机会面：core_dca={n_core}，small_watch={n_watch}，pause_wait={n_pause}。"
     )
@@ -58,7 +58,8 @@ def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> li
         seen.add(iid)
         op = op_by_id.get(iid) or {}
         sc = score_by_id.get(iid) or {}
-        reason = (op.get("opportunity_reason") or "").split(" | ")[0]
+        # Sanitize: strip newlines before the string enters the LLM skeleton.
+        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace("\n", " ").strip()
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
                "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(opp_state, "slow_dca")
@@ -114,7 +115,7 @@ def run_memo(repo_root: str) -> int:
         gold_regime=gold_regime,
     )
 
-    tldr = _derive_tldr_lines(gold, alloc, opportunity)
+    tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
     inputs = MemoInputs(
         date_str=today,
         gold_regime=gold.get("regime", "unknown"),

@@ -18,7 +18,10 @@ from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
 )
-from irc.fundamentals.edgar_client import fetch_us_filing_digest
+from irc.fundamentals.edgar_client import (
+    fetch_us_filing_digest,           # kept for any external import
+    fetch_us_filing_digest_diag,
+)
 from irc.fundamentals.hkex_client import fetch_hk_filing_digest
 from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
     cache_path,
@@ -30,6 +33,7 @@ from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
 from irc.fundamentals.types import (
     Constituent,
     ConstituentSnapshot,
+    FilingDigest,
 )
 
 
@@ -62,7 +66,9 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "创业板":    _TargetSpec(kind="cn_index", code="399006"),
     "中证红利":  _TargetSpec(kind="cn_index", code="000922"),
     "红利低波":  _TargetSpec(kind="cn_index", code="930740"),
-    # QDII US — top-10 by index weight as of 2026-05-16; update quarterly
+    # QDII US — top-10 by index weight as of 2026-05-16; update quarterly.
+    # STALENESS_AFTER: 2026-08-16 — after this date, run `irc fundamentals snapshot
+    # --target 标普500` and `--target 纳斯达克100` to pick up rebalance changes.
     "标普500": _TargetSpec(kind="us_symbols", symbols=(
         "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "GOOG", "AVGO", "TSLA",
     )),
@@ -70,6 +76,9 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
         "AAPL", "MSFT", "NVDA", "AMZN", "META", "GOOGL", "GOOG", "AVGO", "TSLA", "COST",
     )),
 }
+
+# ISO date after which the hardcoded US index constituent lists should be refreshed.
+_US_SYMBOLS_STALE_AFTER = date.fromisoformat("2026-08-16")
 
 
 def registered_snapshot_targets() -> tuple[str, ...]:
@@ -147,16 +156,31 @@ def _build_cn_snapshot(
 def _build_us_snapshot(
     target: str, spec: _TargetSpec, as_of_iso: str,
 ) -> ConstituentSnapshot:
-    filings, failures = [], []
+    filings: list[FilingDigest] = []
+    failures: list[str] = []
+    per_symbol_codes: list[str] = []
     constituents = tuple(
         Constituent(symbol=s, name=s, weight=0.0, market="us") for s in spec.symbols
     )
     for symbol in spec.symbols:
-        digest = fetch_us_filing_digest(symbol)
+        digest, code = fetch_us_filing_digest_diag(symbol)
         if digest is None:
-            failures.append(f"missing filing digest: {symbol}")
+            tag = f" ({code})" if code else ""
+            failures.append(f"missing filing digest: {symbol}{tag}")
+            if code:
+                per_symbol_codes.append(code)
         else:
             filings.append(digest)
+    if not filings and per_symbol_codes and len(set(per_symbol_codes)) == 1:
+        failures.append(f"all US fetches failed: {per_symbol_codes[0]}")
+    if date.today() > _US_SYMBOLS_STALE_AFTER:
+        import sys
+        print(
+            f"WARNING: hardcoded US index constituents for {target!r} are stale "
+            f"(stale_after={_US_SYMBOLS_STALE_AFTER}). "
+            "Re-run `irc fundamentals snapshot --target <name>` to refresh.",
+            file=sys.stderr,
+        )
     return ConstituentSnapshot(
         lookthrough_target=target,
         as_of_iso=as_of_iso,

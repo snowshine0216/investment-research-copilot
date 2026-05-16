@@ -4,7 +4,10 @@ import math
 
 from irc.fundamentals.types import ConstituentSnapshot
 from irc.opportunity.lookthrough import map_lookthrough
-from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
+from irc.opportunity.thesis_evidence import (
+    NON_INDEXABLE_ASSET_CLASSES,
+    derive_thesis_from_evidence,
+)
 from irc.opportunity.types import (
     HeatState,
     OpportunityInput,
@@ -180,6 +183,30 @@ def classify_product_quality(inp: OpportunityInput) -> tuple[ProductQualityState
 # ---------------------------------------------------------------------------
 
 
+def _weak_link_label(
+    valuation: ValuationState,
+    heat: HeatState,
+    thesis: ThesisState,
+    product_quality: ProductQualityState,
+) -> str:
+    """Pick a short Chinese label describing the weakest sub-state.
+
+    Priority mirrors the ordering reviewers care about: product quality
+    fundamentals first, then thesis evidence, then valuation data, then heat.
+    When no single sub-state stands out the label is the generic
+    'signal conflict' fallback.
+    """
+    if product_quality == "weak":
+        return "产品质量薄弱"
+    if thesis == "evidence_insufficient":
+        return "主题逻辑证据不足"
+    if valuation == "evidence_insufficient":
+        return "估值数据缺失"
+    if heat == "evidence_insufficient":
+        return "热度信号不足"
+    return "信号方向冲突"
+
+
 def compose_opportunity_state(
     valuation: ValuationState,
     heat: HeatState,
@@ -211,7 +238,11 @@ def compose_opportunity_state(
     if expensive or hot_heat:
         return "pause_wait", "估值偏高或热度偏高，暂停加仓等待回落。"
 
-    return "small_watch", "证据不完整或信号不一致，列入小仓位观察。"
+    label = _weak_link_label(valuation, heat, thesis, product_quality)
+    return (
+        "small_watch",
+        f"证据不完整或信号不一致（{label}），列入小仓位观察。",
+    )
 
 
 def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
@@ -232,6 +263,15 @@ def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
     if inp.expense_ratio is None and inp.aum_cny is None:
         gaps.append("missing_product_metadata")
     return gaps
+
+
+def _refined_table_gap(asset_class: str | None) -> str | None:
+    """Refined gap label for the table-fallback path (no snapshot, no theme_report)."""
+    if asset_class is None:
+        return None
+    if asset_class in NON_INDEXABLE_ASSET_CLASSES:
+        return "constituent_not_applicable"
+    return "constituent_missing"
 
 
 def build_opportunity_row(
@@ -257,12 +297,14 @@ def build_opportunity_row(
     structural_gaps = _structural_evidence_gaps(inp)
     if snapshot is not None or theme_report is not None:
         thesis, thesis_reason, evidence, thesis_gaps = derive_thesis_from_evidence(
-            snapshot, theme_report,
+            snapshot, theme_report, asset_class=inp.asset_class,
         )
     else:
         thesis, thesis_reason = classify_thesis(inp, theme_thesis)
         evidence = ()
-        thesis_gaps = ("missing_constituent_snapshot", "missing_recent_news")
+        refined = _refined_table_gap(inp.asset_class)
+        legacy = ("missing_constituent_snapshot", "missing_recent_news")
+        thesis_gaps = legacy + ((refined,) if refined is not None else ())
 
     state, state_reason = compose_opportunity_state(
         valuation, heat, thesis, product, inp.venue_compatible,

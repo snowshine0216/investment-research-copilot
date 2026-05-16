@@ -60,6 +60,10 @@ def self_history_percentile(series: pd.Series) -> float | None:
     """Rank-based percentile of the latest value within the series.
 
     Returns None for series with fewer than 30 valid points.
+
+    Uses inclusive (count_le) ranking: a value equal to the historical maximum
+    returns 1.0 (100th percentile), not (n-1)/n. This matches the standard
+    ECDF definition where ties count at the upper end.
     """
     s = _clean(series)
     if len(s) < 30:

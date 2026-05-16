@@ -299,6 +299,85 @@ def test_heat_gap_added_when_only_one_heat_input():
 
 
 # ---------------------------------------------------------------------------
+# Weak-link label in the catch-all small_watch reason
+# ---------------------------------------------------------------------------
+
+
+from irc.opportunity.states import build_opportunity_row, compose_opportunity_state
+
+
+def test_compose_small_watch_reason_names_weak_product_quality():
+    state, reason = compose_opportunity_state(
+        valuation="reasonable_low",
+        heat="cold",
+        thesis="intact",
+        product_quality="weak",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "产品质量薄弱" in reason
+    assert reason.endswith("列入小仓位观察。")
+
+
+def test_compose_small_watch_reason_names_weak_thesis():
+    state, reason = compose_opportunity_state(
+        valuation="fair",
+        heat="normal",
+        thesis="evidence_insufficient",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "主题逻辑证据不足" in reason
+
+
+def test_compose_small_watch_reason_names_missing_valuation():
+    state, reason = compose_opportunity_state(
+        valuation="evidence_insufficient",
+        heat="normal",
+        thesis="intact",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "估值数据缺失" in reason
+
+
+def test_compose_small_watch_reason_falls_back_on_conflict():
+    """No single sub-state is weakest → generic 'signal conflict' label."""
+    state, reason = compose_opportunity_state(
+        valuation="fair",
+        heat="normal",
+        thesis="intact",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "信号方向冲突" in reason
+
+
+def test_build_opportunity_row_passes_asset_class_to_thesis_evidence():
+    """A gold instrument with no snapshot picks up the refined label."""
+    from irc.opportunity.types import OpportunityInput
+
+    inp = OpportunityInput(
+        instrument_id="518880",
+        asset_class="gold",
+        market="cn_on_exchange",
+        valuation_percentile_self=0.95,
+        ret_1m=0.04,
+        ret_3m=0.05,
+    )
+    row = build_opportunity_row(
+        inp,
+        theme_thesis=None,
+        snapshot=None,
+        theme_report=None,
+    )
+    assert "constituent_not_applicable" in row.evidence_gaps
+
+
+# ---------------------------------------------------------------------------
 # build_opportunity_row + ConstituentSnapshot / ThemeReport integration
 # ---------------------------------------------------------------------------
 

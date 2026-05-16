@@ -166,14 +166,52 @@ def _classify_state(
     )
 
 
+NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
+    "gold", "cn_bond_fund", "cn_equity_fund",
+})
+_NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
+
+
+def _classify_constituent_gap(
+    snapshot: ConstituentSnapshot | None,
+    asset_class: str | None,
+) -> str | None:
+    """Refined gap label for the constituent layer.
+
+    Returns one of:
+      - 'constituent_not_applicable': asset class has no equity-style top-N
+        (gold, bond, active fund).
+      - 'constituent_fetch_failed': snapshot exists but every filing fetch
+        failed (snapshot.failure_reasons is non-empty, filings is empty).
+      - 'constituent_missing': asset class is constituent-bearing but no
+        snapshot was loaded (lookthrough target not in _TARGET_REGISTRY).
+      - None: snapshot present with usable filings.
+    """
+    if asset_class is None:
+        return None
+    if asset_class in _NON_INDEXABLE_ASSET_CLASSES:
+        return "constituent_not_applicable"
+    if snapshot is None:
+        return "constituent_missing"
+    if not snapshot.filings:
+        return "constituent_fetch_failed" if snapshot.failure_reasons else "constituent_missing"
+    return None
+
+
 def derive_thesis_from_evidence(
     snapshot: ConstituentSnapshot | None,
     theme_report: ThemeReport | None,
+    *,
+    asset_class: str | None = None,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...]]:
     """Derive (state, reason, evidence, gap_labels) from concrete sources.
 
     Pure: no I/O, no time-of-day dependence. The caller decides what to do
     with `gap_labels` — typically merge into `OpportunityRow.evidence_gaps`.
+
+    When `asset_class` is provided, a refined constituent-gap label is appended
+    to the legacy `missing_constituent_snapshot` label so consumers can
+    distinguish 'not applicable' from 'fetch failed' from 'missing target'.
     """
     gaps: list[str] = []
 
@@ -182,6 +220,10 @@ def derive_thesis_from_evidence(
         gaps.append("missing_constituent_snapshot")
     if not _theme_report_usable(theme_report):
         gaps.append("missing_recent_news")
+
+    refined = _classify_constituent_gap(snapshot, asset_class)
+    if refined is not None and refined not in gaps:
+        gaps.append(refined)
 
     # Path A: snapshot present and usable → constituent-driven thesis (authoritative)
     if snapshot_usable:

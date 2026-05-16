@@ -91,8 +91,8 @@ def test_build_snapshot_us_symbols_dispatches_to_edgar(monkeypatch):
         revenue_yoy=0.06, net_income_yoy=0.09, gross_margin=0.45,
     )
     monkeypatch.setattr(
-        snapshot, "fetch_us_filing_digest",
-        lambda sym: aapl_digest if sym == "AAPL" else None,
+        snapshot, "fetch_us_filing_digest_diag",
+        lambda sym: (aapl_digest, None) if sym == "AAPL" else (None, "network"),
     )
     snap = build_snapshot("Mag7", as_of_iso="2026-05-15")
     assert snap.constituents == (
@@ -214,3 +214,69 @@ def test_load_latest_cached_snapshot_returns_none_when_absent(tmp_path: Path) ->
 
     result = load_latest_cached_snapshot("沪深300", tmp_path)
     assert result is None
+
+
+# ---------- US snapshot per-symbol error tagging ----------
+
+
+def test_build_us_snapshot_tags_each_failure_with_error_code(monkeypatch) -> None:
+    """When every US symbol fails, failure_reasons must (a) tag each per-symbol
+    line with the typed error code and (b) emit one summary line when all
+    codes agree."""
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "纳斯达克100",
+        snapshot._TargetSpec(kind="us_symbols", symbols=tuple(f"SYM{i}" for i in range(10))),
+    )
+    monkeypatch.setattr(
+        snapshot, "fetch_us_filing_digest_diag",
+        lambda sym: (None, "missing_email"),
+    )
+    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    assert snap.lookthrough_target == "纳斯达克100"
+    assert snap.filings == ()
+    per_symbol = [r for r in snap.failure_reasons if r.startswith("missing filing digest:")]
+    assert len(per_symbol) == 10
+    assert all("(missing_email)" in r for r in per_symbol)
+    assert any(r == "all US fetches failed: missing_email" for r in snap.failure_reasons)
+
+
+def test_build_us_snapshot_mixed_failures_omit_summary(monkeypatch) -> None:
+    """Per-symbol tagging happens regardless, but the summary line only fires
+    when every symbol shares one cause."""
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "纳斯达克100",
+        snapshot._TargetSpec(kind="us_symbols", symbols=("AAPL", "MSFT")),
+    )
+    def fake_fetch(sym: str):
+        if sym == "AAPL":
+            return None, "http_4xx"
+        return None, "missing_email"
+    monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
+    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    assert any("(http_4xx)" in r for r in snap.failure_reasons)
+    assert any("(missing_email)" in r for r in snap.failure_reasons)
+    assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)
+
+
+def test_build_us_snapshot_partial_success(monkeypatch) -> None:
+    """Successful symbols populate filings; failed ones still record the cause."""
+    good = FilingDigest(
+        symbol="AAPL", fiscal_period="2026Q2", filed_at_iso="2026-05-02",
+        revenue_yoy=0.06, net_income_yoy=0.05, gross_margin=0.45,
+    )
+    monkeypatch.setitem(
+        snapshot._TARGET_REGISTRY,
+        "纳斯达克100",
+        snapshot._TargetSpec(kind="us_symbols", symbols=("AAPL", "MSFT")),
+    )
+    def fake_fetch(sym: str):
+        if sym == "AAPL":
+            return good, None
+        return None, "http_4xx"
+    monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
+    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    assert snap.filings == (good,)
+    assert any(r == "missing filing digest: MSFT (http_4xx)" for r in snap.failure_reasons)
+    assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)
