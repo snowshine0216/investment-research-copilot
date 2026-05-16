@@ -55,3 +55,27 @@ def test_build_discovery_rejections_hard_filter_rows() -> None:
         "role": "",
         "reasons": "inception 1.6y < 3.0y",
     } in records
+
+
+def test_build_discovery_rejections_quality_filter_rows() -> None:
+    universe = (_row("588000", "cn_etf", "broad", "科创50ETF华夏"),)
+    hard = HardFilterResult(passed=universe, rejected=())
+    quality = HardFilterResult(
+        passed=(),
+        rejected=(Rejection("588000", ("drawdown_3y 0.388 > 0.28",)),),
+    )
+    bucketed = RoleBucketResult(buckets={}, relaxed_roles=(), failed_roles=())
+
+    out = build_discovery_rejections(universe, hard, quality, bucketed)
+
+    records = out.to_dict("records")
+    assert {
+        "stage": "quality_filter",
+        "instrument_id": "588000",
+        "ticker": "588000",
+        "name_cn": "科创50ETF华夏",
+        "asset_class": "cn_etf",
+        "theme": "broad",
+        "role": "",
+        "reasons": "drawdown_3y 0.388 > 0.28",
+    } in records
