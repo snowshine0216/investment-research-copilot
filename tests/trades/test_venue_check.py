@@ -45,3 +45,84 @@ def test_no_proxy_available():
                       universe=universe)
     assert out.compatible is False
     assert out.proxy_id is None
+
+
+def test_cn_etf_proxied_by_cn_equity_fund_with_same_tracked_index():
+    """A-share index ETFs can be proxied via off-exchange index funds tracking
+    the same benchmark — this is the canonical CMB-bank-only setup."""
+    universe = _u([
+        {"instrument_id": "510300", "ticker": "510300", "market": "cn_on_exchange",
+         "name_cn": "华泰柏瑞沪深300ETF", "asset_class": "cn_etf", "currency": "cny",
+         "tracked_index": "沪深300", "venue_required": ["cn_brokerage"]},
+        {"instrument_id": "OFF300", "ticker": "OFF300", "market": "cn_off_exchange",
+         "name_cn": "嘉实沪深300指数研究增强A", "asset_class": "cn_equity_fund",
+         "currency": "cny", "tracked_index": "沪深300", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="510300",
+                      available_venues=["cmb_fund", "cmb_gold"], universe=universe)
+    assert out.compatible is False
+    assert out.proxy_id == "OFF300"
+
+
+def test_us_etf_proxied_by_cn_equity_fund_qdii_with_same_index():
+    universe = _u([
+        {"instrument_id": "VTI", "ticker": "VTI", "market": "us_on_exchange",
+         "name_cn": "VTI", "asset_class": "us_etf", "currency": "usd",
+         "tracked_index": "S&P 500", "venue_required": ["us_brokerage"]},
+        {"instrument_id": "QDII500", "ticker": "006075", "market": "cn_off_exchange",
+         "name_cn": "易方达标普500", "asset_class": "cn_equity_fund", "currency": "cny",
+         "tracked_index": "S&P 500", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="VTI",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id == "QDII500"
+
+
+def test_bond_fund_does_not_get_cross_class_proxy():
+    """Active bond funds are NOT substitutable across asset_classes —
+    the cross-class relaxation only applies to index-tracked equity ETFs."""
+    universe = _u([
+        {"instrument_id": "111111", "ticker": "111111", "market": "cn_off_exchange",
+         "name_cn": "纯债基金A", "asset_class": "cn_bond_fund", "currency": "cny",
+         "venue_required": ["cn_brokerage"]},
+        # A cn_equity_fund exists, but it's a different asset_class and has no
+        # matching tracked_index, so it must NOT be offered as a proxy.
+        {"instrument_id": "OTHEREQ", "ticker": "OTHEREQ", "market": "cn_off_exchange",
+         "name_cn": "其他基金", "asset_class": "cn_equity_fund", "currency": "cny",
+         "tracked_index": "沪深300", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="111111",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id is None
+
+
+def test_cross_class_proxy_requires_matching_tracked_index():
+    """Even within the allow-list, the tracked_index MUST match — we don't
+    silently substitute a CSI300 fund for an SSE50 ETF."""
+    universe = _u([
+        {"instrument_id": "510050", "ticker": "510050", "market": "cn_on_exchange",
+         "name_cn": "上证50ETF", "asset_class": "cn_etf", "currency": "cny",
+         "tracked_index": "上证50", "venue_required": ["cn_brokerage"]},
+        {"instrument_id": "OFF300", "ticker": "OFF300", "market": "cn_off_exchange",
+         "name_cn": "沪深300指数基金", "asset_class": "cn_equity_fund",
+         "currency": "cny", "tracked_index": "沪深300", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="510050",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id is None
+
+
+def test_cross_class_proxy_requires_target_to_be_index_tracked():
+    """An equity ETF with no tracked_index (rare, but possible) must NOT
+    silently substitute a tracked fund — same-class match still applies."""
+    universe = _u([
+        {"instrument_id": "WEIRD", "ticker": "WEIRD", "market": "cn_on_exchange",
+         "name_cn": "未定指数ETF", "asset_class": "cn_etf", "currency": "cny",
+         "tracked_index": "", "venue_required": ["cn_brokerage"]},
+        {"instrument_id": "OFF300", "ticker": "OFF300", "market": "cn_off_exchange",
+         "name_cn": "沪深300指数基金", "asset_class": "cn_equity_fund",
+         "currency": "cny", "tracked_index": "沪深300", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="WEIRD",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id is None
