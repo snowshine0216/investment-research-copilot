@@ -133,3 +133,21 @@ def test_slow_dca_routes_to_jianshu_bucket():
     assert "512760" in jianshu_section
     jinkeri_section = md.split("## 今日可定投")[1].split("##")[0]
     assert "512760" not in jinkeri_section
+
+
+from irc.opportunity.report import _row_to_dict
+
+
+def test_row_to_dict_includes_expected_omissions():
+    row = OpportunityRow(
+        instrument_id="518880", name_cn="黄金ETF", asset_class="gold", theme=None,
+        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        valuation_state="neutral", heat_state="neutral",
+        thesis_state="evidence_insufficient", product_quality_state="ok",
+        opportunity_state="small_watch", opportunity_reason="r",
+        evidence_gaps=("missing_recent_news",),
+        expected_omissions=("constituent_not_applicable",),
+    )
+    d = _row_to_dict(row)
+    assert d["expected_omissions"] == ["constituent_not_applicable"]
+    assert d["evidence_gaps"] == ["missing_recent_news"]
