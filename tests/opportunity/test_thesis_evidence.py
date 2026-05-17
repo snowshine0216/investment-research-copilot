@@ -8,9 +8,48 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
 )
-from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
+from irc.opportunity.thesis_evidence import _classify_theme_report, derive_thesis_from_evidence
 from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
+
+
+# ---------------------------------------------------------------------------
+# _classify_theme_report — unit tests (Task 1, Step 1.1)
+# ---------------------------------------------------------------------------
+
+def _r(failure_reason: str = "", report_md: str = "body") -> ThemeReport:
+    return ThemeReport(theme="t", query="q", locale="en",
+                       report_md=report_md, citations=[],
+                       failure_reason=failure_reason)
+
+
+def test_classify_usable_report():
+    assert _classify_theme_report(_r()) == "usable"
+
+
+def test_classify_search_empty():
+    assert _classify_theme_report(_r(failure_reason="no sources to synthesize from")) == "search_empty"
+
+
+def test_classify_search_empty_via_provider_no_results():
+    # bocha/tavily/brave emit "no results", dispatch may forward this verbatim
+    assert _classify_theme_report(_r(failure_reason="bocha: no results")) == "search_empty"
+
+
+def test_classify_llm_failed_on_arbitrary_exception_text():
+    assert _classify_theme_report(_r(failure_reason="ChatCompletionError: 429 rate limit")) == "llm_failed"
+
+
+def test_classify_llm_failed_on_unrecognized_failure():
+    # Any failure_reason that doesn't match the search-empty pattern is treated as LLM/synth-side
+    assert _classify_theme_report(_r(failure_reason="something else")) == "llm_failed"
+
+
+def test_classify_treats_empty_body_with_no_failure_as_search_empty():
+    # ThemeReport with empty report_md but no failure_reason — only happens when
+    # the synthesizer returned an empty string for an unknown reason; treat as
+    # search-empty (closer to user-actionable than llm_failed).
+    assert _classify_theme_report(_r(report_md="")) == "search_empty"
 
 
 def _filing(symbol: str, yoy: float | None, *, period: str = "Q1") -> FilingDigest:
@@ -74,7 +113,8 @@ def test_evidence_insufficient_when_snapshot_and_theme_report_both_none():
     assert state == "evidence_insufficient"
     assert evidence == ()
     assert "missing_constituent_snapshot" in gaps
-    assert "missing_recent_news" in gaps
+    assert "news_stage_skipped" in gaps
+    assert "missing_recent_news" not in gaps
 
 
 def test_evidence_insufficient_when_snapshot_has_no_filings():
@@ -97,7 +137,8 @@ def test_evidence_insufficient_when_theme_report_failed():
                      citations=[], failure_reason="all providers down")
     state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
     assert state == "evidence_insufficient"
-    assert "missing_recent_news" in gaps
+    assert "news_llm_failed" in gaps
+    assert "missing_recent_news" not in gaps
 
 
 # ---------------------------------------------------------------------------
@@ -261,13 +302,14 @@ def test_theme_report_with_zero_citations_insufficient():
     assert state == "evidence_insufficient"
 
 
-def test_empty_report_md_with_no_failure_reason_adds_missing_recent_news_gap():
+def test_empty_report_md_with_no_failure_reason_adds_news_search_empty_gap():
     """ThemeReport with empty body but no failure_reason should yield a gap, not be treated as failed."""
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
     snap = _snapshot(filings=filings)
     tr = _theme_report(report_md="")  # empty report, no failure_reason
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
-    assert "missing_recent_news" in gaps
+    assert "news_search_empty" in gaps
+    assert "missing_recent_news" not in gaps
 
 
 # ---------------------------------------------------------------------------
@@ -345,4 +387,30 @@ def test_no_refined_label_when_asset_class_omitted():
     assert "constituent_not_applicable" not in gaps
     assert "constituent_fetch_failed" not in gaps
     assert "constituent_missing" not in gaps
+
+
+# ---------------------------------------------------------------------------
+# Typed news-cause codes at emission sites (Task 2, Step 2.1)
+# ---------------------------------------------------------------------------
+
+def test_news_stage_skipped_when_theme_report_is_none():
+    _, _, _, gaps = derive_thesis_from_evidence(None, None, asset_class="cn_etf")
+    assert "news_stage_skipped" in gaps
+    assert "missing_recent_news" not in gaps
+
+
+def test_news_search_empty_when_no_sources():
+    r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
+                    failure_reason="no sources to synthesize from")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    assert "news_search_empty" in gaps
+    assert "missing_recent_news" not in gaps
+
+
+def test_news_llm_failed_on_synth_exception():
+    r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
+                    failure_reason="429 rate limit")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    assert "news_llm_failed" in gaps
+    assert "missing_recent_news" not in gaps
 

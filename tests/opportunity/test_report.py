@@ -145,9 +145,9 @@ def test_row_to_dict_includes_expected_omissions():
         valuation_state="neutral", heat_state="neutral",
         thesis_state="evidence_insufficient", product_quality_state="ok",
         opportunity_state="small_watch", opportunity_reason="r",
-        evidence_gaps=("missing_recent_news",),
+        evidence_gaps=("news_stage_skipped",),
         expected_omissions=("constituent_not_applicable",),
     )
     d = _row_to_dict(row)
     assert d["expected_omissions"] == ["constituent_not_applicable"]
-    assert d["evidence_gaps"] == ["missing_recent_news"]
+    assert d["evidence_gaps"] == ["news_stage_skipped"]
