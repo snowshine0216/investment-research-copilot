@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import os
 from typing import Callable
-from irc.commands.ingest_cmd import run_ingest
+from irc.commands.ingest_cmd import run_ingest, _china_today
 from irc.commands.discover_cmd import run_discover
 from irc.commands.score_cmd import run_score
 from irc.commands.gold_cmd import run_gold
@@ -71,7 +71,7 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted, write_halted_structured, HaltReason
-            today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+            today = _china_today()
             sidecar = Path(repo_root) / "outputs" / today / ".halt_reason.json"
             structured = HaltReason.read_sidecar(sidecar)
             if structured is not None:

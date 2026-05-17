@@ -56,6 +56,11 @@ def _now_iso() -> str:
     return datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
 
 
+def _china_today() -> str:
+    """Return today's date as ISO string in the China Standard Time (UTC+8) zone."""
+    return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+
+
 def _date_window() -> tuple[str, str]:
     today = datetime.now(timezone(timedelta(hours=8))).date()
     return (today - timedelta(days=_LOOK_BACK_DAYS)).isoformat(), today.isoformat()
@@ -409,7 +414,7 @@ def _ingest_preflight() -> HaltReason | None:
 def run_ingest(repo_root: str) -> int:
     root = Path(repo_root)
     # Stale-guard: remove any sidecar from a prior run for today.
-    today_iso = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    today_iso = _china_today()
     sidecar_path = root / "outputs" / today_iso / ".halt_reason.json"
     if sidecar_path.exists():
         sidecar_path.unlink()

@@ -110,12 +110,13 @@ def test_from_research_runs_research_when_explicit_even_if_research_disabled(mon
 
 from datetime import date as _date
 from irc.pipeline_halt import HaltReason
+from irc.commands.ingest_cmd import _china_today
 
 
 def test_run_pipeline_consumes_halt_reason_sidecar(tmp_path: Path):
     """When a stage fails and writes a sidecar, the halt markdown reflects
     the structured reason and the sidecar is deleted afterward."""
-    today = _date.today().isoformat()
+    today = _china_today()
     out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
     sidecar = out_dir / ".halt_reason.json"
@@ -155,7 +156,7 @@ def test_run_pipeline_falls_back_when_no_sidecar(tmp_path: Path):
         rc = run_pipeline(str(tmp_path), only_stage="score")
 
     assert rc == 7
-    today = _date.today().isoformat()
+    today = _china_today()
     halt_md = (tmp_path / "outputs" / today / "PIPELINE_HALTED.md").read_text(encoding="utf-8")
     assert "stage exit code 7" in halt_md
     assert "score" in halt_md

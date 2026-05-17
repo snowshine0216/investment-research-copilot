@@ -80,11 +80,6 @@ _REMEDIATION_BY_KIND: dict[str, str] = {
         "schema change or upstream API change). Re-run with `DEBUG=1 irc "
         "ingest --repo-root .` to capture the full traceback."
     ),
-    "preflight_unexpected": (
-        "The ingest preflight crashed with an unexpected exception type. "
-        "Re-run with `DEBUG=1 irc ingest --repo-root .` to capture the "
-        "traceback and report the failure mode."
-    ),
 }
 
 
@@ -107,7 +102,8 @@ def _render_diagnostics(reason: HaltReason) -> str:
     if stats_table:
         parts.append("\n" + stats_table)
     if reason.first_error:
-        parts.append("\n**First error:**\n\n```\n" + reason.first_error + "\n```")
+        safe_error = (reason.first_error or "").replace("```", "'''")
+        parts.append("\n**First error:**\n\n```\n" + safe_error + "\n```")
     return "\n".join(parts) + "\n"
 
 

@@ -9,13 +9,23 @@ import pandas as pd
 import pytest
 
 from irc.commands.init_cmd import run_init
-from irc.commands.ingest_cmd import _upsert_nav, run_ingest
+from irc.commands.ingest_cmd import _china_today, _upsert_nav, run_ingest
 
 
 @pytest.fixture
 def repo(tmp_path: Path) -> Path:
     run_init(str(tmp_path), force=False)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def _bypass_preflight(monkeypatch):
+    """Prevent the network preflight from running in unit tests.
+
+    Tests that specifically test preflight behaviour override _preflight_call
+    themselves — this fixture is a safety-net no-op for all others.
+    """
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", lambda: None)
 
 
 def _fake_fund_metadata(fund_code: str) -> dict[str, object]:
@@ -925,7 +935,7 @@ def test_run_ingest_preflight_failure_writes_sidecar(repo: Path, monkeypatch):
     rc = run_ingest(str(repo))
 
     assert rc == 1
-    sidecar = repo / "outputs" / date.today().isoformat() / ".halt_reason.json"
+    sidecar = repo / "outputs" / _china_today() / ".halt_reason.json"
     assert sidecar.exists()
     reason = HaltReason.read_sidecar(sidecar)
     assert reason is not None
@@ -934,7 +944,7 @@ def test_run_ingest_preflight_failure_writes_sidecar(repo: Path, monkeypatch):
 
 
 def test_run_ingest_preflight_clears_stale_sidecar(repo: Path, monkeypatch):
-    today = date.today().isoformat()
+    today = _china_today()
     out_dir = repo / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
     stale = out_dir / ".halt_reason.json"
@@ -943,7 +953,6 @@ def test_run_ingest_preflight_clears_stale_sidecar(repo: Path, monkeypatch):
 
     # Successful preflight, then short-circuit the rest by raising in a place
     # that returns rc=1 cleanly.
-    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", lambda: None)
     monkeypatch.setattr(
         "irc.commands.ingest_cmd.load_repo_configs",
         lambda root: (_ for _ in ()).throw(RuntimeError("stop early")),
@@ -960,8 +969,6 @@ def test_run_ingest_preflight_clears_stale_sidecar(repo: Path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
-    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", lambda: None)
-
     def fail_price(*_a, **_kw):
         raise ConnectionResetError("simulated outage (price)")
     def fail_nav(*_a, **_kw):
@@ -973,7 +980,7 @@ def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
     rc = run_ingest(str(repo))
 
     assert rc == 1
-    sidecar = repo / "outputs" / date.today().isoformat() / ".halt_reason.json"
+    sidecar = repo / "outputs" / _china_today() / ".halt_reason.json"
     assert sidecar.exists()
     reason = HaltReason.read_sidecar(sidecar)
     assert reason is not None

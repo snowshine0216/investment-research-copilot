@@ -88,3 +88,12 @@ def test_write_halted_structured_includes_remediation_for_known_kind(tmp_path: P
     body = (tmp_path / "outputs/2026-05-17/PIPELINE_HALTED.md").read_text(encoding="utf-8")
     assert "network" in body.lower() or "connectivity" in body.lower()
 
+
+def test_write_halted_structured_uses_fallback_remediation_for_unknown_kind(tmp_path: Path):
+    reason = HaltReason(kind="totally_unknown_kind", stage="ingest",
+                        detail="some unknown problem")
+    write_halted_structured(repo_root=tmp_path, date="2026-05-17", reason=reason)
+    body = (tmp_path / "outputs/2026-05-17/PIPELINE_HALTED.md").read_text(encoding="utf-8")
+    assert "totally_unknown_kind" in body
+    assert "Inspect the stage output" in body  # fallback text
+
