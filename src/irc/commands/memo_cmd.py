@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import yaml
 from irc.config_loader import load_repo_configs
+from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
 from irc.memo.evidence_pool import build_evidence_pool
@@ -80,6 +81,10 @@ def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> li
 
 def run_memo(repo_root: str) -> int:
     root = Path(repo_root)
+    if not require_fresh_ingest(root, stage="memo"):
+        print("ERROR: memo stage halted — ingest is stale. "
+              "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
+        return 1
     bundle = load_repo_configs(root)
     today = _today()
 

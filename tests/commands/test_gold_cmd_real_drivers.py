@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from irc.commands.init_cmd import run_init
 from irc.commands.gold_cmd import run_gold
@@ -9,6 +9,7 @@ def test_gold_cmd_reads_cb_and_etf_from_wgc_csv(tmp_path: Path):
     run_init(str(tmp_path), force=False)
     # Populate DuckDB with enough gold prices to satisfy run_gold
     from irc.data.duckdb_helper import connect, ensure_schema
+    from irc.data.manifest import ManifestEntry, write_manifest
     con = connect(tmp_path / "data" / "local.duckdb")
     ensure_schema(con)
     base = date(2026, 5, 7)
@@ -21,6 +22,11 @@ def test_gold_cmd_reads_cb_and_etf_from_wgc_csv(tmp_path: Path):
              f"openbb:prices:518880:{d.isoformat()}"],
         )
     con.close()
+    # Write a fresh manifest so the freshness gate passes.
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 180},
+    ))
     wgc = Path(tmp_path) / "data" / "wgc"
     wgc.mkdir(parents=True, exist_ok=True)
     (wgc / "cb_purchases.csv").write_text("year,tons\n2026,950\n", encoding="utf-8")

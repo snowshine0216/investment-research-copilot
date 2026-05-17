@@ -321,6 +321,13 @@ def test_e2e_irc_run_from_stage(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
+    # Write a fresh akshare manifest so the freshness gate in memo passes.
+    from irc.data.manifest import ManifestEntry, write_manifest
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 100},
+    ))
+
     patches = _all_patches()
     with patches[6], patches[7], patches[8]:  # memo synthesizer, auditor, ask
         r = runner.invoke(main, ["run", "--repo-root", str(tmp_path), "--from", "allocate"])
