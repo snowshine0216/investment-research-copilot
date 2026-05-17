@@ -52,3 +52,29 @@ def test_score_clipped_to_unit_interval():
 def test_neutral_report_returns_default():
     r = _report(report_md="Markets closed flat on quiet trading.")
     assert geopolitical_stress_from_theme_report(r) == GEOPOLITICAL_STRESS_DEFAULT
+
+
+def test_war_token_does_not_match_forward_warning_warrant():
+    """Regression: bare-substring matching on 'war' used to silently fire on
+    'forward', 'warning', 'warrant' — all common in gold/macro research text.
+    The word-boundary regex must reject these without producing a stress hit."""
+    r = _report(report_md=(
+        "Forward guidance from the Fed. Earnings warning from the issuer. "
+        "Warrant outstanding. Hardware shipments steady."
+    ))
+    assert geopolitical_stress_from_theme_report(r) == GEOPOLITICAL_STRESS_DEFAULT
+
+
+def test_war_token_matches_actual_war_word():
+    """The fix above must not regress the happy path — the literal word 'war'
+    (and 'wars'/'wartime'/'warring') still trigger stress."""
+    r = _report(report_md="The war continues into its third year.")
+    assert geopolitical_stress_from_theme_report(r) > GEOPOLITICAL_STRESS_DEFAULT
+
+
+def test_agreement_substring_in_disagreement_is_not_a_calm_hit():
+    """Regression: the English 'agreement' token was dropped because it
+    would silently fire on 'disagreement' (counter-signal). Calm should
+    not move when only 'disagreement' is present."""
+    r = _report(report_md="There is a disagreement between the parties.")
+    assert geopolitical_stress_from_theme_report(r) == GEOPOLITICAL_STRESS_DEFAULT
