@@ -5,8 +5,8 @@ Updated after every step. ⏳ pending · 🔄 in progress · ✅ done · ⚠️ 
 | # | Item | spec | plan | branch | impl | PR | QA | review | fix | merge |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 005 | evidence-gaps cleanup | ✅ | ✅ | ✅ | ✅ | ✅ (#18) | ✅ | ✅ | ✅ | ✅ (e2e8075) |
-| 007 | traceability honest counts | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 010 | geopolitical stress wired | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 007 | traceability honest counts | ✅ | ✅ | ✅ | ✅ | ✅ (#19) | ✅ | ✅ | — | ✅ |
+| 010 | geopolitical stress wired | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 006 | news cause codes | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 008 | venue registry backfill | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 009 | fundamentals backfill | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
