@@ -272,14 +272,13 @@ def test_build_opportunity_row_no_structural_gaps_when_metrics_present():
     assert structural.isdisjoint(set(row.evidence_gaps))
 
 
-def test_venue_incompatible_demotes_core_dca_to_small_watch():
-    """Issue 1 fix: venue_compatible=False must not produce core_dca."""
-    state, reason = compose_opportunity_state(
+def test_venue_incompatible_does_not_block_core_dca():
+    """venue_compatible=False no longer downgrades opportunity state; core_dca is still returned."""
+    state, _ = compose_opportunity_state(
         valuation="cheap", heat="cold", thesis="intact",
         product_quality="acceptable", venue_compatible=False,
     )
-    assert state == "small_watch"
-    assert "渠道" in reason or "观察" in reason
+    assert state == "core_dca"
 
 
 def test_venue_incompatible_does_not_affect_exclude():

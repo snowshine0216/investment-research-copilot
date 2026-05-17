@@ -240,14 +240,11 @@ def compose_opportunity_state(
 ) -> tuple[OpportunityState, str]:
     """Compose final opportunity state from four sub-states."""
     # Priority order: thesis/quality failures → exclude (hardest gate);
-    # then venue incompatibility → small_watch (observe but don't buy);
     # then valuation/heat signals → pause_wait or core_dca.
-    # A venue-incompatible instrument can never reach pause_wait or core_dca.
+    # venue_compatible is tracked separately for execution notes but does NOT
+    # downgrade the opportunity state.
     if thesis == "falsified" or product_quality == "poor":
         return "exclude", "长期逻辑被证伪或产品质量过差，禁止建仓。"
-
-    if not venue_compatible:
-        return "small_watch", "标的无法在当前账户渠道购买，仅供观察。"
 
     cheap_or_low = valuation in ("cheap", "reasonable_low")
     expensive = valuation in ("expensive", "very_expensive")

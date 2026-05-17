@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   [0, 1]. Degrades gracefully to 0.4 when the report is absent or failed, so
   existing behavior is preserved in unconfigured environments.
 
+### Changed
+- **Remove venue_compatible downgrade gate:** `compose_opportunity_state` no longer
+  demotes instruments to `small_watch` when `venue_compatible=False`. Opportunity
+  state is now determined purely by valuation, heat, thesis, and product quality.
+  Venue information is still tracked in `gates.py` (`venue_status` field) for
+  reference but does not affect scoring. Updated test to reflect new behavior.
+
 ### Fixed
 - **Decision gate: legacy file and empty-pool correctness.**
   `compose_decision_report` now handles two edge cases in the traceability
