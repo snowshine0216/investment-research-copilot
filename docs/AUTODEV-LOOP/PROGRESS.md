@@ -6,8 +6,8 @@ Updated after every step. ⏳ pending · 🔄 in progress · ✅ done · ⚠️ 
 |---|---|---|---|---|---|---|---|---|---|---|
 | 005 | evidence-gaps cleanup | ✅ | ✅ | ✅ | ✅ | ✅ (#18) | ✅ | ✅ | ✅ | ✅ (e2e8075) |
 | 007 | traceability honest counts | ✅ | ✅ | ✅ | ✅ | ✅ (#19) | ✅ | ✅ | — | ✅ |
-| 010 | geopolitical stress wired | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 006 | news cause codes | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 010 | geopolitical stress wired | ✅ | ✅ | ✅ | ✅ | ✅ (#20) | ✅ | ✅ | ✅ | ✅ |
+| 006 | news cause codes | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 008 | venue registry backfill | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 009 | fundamentals backfill | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | freshness gate | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
