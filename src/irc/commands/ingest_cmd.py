@@ -456,6 +456,7 @@ def run_ingest(repo_root: str) -> int:
         ob_counts["instruments"] = _upsert_instruments(con, all_instruments, metadata_by_id)
 
         price_failures: list[str] = []
+        price_first_exc: str | None = None
         price_attempts = 0
         price_successes = 0
         eastmoney_unavailable = False
@@ -481,6 +482,8 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_price_history(df)
             except Exception as exc:
                 price_failures.append(instr.instrument_id)
+                if price_first_exc is None:
+                    price_first_exc = f"{type(exc).__name__}: {exc}"
                 prices_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping price ingest for %s (ticker=%s): %s. "
@@ -541,6 +544,7 @@ def run_ingest(repo_root: str) -> int:
             nav_instruments.append(instr)
         nav_tally = ErrorTally("nav")
         nav_failures: list[str] = []
+        nav_first_exc: str | None = None
         nav_attempts = 0
         nav_successes = 0
         for instr in progress_iter(nav_instruments, "nav", total=len(nav_instruments)):
@@ -552,6 +556,8 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_nav_history(df)
             except Exception as exc:
                 nav_failures.append(instr.instrument_id)
+                if nav_first_exc is None:
+                    nav_first_exc = f"{type(exc).__name__}: {exc}"
                 nav_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping NAV ingest for %s (ticker=%s): %s. "
@@ -578,11 +584,7 @@ def run_ingest(repo_root: str) -> int:
     if nav_attempts and nav_successes == 0:
         fatal_failures.append("nav")
     if fatal_failures:
-        first_error = ""
-        if price_failures:
-            first_error = str(price_failures[0])
-        elif nav_failures:
-            first_error = str(nav_failures[0])
+        first_error = price_first_exc or nav_first_exc or ""
         halt = HaltReason(
             kind="akshare_empty",
             stage="ingest",

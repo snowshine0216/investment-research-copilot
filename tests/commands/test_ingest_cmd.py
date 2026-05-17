@@ -981,3 +981,4 @@ def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
     assert reason.stats.get("price_attempts", 0) > 0
     assert reason.stats.get("price_successes", -1) == 0
     assert reason.first_error  # non-empty
+    assert "ConnectionResetError" in (reason.first_error or ""), "first_error must be exception text, not instrument ID"
