@@ -71,18 +71,51 @@ def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
     )
     score = out["scores"][0]
     assert score["data_completeness"] == 0.0
+    # us_etf drops aum_stability_pct (universal) and holdings_concentration_top10 (index ETF)
     assert score["missing_data"] == [
         "expense_ratio",
         "drawdown_3y",
         "vol_1y",
         "downside_capture",
-        "aum_stability_pct",
         "manager_tenure_years",
-        "holdings_concentration_top10",
     ]
     assert not math.isnan(score["factor_breakdown"]["valuation_cost"]["score"])
     assert not math.isnan(score["factor_breakdown"]["risk"]["score"])
     assert not math.isnan(score["factor_breakdown"]["quality"]["score"])
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_pipeline_gold_instrument_completeness_excludes_inapplicable_metrics(mock_macro) -> None:
+    """A gold instrument with only the 4 core metrics present should score 1.0 completeness,
+    because aum_stability_pct, holdings_concentration_top10, and downside_capture are
+    not required for gold."""
+    mock_macro.return_value = MagicMock(score=60, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([{
+        "instrument_id": "518880", "name_cn": "黄金ETF", "asset_class": "gold",
+        "role": "hedge", "cited_refs": "r1", "tracked_index": "gold_spot",
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "518880",
+        "expense_ratio": 0.005,
+        "premium_discount_pct": 0.0,
+        "drawdown_3y": 0.18,
+        "vol_1y": 0.25,
+        "manager_tenure_years": 7.0,
+        # aum_stability_pct, holdings_concentration_top10, downside_capture all absent (NaN)
+        "aum_stability_pct": float("nan"),
+        "holdings_concentration_top10": float("nan"),
+        "downside_capture": float("nan"),
+    }])
+    out = run_scoring(
+        watchlist=watchlist, metrics=metrics, news_summaries={},
+        regime_summary="x", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+    )
+    score = out["scores"][0]
+    assert score["data_completeness"] == 1.0, (
+        f"Expected 1.0 for gold (only core metrics required), got {score['data_completeness']}"
+    )
+    assert score["missing_data"] == []
 
 
 @patch("irc.scoring.pipeline.score_macro_fit")
@@ -113,12 +146,11 @@ def test_pipeline_instrument_missing_from_metrics_uses_defaults(mock_macro) -> N
     )
     assert len(out["scores"]) == 1
     assert out["scores"][0]["data_completeness"] == 0.0
+    # us_etf drops aum_stability_pct (universal) and holdings_concentration_top10 (index ETF)
     assert out["scores"][0]["missing_data"] == [
         "expense_ratio",
         "drawdown_3y",
         "vol_1y",
         "downside_capture",
-        "aum_stability_pct",
         "manager_tenure_years",
-        "holdings_concentration_top10",
     ]
