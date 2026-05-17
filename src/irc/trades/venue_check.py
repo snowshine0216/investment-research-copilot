@@ -74,7 +74,10 @@ def check_venue(
     if proxy is not None:
         return VenueCheckResult(
             compatible=False, proxy_id=proxy.instrument_id,
-            note=f"venue mismatch; proxy via {proxy.instrument_id} ({proxy.name_cn})",
+            note=(
+                f"venue mismatch; proxy via {proxy.instrument_id} "
+                f"({proxy.name_cn}) [{proxy.asset_class}]"
+            ),
         )
     return VenueCheckResult(compatible=False, proxy_id=None,
                             note="venue mismatch and no proxy available; consider opening new account")

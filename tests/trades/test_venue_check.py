@@ -126,3 +126,35 @@ def test_cross_class_proxy_requires_target_to_be_index_tracked():
     out = check_venue(instrument_id="WEIRD",
                       available_venues=["cmb_fund"], universe=universe)
     assert out.proxy_id is None
+
+
+def test_hk_etf_proxied_by_cn_equity_fund_qdii_with_same_index():
+    """hk_etf is the third asset_class in the substitution dict — pin it."""
+    universe = _u([
+        {"instrument_id": "2800", "ticker": "2800", "market": "hk_on_exchange",
+         "name_cn": "盈富基金", "asset_class": "hk_etf", "currency": "hkd",
+         "tracked_index": "Hang Seng", "venue_required": ["hk_brokerage"]},
+        {"instrument_id": "QDIIHK", "ticker": "QDIIHK", "market": "cn_off_exchange",
+         "name_cn": "恒生指数QDII", "asset_class": "cn_equity_fund", "currency": "cny",
+         "tracked_index": "Hang Seng", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="2800",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id == "QDIIHK"
+
+
+def test_proxy_note_includes_asset_class_when_cross_class():
+    """The VenueCheckResult.note should expose the proxy's asset_class so a
+    human reading decision_report.md can tell same-class from cross-class."""
+    universe = _u([
+        {"instrument_id": "510300", "ticker": "510300", "market": "cn_on_exchange",
+         "name_cn": "华泰柏瑞沪深300ETF", "asset_class": "cn_etf", "currency": "cny",
+         "tracked_index": "沪深300", "venue_required": ["cn_brokerage"]},
+        {"instrument_id": "OFF300", "ticker": "OFF300", "market": "cn_off_exchange",
+         "name_cn": "嘉实沪深300指数研究增强A", "asset_class": "cn_equity_fund",
+         "currency": "cny", "tracked_index": "沪深300", "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="510300",
+                      available_venues=["cmb_fund", "cmb_gold"], universe=universe)
+    assert out.proxy_id == "OFF300"
+    assert "cn_equity_fund" in out.note
