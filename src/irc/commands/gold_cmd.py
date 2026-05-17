@@ -9,6 +9,8 @@ from irc.config_loader import load_repo_configs
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.wgc_ingest import cb_purchases_yearly_tons, etf_holdings_30d_change_tons
 from irc.io_utils import atomic_write_text
+from irc.research.persistence import load_theme_reports
+from irc.research.geopolitical_stress import geopolitical_stress_from_theme_report
 from irc.scoring.regime_detect import classify_regime
 from irc.scoring.gold_band import compute_band, classify_zone
 from irc.scoring.gold_scenarios import classify_scenario
@@ -65,16 +67,20 @@ def run_gold(repo_root: str) -> int:
         wgc = root / "data" / "wgc"
         cb_tons = cb_purchases_yearly_tons(wgc / "cb_purchases.csv", as_of_year=int(today[:4]))
         etf_change = etf_holdings_30d_change_tons(wgc / "etf_holdings.csv", as_of=today)
+        reports = load_theme_reports(root)
+        geo_stress = geopolitical_stress_from_theme_report(
+            reports.get("geopolitics"),
+        )
         inputs = GoldDriverInputs(
             real_yield_10y_tips=_macro_value(con, "DGS10", 1.65) - 2.30,  # rough TIPS proxy
             dxy=_macro_value(con, "DXY", 104.0),
             inflation_5y5y=_macro_value(con, "T5YIFR", 2.30),
             cb_purchases_yearly_tons=cb_tons,
             etf_holdings_30d_change_tons=etf_change,
-            geopolitical_stress_0to1=0.4,  # TODO(plan-4): wire from news sentiment pipeline
+            geopolitical_stress_0to1=geo_stress,
         )
         if cb_tons == 0.0 or etf_change == 0.0:
-            print("WARN: 1 gold driver using stub value (geo_stress); "
+            print("WARN: gold driver(s) using stub value; "
                   "WGC CSV absent for cb_purchases/etf_holdings → 0.0 fallback")
         score = compute_gold_score(inputs, cfg)
         tilt = gold_tilt_from_score(score)
