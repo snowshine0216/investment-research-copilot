@@ -146,9 +146,13 @@ def run_memo(repo_root: str) -> int:
     atomic_write_text(out_dir / "memo.md", output.draft)
     atomic_write_text(out_dir / "memo_audit.txt", output.audit_notes)
     atomic_write_text(out_dir / "memo_traceability.json", json.dumps({
-        "coverage_ratio": output.traceability["coverage_ratio"],
+        "n_refs_provided": output.traceability["n_refs_provided"],
+        "n_refs_quoted_verbatim": output.traceability["n_refs_quoted_verbatim"],
         "n_refs": output.traceability["n_refs"],
-        "n_covered": output.traceability["n_covered"],
     }, indent=2))
-    print(f"memo OK: coverage={output.traceability['coverage_ratio']:.0%} → {out_dir/'memo.md'}")
+    print(
+        f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"
+        f"{output.traceability['n_refs_provided']} refs quoted verbatim "
+        f"→ {out_dir/'memo.md'}"
+    )
     return 0

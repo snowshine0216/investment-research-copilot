@@ -42,7 +42,7 @@ def test_decision_writes_json_and_markdown(tmp_path: Path) -> None:
         "mode": "build",
         "trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}],
     }), encoding="utf-8")
-    (out_dir / "memo_traceability.json").write_text(json.dumps({"coverage_ratio": 1.0}), encoding="utf-8")
+    (out_dir / "memo_traceability.json").write_text(json.dumps({"n_refs_quoted_verbatim": 1, "n_refs_provided": 1, "n_refs": 1}), encoding="utf-8")
 
     assert run_decision(repo_root=str(tmp_path)) == 0
 
@@ -62,7 +62,7 @@ def test_decision_sets_pipeline_halted_when_marker_file_present(tmp_path: Path) 
     (out_dir / "scoring.json").write_text(json.dumps({"scores": []}), encoding="utf-8")
     (out_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({"selected_instruments": [], "diagnostics": {"total_weight": 1.0}}), encoding="utf-8")
     (out_dir / "trade_plan.yaml").write_text(yaml.safe_dump({"trades": []}), encoding="utf-8")
-    (out_dir / "memo_traceability.json").write_text(json.dumps({"coverage_ratio": 1.0}), encoding="utf-8")
+    (out_dir / "memo_traceability.json").write_text(json.dumps({"n_refs_quoted_verbatim": 1, "n_refs_provided": 1, "n_refs": 1}), encoding="utf-8")
     (out_dir / "PIPELINE_HALTED.md").write_text("halted", encoding="utf-8")
 
     assert run_decision(repo_root=str(tmp_path)) == 0
@@ -78,7 +78,7 @@ def test_decision_resolves_output_dir_to_latest_when_today_absent(tmp_path: Path
     (past_dir / "scoring.json").write_text(json.dumps({"scores": []}), encoding="utf-8")
     (past_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({"selected_instruments": [], "diagnostics": {"total_weight": 1.0}}), encoding="utf-8")
     (past_dir / "trade_plan.yaml").write_text(yaml.safe_dump({"trades": []}), encoding="utf-8")
-    (past_dir / "memo_traceability.json").write_text(json.dumps({"coverage_ratio": 1.0}), encoding="utf-8")
+    (past_dir / "memo_traceability.json").write_text(json.dumps({"n_refs_quoted_verbatim": 1, "n_refs_provided": 1, "n_refs": 1}), encoding="utf-8")
 
     result = run_decision(repo_root=str(tmp_path))
 

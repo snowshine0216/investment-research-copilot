@@ -18,8 +18,10 @@ def compose_decision_report(
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
     trades_by_target = {str(row.get("target")): row for row in trade_plan.get("trades", [])}
-    _raw_cov = memo_traceability.get("coverage_ratio", 0.0)
-    coverage = float(_raw_cov) if _raw_cov is not None else 0.0
+    # n_refs_quoted_verbatim > 0 means at least one ref appears verbatim in the memo.
+    # Fall back to 0 when key is absent (e.g. legacy files without the new schema).
+    _n_quoted = memo_traceability.get("n_refs_quoted_verbatim", 0)
+    coverage = 1.0 if (_n_quoted or 0) > 0 else 0.0
     scores = scoring.get("scores", [])
     pipeline_incomplete = _scores_missing_action(scores)
     if pipeline_incomplete:
