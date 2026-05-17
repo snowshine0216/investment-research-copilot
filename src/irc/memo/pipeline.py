@@ -53,7 +53,7 @@ class MemoOutput:
     skeleton: str
     draft: str
     audit_notes: str
-    traceability: dict[str, float]
+    traceability: dict[str, int]
     prompt_tokens_total: int
     completion_tokens_total: int
 

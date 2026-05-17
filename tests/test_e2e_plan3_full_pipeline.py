@@ -224,7 +224,8 @@ def test_e2e_plan3_all_stages(tmp_path: Path) -> None:
         memo_text = memo_files[0].read_text()
         assert len(memo_text) > 10, "memo.md is empty"
         trace = json.loads(trace_files[0].read_text())
-        assert "coverage_ratio" in trace
+        assert "n_refs_provided" in trace
+        assert "n_refs_quoted_verbatim" in trace
         assert "n_refs" in trace
 
         # ── ask ───────────────────────────────────────────────────────────────

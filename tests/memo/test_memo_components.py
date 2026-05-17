@@ -31,9 +31,11 @@ def test_audit_calls_llm():
 
 def test_traceability_full_coverage():
     result = check_traceability(memo_text="ref1 ref2", raw_refs=["ref1", "ref2"])
-    assert result["coverage_ratio"] == 1.0
+    assert result["n_refs_quoted_verbatim"] == 2
+    assert result["n_refs_provided"] == 2
 
 
 def test_traceability_partial_missing():
     result = check_traceability(memo_text="ref1", raw_refs=["ref1", "ref2"])
-    assert result["coverage_ratio"] == 0.5
+    assert result["n_refs_quoted_verbatim"] == 1
+    assert result["n_refs_provided"] == 2
