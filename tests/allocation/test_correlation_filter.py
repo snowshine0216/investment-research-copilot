@@ -38,7 +38,12 @@ def test_drop_low_corr_keeps_all():
 from irc.allocation.correlation_filter import drop_correlated_and_renormalize
 
 
-def test_renormalize_after_drop_keeps_class_weight_one():
+def test_renormalize_after_drop_preserves_pre_drop_class_total():
+    """Renormalization must preserve the within-class sum that was there
+    before correlation drops. Rescaling to 1.0 would silently turn
+    target_weight back into an intra-class share, breaking the portfolio
+    total downstream (diagnostics.total_weight would equal the number of
+    represented classes instead of 1.0)."""
     selected = [
         {"instrument_id": "A", "asset_class": "equity", "target_weight": 0.40},
         {"instrument_id": "B", "asset_class": "equity", "target_weight": 0.40},
@@ -48,4 +53,22 @@ def test_renormalize_after_drop_keeps_class_weight_one():
     out = drop_correlated_and_renormalize(selected, corr_matrix=corr, threshold=0.85)
     assert len(out) == 2  # one of A/B dropped
     eq_total = sum(r["target_weight"] for r in out)
-    assert abs(eq_total - 1.0) < 1e-9  # class total preserved at 1.0
+    pre_drop_total = 0.40 + 0.40 + 0.20
+    assert abs(eq_total - pre_drop_total) < 1e-9  # pre-drop class total preserved
+
+
+def test_renormalize_no_drop_preserves_weights_exactly():
+    """When no drops happen, weights must pass through unchanged. This is the
+    common case (sparse correlation matrix) and a regression test for the bug
+    where weights were always rescaled to sum to 1.0 within class."""
+    selected = [
+        {"instrument_id": "A", "asset_class": "gold", "target_weight": 0.10},
+        {"instrument_id": "B", "asset_class": "gold", "target_weight": 0.10},
+        {"instrument_id": "C", "asset_class": "bond", "target_weight": 0.15},
+        {"instrument_id": "D", "asset_class": "bond", "target_weight": 0.05},
+    ]
+    out = drop_correlated_and_renormalize(selected, corr_matrix={}, threshold=0.85)
+    assert len(out) == 4
+    assert abs(sum(r["target_weight"] for r in out) - 0.40) < 1e-9
+    by_id = {r["instrument_id"]: r["target_weight"] for r in out}
+    assert by_id == {"A": 0.10, "B": 0.10, "C": 0.15, "D": 0.05}

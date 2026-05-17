@@ -49,7 +49,15 @@ REQUIRED_METRICS_BY_ASSET_CLASS: Mapping[str, tuple[str, ...]] = {
     ),
     "gold": tuple(
         f for f in _FULL_MINUS_AUM_STABILITY
-        if f not in ("holdings_concentration_top10", "downside_capture")
+        if f not in (
+            "holdings_concentration_top10",
+            "downside_capture",
+            # Gold ETFs are physically/passively backed — manager tenure is not
+            # a meaningful concept and the metric is never ingested. Keeping it
+            # required forced every gold row to data_completeness=0.75 and
+            # tripped the system-wide data_incomplete blocking gate.
+            "manager_tenure_years",
+        )
     ),
 }
 

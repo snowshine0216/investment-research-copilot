@@ -20,6 +20,21 @@ def test_target_weights_are_valid_requires_total_near_one() -> None:
     assert not target_weights_are_valid({"diagnostics": {"total_weight": 3.0}})
 
 
+def test_target_weights_are_valid_accepts_cash_residual() -> None:
+    """When classes lack a scored candidate (e.g., cash, hk_etf), the
+    unallocated portion is reported as cash_residual_weight; invested + cash
+    must cover the portfolio."""
+    assert target_weights_are_valid(
+        {"diagnostics": {"total_weight": 0.85, "cash_residual_weight": 0.15}}
+    )
+    assert target_weights_are_valid(
+        {"diagnostics": {"total_weight": 0.0, "cash_residual_weight": 1.0}}
+    )
+    assert not target_weights_are_valid(
+        {"diagnostics": {"total_weight": 0.85, "cash_residual_weight": 0.05}}
+    )
+
+
 def test_pipeline_halt_blocks_everything() -> None:
     decision = decide_row(
         score=_score(),

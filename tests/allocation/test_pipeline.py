@@ -38,6 +38,20 @@ def test_pipeline_produces_per_class_top_k():
     # us_etf top-2 = VTI + VOO; cn_bond_fund top-1 = SPDR
     assert "VTI" in selected_ids and "VOO" in selected_ids
     assert "SPDR" in selected_ids
+    # Diagnostics' total_weight must equal the sum of represented per-class
+    # weights (not the count of classes). Regression for the bug where
+    # correlation_filter's renormalize-to-1.0 silently inflated total_weight
+    # to N_classes, tripping the decision gate's target_weights_invalid.
+    represented = {row["asset_class"] for row in out.selected_instruments}
+    expected_total = sum(
+        out.target_weights_per_class[cls] for cls in represented
+    )
+    assert abs(out.diagnostics["total_weight"] - expected_total) < 1e-6
+    # Unallocated classes (cash, hk_etf etc.) must surface as cash_residual so
+    # invested + residual cover the full portfolio. Without this the decision
+    # gate's target_weights_invalid would fire even on a correct allocation.
+    cash_residual = out.diagnostics["cash_residual_weight"]
+    assert abs(out.diagnostics["total_weight"] + cash_residual - 1.0) < 1e-6
 
 
 def test_pipeline_role_aware_picks_one_per_role_within_class_first():

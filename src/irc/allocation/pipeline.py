@@ -110,10 +110,17 @@ def run_allocation(
     # Renormalize intra-class weights after any drops, using empty corr dict (no further drops)
     selected = drop_correlated_and_renormalize(selected, corr_matrix={}, threshold=0.85)
     eff_n = _effective_n([s["target_weight"] for s in selected])
+    invested = sum(s["target_weight"] for s in selected)
+    # Honest accounting of the unallocated portion. Classes that lack a scored
+    # instrument (e.g., `cash` always, `hk_etf` when discovery returns nothing)
+    # leave a hole — surface it as cash_residual so total + cash ≈ 1.0 instead
+    # of pretending the allocation covers the whole portfolio.
+    cash_residual = max(0.0, 1.0 - invested)
     return AllocationOutput(
         target_weights_per_class=class_weights,
         selected_instruments=selected,
         dropped_due_to_correlation=dropped,
         diagnostics={"effective_n": eff_n,
-                     "total_weight": sum(s["target_weight"] for s in selected)},
+                     "total_weight": invested,
+                     "cash_residual_weight": cash_residual},
     )

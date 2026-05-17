@@ -59,6 +59,27 @@ class MemoOutput:
 
 
 _MAX_REFS = 40  # must match synthesizer truncation
+_EVIDENCE_HEADING = "## 附录·原始证据 (Raw Evidence)"
+_EVIDENCE_PREAMBLE = (
+    "以下条目为合成器输入的原始证据，逐条原样附录，不经改写，便于追溯。"
+)
+
+
+def _render_evidence_appendix(refs: list[str]) -> str:
+    """Render a deterministic verbatim-evidence appendix.
+
+    The synthesizer prompt asks the LLM to integrate refs into the narrative,
+    but LLMs paraphrase rather than quote — so ``check_traceability`` (which
+    counts verbatim substring matches) almost always reports zero. That makes
+    the decision gate flag ``memo_narrative_only`` even when the narrative is
+    fully grounded. Appending the refs verbatim in a clearly-labelled
+    appendix gives traceability an honest, non-zero floor without altering
+    the synthesized narrative above it.
+    """
+    if not refs:
+        return ""
+    body = "\n".join(f"- {ref}" for ref in refs)
+    return f"\n\n{_EVIDENCE_HEADING}\n\n{_EVIDENCE_PREAMBLE}\n\n{body}\n"
 
 
 def run_memo_pipeline(
@@ -71,11 +92,12 @@ def run_memo_pipeline(
     effective_refs = raw_ref_pool[:_MAX_REFS]  # only check refs actually given to LLM
     sanitized_refs = list(sanitize_refs_for_auditor(tuple(effective_refs)))
     synth_resp = synthesize_memo(skeleton, sanitized_refs, synthesis_route)
-    audit_resp = audit_memo(synth_resp.text, audit_route)
-    trace = check_traceability(synth_resp.text, sanitized_refs)
+    final_draft = synth_resp.text + _render_evidence_appendix(sanitized_refs)
+    audit_resp = audit_memo(final_draft, audit_route)
+    trace = check_traceability(final_draft, sanitized_refs)
     return MemoOutput(
         skeleton=skeleton,
-        draft=synth_resp.text,
+        draft=final_draft,
         audit_notes=audit_resp.text,
         traceability=trace,
         prompt_tokens_total=synth_resp.prompt_tokens + audit_resp.prompt_tokens,

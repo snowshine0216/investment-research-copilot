@@ -145,10 +145,12 @@ def test_completeness_ratio_falls_back_to_full_required_when_no_asset_class() ->
 def test_missing_required_fields_uses_asset_class_when_provided() -> None:
     row = {"expense_ratio": 0.005}
     missing = missing_required_fields(row, asset_class="gold")
-    # Gold requires expense_ratio, drawdown_3y, vol_1y, manager_tenure_years
+    # Gold requires expense_ratio, drawdown_3y, vol_1y. Manager tenure, holdings
+    # concentration, downside capture, and AUM stability are not meaningful for
+    # passively/physically backed gold ETFs and are intentionally not required.
     assert "drawdown_3y" in missing
     assert "vol_1y" in missing
-    assert "manager_tenure_years" in missing
-    assert "holdings_concentration_top10" not in missing  # not required for gold
+    assert "manager_tenure_years" not in missing
+    assert "holdings_concentration_top10" not in missing
     assert "downside_capture" not in missing
     assert "aum_stability_pct" not in missing

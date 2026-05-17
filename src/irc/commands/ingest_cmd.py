@@ -623,6 +623,12 @@ def run_ingest(repo_root: str) -> int:
     metadata_tally.render(ok_count=len(metadata_by_id), verbose=_verbose)
     prices_tally.render(ok_count=price_successes, verbose=_verbose)
     nav_tally.render(ok_count=nav_successes, verbose=_verbose)
+    # A successful ingest invalidates any prior PIPELINE_HALTED.md sentinel for
+    # today. Without this, a stale halt from an earlier failed run would keep
+    # poisoning the decision stage's pipeline_halted gate forever — even after
+    # the underlying network/data issue has cleared.
+    halted_path = root / "outputs" / today_iso / "PIPELINE_HALTED.md"
+    halted_path.unlink(missing_ok=True)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
     if price_failures or nav_failures:
         print(
