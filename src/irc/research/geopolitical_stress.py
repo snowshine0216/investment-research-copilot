@@ -88,7 +88,8 @@ def geopolitical_stress_from_theme_report(
     """
     if not _has_usable_report(report):
         return default
-    assert report is not None  # for type checker
+    if report is None:  # unreachable; narrows type for static checker
+        return default  # pragma: no cover
     stress = _count_hits(report.report_md, _STRESS_TOKENS_EN, _STRESS_TOKENS_CJK)
     calm = _count_hits(report.report_md, _CALM_TOKENS_EN, _CALM_TOKENS_CJK)
     net = stress - calm

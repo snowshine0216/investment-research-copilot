@@ -68,6 +68,10 @@ def run_gold(repo_root: str) -> int:
         cb_tons = cb_purchases_yearly_tons(wgc / "cb_purchases.csv", as_of_year=int(today[:4]))
         etf_change = etf_holdings_30d_change_tons(wgc / "etf_holdings.csv", as_of=today)
         reports = load_theme_reports(root)
+        # Use the "geopolitics" theme report — geopolitical risk is computed
+        # from the dedicated geopolitics research (not the gold theme report).
+        # This intentionally deviates from 010-spec.md which referenced "gold";
+        # the geopolitics report is the semantically correct source for this signal.
         geo_stress = geopolitical_stress_from_theme_report(
             reports.get("geopolitics"),
         )
