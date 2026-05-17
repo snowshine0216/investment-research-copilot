@@ -90,8 +90,9 @@ def _write_stale_marker(
         f"**Observed age:** {_format_age(freshness.observed_age)}\n\n"
         f"**Remediation:**\n"
         f"Re-run `irc ingest --repo-root .` to refresh prices/NAV. To proceed "
-        f"with stale data (artifacts will still be tagged), set "
-        f"`IRC_ALLOW_STALE=1` and re-run the stage.\n\n"
+        f"with the existing stale data, set `IRC_ALLOW_STALE=1` and re-run the "
+        f"stage — this file remains in the outputs dir as the stale-data audit "
+        f"trail (individual artifacts like memo.md are NOT in-body tagged).\n\n"
         f"**Generated at:** "
         f"{datetime.now(timezone(timedelta(hours=8))).isoformat()}\n"
     )
