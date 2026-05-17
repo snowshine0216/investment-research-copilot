@@ -751,6 +751,7 @@ def test_ingest_routes_off_exchange_funds_to_nav_not_yfinance(repo: Path) -> Non
         "date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34],
     })
     with (
+        patch("irc.commands.ingest_cmd._preflight_call"),
         patch(
             "irc.commands.ingest_cmd.fetch_etf_price_history",
             return_value=fake_prices,
@@ -910,3 +911,73 @@ def test_preflight_returns_unexpected_on_baseexception(monkeypatch):
     import pytest
     with pytest.raises(KeyboardInterrupt):
         _ingest_preflight()
+
+
+# ---------------------------------------------------------------------------
+# run_ingest preflight wiring + stale-guard tests
+# ---------------------------------------------------------------------------
+
+def test_run_ingest_preflight_failure_writes_sidecar(repo: Path, monkeypatch):
+    def boom() -> None:
+        raise ConnectionResetError("[Errno 54] Connection reset by peer")
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", boom)
+
+    rc = run_ingest(str(repo))
+
+    assert rc == 1
+    sidecar = repo / "outputs" / date.today().isoformat() / ".halt_reason.json"
+    assert sidecar.exists()
+    reason = HaltReason.read_sidecar(sidecar)
+    assert reason is not None
+    assert reason.kind == "akshare_unreachable"
+    assert reason.stage == "ingest"
+
+
+def test_run_ingest_preflight_clears_stale_sidecar(repo: Path, monkeypatch):
+    today = date.today().isoformat()
+    out_dir = repo / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stale = out_dir / ".halt_reason.json"
+    stale.write_text('{"kind":"old","stage":"ingest","detail":"old run"}',
+                     encoding="utf-8")
+
+    # Successful preflight, then short-circuit the rest by raising in a place
+    # that returns rc=1 cleanly.
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", lambda: None)
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd.load_repo_configs",
+        lambda root: (_ for _ in ()).throw(RuntimeError("stop early")),
+    )
+    import pytest
+    with pytest.raises(RuntimeError):
+        run_ingest(str(repo))
+
+    assert not stale.exists(), "stale sidecar must be deleted on entry"
+
+
+# ---------------------------------------------------------------------------
+# run_ingest 0-success sidecar test
+# ---------------------------------------------------------------------------
+
+def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", lambda: None)
+
+    def fail_price(*_a, **_kw):
+        raise ConnectionResetError("simulated outage (price)")
+    def fail_nav(*_a, **_kw):
+        raise ConnectionResetError("simulated outage (nav)")
+
+    monkeypatch.setattr("irc.commands.ingest_cmd.fetch_etf_price_history", fail_price)
+    monkeypatch.setattr("irc.commands.ingest_cmd.fetch_fund_nav_history", fail_nav)
+
+    rc = run_ingest(str(repo))
+
+    assert rc == 1
+    sidecar = repo / "outputs" / date.today().isoformat() / ".halt_reason.json"
+    assert sidecar.exists()
+    reason = HaltReason.read_sidecar(sidecar)
+    assert reason is not None
+    assert reason.kind == "akshare_empty"
+    assert reason.stats.get("price_attempts", 0) > 0
+    assert reason.stats.get("price_successes", -1) == 0
+    assert reason.first_error  # non-empty

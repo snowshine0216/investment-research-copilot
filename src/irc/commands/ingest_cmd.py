@@ -408,6 +408,19 @@ def _ingest_preflight() -> HaltReason | None:
 
 def run_ingest(repo_root: str) -> int:
     root = Path(repo_root)
+    # Stale-guard: remove any sidecar from a prior run for today.
+    today_iso = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    sidecar_path = root / "outputs" / today_iso / ".halt_reason.json"
+    if sidecar_path.exists():
+        sidecar_path.unlink()
+
+    # Preflight: one cheap akshare call to fail fast on outages.
+    preflight = _ingest_preflight()
+    if preflight is not None:
+        HaltReason.write_sidecar(sidecar_path, preflight)
+        print(f"ERROR: ingest preflight failed: {preflight.kind} — {preflight.detail}")
+        return 1
+
     bundle = load_repo_configs(root)
     try:
         feature_flags = _IngestFeatureFlags(_env_file=root / ".env")
@@ -565,7 +578,25 @@ def run_ingest(repo_root: str) -> int:
     if nav_attempts and nav_successes == 0:
         fatal_failures.append("nav")
     if fatal_failures:
-        print(f"ERROR: ingest failed: no successful {', '.join(fatal_failures)} ingest")
+        first_error = ""
+        if price_failures:
+            first_error = str(price_failures[0])
+        elif nav_failures:
+            first_error = str(nav_failures[0])
+        halt = HaltReason(
+            kind="akshare_empty",
+            stage="ingest",
+            detail=f"no successful {', '.join(fatal_failures)} ingest",
+            stats={
+                "price_attempts": price_attempts,
+                "price_successes": price_successes,
+                "nav_attempts": nav_attempts,
+                "nav_successes": nav_successes,
+            },
+            first_error=first_error or None,
+        )
+        HaltReason.write_sidecar(sidecar_path, halt)
+        print(f"ERROR: ingest failed: {halt.detail}")
         if price_failures or nav_failures:
             print(
                 f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "
