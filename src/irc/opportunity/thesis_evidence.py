@@ -256,8 +256,15 @@ def derive_thesis_from_evidence(
     snapshot_usable = snapshot is not None and bool(snapshot.filings)
     if not snapshot_usable:
         gaps.append("missing_constituent_snapshot")
-    if not _theme_report_usable(theme_report):
-        gaps.append("missing_recent_news")
+    if theme_report is None:
+        gaps.append("news_stage_skipped")
+    else:
+        news_status = _classify_theme_report(theme_report)
+        if news_status == "search_empty":
+            gaps.append("news_search_empty")
+        elif news_status == "llm_failed":
+            gaps.append("news_llm_failed")
+        # else 'usable' → no gap added
 
     refined = _classify_constituent_gap(snapshot, asset_class)
     if refined is not None and refined not in gaps:

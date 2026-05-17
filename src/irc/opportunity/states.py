@@ -327,7 +327,9 @@ def build_opportunity_row(
         thesis, thesis_reason = classify_thesis(inp, theme_thesis)
         evidence = ()
         refined = _refined_table_gap(inp.asset_class)
-        legacy = ("missing_constituent_snapshot", "missing_recent_news")
+        # Table-fallback path runs only when neither snapshot nor theme_report
+        # was provided, so the news side is unambiguously stage_skipped.
+        legacy = ("missing_constituent_snapshot", "news_stage_skipped")
         thesis_gaps = legacy + ((refined,) if refined is not None else ())
 
     state, state_reason = compose_opportunity_state(
