@@ -3,7 +3,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 import os
 from typing import Callable
-from irc.commands.ingest_cmd import run_ingest
+from irc.commands.ingest_cmd import run_ingest, _china_today
 from irc.commands.discover_cmd import run_discover
 from irc.commands.score_cmd import run_score
 from irc.commands.gold_cmd import run_gold
@@ -70,13 +70,20 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
             pass  # stage_banner already printed FAILED; rc is set correctly
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
-            from irc.pipeline_halt import write_halted
-            today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
-            write_halted(
-                repo_root=Path(repo_root), date=today, stage=stage,
-                reason=f"stage exit code {rc}",
-                remediation=f"Inspect the stage output and re-run `irc {stage} --repo-root {repo_root}` after fixing.",
-            )
+            from irc.pipeline_halt import write_halted, write_halted_structured, HaltReason
+            today = _china_today()
+            sidecar = Path(repo_root) / "outputs" / today / ".halt_reason.json"
+            structured = HaltReason.read_sidecar(sidecar)
+            if structured is not None:
+                write_halted_structured(repo_root=Path(repo_root), date=today,
+                                        reason=structured)
+                sidecar.unlink(missing_ok=True)
+            else:
+                write_halted(
+                    repo_root=Path(repo_root), date=today, stage=stage,
+                    reason=f"stage exit code {rc}",
+                    remediation=f"Inspect the stage output and re-run `irc {stage} --repo-root {repo_root}` after fixing.",
+                )
             return rc
     print(f"pipeline OK: ran {stages}")
     return 0

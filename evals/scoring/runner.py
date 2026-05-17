@@ -4,6 +4,13 @@ from pathlib import Path
 import json
 from irc.decision.completeness import MIN_BUY_COMPLETENESS
 from irc.io_utils import atomic_write_text
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.status import classify_status, worst_status
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.scoring.metrics import (
@@ -50,10 +57,14 @@ def _parse_scores(path: Path) -> list[dict]:
 def run(repo_root: Path) -> int:
     scores, source = _load_scores(repo_root)
     if source is None:
-        report = _pass_report()
-        _write(repo_root, report)
+        report = missing_input_report(
+            stage="scoring",
+            reason="outputs/<date>/scoring.json (or latest) is missing — scoring stage did not run",
+            based_on_path="outputs/<date>/scoring.json (or latest)",
+        )
+        write_missing_input_report(repo_root, report)
         print(f"scoring eval: {report.overall} (no input file)")
-        return 0
+        return EVAL_RC_FAIL
 
     index: set[str] = set()
     for s in scores:
@@ -127,14 +138,7 @@ def run(repo_root: Path) -> int:
     source_date = Path(source).parent.name
     _write(repo_root, report, source_date)
     print(f"scoring eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
-
-
-def _pass_report() -> StageReport:
-    return StageReport(
-        stage="scoring", ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[], metrics=[], overall="PASS",
-    )
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
 
 def _write(repo_root: Path, report: StageReport, date_str: str | None = None) -> None:

@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from irc.config_loader import load_repo_configs
 from irc.data.akshare_client import (
+    _is_transient_network_error,
     fetch_etf_metadata_em,
     fetch_fund_metadata,
     fetch_fund_nav_history,
@@ -22,6 +23,7 @@ from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
 from irc.instrument_kind import requires_manager_tenure as _is_active_fund
+from irc.pipeline_halt import HaltReason
 
 _log = logging.getLogger(__name__)
 
@@ -52,6 +54,11 @@ class _IngestFeatureFlags(BaseSettings):
 
 def _now_iso() -> str:
     return datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
+
+
+def _china_today() -> str:
+    """Return today's date as ISO string in the China Standard Time (UTC+8) zone."""
+    return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
 
 def _date_window() -> tuple[str, str]:
@@ -368,8 +375,57 @@ def _upsert_nav(con, instrument_id: str, df: pd.DataFrame) -> int:
     return len(params)
 
 
+def _preflight_call() -> None:
+    """One cheap akshare call exercising the HTTP pathway. Overridable in tests.
+
+    Uses 510300 (CSI300 ETF) as the canary symbol — it is one of the oldest
+    and most stable funds, so a successful return implies broad akshare
+    reachability. We discard the returned frame; only the network outcome
+    matters here.
+    """
+    fetch_fund_nav_history("510300")
+
+
+def _ingest_preflight() -> HaltReason | None:
+    """Run the preflight canary. Returns a HaltReason on failure, None on success.
+
+    KeyboardInterrupt and SystemExit propagate (BaseException, not Exception).
+    """
+    try:
+        _preflight_call()
+        return None
+    except Exception as exc:  # noqa: BLE001 — we re-classify below
+        first_error = f"{type(exc).__name__}: {exc}"
+        if _is_transient_network_error(exc):
+            return HaltReason(
+                kind="akshare_unreachable",
+                stage="ingest",
+                detail="preflight canary failed with a transient network error",
+                first_error=first_error,
+            )
+        return HaltReason(
+            kind="akshare_error",
+            stage="ingest",
+            detail="preflight canary raised a non-network exception",
+            first_error=first_error,
+        )
+
+
 def run_ingest(repo_root: str) -> int:
     root = Path(repo_root)
+    # Stale-guard: remove any sidecar from a prior run for today.
+    today_iso = _china_today()
+    sidecar_path = root / "outputs" / today_iso / ".halt_reason.json"
+    if sidecar_path.exists():
+        sidecar_path.unlink()
+
+    # Preflight: one cheap akshare call to fail fast on outages.
+    preflight = _ingest_preflight()
+    if preflight is not None:
+        HaltReason.write_sidecar(sidecar_path, preflight)
+        print(f"ERROR: ingest preflight failed: {preflight.kind} — {preflight.detail}")
+        return 1
+
     bundle = load_repo_configs(root)
     try:
         feature_flags = _IngestFeatureFlags(_env_file=root / ".env")
@@ -405,6 +461,7 @@ def run_ingest(repo_root: str) -> int:
         ob_counts["instruments"] = _upsert_instruments(con, all_instruments, metadata_by_id)
 
         price_failures: list[str] = []
+        price_first_exc: str | None = None
         price_attempts = 0
         price_successes = 0
         eastmoney_unavailable = False
@@ -430,6 +487,8 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_price_history(df)
             except Exception as exc:
                 price_failures.append(instr.instrument_id)
+                if price_first_exc is None:
+                    price_first_exc = f"{type(exc).__name__}: {exc}"
                 prices_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping price ingest for %s (ticker=%s): %s. "
@@ -490,6 +549,7 @@ def run_ingest(repo_root: str) -> int:
             nav_instruments.append(instr)
         nav_tally = ErrorTally("nav")
         nav_failures: list[str] = []
+        nav_first_exc: str | None = None
         nav_attempts = 0
         nav_successes = 0
         for instr in progress_iter(nav_instruments, "nav", total=len(nav_instruments)):
@@ -501,6 +561,8 @@ def run_ingest(repo_root: str) -> int:
                 df = _coerce_nav_history(df)
             except Exception as exc:
                 nav_failures.append(instr.instrument_id)
+                if nav_first_exc is None:
+                    nav_first_exc = f"{type(exc).__name__}: {exc}"
                 nav_tally.add(instr.instrument_id, exc)
                 _log.warning(
                     "skipping NAV ingest for %s (ticker=%s): %s. "
@@ -527,7 +589,21 @@ def run_ingest(repo_root: str) -> int:
     if nav_attempts and nav_successes == 0:
         fatal_failures.append("nav")
     if fatal_failures:
-        print(f"ERROR: ingest failed: no successful {', '.join(fatal_failures)} ingest")
+        first_error = price_first_exc or nav_first_exc or ""
+        halt = HaltReason(
+            kind="akshare_empty",
+            stage="ingest",
+            detail=f"no successful {', '.join(fatal_failures)} ingest",
+            stats={
+                "price_attempts": price_attempts,
+                "price_successes": price_successes,
+                "nav_attempts": nav_attempts,
+                "nav_successes": nav_successes,
+            },
+            first_error=first_error or None,
+        )
+        HaltReason.write_sidecar(sidecar_path, halt)
+        print(f"ERROR: ingest failed: {halt.detail}")
         if price_failures or nav_failures:
             print(
                 f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "

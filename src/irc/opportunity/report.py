@@ -28,6 +28,7 @@ def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
         "opportunity_state": row.opportunity_state,
         "opportunity_reason": row.opportunity_reason,
         "evidence_gaps": list(row.evidence_gaps),
+        "expected_omissions": list(row.expected_omissions),
     }
 
 
@@ -53,7 +54,8 @@ def compose_opportunity_report(
 def _card_to_dict(card: ThesisCard) -> dict[str, Any]:
     d = asdict(card)
     for key in ("falsification_triggers", "trim_triggers",
-                "do_not_sell_just_because", "evidence_gaps"):
+                "do_not_sell_just_because", "evidence_gaps",
+                "expected_omissions"):
         d[key] = list(d.get(key, []))
     return d
 

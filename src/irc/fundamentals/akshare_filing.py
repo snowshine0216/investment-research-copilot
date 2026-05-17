@@ -41,6 +41,10 @@ def _to_qualified_symbol(code: str) -> str:
     return f"{code}.{_suffix_for_code(code)}"
 
 
+def _to_akshare_symbol(symbol: str) -> str:
+    return str(symbol).strip().split(".", 1)[0]
+
+
 def _today_iso() -> str:
     return date.today().isoformat()
 
@@ -55,8 +59,9 @@ def fetch_cn_broker_reports(
 
     Filters to reports published within `days` days of today.
     """
+    akshare_symbol = _to_akshare_symbol(symbol)
     try:
-        df = _ak_call("stock_research_report_em", symbol=symbol)
+        df = _ak_call("stock_research_report_em", symbol=akshare_symbol)
     except Exception:
         return ()
     if not isinstance(df, pd.DataFrame) or df.empty:
@@ -68,7 +73,7 @@ def fetch_cn_broker_reports(
     parsed_dates = pd.to_datetime(df["日期"], errors="coerce")
     fresh = df.assign(_date=parsed_dates).dropna(subset=["_date"])
     fresh = fresh[fresh["_date"] >= cutoff].sort_values("_date", ascending=False)
-    qualified = _to_qualified_symbol(symbol)
+    qualified = _to_qualified_symbol(akshare_symbol)
     out: list[BrokerReport] = []
     for _, row in fresh.head(max_reports).iterrows():
         out.append(BrokerReport(
@@ -106,8 +111,9 @@ def _common_metric(df: pd.DataFrame, name: str, col: str) -> float | None:
 
 def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
     """Latest 季报/年报 digest from `stock_financial_abstract`. Returns None on failure."""
+    akshare_symbol = _to_akshare_symbol(symbol)
     try:
-        df = _ak_call("stock_financial_abstract", symbol=symbol)
+        df = _ak_call("stock_financial_abstract", symbol=akshare_symbol)
     except Exception:
         return None
     if not isinstance(df, pd.DataFrame) or df.empty:
@@ -134,11 +140,11 @@ def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
     gross_margin = 1 - (cost / revenue) if revenue else None
     period, filed = _yyyymmdd_to_period(latest)
     return FilingDigest(
-        symbol=_to_qualified_symbol(symbol),
+        symbol=_to_qualified_symbol(akshare_symbol),
         fiscal_period=period,
         filed_at_iso=filed,
         revenue_yoy=revenue_yoy,
         net_income_yoy=net_income_yoy,
         gross_margin=gross_margin,
-        source_url=_SINA_FINSUMMARY_URL.format(symbol=str(symbol).strip()),
+        source_url=_SINA_FINSUMMARY_URL.format(symbol=akshare_symbol),
     )

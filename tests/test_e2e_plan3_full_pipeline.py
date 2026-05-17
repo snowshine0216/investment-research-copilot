@@ -224,7 +224,8 @@ def test_e2e_plan3_all_stages(tmp_path: Path) -> None:
         memo_text = memo_files[0].read_text()
         assert len(memo_text) > 10, "memo.md is empty"
         trace = json.loads(trace_files[0].read_text())
-        assert "coverage_ratio" in trace
+        assert "n_refs_provided" in trace
+        assert "n_refs_quoted_verbatim" in trace
         assert "n_refs" in trace
 
         # ── ask ───────────────────────────────────────────────────────────────
@@ -319,6 +320,13 @@ def test_e2e_irc_run_from_stage(tmp_path: Path) -> None:
                     "scenario_triggers": []}),
         encoding="utf-8",
     )
+
+    # Write a fresh akshare manifest so the freshness gate in memo passes.
+    from irc.data.manifest import ManifestEntry, write_manifest
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 100},
+    ))
 
     patches = _all_patches()
     with patches[6], patches[7], patches[8]:  # memo synthesizer, auditor, ask

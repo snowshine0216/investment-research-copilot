@@ -18,8 +18,17 @@ def compose_decision_report(
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
     trades_by_target = {str(row.get("target")): row for row in trade_plan.get("trades", [])}
-    _raw_cov = memo_traceability.get("coverage_ratio", 0.0)
-    coverage = float(_raw_cov) if _raw_cov is not None else 0.0
+    # Compute coverage from the verbatim-count schema.
+    # • Key absent → legacy on-disk file (old coverage_ratio schema); do not block.
+    # • n_refs_provided == 0 → no evidence was available; vacuous truth, do not block.
+    # • n_refs_quoted_verbatim > 0 → at least one ref quoted; coverage = 1.0.
+    # • n_refs_provided > 0 but n_quoted == 0 → narrative only; coverage = 0.0.
+    if "n_refs_quoted_verbatim" not in memo_traceability:
+        coverage = 1.0  # legacy schema — cannot evaluate, do not penalise
+    else:
+        _n_provided = int(memo_traceability.get("n_refs_provided") or 0)
+        _n_quoted = int(memo_traceability.get("n_refs_quoted_verbatim") or 0)
+        coverage = 1.0 if (_n_provided == 0 or _n_quoted > 0) else 0.0
     scores = scoring.get("scores", [])
     pipeline_incomplete = _scores_missing_action(scores)
     if pipeline_incomplete:

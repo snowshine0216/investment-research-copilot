@@ -6,7 +6,11 @@ from typing import Any
 
 import pandas as pd
 
-from irc.decision.completeness import REQUIRED_METRIC_FIELDS, is_missing, missing_required_fields
+from irc.decision.completeness import (
+    completeness_ratio,
+    is_missing,
+    missing_required_fields,
+)
 from irc.schemas.scoring import ScoringConfig
 from irc.scoring.factors.macro_fit import MacroFitContext, score_macro_fit
 from irc.scoring.factors.quality import score_quality
@@ -22,14 +26,6 @@ def _sanitize(text: str, max_len: int = 200) -> str:
     """Strip control characters and truncate external-sourced strings before LLM use."""
     cleaned = "".join(ch for ch in text if ch.isprintable() or ch in (" ", "\t"))
     return cleaned[:max_len]
-
-
-_REQUIRED = REQUIRED_METRIC_FIELDS
-
-
-def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
-    present = sum(1 for k in required if not is_missing(metric_row.get(k)))
-    return present / len(required)
 
 
 def _get(m: dict, key: str, default: float) -> float:
@@ -88,8 +84,9 @@ def run_scoring(
     out: list[dict[str, Any]] = []
     for r in rows:
         m = by_id.get(r.instrument_id, {})
-        completeness = _completeness(m, _REQUIRED)
-        missing_data = list(missing_required_fields(m, _REQUIRED))
+        asset_class = getattr(r, "asset_class", None)
+        completeness = completeness_ratio(m, asset_class=asset_class)
+        missing_data = list(missing_required_fields(m, asset_class=asset_class))
         refs = tuple(r.cited_refs.split(",")) if isinstance(getattr(r, "cited_refs", None), str) else ()
         v = score_valuation_cost(
             expense_ratio=_get(m, "expense_ratio", 0.01),

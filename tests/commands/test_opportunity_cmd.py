@@ -2,17 +2,23 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
-import yaml
 
 
 def _seed_minimal_repo(tmp_path: Path) -> None:
     """Create the minimum file layout needed by run_opportunity."""
+    from datetime import datetime, timezone
+    from irc.data.manifest import ManifestEntry, write_manifest
+
     (tmp_path / "inputs").mkdir()
     (tmp_path / "config" / "universe").mkdir(parents=True)
     (tmp_path / "config" / "opportunity").mkdir(parents=True)
     (tmp_path / "outputs" / "2026-05-14").mkdir(parents=True)
     (tmp_path / "data").mkdir()
+    # Write a fresh akshare manifest so the freshness gate passes by default.
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 100},
+    ))
 
     # inputs/account.yaml
     (tmp_path / "inputs" / "account.yaml").write_text(
@@ -119,7 +125,6 @@ def test_opportunity_markdown_starts_with_chinese_sections(tmp_path: Path, monke
 
 def test_opportunity_does_not_read_external_worktree_path(tmp_path: Path, monkeypatch):
     """Acceptance criterion: never read the external worktree generated universe."""
-    from irc.commands.opportunity_cmd import run_opportunity
     import irc.commands.opportunity_cmd as opp_mod
     src = Path(opp_mod.__file__).read_text(encoding="utf-8")
     assert "investment-research-copilot.worktrees" not in src
@@ -202,10 +207,53 @@ def test_empty_available_venues_treats_all_instruments_as_compatible(tmp_path: P
     assert not excluded, f"No rows should be venue-excluded when available_venues is empty: {excluded}"
 
 
+def test_opportunity_refuses_to_run_when_ingest_is_stale(tmp_path: Path, monkeypatch):
+    """When data/_manifest/akshare.json is >24h old, opportunity exits with rc=1
+    and writes STALE_INGEST.md."""
+    from datetime import datetime, timedelta, timezone
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.data.manifest import ManifestEntry, write_manifest
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    stale = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=stale,
+        schema_version="v1", record_counts={"prices": 100},
+    ))
+    monkeypatch.delenv("IRC_ALLOW_STALE", raising=False)
+    rc = run_opportunity(repo_root=str(tmp_path))
+    assert rc == 1
+    markers = list((tmp_path / "outputs").rglob("STALE_INGEST.md"))
+    assert len(markers) == 1
+
+
+def test_opportunity_allow_stale_env_proceeds(tmp_path: Path, monkeypatch):
+    """With IRC_ALLOW_STALE=1, opportunity proceeds despite stale ingest."""
+    from datetime import datetime, timedelta, timezone
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.data.manifest import ManifestEntry, write_manifest
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    stale = (datetime.now(timezone.utc) - timedelta(days=3)).isoformat()
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=stale,
+        schema_version="v1", record_counts={"prices": 100},
+    ))
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    rc = run_opportunity(repo_root=str(tmp_path))
+    assert rc == 0
+    markers = list((tmp_path / "outputs").rglob("STALE_INGEST.md"))
+    assert len(markers) == 1
+
+
 def test_build_input_empty_venues_treats_instrument_as_compatible():
     """Unit test: _build_input with empty set() treats venue_required instruments as compatible."""
     from irc.commands.opportunity_cmd import _build_input
+    from irc.data.duckdb_helper import ensure_schema
     from unittest.mock import MagicMock
+    import duckdb
     instr = MagicMock()
     instr.asset_class = "cn_etf"
     instr.market = "cn_brokerage"
@@ -213,10 +261,16 @@ def test_build_input_empty_venues_treats_instrument_as_compatible():
     instr.tracked_index = "沪深300"
     instr.name_cn = "沪深300ETF"
     instr.venue_required = ["cn_brokerage"]
-    inp = _build_input(
-        {"instrument_id": "510300", "role": ""},
-        instr, None, None, 0.0, set()  # empty venues
-    )
+    con = duckdb.connect(":memory:")
+    ensure_schema(con)
+    try:
+        inp = _build_input(
+            {"instrument_id": "510300", "role": ""},
+            instr, None, None, 0.0, set(),  # empty venues
+            con,
+        )
+    finally:
+        con.close()
     assert inp.venue_compatible is True
 
 

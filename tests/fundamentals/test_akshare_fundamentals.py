@@ -71,6 +71,84 @@ def test_fetch_cn_index_constituents_returns_empty_on_failure() -> None:
     assert out == ()
 
 
+# ---------- SZSE Sina fallback ----------
+
+_SINA_SZ_FRAME = pd.DataFrame({
+    "品种代码": ["300750", "300059", "300760", "300015"],
+    "品种名称": ["宁德时代", "东方财富", "迈瑞医疗", "爱尔眼科"],
+})
+
+_SINA_SZ_FRAME_ALT = pd.DataFrame({
+    "symbol": ["300750", "300059", "300760", "300015"],
+    "name": ["宁德时代", "东方财富", "迈瑞医疗", "爱尔眼科"],
+    "trade": [0.0, 0.0, 0.0, 0.0],
+})
+
+
+def test_fetch_cn_index_constituents_falls_back_to_sina_for_szse_code() -> None:
+    """399006 (创业板指) is not published by CSI; Sina returns the constituent list
+    without weights — we still return Constituent rows with weight=0.0 so the
+    downstream thesis classifier (sign-counting) keeps working."""
+    csi_empty = pd.DataFrame()
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [csi_empty, _SINA_SZ_FRAME]
+        out = fetch_cn_index_constituents("399006", top_n=3)
+    assert mocked.call_args_list[0].kwargs == {"symbol": "399006"}
+    assert mocked.call_args_list[1].kwargs == {"symbol": "399006"}
+    assert len(out) == 3
+    assert out[0] == Constituent(symbol="300750.SZ", name="宁德时代", weight=0.0, market="cn")
+    assert out[2].name == "迈瑞医疗"
+
+
+def test_fetch_cn_index_constituents_falls_back_to_sina_for_sh_code_when_csi_empty() -> None:
+    """If CSI returns empty for a 6xxxxx code, try Sina with plain index code."""
+    sh_frame = pd.DataFrame({
+        "品种代码": ["600519"],
+        "品种名称": ["贵州茅台"],
+    })
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [pd.DataFrame(), sh_frame]
+        out = fetch_cn_index_constituents("600000", top_n=1)
+    assert mocked.call_args_list[1].kwargs == {"symbol": "600000"}
+    assert out == (Constituent(symbol="600519.SH", name="贵州茅台", weight=0.0, market="cn"),)
+
+
+def test_fetch_cn_index_constituents_returns_empty_when_both_paths_fail() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [pd.DataFrame(), pd.DataFrame()]
+        out = fetch_cn_index_constituents("399006", top_n=5)
+    assert out == ()
+
+
+def test_fetch_cn_index_constituents_sina_exception_is_swallowed() -> None:
+    """Sina endpoint failure must degrade to empty, never raise."""
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [pd.DataFrame(), RuntimeError("akshare down")]
+        out = fetch_cn_index_constituents("399006", top_n=5)
+    assert out == ()
+
+
+def test_fetch_cn_index_constituents_sina_alt_columns_symbol_name() -> None:
+    """Current AkShare returns Sina columns as symbol/name/trade."""
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [pd.DataFrame(), _SINA_SZ_FRAME_ALT]
+        out = fetch_cn_index_constituents("399006", top_n=2)
+    assert len(out) == 2
+    assert out[0] == Constituent(symbol="300750.SZ", name="宁德时代", weight=0.0, market="cn")
+
+
+def test_fetch_cn_index_constituents_sina_alt_columns_strip_exchange_prefix() -> None:
+    prefixed = pd.DataFrame({
+        "symbol": ["sz300001", "sz300002"],
+        "name": ["特锐德", "神州泰岳"],
+    })
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = [pd.DataFrame(), prefixed]
+        out = fetch_cn_index_constituents("399006", top_n=2)
+    assert out[0].symbol == "300001.SZ"
+    assert out[1].symbol == "300002.SZ"
+
+
 # ---------- fetch_cn_etf_holdings ----------
 
 _HOLDINGS_FRAME = pd.DataFrame({
@@ -172,6 +250,20 @@ def test_fetch_cn_broker_reports_happy_path_returns_recent_first() -> None:
     assert out[0].target_price is None  # no target_price column in EastMoney feed
 
 
+def test_fetch_cn_broker_reports_strips_exchange_suffix_for_akshare() -> None:
+    with patch(
+        "irc.fundamentals.akshare_filing._ak_call"
+    ) as mocked, patch(
+        "irc.fundamentals.akshare_filing._today_iso",
+        return_value="2026-05-15",
+    ):
+        mocked.return_value = _REPORT_FRAME
+        out = fetch_cn_broker_reports("600519.SH", days=90, max_reports=1)
+
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert out[0].symbol == "600519.SH"
+
+
 def test_fetch_cn_broker_reports_respects_max_reports() -> None:
     with patch(
         "irc.fundamentals.akshare_filing._ak_call"
@@ -224,6 +316,17 @@ def test_fetch_cn_filing_digest_computes_yoy_and_margin_for_latest_quarter() -> 
     assert "600519" in digest.source_url
 
 
+def test_fetch_cn_filing_digest_strips_exchange_suffix_for_akshare() -> None:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = _ABSTRACT_FRAME
+        digest = fetch_cn_filing_digest("600519.SH")
+
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert digest is not None
+    assert digest.symbol == "600519.SH"
+    assert "600519.SH" not in digest.source_url
+
+
 def test_fetch_cn_filing_digest_maps_fy_period_for_year_end_column() -> None:
     fy_frame = pd.DataFrame({
         "选项": ["常用指标", "常用指标", "常用指标"],
@@ -256,3 +359,63 @@ def test_fetch_cn_filing_digest_returns_none_when_metrics_missing() -> None:
         mocked.return_value = bad_frame
         digest = fetch_cn_filing_digest("600519")
     assert digest is None
+
+
+# ---------- fetch_hk_index_constituents ----------
+
+
+def test_parse_hk_index_frame_sorts_by_weight_and_truncates() -> None:
+    """Direct test of parsing logic — independent of the stub network call."""
+    from irc.fundamentals.akshare_fundamentals import _parse_hk_index_frame
+
+    df = pd.DataFrame([
+        {"代码": "01299", "名称": "友邦保险", "权重": 6.0},
+        {"代码": "00700", "名称": "腾讯控股", "权重": 10.0},
+        {"代码": "09988", "名称": "阿里巴巴-W", "权重": 8.0},
+    ])
+    out = _parse_hk_index_frame(df, top_n=2)
+
+    assert len(out) == 2
+    assert out[0].symbol == "00700.HK"  # highest weight first
+    assert out[1].symbol == "09988.HK"
+    assert abs(out[0].weight - 0.10) < 1e-9
+
+
+def test_parse_hk_index_frame_returns_empty_for_missing_columns() -> None:
+    from irc.fundamentals.akshare_fundamentals import _parse_hk_index_frame
+
+    df = pd.DataFrame([{"col_a": "foo"}])
+    out = _parse_hk_index_frame(df, top_n=10)
+    assert out == ()
+
+
+def test_fetch_hk_index_constituents_happy_path() -> None:
+    from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
+    
+    # Use placeholder column names - adjust when actual AkShare function is discovered
+    fake_df = pd.DataFrame([
+        {"代码": "00700", "名称": "腾讯控股", "权重": 10.0},
+        {"代码": "09988", "名称": "阿里巴巴-W", "权重": 8.0},
+        {"代码": "01299", "名称": "友邦保险", "权重": 6.0},
+    ])
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = fake_df
+        out = fetch_hk_index_constituents("HSI", top_n=2)
+
+    assert len(out) == 2
+    assert out[0] == Constituent(
+        symbol="00700.HK", name="腾讯控股", weight=0.10, market="hk"
+    )
+    assert out[1] == Constituent(
+        symbol="09988.HK", name="阿里巴巴-W", weight=0.08, market="hk"
+    )
+
+
+def test_fetch_hk_index_constituents_returns_empty_on_failure() -> None:
+    from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
+    
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = RuntimeError("akshare network error")
+        out = fetch_hk_index_constituents("HSI", top_n=10)
+    
+    assert out == ()

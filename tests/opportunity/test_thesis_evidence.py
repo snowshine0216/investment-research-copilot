@@ -8,9 +8,48 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
 )
-from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
+from irc.opportunity.thesis_evidence import _classify_theme_report, derive_thesis_from_evidence
 from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
+
+
+# ---------------------------------------------------------------------------
+# _classify_theme_report — unit tests (Task 1, Step 1.1)
+# ---------------------------------------------------------------------------
+
+def _r(failure_reason: str = "", report_md: str = "body") -> ThemeReport:
+    return ThemeReport(theme="t", query="q", locale="en",
+                       report_md=report_md, citations=[],
+                       failure_reason=failure_reason)
+
+
+def test_classify_usable_report():
+    assert _classify_theme_report(_r()) == "usable"
+
+
+def test_classify_search_empty():
+    assert _classify_theme_report(_r(failure_reason="no sources to synthesize from")) == "search_empty"
+
+
+def test_classify_search_empty_via_provider_no_results():
+    # bocha/tavily/brave emit "no results", dispatch may forward this verbatim
+    assert _classify_theme_report(_r(failure_reason="bocha: no results")) == "search_empty"
+
+
+def test_classify_llm_failed_on_arbitrary_exception_text():
+    assert _classify_theme_report(_r(failure_reason="ChatCompletionError: 429 rate limit")) == "llm_failed"
+
+
+def test_classify_llm_failed_on_unrecognized_failure():
+    # Any failure_reason that doesn't match the search-empty pattern is treated as LLM/synth-side
+    assert _classify_theme_report(_r(failure_reason="something else")) == "llm_failed"
+
+
+def test_classify_treats_empty_body_with_no_failure_as_search_empty():
+    # ThemeReport with empty report_md but no failure_reason — only happens when
+    # the synthesizer returned an empty string for an unknown reason; treat as
+    # search-empty (closer to user-actionable than llm_failed).
+    assert _classify_theme_report(_r(report_md="")) == "search_empty"
 
 
 def _filing(symbol: str, yoy: float | None, *, period: str = "Q1") -> FilingDigest:
@@ -74,7 +113,8 @@ def test_evidence_insufficient_when_snapshot_and_theme_report_both_none():
     assert state == "evidence_insufficient"
     assert evidence == ()
     assert "missing_constituent_snapshot" in gaps
-    assert "missing_recent_news" in gaps
+    assert "news_stage_skipped" in gaps
+    assert "missing_recent_news" not in gaps
 
 
 def test_evidence_insufficient_when_snapshot_has_no_filings():
@@ -97,7 +137,8 @@ def test_evidence_insufficient_when_theme_report_failed():
                      citations=[], failure_reason="all providers down")
     state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
     assert state == "evidence_insufficient"
-    assert "missing_recent_news" in gaps
+    assert "news_llm_failed" in gaps
+    assert "missing_recent_news" not in gaps
 
 
 # ---------------------------------------------------------------------------
@@ -220,11 +261,156 @@ def test_missing_broker_coverage_gap_when_no_broker_reports():
     assert "missing_broker_coverage" in gaps
 
 
-def test_empty_report_md_with_no_failure_reason_adds_missing_recent_news_gap():
+# ---------------------------------------------------------------------------
+# Theme-report-only thesis derivation (Path B)
+# ---------------------------------------------------------------------------
+
+def _research_theme_report(n_citations: int, *, failure: str = "") -> ThemeReport:
+    return ThemeReport(
+        theme="gold_drivers",
+        query="gold drivers",
+        locale="en",
+        report_md="# gold drivers\n\nContent body.\n",
+        citations=[
+            Citation(index=i, title=f"t{i}", url=f"https://x/{i}", published_iso="2026-05-01")
+            for i in range(n_citations)
+        ],
+        failure_reason=failure,
+    )
+
+
+def test_theme_report_with_3plus_citations_yields_intact_when_no_snapshot():
+    state, reason, evidence, gaps = derive_thesis_from_evidence(None, _research_theme_report(3))
+    assert state == "intact"
+    assert "研究" in reason or "research" in reason or "citations" in reason
+    assert any(e.type == "news" for e in evidence)
+    assert "missing_constituent_snapshot" in gaps
+
+
+def test_theme_report_with_failure_falls_back_to_insufficient():
+    state, _, _, gaps = derive_thesis_from_evidence(None, _research_theme_report(5, failure="provider 429"))
+    assert state == "evidence_insufficient"
+
+
+def test_theme_report_with_too_few_citations_falls_back_to_insufficient():
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(1))
+    assert state == "evidence_insufficient"
+
+
+def test_theme_report_with_zero_citations_insufficient():
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(0))
+    assert state == "evidence_insufficient"
+
+
+def test_empty_report_md_with_no_failure_reason_adds_news_search_empty_gap():
     """ThemeReport with empty body but no failure_reason should yield a gap, not be treated as failed."""
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
     snap = _snapshot(filings=filings)
     tr = _theme_report(report_md="")  # empty report, no failure_reason
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
-    assert "missing_recent_news" in gaps
+    assert "news_search_empty" in gaps
+    assert "missing_recent_news" not in gaps
+
+
+# ---------------------------------------------------------------------------
+# Refined constituent-gap labels (in addition to legacy missing_constituent_snapshot)
+# ---------------------------------------------------------------------------
+
+
+def test_refined_label_constituent_not_applicable_for_gold():
+    """Gold has no equity-style constituents; emit constituent_not_applicable
+    alongside the legacy label."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="gold",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_not_applicable_for_bond():
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_bond_fund",
+    )
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_not_applicable_for_active_fund():
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_equity_fund",
+    )
+    assert "constituent_not_applicable" in gaps
+
+
+def test_refined_label_constituent_fetch_failed_when_snapshot_empty():
+    """Snapshot object exists but filings is empty AND failure_reasons records
+    a fetch problem → constituent_fetch_failed."""
+    snap = ConstituentSnapshot(
+        lookthrough_target="纳斯达克100",
+        as_of_iso="2026-05-16",
+        constituents=(Constituent(symbol="AAPL", name="AAPL", weight=0.0, market="us"),),
+        filings=(),
+        broker_reports=(),
+        failure_reasons=("missing filing digest: AAPL (missing_email)",),
+    )
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        snap, _theme_report(), asset_class="us_etf",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_fetch_failed" in gaps
+
+
+def test_refined_label_constituent_missing_when_snapshot_none_for_indexable_class():
+    """ETF whose lookthrough target is not yet registered → constituent_missing."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        None, _theme_report(), asset_class="cn_etf",
+    )
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_missing" in gaps
+
+
+def test_no_refined_label_when_snapshot_usable():
+    filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
+    snap = _snapshot(filings=filings)
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(
+        snap, _theme_report(), asset_class="cn_etf",
+    )
+    assert "missing_constituent_snapshot" not in gaps
+    assert "constituent_not_applicable" not in gaps
+    assert "constituent_fetch_failed" not in gaps
+    assert "constituent_missing" not in gaps
+
+
+def test_no_refined_label_when_asset_class_omitted():
+    """Backward-compatible: without asset_class, only legacy label appears."""
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(None, _theme_report())
+    assert "missing_constituent_snapshot" in gaps
+    assert "constituent_not_applicable" not in gaps
+    assert "constituent_fetch_failed" not in gaps
+    assert "constituent_missing" not in gaps
+
+
+# ---------------------------------------------------------------------------
+# Typed news-cause codes at emission sites (Task 2, Step 2.1)
+# ---------------------------------------------------------------------------
+
+def test_news_stage_skipped_when_theme_report_is_none():
+    _, _, _, gaps = derive_thesis_from_evidence(None, None, asset_class="cn_etf")
+    assert "news_stage_skipped" in gaps
+    assert "missing_recent_news" not in gaps
+
+
+def test_news_search_empty_when_no_sources():
+    r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
+                    failure_reason="no sources to synthesize from")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    assert "news_search_empty" in gaps
+    assert "missing_recent_news" not in gaps
+
+
+def test_news_llm_failed_on_synth_exception():
+    r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
+                    failure_reason="429 rate limit")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    assert "news_llm_failed" in gaps
+    assert "missing_recent_news" not in gaps
 

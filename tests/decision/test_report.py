@@ -43,7 +43,7 @@ def test_compose_decision_report_blocks_when_pipeline_halted_and_weights_invalid
                 {"target": "050025", "venue_compatible": True, "proxy_id": None},
             ]
         },
-        memo_traceability={"coverage_ratio": 0.0},
+        memo_traceability={"n_refs_quoted_verbatim": 0},
         pipeline_halted=True,
     )
 
@@ -63,7 +63,7 @@ def test_compose_decision_report_allows_actionable_buy_when_all_gates_clear() ->
             "diagnostics": {"total_weight": 1.0},
         },
         trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -77,7 +77,7 @@ def test_markdown_report_starts_with_clear_verdict() -> None:
         scoring=_scoring(),
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 3.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 0.0},
+        memo_traceability={"n_refs_quoted_verbatim": 0},
         pipeline_halted=True,
     )
 
@@ -94,7 +94,7 @@ def test_compose_decision_report_empty_scores_returns_ok_no_rows() -> None:
         scoring={"scores": []},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -109,7 +109,7 @@ def test_build_rows_handles_score_with_no_matching_trade() -> None:
         scoring={"scores": [{"instrument_id": "UNKNOWN", "asset_class": "gold", "action": "watch", "conviction": "low", "data_completeness": 1.0, "missing_data": []}]},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -123,7 +123,7 @@ def test_render_decision_markdown_ok_verdict_text() -> None:
         scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
         allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -139,7 +139,7 @@ def test_render_decision_markdown_ok_zero_buys_shows_review_row_statuses() -> No
         scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "watch", "conviction": "low", "data_completeness": 1.0, "missing_data": []}]},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -161,7 +161,7 @@ def test_compose_decision_report_pipeline_incomplete_when_most_scores_lack_actio
         scoring={"scores": scores},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -176,7 +176,7 @@ def test_blocking_section_no_reasons_shows_no_blocking_message() -> None:
         scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
         allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -204,7 +204,7 @@ def test_pipeline_not_incomplete_at_exactly_50_percent_missing() -> None:
         scoring={"scores": scores},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
@@ -226,10 +226,56 @@ def test_pipeline_incomplete_just_above_50_percent_missing() -> None:
         scoring={"scores": scores},
         allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
         trade_plan={"trades": []},
-        memo_traceability={"coverage_ratio": 1.0},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
         pipeline_halted=False,
     )
 
     # 3/4 = 75% > 0.5 → incomplete
     assert report["pipeline_incomplete"] is True
     assert "pipeline_halted" in report["blocking_reasons"]
+
+
+# ---------------------------------------------------------------------------
+# Coverage gate: legacy schema, vacuous truth, and narrative_only cases
+# ---------------------------------------------------------------------------
+
+def test_coverage_vacuous_truth_when_no_refs_provided() -> None:
+    """n_refs_provided=0 (empty evidence pool) must not block via memo_narrative_only."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"n_refs_provided": 0, "n_refs_quoted_verbatim": 0, "n_refs": 0},
+        pipeline_halted=False,
+    )
+    assert report["overall_status"] == "ok"
+    assert "memo_narrative_only" not in report["blocking_reasons"]
+
+
+def test_coverage_legacy_schema_does_not_block() -> None:
+    """Legacy memo_traceability.json (no n_refs_quoted_verbatim key) must not block decisions."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"coverage_ratio": 0.0, "n_refs": 1.0, "n_covered": 0.0},
+        pipeline_halted=False,
+    )
+    assert report["overall_status"] == "ok"
+    assert "memo_narrative_only" not in report["blocking_reasons"]
+
+
+def test_coverage_narrative_only_when_refs_provided_but_none_quoted() -> None:
+    """Refs provided but none quoted verbatim → memo_narrative_only → blocked."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"n_refs_provided": 3, "n_refs_quoted_verbatim": 0, "n_refs": 3},
+        pipeline_halted=False,
+    )
+    assert "memo_narrative_only" in report["blocking_reasons"]
+    assert report["overall_status"] == "blocked"

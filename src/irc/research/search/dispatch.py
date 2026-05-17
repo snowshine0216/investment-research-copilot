@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from datetime import datetime, timezone
 
 from irc.research.search.types import (
@@ -9,6 +10,8 @@ from irc.research.search.types import (
     SearchProvider,
     SearchResult,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def providers_for_locale(
@@ -81,19 +84,30 @@ def provider_results(
         if provider.locale != locale:
             continue
         try:
-            out.append(provider.search(
+            result = provider.search(
                 query,
                 max_results=max_results,
                 freshness_days=freshness_days,
                 include_domains=include_domains,
-            ))
+            )
         except Exception as exc:
+            _log.warning(
+                "search provider %s raised on query %r: %s",
+                provider.name, query, exc,
+            )
             out.append(SearchResult(
                 query=query,
                 locale=locale,
                 provider=provider.name,
                 failure_reason=f"provider raised: {exc}",
             ))
+            continue
+        if result.failure_reason:
+            _log.warning(
+                "search provider %s failed on query %r: %s",
+                provider.name, query, result.failure_reason,
+            )
+        out.append(result)
     return tuple(out)
 
 
@@ -136,10 +150,19 @@ def extract_top_pages(
         try:
             page = extractor.extract(hit.url, timeout_s=timeout_s)
         except Exception as exc:
+            _log.warning(
+                "extractor %s raised on %s: %s", extractor.name, hit.url, exc,
+            )
             page = ExtractedPage(
                 url=hit.url, title=hit.title, markdown="",
                 fetched_at_iso=datetime.now(tz=timezone.utc).isoformat(),
                 failure_reason=f"extractor raised: {exc}",
             )
+        else:
+            if page.failure_reason:
+                _log.warning(
+                    "extractor %s failed on %s: %s",
+                    extractor.name, hit.url, page.failure_reason,
+                )
         out.append(page)
     return tuple(out)

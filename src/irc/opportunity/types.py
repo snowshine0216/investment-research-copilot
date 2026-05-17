@@ -117,6 +117,7 @@ class OpportunityRow:
     opportunity_reason: str
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    expected_omissions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +142,7 @@ class ThesisCard:
     review_cadence: str
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    expected_omissions: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

@@ -94,10 +94,10 @@ def test_runner_warns_when_data_completeness_avg_in_warn_band(tmp_path: Path) ->
 
 
 def test_runner_returns_pass_when_no_scoring_json(tmp_path: Path) -> None:
-    """If no scoring.json file exists anywhere in outputs/, runner returns rc=0."""
+    """If no scoring.json file exists anywhere in outputs/, runner returns rc=2 (FAIL)."""
     (tmp_path / "outputs").mkdir(parents=True)
     rc = run(tmp_path)
-    assert rc == 0
+    assert rc == 2  # missing input is now FAIL, not PASS
 
 
 def test_runner_falls_back_to_latest_scoring_json_when_today_absent(tmp_path: Path) -> None:
@@ -136,3 +136,12 @@ def test_runner_parses_raw_list_scoring_json(tmp_path: Path) -> None:
 
     rc = run(tmp_path)
     assert rc == 0
+
+
+def test_scoring_runner_fails_when_input_missing(tmp_path: Path) -> None:
+    rc = run(tmp_path)
+    assert rc == 2
+    candidates = list(tmp_path.rglob("evals/scoring/report.json"))
+    assert candidates, "runner must write a FAIL report"
+    body = json.loads(candidates[0].read_text(encoding="utf-8"))
+    assert body["overall"] == "FAIL"

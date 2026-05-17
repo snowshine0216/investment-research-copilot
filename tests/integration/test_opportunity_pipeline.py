@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 import yaml
 
 from irc.commands.opportunity_cmd import run_opportunity
@@ -11,6 +10,9 @@ from irc.commands.opportunity_cmd import run_opportunity
 
 def _seed(tmp_path: Path) -> None:
     """Seed inputs/, config/, and outputs/scoring.json with realistic data."""
+    from datetime import datetime, timezone
+    from irc.data.manifest import ManifestEntry, write_manifest
+
     repo_src = Path(__file__).resolve().parents[2]
     tpl = repo_src / "src" / "irc" / "templates"
 
@@ -19,6 +21,11 @@ def _seed(tmp_path: Path) -> None:
     (tmp_path / "config" / "opportunity").mkdir(parents=True)
     (tmp_path / "outputs" / "2026-05-14").mkdir(parents=True)
     (tmp_path / "data").mkdir()
+    # Write a fresh akshare manifest so the freshness gate passes by default.
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 100},
+    ))
 
     # Copy required config templates
     for fname in (

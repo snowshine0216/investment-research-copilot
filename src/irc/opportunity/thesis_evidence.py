@@ -117,8 +117,62 @@ def _news_evidence(report: ThemeReport | None) -> tuple[ThesisEvidence, ...]:
     return tuple(out)
 
 
+# Substring patterns that indicate a search-side failure (zero hits, provider
+# unavailable). Anything else with a failure_reason is treated as LLM/synth side.
+# Pattern-match is intentionally permissive — failure_reasons are free-text
+# concatenations from providers, dispatch, and synthesize.py.
+_SEARCH_EMPTY_PATTERNS: tuple[str, ...] = (
+    "no sources to synthesize from",
+    "no results",
+    "missing 'results'",
+    "missing 'webPages",
+)
+
+
+def _classify_theme_report(report: ThemeReport | None) -> str:
+    """Classify a ThemeReport into one of:
+      - "usable": has body and no failure_reason.
+      - "search_empty": search returned zero/empty results.
+      - "llm_failed": LLM synthesis raised, or any other non-search failure.
+
+    Returns "search_empty" if the report has an empty body with no failure_reason
+    (treat as user-actionable rather than internal error).
+    Does NOT cover the report-is-None case — that's "stage_skipped" and the
+    caller checks for it before classifying.
+    """
+    if report is None:
+        # Defensive — callers should check is-None first. Treat as stage_skipped.
+        return "stage_skipped"
+    reason = (report.failure_reason or "").lower()
+    if reason:
+        for pat in _SEARCH_EMPTY_PATTERNS:
+            if pat in reason:
+                return "search_empty"
+        return "llm_failed"
+    if not report.report_md or not report.report_md.strip():
+        return "search_empty"
+    return "usable"
+
+
 def _theme_report_usable(report: ThemeReport | None) -> bool:
-    return report is not None and not report.failure_reason and bool(report.report_md)
+    """Back-compat shim: True iff classifier says 'usable'."""
+    return _classify_theme_report(report) == "usable"
+
+
+_MIN_RESEARCH_CITATIONS = 3
+
+
+def _thesis_from_theme_report(
+    report: ThemeReport,
+) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...]]:
+    """Conservative rule: usable report with ≥3 citations → intact (research-backed)."""
+    if len(report.citations) < _MIN_RESEARCH_CITATIONS:
+        return "evidence_insufficient", "", ()
+    return (
+        "intact",
+        f"长期逻辑由主题研究背书（citations={len(report.citations)}），暂未触发证伪。",
+        _news_evidence(report),
+    )
 
 
 def _classify_state(
@@ -150,49 +204,99 @@ def _classify_state(
     )
 
 
+NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
+    "gold", "cn_bond_fund", "cn_equity_fund",
+})
+_NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
+
+
+def _classify_constituent_gap(
+    snapshot: ConstituentSnapshot | None,
+    asset_class: str | None,
+) -> str | None:
+    """Refined gap label for the constituent layer.
+
+    Returns one of:
+      - 'constituent_not_applicable': asset class has no equity-style top-N
+        (gold, bond, active fund).
+      - 'constituent_fetch_failed': snapshot exists but every filing fetch
+        failed (snapshot.failure_reasons is non-empty, filings is empty).
+      - 'constituent_missing': asset class is constituent-bearing but no
+        snapshot was loaded (lookthrough target not in _TARGET_REGISTRY).
+      - None: snapshot present with usable filings.
+    """
+    if asset_class is None:
+        return None
+    if asset_class in _NON_INDEXABLE_ASSET_CLASSES:
+        return "constituent_not_applicable"
+    if snapshot is None:
+        return "constituent_missing"
+    if not snapshot.filings:
+        return "constituent_fetch_failed" if snapshot.failure_reasons else "constituent_missing"
+    return None
+
+
 def derive_thesis_from_evidence(
     snapshot: ConstituentSnapshot | None,
     theme_report: ThemeReport | None,
+    *,
+    asset_class: str | None = None,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...]]:
     """Derive (state, reason, evidence, gap_labels) from concrete sources.
 
     Pure: no I/O, no time-of-day dependence. The caller decides what to do
     with `gap_labels` — typically merge into `OpportunityRow.evidence_gaps`.
+
+    When `asset_class` is provided, a refined constituent-gap label is appended
+    to the legacy `missing_constituent_snapshot` label so consumers can
+    distinguish 'not applicable' from 'fetch failed' from 'missing target'.
     """
     gaps: list[str] = []
 
-    if snapshot is None or not snapshot.filings:
+    snapshot_usable = snapshot is not None and bool(snapshot.filings)
+    if not snapshot_usable:
         gaps.append("missing_constituent_snapshot")
-    if not _theme_report_usable(theme_report):
-        gaps.append("missing_recent_news")
+    if theme_report is None:
+        gaps.append("news_stage_skipped")
+    else:
+        news_status = _classify_theme_report(theme_report)
+        if news_status == "search_empty":
+            gaps.append("news_search_empty")
+        elif news_status == "llm_failed":
+            gaps.append("news_llm_failed")
+        # else 'usable' → no gap added
 
-    if snapshot is None or not snapshot.filings:
-        return (
-            "evidence_insufficient",
-            "缺少底层成分股财报数据，无法判定长期逻辑。",
-            (),
-            tuple(gaps),
-        )
+    refined = _classify_constituent_gap(snapshot, asset_class)
+    if refined is not None and refined not in gaps:
+        gaps.append(refined)
 
-    pos, neg, total = _yoy_split(snapshot.filings)
-    if total == 0:
-        gaps.append("missing_constituent_snapshot")
-        return (
-            "evidence_insufficient",
-            "底层成分股最新财报缺少营收同比数据。",
-            (),
-            tuple(gaps),
-        )
+    # Path A: snapshot present and usable → constituent-driven thesis (authoritative)
+    if snapshot_usable:
+        pos, neg, total = _yoy_split(snapshot.filings)
+        if total == 0:
+            # Snapshot exists but no YoY data → fall through to theme_report path
+            gaps.append("missing_constituent_snapshot")
+        else:
+            if not snapshot.broker_reports:
+                gaps.append("missing_broker_coverage")
+            consensus = _broker_consensus(snapshot.broker_reports)
+            evidence = (
+                _filing_evidence(snapshot.filings)
+                + _broker_evidence(snapshot.broker_reports)
+                + _news_evidence(theme_report)
+            )
+            state, reason = _classify_state(pos / total, neg / total, consensus)
+            return (state, reason, evidence, tuple(gaps))
 
-    if not snapshot.broker_reports:
-        gaps.append("missing_broker_coverage")
-    consensus = _broker_consensus(snapshot.broker_reports)
+    # Path B: no usable snapshot → try theme_report-only thesis
+    if theme_report is not None and _theme_report_usable(theme_report):
+        state, reason, evidence = _thesis_from_theme_report(theme_report)
+        if state != "evidence_insufficient":
+            return state, reason, evidence, tuple(gaps)
 
-    evidence = (
-        _filing_evidence(snapshot.filings)
-        + _broker_evidence(snapshot.broker_reports)
-        + _news_evidence(theme_report)
+    return (
+        "evidence_insufficient",
+        "缺少底层成分股财报数据，且主题研究证据不足，无法判定长期逻辑。",
+        (),
+        tuple(gaps),
     )
-
-    state, reason = _classify_state(pos / total, neg / total, consensus)
-    return (state, reason, evidence, tuple(gaps))

@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-import yaml
+import duckdb
 
 from irc.config_loader import load_repo_configs
+from irc.data.freshness import require_fresh_ingest
+from irc.data.duckdb_helper import connect, ensure_schema
+from irc.opportunity.inputs_loader import populate_inputs
 from irc.io_utils import atomic_write_text
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import (
@@ -31,6 +34,7 @@ from irc.opportunity.types import (
 )
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
+from irc.research.theme_research import ThemeReport
 from irc.schemas.universe import Instrument, UniverseConfig
 
 
@@ -79,6 +83,7 @@ def _build_input(
     target_band: tuple[float, float] | None,
     portfolio_total_cny: float,
     available_venues: set[str],
+    con: duckdb.DuckDBPyConnection,
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -93,7 +98,7 @@ def _build_input(
         venue_ok = bool(set(instr.venue_required) & available_venues)
     else:
         venue_ok = True
-    return OpportunityInput(
+    skeleton = OpportunityInput(
         instrument_id=score_row.get("instrument_id", ""),
         asset_class=asset_class,
         market=market,
@@ -106,13 +111,14 @@ def _build_input(
         target_band_low=target_band[0] if target_band else None,
         target_band_high=target_band[1] if target_band else None,
         venue_compatible=venue_ok,
-        drawdown_since_entry=None,
-        valuation_percentile_self=None,
-        valuation_percentile_vs_benchmark=None,
-        expense_ratio=None,
-        aum_cny=None,
-        manager_tenure_years=None,
     )
+    entry_date: date | None = None
+    if holding is not None and holding.hold_since:
+        try:
+            entry_date = date.fromisoformat(holding.hold_since)
+        except ValueError:
+            pass  # Malformed date string; drawdown_since_entry will remain None
+    return populate_inputs(con, skeleton, holding_entry_date=entry_date)
 
 
 def _selection_quality_from(input_row: OpportunityInput) -> SelectionQuality:
@@ -152,6 +158,27 @@ def _discipline_row_from(
     )
 
 
+def _resolve_research_theme(
+    inp: OpportunityInput,
+    theme_reports: dict[str, ThemeReport],
+) -> ThemeReport | None:
+    """Map an instrument to its relevant research theme report."""
+    # Direct theme match first
+    if inp.theme and inp.theme in theme_reports:
+        return theme_reports[inp.theme]
+    # Asset-class based mapping
+    if inp.asset_class == "gold":
+        return theme_reports.get("gold_drivers")
+    if inp.asset_class == "cn_bond_fund":
+        return theme_reports.get("cn_monetary")
+    if inp.asset_class in ("us_etf", "hk_etf"):
+        return theme_reports.get("geopolitics")
+    # CN equity funds without a direct theme match → holdings_sector
+    if inp.asset_class == "cn_equity_fund":
+        return theme_reports.get("holdings_sector")
+    return None
+
+
 def _build_rows(
     scores: list[dict],
     instr_index: dict[str, Instrument],
@@ -162,6 +189,7 @@ def _build_rows(
     theme_reports: dict,
     root: Path,
     asset_class_targets: dict,
+    con: duckdb.DuckDBPyConnection,
 ) -> tuple[list[OpportunityRow], dict, dict, dict]:
     """Build opportunity rows for each score entry; return (rows, positions, qualities, roles)."""
     rows: list[OpportunityRow] = []
@@ -185,17 +213,16 @@ def _build_rows(
             score, instr, holding,
             target_band,
             portfolio_total_cny, available_venues,
+            con,
         )
         target_name = map_lookthrough(inp).display_cn
         if target_name not in snapshot_cache:
-            snapshot_cache[target_name] = load_latest_cached_snapshot(
-                target_name, root / "data"
-            )
+            snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
         row = build_opportunity_row(
             inp,
             theme_thesis or None,
             snapshot=snapshot_cache[target_name],
-            theme_report=theme_reports.get(inp.theme or ""),
+            theme_report=_resolve_research_theme(inp, theme_reports),
         )
         rows.append(row)
         positions[iid] = PositionContext(
@@ -301,6 +328,10 @@ def _write_opportunity_outputs(
 
 def run_opportunity(repo_root: str) -> int:
     root = Path(repo_root)
+    if not require_fresh_ingest(root, stage="opportunity"):
+        print("ERROR: opportunity stage halted — ingest is stale. "
+              "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
+        return 1
     bundle = load_repo_configs(root)
     today = _today()
     available_venues: set[str] = {
@@ -327,13 +358,19 @@ def run_opportunity(repo_root: str) -> int:
         h.cost_basis_cny for acc in bundle.account.accounts for h in acc.holdings
     )
     theme_reports = load_theme_reports(root)
-    rows, positions, qualities, roles = _build_rows(
-        scores, instr_index, holdings, portfolio_total_cny,
-        available_venues, theme_thesis, theme_reports, root,
-        bundle.preferences.asset_class_targets,
-    )
-    if rows:
-        _print_quality_warnings(rows)
-    kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
-    _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, root / "outputs" / today, today)
+    con = connect(root / "data" / "local.duckdb")
+    ensure_schema(con)
+    try:
+        rows, positions, qualities, roles = _build_rows(
+            scores, instr_index, holdings, portfolio_total_cny,
+            available_venues, theme_thesis, theme_reports, root,
+            bundle.preferences.asset_class_targets,
+            con,
+        )
+        if rows:
+            _print_quality_warnings(rows)
+        kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
+        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, root / "outputs" / today, today)
+    finally:
+        con.close()
     return 0

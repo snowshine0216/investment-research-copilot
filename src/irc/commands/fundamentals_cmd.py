@@ -2,7 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from irc.fundamentals.snapshot import build_snapshot, write_snapshot
+from irc.fundamentals.snapshot import (
+    build_snapshot,
+    registered_snapshot_targets,
+    write_snapshot,
+)
+
+
+def _expand_targets(targets: tuple[str, ...]) -> tuple[str, ...]:
+    stripped = tuple(t.strip() for t in targets if t.strip())
+    if not stripped:
+        return ()
+    expanded: list[str] = []
+    for target in stripped:
+        if target.lower() == "all":
+            expanded.extend(registered_snapshot_targets())
+        else:
+            expanded.append(target)
+    return tuple(dict.fromkeys(expanded))
 
 
 def run_snapshot_rebuild(
@@ -15,12 +32,13 @@ def run_snapshot_rebuild(
     Returns 0 for all completed runs (including those with failure_reasons).
     Returns 2 when no targets are specified.
     """
-    if not targets:
+    expanded_targets = _expand_targets(targets)
+    if not expanded_targets:
         print("ERROR: provide at least one --target for snapshot rebuild.")
         return 2
 
     root = Path(repo_root)
-    for target in targets:
+    for target in expanded_targets:
         snapshot = build_snapshot(target, top_n=top_n)
         path = write_snapshot(snapshot, root / "data")
         if snapshot.failure_reasons:

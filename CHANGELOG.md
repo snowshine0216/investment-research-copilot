@@ -5,7 +5,140 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.8.5.0] — 2026-05-17
+
+### Added
+- **Geopolitical stress from theme report:** `gold_cmd` now derives
+  `geopolitical_stress_0to1` from the persisted `geopolitics` theme report
+  written by `irc research`, replacing the prior hardcoded `0.4`. A new pure
+  helper `geopolitical_stress_from_theme_report` in
+  `src/irc/research/geopolitical_stress.py` tallies stress vs calm keyword
+  hits (EN + ZH) and applies a per-hit delta to the default, clipped to
+  [0, 1]. Degrades gracefully to 0.4 when the report is absent or failed, so
+  existing behavior is preserved in unconfigured environments.
+
+### Changed
+- **Remove venue_compatible downgrade gate:** `compose_opportunity_state` no longer
+  demotes instruments to `small_watch` when `venue_compatible=False`. Opportunity
+  state is now determined purely by valuation, heat, thesis, and product quality.
+  Venue information is still tracked in `gates.py` (`venue_status` field) for
+  reference but does not affect scoring. Updated test to reflect new behavior.
+
+### Fixed
+- **Decision gate: legacy file and empty-pool correctness.**
+  `compose_decision_report` now handles two edge cases in the traceability
+  coverage gate that previously caused silent block-all:
+  (a) on-disk `memo_traceability.json` written before the v0.8.4.0 schema
+  change (no `n_refs_quoted_verbatim` key) — treated as unverifiable rather
+  than narrative-only; (b) empty evidence pool (`n_refs_provided=0`) —
+  vacuous truth, memo cannot be faulted for missing citations.
+
+## [0.8.4.0] — 2026-05-16
+
+### Added
+- **`discovery_rejections.csv`:** Discovery now writes per-instrument rejection
+  records to `outputs/<date>/discovery_rejections.csv`. Covers three stages —
+  `hard_filter`, `quality_filter`, and `role_bucket` (no-role-match orphans) —
+  with multiple rejection reasons joined. Gives full traceability of why each
+  instrument was dropped before scoring.
+- **CSI sector indices in `_TARGET_REGISTRY`:** Ten sector targets registered
+  (半导体, 医药, 新能源, 消费, 金融, 军工, 有色金属, 房地产, 国企改革, 科技) so
+  sector-theme instruments can resolve to real constituent snapshots instead of
+  `evidence_insufficient`. Codes verified against AkShare.
+- **HK QDII targets in `_TARGET_REGISTRY`:** Four HK indices registered
+  (恒生指数, 恒生科技, 港股红利, 中概互联) with top-10 hardcoded holdings via
+  a new `hk_index` spec kind and `fetch_hk_index_constituents` adapter stub.
+- **US extras in `_TARGET_REGISTRY`:** 道琼斯, 美国50, 美股大盘 registered for
+  US lookthrough coverage.
+- **红利 sector target:** 000922 (中证红利) registered as an additional sector index.
+
+### Changed
+- **Sector proxy layer removed:** `sector_proxy.py` deleted; `opportunity_cmd`
+  now resolves sector themes via direct snapshot lookup using the expanded
+  registry, eliminating the broad-fallback approximation.
+- **`DiscoveryRunResult` extended:** Carries a `rejections` DataFrame field;
+  `discover_cmd` writes it to CSV alongside watchlist and diagnostics.
+
+## [0.8.3.0] — 2026-05-16
+
+### Added
+- **Typed EDGAR error codes:** `edgar_client` now returns one of six typed
+  constants (`EDGAR_ERROR_MISSING_EMAIL`, `EDGAR_ERROR_HTTP_4XX`,
+  `EDGAR_ERROR_HTTP_5XX`, `EDGAR_ERROR_NETWORK`, `EDGAR_ERROR_DECODE`,
+  `EDGAR_ERROR_CIK_MISS`) on every failure path instead of raw `None`.
+  The CIK integer parse path is now guarded against malformed SEC data.
+- **EDGAR error code propagation:** US fundamentals snapshot failures now tag
+  `ConstituentSnapshot.failure_reasons` with the typed error code from EDGAR,
+  making diagnostics visible in `evidence_gaps`.
+- **Sina fallback for SZSE index constituents:** `akshare_fundamentals` falls
+  back to Sina Finance when the CSI index API returns no data for 399xxx codes
+  (e.g. 创业板指), using the same parsing pipeline as the primary path.
+- **Refined `evidence_gaps` constituent labels:** `constituent_fetch_failed` is
+  now distinguished from `constituent_missing` by checking `failure_reasons`;
+  snapshots with no failure record but empty filings are correctly classified
+  as `constituent_missing` rather than a fetch failure.
+- **`constituent_not_applicable` label exported publicly:** `NON_INDEXABLE_ASSET_CLASSES`
+  is now a public constant in `thesis_evidence`; `states.py` imports the public
+  symbol instead of the private alias.
+
+### Fixed
+- **Memo TL;DR mode source:** `_derive_tldr_lines` now reads the trade-plan
+  `mode` field (e.g. `steady_accumulate`) from `plan.yaml` instead of the
+  allocation YAML, eliminating the "build" fallback that contradicted the
+  memo body on every run.
+- **Weak-link reason in `small_watch` state:** `compose_opportunity_state` now
+  threads the weakest classifier's reason into the `small_watch` catch-all,
+  making the evidence chain auditable.
+- **`asset_class` threading:** `opportunity_cmd` now passes `asset_class`
+  through to `derive_thesis_from_evidence` so non-indexable classes correctly
+  skip the constituent gap check.
+
+
+### Added
+- **DuckDB evidence wiring:** Opportunity inputs loader now queries DuckDB for
+  rolling returns, max drawdown, and percentile rank per instrument — populating
+  `evidence_returns` fields that drive valuation/heat decisions.
+- **Memo picks table:** Pre-rendered Markdown table of top picks with action
+  labels, deduplicated across allocation and trade plan sources. Inlined into
+  the LLM memo skeleton for grounded recommendations.
+- **Memo evidence pool:** Per-instrument numeric facts (1Y return, drawdown,
+  percentile) surfaced alongside thesis and valuation data in the LLM prompt.
+- **Sector proxy snapshots:** Instruments mapped to sector themes now fall back
+  to proxy snapshot data when no direct snapshot target exists.
+- **QDII lookthrough normalization:** QDII fund display names (标普500, 纳斯达克100)
+  now correctly map to registered snapshot targets.
+- **Theme-report-only thesis:** Instruments without a fundamentals snapshot can
+  still derive thesis state from research theme reports alone.
+
+### Changed
+- Memo reference budget widened from 200 to 400 characters per citation.
+- Opportunity command prints quality warnings when thesis or valuation coverage
+  falls below thresholds.
+
+## [0.8.1.0] — 2026-05-16
+
+### Fixed
+- **Eval discipline:** Every stage eval now returns `FAIL` (exit code 2) when its
+  input file is missing or unreadable, instead of the previous silent `PASS`.
+  Affects 12 runners: allocation, architecture, discovery, gold_score, memo,
+  news, opportunity, queries, research, scoring, trade_plan, triggers.
+- **Research pipeline halt:** The pipeline now stops at the research stage when
+  the quality gate fails (an entire locale dead, or success rate < 50%). Halt
+  reason and remediation are written to `outputs/<date>/PIPELINE_HALTED.md`.
+- **Search-provider visibility:** Every Tavily/Brave/Bocha/Jina failure is now
+  logged at `WARNING` (visible without `DEBUG=true`), and the research stage
+  prints a per-theme pass/fail summary at the end.
+- **Quality gate refactoring:** Split `evaluate_research_quality` into focused
+  helpers; wrap `FRESHNESS_DAYS_BY_THEME` as immutable `MappingProxyType`.
+- **Eval staleness check:** Research eval now warns when `research_status.json`
+  is older than 7 days.
+
+### Added
+- **Time-filtered search:** Theme queries now pass `freshness_days` per theme
+  (7-30 days) so providers return dated news articles instead of homepages.
+- **`eval --all` summary:** Prints per-stage and overall PASS/WARN/FAIL.
+- **All-target fundamentals snapshot:** `irc fundamentals snapshot --all` runs
+  every registered target in one invocation.
 
 ## [0.8.0.0] — 2026-05-15
 

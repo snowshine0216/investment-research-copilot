@@ -20,6 +20,7 @@ class StageReport:
     based_on: list[str]
     metrics: list[MetricReport]
     overall: str
+    notes: str = ""
     config_versions: dict[str, str] = field(default_factory=dict)
 
 

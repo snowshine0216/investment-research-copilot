@@ -6,6 +6,13 @@ from pathlib import Path
 
 import yaml
 
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.report_schema import MetricReport, StageReport, report_to_dict
 from evals._shared.status import classify_status, worst_status
 from evals.opportunity.metrics import (
@@ -59,13 +66,14 @@ def run(repo_root: Path) -> int:
     report_path, cards_path, md_path, date_str = _locate_inputs(root)
 
     if report_path is None:
-        empty = StageReport(
-            stage="opportunity", ran_at=datetime.now(_TZ).isoformat(),
-            based_on=[], metrics=[], overall="PASS",
+        report = missing_input_report(
+            stage="opportunity",
+            reason="no opportunity_report.json found — opportunity stage did not run",
+            based_on_path=None,
         )
-        _write(root, empty, date_str)
-        print(f"opportunity eval: PASS (no input file)")
-        return 0
+        write_missing_input_report(root, report)
+        print(f"opportunity eval: {report.overall} (no input file)")
+        return EVAL_RC_FAIL
 
     rows = json.loads(report_path.read_text(encoding="utf-8")).get("rows", [])
     cards = (
@@ -119,7 +127,7 @@ def run(repo_root: Path) -> int:
     )
     _write(root, report, date_str)
     print(f"opportunity eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
 
 def _write(repo_root: Path, report: StageReport, date_str: str) -> None:

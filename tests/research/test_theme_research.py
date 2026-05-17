@@ -209,3 +209,70 @@ def test_build_theme_reports_captures_provider_failures():
 
     assert len(reports) == 1
     assert "failing: timeout" in reports[0].provider_failures
+
+
+# --- Task 6: freshness_days test ---
+
+from dataclasses import dataclass as _dc, field as dc_field
+
+
+@_dc
+class _RecordingProvider:
+    name: str = "tavily"
+    locale: Locale = None  # type: ignore[assignment]
+    seen: list = dc_field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if self.locale is None:
+            self.locale = Locale.EN
+
+    def search(
+        self,
+        query: str,
+        *,
+        max_results: int = 10,
+        freshness_days: int | None = None,
+        include_domains: tuple = (),
+        **_,
+    ) -> SearchResult:
+        self.seen.append({"query": query, "freshness_days": freshness_days})
+        return SearchResult(query=query, locale=self.locale, provider=self.name)
+
+
+class _NoopExtractor:
+    name = "noop"
+
+    def extract(self, url: str, *, timeout_s: int = 20) -> ExtractedPage:
+        return ExtractedPage(
+            url=url, title="", markdown="x",
+            fetched_at_iso="2026-05-15T00:00:00+00:00",
+        )
+
+
+def test_build_theme_reports_passes_freshness_per_theme(monkeypatch):
+    from irc.research import theme_research
+    from irc.research.theme_research import FRESHNESS_DAYS_BY_THEME, build_theme_reports
+
+    monkeypatch.setattr(
+        theme_research, "synthesize_report",
+        lambda **kw: type("R", (), {"report_md": "", "citations": [], "failure_reason": ""})(),
+    )
+
+    provider = _RecordingProvider()
+    build_theme_reports(
+        themes=("us_monetary", "gold_drivers"),
+        providers=(provider,),
+        extractor=_NoopExtractor(),
+        route=object(),
+    )
+
+    by_query = {call["query"]: call["freshness_days"] for call in provider.seen}
+    us_query = "What did the Fed say or do this past week? Cite primary sources."
+    gold_query = (
+        "Recent moves in real yields, USD, central bank gold purchases, ETF flows; "
+        "cite primary sources."
+    )
+    assert by_query.get(us_query) == 7, f"us_monetary freshness wrong, got: {by_query}"
+    assert by_query.get(gold_query) == FRESHNESS_DAYS_BY_THEME["gold_drivers"], (
+        f"gold_drivers freshness wrong, got: {by_query}"
+    )

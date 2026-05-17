@@ -3,6 +3,13 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import json
 from irc.io_utils import atomic_write_text
+from evals._shared.missing_input import (
+    EVAL_RC_FAIL,
+    EVAL_RC_PASS,
+    EVAL_RC_WARN,
+    missing_input_report,
+    write_missing_input_report,
+)
 from evals._shared.status import classify_status, worst_status
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.allocation.metrics import (
@@ -24,10 +31,14 @@ _CORR_TH = {"warn_above": 0.8, "fail_above": 0.95}
 def run(repo_root: Path) -> int:
     alloc_file = repo_root / "outputs" / "allocation" / "allocation.json"
     if not alloc_file.exists():
-        report = _pass_report()
-        _write(repo_root, report)
+        report = missing_input_report(
+            stage="allocation",
+            reason="outputs/allocation/allocation.json is missing — allocation stage did not run",
+            based_on_path="outputs/allocation/allocation.json",
+        )
+        write_missing_input_report(repo_root, report)
         print(f"allocation eval: {report.overall} (no input file)")
-        return 0
+        return EVAL_RC_FAIL
 
     data: dict = json.loads(alloc_file.read_text(encoding="utf-8"))
 
@@ -91,14 +102,8 @@ def run(repo_root: Path) -> int:
     )
     _write(repo_root, report)
     print(f"allocation eval: {overall}")
-    return 0 if overall == "PASS" else (1 if overall == "WARN" else 2)
+    return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
 
-
-def _pass_report() -> StageReport:
-    return StageReport(
-        stage="allocation", ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[], metrics=[], overall="PASS",
-    )
 
 
 def _write(repo_root: Path, report: StageReport) -> None:

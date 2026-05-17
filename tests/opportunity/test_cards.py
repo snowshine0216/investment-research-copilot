@@ -72,6 +72,12 @@ def test_card_propagates_evidence_gaps():
     assert card.evidence_gaps == ("valuation", "product_quality")
 
 
+def test_card_propagates_expected_omissions():
+    row = _row(expected_omissions=("constituent_not_applicable",))
+    card = build_thesis_card(row=row, position=_pos(), role="x", entry_reason="x")
+    assert card.expected_omissions == ("constituent_not_applicable",)
+
+
 def test_card_propagates_thesis_evidence():
     """Thesis-evidence citations from the OpportunityRow should reach the card."""
     evidence = (

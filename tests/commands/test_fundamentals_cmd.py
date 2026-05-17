@@ -45,6 +45,52 @@ def test_snapshot_rebuild_builds_and_writes_each_target(tmp_path: Path) -> None:
     assert mock_write.call_args.args[1] == tmp_path / "data"
 
 
+def test_snapshot_rebuild_target_all_expands_registered_targets(tmp_path: Path) -> None:
+    output_path = tmp_path / "data" / "fundamentals" / "2026Q1" / "沪深300.json"
+    with patch(
+        "irc.commands.fundamentals_cmd.registered_snapshot_targets",
+        return_value=("沪深300", "中证500"),
+    ), patch(
+        "irc.commands.fundamentals_cmd.build_snapshot",
+        side_effect=lambda target, *, top_n: _snapshot(target),
+    ) as mock_build, patch(
+        "irc.commands.fundamentals_cmd.write_snapshot",
+        return_value=output_path,
+    ) as mock_write:
+        rc = run_snapshot_rebuild(
+            repo_root=str(tmp_path),
+            targets=("all",),
+            top_n=5,
+        )
+
+    assert rc == 0
+    assert [call.args[0] for call in mock_build.call_args_list] == ["沪深300", "中证500"]
+    assert [call.kwargs for call in mock_build.call_args_list] == [{"top_n": 5}, {"top_n": 5}]
+    assert mock_write.call_count == 2
+
+
+def test_snapshot_rebuild_target_all_deduplicates_explicit_targets(tmp_path: Path) -> None:
+    output_path = tmp_path / "data" / "fundamentals" / "2026Q1" / "沪深300.json"
+    with patch(
+        "irc.commands.fundamentals_cmd.registered_snapshot_targets",
+        return_value=("沪深300", "中证500"),
+    ), patch(
+        "irc.commands.fundamentals_cmd.build_snapshot",
+        side_effect=lambda target, *, top_n: _snapshot(target),
+    ) as mock_build, patch(
+        "irc.commands.fundamentals_cmd.write_snapshot",
+        return_value=output_path,
+    ):
+        rc = run_snapshot_rebuild(
+            repo_root=str(tmp_path),
+            targets=("沪深300", "all", "中证500"),
+            top_n=3,
+        )
+
+    assert rc == 0
+    assert [call.args[0] for call in mock_build.call_args_list] == ["沪深300", "中证500"]
+
+
 def test_snapshot_rebuild_warns_but_completes_when_snapshot_has_failures(tmp_path: Path) -> None:
     failed_snapshot = ConstituentSnapshot(
         lookthrough_target="未知指数",

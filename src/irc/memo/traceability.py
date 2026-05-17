@@ -1,32 +1,29 @@
 from __future__ import annotations
 
 
-def _tokenize_ref(ref: str) -> set[str]:
-    parts: list[str] = []
-    for chunk in ref.replace(":", " ").replace("-", " ").split():
-        if len(chunk) >= 3:
-            parts.append(chunk.lower())
-    return set(parts)
+def check_traceability(
+    memo_text: str, raw_refs: tuple[str, ...] | list[str],
+) -> dict[str, int]:
+    """Count refs that the memo quotes verbatim.
 
+    Reports:
+      - n_refs_provided: how many evidence strings the synthesizer was given.
+      - n_refs_quoted_verbatim: how many of those strings appear as an exact
+        substring of the memo text (case-sensitive — refs are typically
+        identifiers / quoted snippets, not free prose).
+      - n_refs: back-compat alias for n_refs_provided (some downstream tools
+        still read this key).
 
-def _ref_match_score(ref: str, memo_lower: str) -> float:
-    tokens = _tokenize_ref(ref)
-    if not tokens:
-        return 0.0
-    hit = sum(1 for t in tokens if t in memo_lower)
-    return hit / len(tokens)
-
-
-def check_traceability(memo_text: str, raw_refs: tuple[str, ...] | list[str]) -> dict[str, float]:
-    """Coverage ratio = fraction of refs whose tokens substantially appear in memo.
-    A ref counts as "covered" when ≥0.6 of its meaningful tokens are present.
+    We do NOT compute a coverage_ratio. Paraphrased citations were silently
+    scored 0 by the previous token-overlap heuristic, especially for Chinese
+    text, which made the ratio actively misleading. Reporting raw counts
+    lets the reader judge for themselves.
     """
-    if not raw_refs:
-        return {"coverage_ratio": 1.0, "n_refs": 0.0, "n_covered": 0.0}
-    memo_lower = memo_text.lower()
-    covered = sum(1 for ref in raw_refs if _ref_match_score(ref, memo_lower) >= 0.6)
+    refs_tuple = tuple(raw_refs)
+    n_provided = len(refs_tuple)
+    n_quoted = sum(1 for ref in refs_tuple if ref and ref in memo_text)
     return {
-        "coverage_ratio": covered / len(raw_refs),
-        "n_refs": float(len(raw_refs)),
-        "n_covered": float(covered),
+        "n_refs_provided": n_provided,
+        "n_refs_quoted_verbatim": n_quoted,
+        "n_refs": n_provided,
     }

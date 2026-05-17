@@ -272,14 +272,13 @@ def test_build_opportunity_row_no_structural_gaps_when_metrics_present():
     assert structural.isdisjoint(set(row.evidence_gaps))
 
 
-def test_venue_incompatible_demotes_core_dca_to_small_watch():
-    """Issue 1 fix: venue_compatible=False must not produce core_dca."""
-    state, reason = compose_opportunity_state(
+def test_venue_incompatible_does_not_block_core_dca():
+    """venue_compatible=False no longer downgrades opportunity state; core_dca is still returned."""
+    state, _ = compose_opportunity_state(
         valuation="cheap", heat="cold", thesis="intact",
         product_quality="acceptable", venue_compatible=False,
     )
-    assert state == "small_watch"
-    assert "渠道" in reason or "观察" in reason
+    assert state == "core_dca"
 
 
 def test_venue_incompatible_does_not_affect_exclude():
@@ -296,6 +295,86 @@ def test_heat_gap_added_when_only_one_heat_input():
     inp = _make(theme="semiconductor", ret_3m=0.05)  # only 1 of 6 heat signals
     row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
     assert "missing_flow_or_return_data" in row.evidence_gaps
+
+
+# ---------------------------------------------------------------------------
+# Weak-link label in the catch-all small_watch reason
+# ---------------------------------------------------------------------------
+
+
+from irc.opportunity.states import build_opportunity_row, compose_opportunity_state
+
+
+def test_compose_small_watch_reason_names_weak_product_quality():
+    state, reason = compose_opportunity_state(
+        valuation="reasonable_low",
+        heat="cold",
+        thesis="intact",
+        product_quality="weak",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "产品质量薄弱" in reason
+    assert reason.endswith("列入小仓位观察。")
+
+
+def test_compose_small_watch_reason_names_weak_thesis():
+    state, reason = compose_opportunity_state(
+        valuation="fair",
+        heat="normal",
+        thesis="evidence_insufficient",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "主题逻辑证据不足" in reason
+
+
+def test_compose_small_watch_reason_names_missing_valuation():
+    state, reason = compose_opportunity_state(
+        valuation="evidence_insufficient",
+        heat="normal",
+        thesis="intact",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "估值数据缺失" in reason
+
+
+def test_compose_small_watch_reason_falls_back_on_conflict():
+    """No single sub-state is weakest → generic 'signal conflict' label."""
+    state, reason = compose_opportunity_state(
+        valuation="fair",
+        heat="normal",
+        thesis="intact",
+        product_quality="acceptable",
+        venue_compatible=True,
+    )
+    assert state == "small_watch"
+    assert "信号方向冲突" in reason
+
+
+def test_build_opportunity_row_passes_asset_class_to_thesis_evidence():
+    """A gold instrument with no snapshot picks up the refined label in expected_omissions."""
+    from irc.opportunity.types import OpportunityInput
+
+    inp = OpportunityInput(
+        instrument_id="518880",
+        asset_class="gold",
+        market="cn_on_exchange",
+        valuation_percentile_self=0.95,
+        ret_1m=0.04,
+        ret_3m=0.05,
+    )
+    row = build_opportunity_row(
+        inp,
+        theme_thesis=None,
+        snapshot=None,
+        theme_report=None,
+    )
+    assert "constituent_not_applicable" not in row.evidence_gaps
+    assert "constituent_not_applicable" in row.expected_omissions
 
 
 # ---------------------------------------------------------------------------
@@ -355,3 +434,38 @@ def test_build_opportunity_row_marks_missing_snapshot_gap_when_table_used():
     inp = _make_full_input()
     row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
     assert "missing_constituent_snapshot" in row.evidence_gaps
+
+
+# ---------------------------------------------------------------------------
+# expected_omissions partition tests
+# ---------------------------------------------------------------------------
+
+from irc.opportunity.states import EXPECTED_OMISSION_CODES
+
+
+def _gold_input(**over):
+    base = dict(
+        instrument_id="518880", name_cn="黄金ETF", asset_class="gold",
+        market="cn_on_exchange",
+    )
+    base.update(over)
+    return OpportunityInput(**base)
+
+
+def test_constituent_not_applicable_lives_in_expected_omissions_for_gold():
+    inp = _gold_input()
+    row = build_opportunity_row(inp, theme_thesis=None, snapshot=None, theme_report=None)
+    assert "constituent_not_applicable" not in row.evidence_gaps
+    assert "constituent_not_applicable" in row.expected_omissions
+
+
+def test_real_gaps_stay_in_evidence_gaps_for_indexable_asset_class():
+    inp = _gold_input(asset_class="cn_etf", theme="broad")  # indexable
+    row = build_opportunity_row(inp, theme_thesis=None, snapshot=None, theme_report=None)
+    # For an indexable asset_class with no snapshot, 'constituent_missing' is a real gap
+    assert "constituent_not_applicable" not in row.expected_omissions
+    assert "constituent_not_applicable" not in row.evidence_gaps
+
+
+def test_expected_omission_codes_constant_documented():
+    assert "constituent_not_applicable" in EXPECTED_OMISSION_CODES

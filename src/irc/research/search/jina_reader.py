@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from datetime import datetime, timezone
 
 import httpx
@@ -7,6 +8,7 @@ from irc.research.search.types import ExtractedPage
 
 
 _BASE = "https://r.jina.ai"
+_log = logging.getLogger(__name__)
 
 
 class JinaReader:
@@ -23,6 +25,12 @@ class JinaReader:
         self._api_key = api_key
         self._timeout_s = timeout_s
 
+    def _fail(self, *, url: str, now: str, reason: str) -> ExtractedPage:
+        _log.warning("jina_reader failed on %s: %s", url, reason)
+        return ExtractedPage(
+            url=url, title="", markdown="", fetched_at_iso=now, failure_reason=reason,
+        )
+
     def extract(self, url: str, *, timeout_s: int = 20) -> ExtractedPage:
         headers = {"Accept": "application/json"}
         if self._api_key:
@@ -35,39 +43,21 @@ class JinaReader:
                 timeout=timeout_s or self._timeout_s,
             )
         except httpx.TimeoutException as exc:
-            return ExtractedPage(
-                url=url, title="", markdown="", fetched_at_iso=now,
-                failure_reason=f"timeout: {exc}",
-            )
+            return self._fail(url=url, now=now, reason=f"timeout: {exc}")
         except httpx.HTTPError as exc:
-            return ExtractedPage(
-                url=url, title="", markdown="", fetched_at_iso=now,
-                failure_reason=f"http error: {exc}",
-            )
+            return self._fail(url=url, now=now, reason=f"http error: {exc}")
         if resp.status_code != 200:
-            return ExtractedPage(
-                url=url, title="", markdown="", fetched_at_iso=now,
-                failure_reason=f"http {resp.status_code}: {resp.text[:200]}",
-            )
+            return self._fail(url=url, now=now, reason=f"http {resp.status_code}: {resp.text[:200]}")
         try:
             body = resp.json()
         except ValueError as exc:
-            return ExtractedPage(
-                url=url, title="", markdown="", fetched_at_iso=now,
-                failure_reason=f"invalid JSON: {exc}",
-            )
+            return self._fail(url=url, now=now, reason=f"invalid JSON: {exc}")
         data = body.get("data")
         if not isinstance(data, dict):
-            return ExtractedPage(
-                url=url, title="", markdown="", fetched_at_iso=now,
-                failure_reason="missing 'data' object in response",
-            )
+            return self._fail(url=url, now=now, reason="missing 'data' object in response")
         content = data.get("content", "") or ""
         if not content:
-            return ExtractedPage(
-                url=url, title=data.get("title", "") or "", markdown="",
-                fetched_at_iso=now, failure_reason="empty content",
-            )
+            return self._fail(url=url, now=now, reason="empty content")
         return ExtractedPage(
             url=data.get("url", url) or url,
             title=data.get("title", "") or "",

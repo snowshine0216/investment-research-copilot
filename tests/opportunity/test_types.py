@@ -113,3 +113,25 @@ def test_thesis_card_defaults_immutable_collections():
     )
     assert isinstance(card.falsification_triggers, tuple)
     assert isinstance(card.do_not_sell_just_because, tuple)
+
+
+def _row(**over):
+    base = dict(
+        instrument_id="X", name_cn="X", asset_class="gold", theme=None,
+        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        valuation_state="neutral", heat_state="neutral", thesis_state="evidence_insufficient",
+        product_quality_state="ok", opportunity_state="small_watch", opportunity_reason="r",
+        evidence_gaps=(),
+    )
+    base.update(over)
+    return OpportunityRow(**base)
+
+
+def test_opportunity_row_has_expected_omissions_default_empty():
+    r = _row()
+    assert r.expected_omissions == ()
+
+
+def test_opportunity_row_accepts_expected_omissions_kwarg():
+    r = _row(expected_omissions=("constituent_not_applicable",))
+    assert r.expected_omissions == ("constituent_not_applicable",)

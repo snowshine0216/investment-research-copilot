@@ -1,5 +1,7 @@
 from __future__ import annotations
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 
 from irc.llm._types import ResolvedRoute
 from irc.research.search.dispatch import (
@@ -43,6 +45,17 @@ _THEME_QUERIES: dict[str, str] = {
     "holdings_sector": "用户组合涉及行业的最新新闻和研报要点，附原始出处。",
 }
 
+FRESHNESS_DAYS_BY_THEME: Mapping[str, int] = MappingProxyType({
+    "us_monetary": 7,
+    "us_fiscal_politics": 7,
+    "cn_monetary": 7,
+    "cn_equity_property_policy": 14,
+    "geopolitics": 7,
+    "gold_drivers": 30,
+    "holdings_sector": 14,
+})
+_DEFAULT_FRESHNESS_DAYS = 14
+
 _LOCALE_BY_PREFIX: tuple[tuple[str, Locale], ...] = (
     ("us_", Locale.EN),
     ("gold", Locale.EN),
@@ -74,6 +87,7 @@ def _build_one(
     route: ResolvedRoute,
     max_hits: int,
     top_pages: int,
+    freshness_days: int = _DEFAULT_FRESHNESS_DAYS,
 ) -> ThemeReport:
     try:
         matched = providers_for_locale(locale, providers)
@@ -83,7 +97,7 @@ def _build_one(
             report_md="", citations=[], failure_reason=str(exc),
             provider_failures=(),
         )
-    raw_results = provider_results(query, locale, matched, max_results=max_hits)
+    raw_results = provider_results(query, locale, matched, max_results=max_hits, freshness_days=freshness_days)
     failures = tuple(
         f"{r.provider}: {r.failure_reason}"
         for r in raw_results
@@ -129,5 +143,6 @@ def build_theme_reports(
             route=route,
             max_hits=max_hits,
             top_pages=top_pages,
+            freshness_days=FRESHNESS_DAYS_BY_THEME.get(theme, _DEFAULT_FRESHNESS_DAYS),
         ))
     return out
