@@ -13,6 +13,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from irc.config_loader import load_repo_configs
 from irc.data.akshare_client import (
+    _is_transient_network_error,
     fetch_etf_metadata_em,
     fetch_fund_metadata,
     fetch_fund_nav_history,
@@ -22,6 +23,7 @@ from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
 from irc.instrument_kind import requires_manager_tenure as _is_active_fund
+from irc.pipeline_halt import HaltReason
 
 _log = logging.getLogger(__name__)
 
@@ -366,6 +368,42 @@ def _upsert_nav(con, instrument_id: str, df: pd.DataFrame) -> int:
             params,
         )
     return len(params)
+
+
+def _preflight_call() -> None:
+    """One cheap akshare call exercising the HTTP pathway. Overridable in tests.
+
+    Uses 510300 (CSI300 ETF) as the canary symbol — it is one of the oldest
+    and most stable funds, so a successful return implies broad akshare
+    reachability. We discard the returned frame; only the network outcome
+    matters here.
+    """
+    fetch_fund_nav_history("510300")
+
+
+def _ingest_preflight() -> HaltReason | None:
+    """Run the preflight canary. Returns a HaltReason on failure, None on success.
+
+    KeyboardInterrupt and SystemExit propagate (BaseException, not Exception).
+    """
+    try:
+        _preflight_call()
+        return None
+    except Exception as exc:  # noqa: BLE001 — we re-classify below
+        first_error = f"{type(exc).__name__}: {exc}"
+        if _is_transient_network_error(exc):
+            return HaltReason(
+                kind="akshare_unreachable",
+                stage="ingest",
+                detail="preflight canary failed with a transient network error",
+                first_error=first_error,
+            )
+        return HaltReason(
+            kind="akshare_error",
+            stage="ingest",
+            detail="preflight canary raised a non-network exception",
+            first_error=first_error,
+        )
 
 
 def run_ingest(repo_root: str) -> int:

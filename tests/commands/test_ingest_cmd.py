@@ -864,3 +864,49 @@ def test_is_missing_with_none_nan_and_value() -> None:
     assert _is_missing(float("nan")) is True
     assert _is_missing(1.0) is False
     assert _is_missing("hello") is False
+
+
+# ---------------------------------------------------------------------------
+# _ingest_preflight tests
+# ---------------------------------------------------------------------------
+from irc.commands.ingest_cmd import _ingest_preflight
+from irc.pipeline_halt import HaltReason
+
+
+def test_preflight_returns_none_on_success(monkeypatch):
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd._preflight_call",
+        lambda: None,
+    )
+    assert _ingest_preflight() is None
+
+
+def test_preflight_returns_unreachable_on_transient_error(monkeypatch):
+    def boom() -> None:
+        raise ConnectionResetError("[Errno 54] Connection reset by peer")
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", boom)
+    reason = _ingest_preflight()
+    assert isinstance(reason, HaltReason)
+    assert reason.kind == "akshare_unreachable"
+    assert reason.stage == "ingest"
+    assert "Connection reset" in (reason.first_error or "")
+
+
+def test_preflight_returns_error_on_non_transient_exception(monkeypatch):
+    def boom() -> None:
+        raise ValueError("unexpected schema: missing column 'nav'")
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", boom)
+    reason = _ingest_preflight()
+    assert isinstance(reason, HaltReason)
+    assert reason.kind == "akshare_error"
+    assert "unexpected schema" in (reason.first_error or "")
+
+
+def test_preflight_returns_unexpected_on_baseexception(monkeypatch):
+    def boom() -> None:
+        raise KeyboardInterrupt()
+    monkeypatch.setattr("irc.commands.ingest_cmd._preflight_call", boom)
+    # KeyboardInterrupt should NOT be caught — it must propagate.
+    import pytest
+    with pytest.raises(KeyboardInterrupt):
+        _ingest_preflight()
