@@ -233,3 +233,49 @@ def test_pipeline_incomplete_just_above_50_percent_missing() -> None:
     # 3/4 = 75% > 0.5 → incomplete
     assert report["pipeline_incomplete"] is True
     assert "pipeline_halted" in report["blocking_reasons"]
+
+
+# ---------------------------------------------------------------------------
+# Coverage gate: legacy schema, vacuous truth, and narrative_only cases
+# ---------------------------------------------------------------------------
+
+def test_coverage_vacuous_truth_when_no_refs_provided() -> None:
+    """n_refs_provided=0 (empty evidence pool) must not block via memo_narrative_only."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"n_refs_provided": 0, "n_refs_quoted_verbatim": 0, "n_refs": 0},
+        pipeline_halted=False,
+    )
+    assert report["overall_status"] == "ok"
+    assert "memo_narrative_only" not in report["blocking_reasons"]
+
+
+def test_coverage_legacy_schema_does_not_block() -> None:
+    """Legacy memo_traceability.json (no n_refs_quoted_verbatim key) must not block decisions."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"coverage_ratio": 0.0, "n_refs": 1.0, "n_covered": 0.0},
+        pipeline_halted=False,
+    )
+    assert report["overall_status"] == "ok"
+    assert "memo_narrative_only" not in report["blocking_reasons"]
+
+
+def test_coverage_narrative_only_when_refs_provided_but_none_quoted() -> None:
+    """Refs provided but none quoted verbatim → memo_narrative_only → blocked."""
+    report = compose_decision_report(
+        date="2026-05-11",
+        scoring={"scores": [{"instrument_id": "050025", "asset_class": "us_etf", "action": "buy_candidate", "conviction": "med", "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [{"instrument_id": "050025", "target_weight": 1.0}], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [{"target": "050025", "venue_compatible": True, "proxy_id": None}]},
+        memo_traceability={"n_refs_provided": 3, "n_refs_quoted_verbatim": 0, "n_refs": 3},
+        pipeline_halted=False,
+    )
+    assert "memo_narrative_only" in report["blocking_reasons"]
+    assert report["overall_status"] == "blocked"

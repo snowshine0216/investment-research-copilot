@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5.0] — 2026-05-17
+
+### Added
+- **Geopolitical stress from theme report:** `gold_cmd` now derives
+  `geopolitical_stress_0to1` from the persisted `geopolitics` theme report
+  written by `irc research`, replacing the prior hardcoded `0.4`. A new pure
+  helper `geopolitical_stress_from_theme_report` in
+  `src/irc/research/geopolitical_stress.py` tallies stress vs calm keyword
+  hits (EN + ZH) and applies a per-hit delta to the default, clipped to
+  [0, 1]. Degrades gracefully to 0.4 when the report is absent or failed, so
+  existing behavior is preserved in unconfigured environments.
+
+### Fixed
+- **Decision gate: legacy file and empty-pool correctness.**
+  `compose_decision_report` now handles two edge cases in the traceability
+  coverage gate that previously caused silent block-all:
+  (a) on-disk `memo_traceability.json` written before the v0.8.4.0 schema
+  change (no `n_refs_quoted_verbatim` key) — treated as unverifiable rather
+  than narrative-only; (b) empty evidence pool (`n_refs_provided=0`) —
+  vacuous truth, memo cannot be faulted for missing citations.
+
 ## [0.8.4.0] — 2026-05-16
 
 ### Added

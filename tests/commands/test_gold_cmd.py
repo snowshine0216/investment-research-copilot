@@ -38,3 +38,32 @@ def test_gold_writes_regime_and_band(repo_with_gold_data: Path):
     out_dir = next(p for p in (repo_with_gold_data / "outputs").iterdir())
     assert (out_dir / "gold_regime.json").exists()
     assert (out_dir / "gold_band.yaml").exists()
+
+
+def test_gold_uses_geopolitical_stress_from_theme_report(monkeypatch, repo_with_gold_data: Path):
+    """When a stressful geopolitics theme report exists in data/research/,
+    gold_cmd uses a stress score above the hardcoded 0.4 default."""
+    from irc.research.theme_research import ThemeReport
+
+    captured: dict[str, float] = {}
+    stress_report = ThemeReport(
+        theme="geopolitics", query="q", locale="en",
+        report_md="war war sanction tariff strike conflict",
+        citations=[], failure_reason="",
+    )
+
+    monkeypatch.setattr(
+        "irc.commands.gold_cmd.load_theme_reports",
+        lambda root: {"geopolitics": stress_report},
+    )
+
+    def capture_score(inputs, cfg):
+        captured["stress"] = inputs.geopolitical_stress_0to1
+        from irc.scoring.gold_score import compute_gold_score as real_fn
+        return real_fn(inputs, cfg)
+
+    monkeypatch.setattr("irc.commands.gold_cmd.compute_gold_score", capture_score)
+
+    rc = run_gold(repo_root=str(repo_with_gold_data))
+    assert rc == 0
+    assert captured["stress"] > 0.4

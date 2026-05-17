@@ -32,6 +32,8 @@ Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 - [ ] **`reduce_same_index` per-index backup not in default pipeline**: `reduce_same_theme` Stage 1 keeps only one best representative per index key (no backup). `reduce_same_index` in `selection.py` is available for callers that need primary+backup, but is not wired into `run_opportunity`. Evaluate whether exposing a backup per-index improves display or fallback logic. (code-review 2026-05-14)
 - [ ] **`_bucket_rows` silent fallback on unknown `dca_action`**: unknown values silently land in "今日可定投" via `.get(..., default)`. Add a log warning or raise `KeyError` to surface new `dca_action` values that are missing from `_DCA_BUCKET`. (code-review 2026-05-14)
 - [ ] **`demote_unstable_active` treats `theme=None` as a shared bucket**: all instruments with `theme=None` share one passive-quality bucket; a single unrelated passive instrument can demote every active fund that also has `theme=None`. Guard with `if r.theme is None: continue` in the best-passive scan, or treat `None` as unmatched. (adversarial-review 2026-05-15)
+- [ ] **Verbatim traceability check is LLM-whitespace-sensitive**: `ref in memo_text` requires exact substring match; LLM models (especially CN-routed) may insert soft line breaks or normalize whitespace, causing legitimate citations to score 0. Consider normalizing both sides before comparison, or treating this as a known false-negative. (adversarial-review 2026-05-17 INVESTIGATE)
+- [ ] **`geopolitical_stress` "strike" token false-positive**: `"strike"` matches financial "strike price" contexts. Low severity; acceptable given the intentionally-simple design. Revisit if score quality degrades. (adversarial-review 2026-05-17 INVESTIGATE)
 
 ## Completed
 
@@ -52,6 +54,9 @@ Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 - [x] **`tracking_error` stub**: rolling TE vs role benchmark now live in `discovery/metrics`. **Completed:** v0.5.0.0 (2026-05-11)
 - [x] **2/6 gold score drivers hardcoded**: `cb_purchases` + `etf_holdings_30d` wired from WGC CSV. **Completed:** v0.5.0.0 (2026-05-11)
 - [x] **`traceability.py` exact-copy lower bound**: replaced with token-based fuzzy coverage. **Completed:** v0.5.0.0 (2026-05-11)
+- [x] **`traceability.py` misleading coverage_ratio**: token-overlap heuristic wrong for CN text; replaced with verbatim-count schema (`n_refs_provided`, `n_refs_quoted_verbatim`). **Completed:** v0.8.4.0 (2026-05-17) — PR #19.
+- [x] **Decision gate: legacy schema and empty-pool block-all**: `compose_decision_report` now handles legacy `memo_traceability.json` (no `n_refs_quoted_verbatim` key) and empty evidence pool (`n_refs_provided=0`) without silently blocking all decisions. **Completed:** v0.8.5.0 (2026-05-17)
+- [x] **`geopolitical_stress_0to1` hardcoded at 0.4**: wired from persisted `geopolitics` theme report via `geopolitical_stress_from_theme_report`. Degrades to 0.4 when report absent or failed. **Completed:** v0.8.5.0 (2026-05-17)
 - [x] **Mixed-date fallback in memo**: warn when scoring/gold/allocation inputs span mixed dates. **Completed:** v0.5.0.0 (2026-05-11)
 - [x] **Sequential LLM calls in scoring**: parallelized with `ThreadPoolExecutor`. **Completed:** v0.3.0.0 (2026-05-08)
 - [x] **`ingest` aborts on single instrument failure**: changed to skip-and-warn. **Completed:** v0.3.0.0 (2026-05-08)
