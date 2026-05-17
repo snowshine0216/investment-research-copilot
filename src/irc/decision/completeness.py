@@ -18,6 +18,52 @@ REQUIRED_METRIC_FIELDS: tuple[str, ...] = (
 
 MIN_BUY_COMPLETENESS: float = 0.80
 
+# Per-asset-class required metric subsets. Universally dropped:
+#   - aum_stability_pct (we do not yet ingest a multi-period AUM history —
+#     see metrics_loader.py:54). Keeping it as "required" would bias completeness
+#     down across every instrument; honest drop until the data lands.
+# Asset-class-specific drops:
+#   - holdings_concentration_top10: dropped for index ETFs (the benchmark
+#     dictates concentration, not the fund) and for bond/gold (no equity-style
+#     top-10). Kept for active equity funds.
+#   - downside_capture: dropped for bonds and gold (different reference market;
+#     the computed value is not semantically meaningful).
+_FULL_MINUS_AUM_STABILITY: tuple[str, ...] = tuple(
+    f for f in REQUIRED_METRIC_FIELDS if f != "aum_stability_pct"
+)
+
+REQUIRED_METRICS_BY_ASSET_CLASS: Mapping[str, tuple[str, ...]] = {
+    "cn_equity_fund": _FULL_MINUS_AUM_STABILITY,
+    "cn_etf": tuple(
+        f for f in _FULL_MINUS_AUM_STABILITY if f != "holdings_concentration_top10"
+    ),
+    "us_etf": tuple(
+        f for f in _FULL_MINUS_AUM_STABILITY if f != "holdings_concentration_top10"
+    ),
+    "hk_etf": tuple(
+        f for f in _FULL_MINUS_AUM_STABILITY if f != "holdings_concentration_top10"
+    ),
+    "cn_bond_fund": tuple(
+        f for f in _FULL_MINUS_AUM_STABILITY
+        if f not in ("holdings_concentration_top10", "downside_capture")
+    ),
+    "gold": tuple(
+        f for f in _FULL_MINUS_AUM_STABILITY
+        if f not in ("holdings_concentration_top10", "downside_capture")
+    ),
+}
+
+
+def required_for_asset_class(asset_class: str | None) -> tuple[str, ...]:
+    """Return the required-metric set for the given asset_class.
+
+    Unrecognized or `None` asset_class falls back to the full required set
+    minus `aum_stability_pct` (the universal drop).
+    """
+    if asset_class is None:
+        return _FULL_MINUS_AUM_STABILITY
+    return REQUIRED_METRICS_BY_ASSET_CLASS.get(asset_class, _FULL_MINUS_AUM_STABILITY)
+
 
 def is_missing(value: Any) -> bool:
     if value is None:
@@ -30,8 +76,20 @@ def is_missing(value: Any) -> bool:
 
 def missing_required_fields(
     row: Mapping[str, Any] | None,
-    required: Sequence[str] = REQUIRED_METRIC_FIELDS,
+    required: Sequence[str] | None = None,
+    *,
+    asset_class: str | None = None,
 ) -> tuple[str, ...]:
+    """Return the names of required fields that are missing on `row`.
+
+    Precedence: explicit `required` > `asset_class`-derived set > full required.
+    """
+    if required is None:
+        required = (
+            required_for_asset_class(asset_class)
+            if asset_class is not None
+            else REQUIRED_METRIC_FIELDS
+        )
     if row is None:
         return tuple(required)
     return tuple(field for field in required if is_missing(row.get(field)))
@@ -39,8 +97,17 @@ def missing_required_fields(
 
 def completeness_ratio(
     row: Mapping[str, Any] | None,
-    required: Sequence[str] = REQUIRED_METRIC_FIELDS,
+    required: Sequence[str] | None = None,
+    *,
+    asset_class: str | None = None,
 ) -> float:
+    """Fraction of required fields present on `row`. 1.0 when nothing is required."""
+    if required is None:
+        required = (
+            required_for_asset_class(asset_class)
+            if asset_class is not None
+            else REQUIRED_METRIC_FIELDS
+        )
     if not required:
         return 1.0
     missing = missing_required_fields(row, required)
@@ -54,7 +121,9 @@ def summarize_completeness(rows: Sequence[Mapping[str, Any]]) -> dict[str, objec
     by_class_values: dict[str, list[float]] = {}
     for row in rows:
         asset_class = str(row.get("asset_class", "unknown"))
-        by_class_values.setdefault(asset_class, []).append(float(row.get("data_completeness", 0.0)))
+        by_class_values.setdefault(asset_class, []).append(
+            float(row.get("data_completeness", 0.0))
+        )
     by_asset_class = {
         asset_class: sum(class_values) / len(class_values)
         for asset_class, class_values in by_class_values.items()
