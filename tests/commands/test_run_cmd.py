@@ -106,3 +106,56 @@ def test_from_research_runs_research_when_explicit_even_if_research_disabled(mon
 
     assert rc == 0
     assert called == ["research", "discover", "score", "gold", "allocate", "plan", "memo"]
+
+
+from datetime import date as _date
+from irc.pipeline_halt import HaltReason
+
+
+def test_run_pipeline_consumes_halt_reason_sidecar(tmp_path: Path):
+    """When a stage fails and writes a sidecar, the halt markdown reflects
+    the structured reason and the sidecar is deleted afterward."""
+    today = _date.today().isoformat()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sidecar = out_dir / ".halt_reason.json"
+
+    def failing_ingest(_repo_root: str) -> int:
+        HaltReason.write_sidecar(sidecar, HaltReason(
+            kind="akshare_empty", stage="ingest",
+            detail="every fetch returned 0 rows",
+            stats={"price_attempts": 198, "price_successes": 0},
+            first_error="ConnectionResetError: simulated",
+        ))
+        return 1
+
+    runners = {s: (lambda r: 0) for s in STAGE_NAMES}
+    runners["ingest"] = failing_ingest
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners):
+        rc = run_pipeline(str(tmp_path), only_stage="ingest")
+
+    assert rc == 1
+    halt_md = (out_dir / "PIPELINE_HALTED.md").read_text(encoding="utf-8")
+    assert "akshare_empty" in halt_md
+    assert "every fetch returned 0 rows" in halt_md
+    assert "price_attempts" in halt_md and "198" in halt_md
+    assert "ConnectionResetError" in halt_md
+    assert not sidecar.exists(), "sidecar must be deleted after consumption"
+
+
+def test_run_pipeline_falls_back_when_no_sidecar(tmp_path: Path):
+    """When a stage fails without writing a sidecar, the halt markdown uses
+    the legacy generic message — preserves back-compat for other stages."""
+    def failing_score(_repo_root: str) -> int:
+        return 7  # arbitrary non-zero
+
+    runners = {s: (lambda r: 0) for s in STAGE_NAMES}
+    runners["score"] = failing_score
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners):
+        rc = run_pipeline(str(tmp_path), only_stage="score")
+
+    assert rc == 7
+    today = _date.today().isoformat()
+    halt_md = (tmp_path / "outputs" / today / "PIPELINE_HALTED.md").read_text(encoding="utf-8")
+    assert "stage exit code 7" in halt_md
+    assert "score" in halt_md
