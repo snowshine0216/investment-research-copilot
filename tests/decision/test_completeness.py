@@ -4,7 +4,6 @@ import pytest
 
 from irc.decision.completeness import (
     REQUIRED_METRIC_FIELDS,
-    REQUIRED_METRICS_BY_ASSET_CLASS,
     completeness_ratio,
     missing_required_fields,
     required_for_asset_class,
