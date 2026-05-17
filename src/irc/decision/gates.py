@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from irc.decision.completeness import MIN_BUY_COMPLETENESS, REQUIRED_METRIC_FIELDS
+from irc.decision.completeness import MIN_BUY_COMPLETENESS, missing_required_fields
 from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus
 
 
@@ -54,7 +54,15 @@ def decide_row(
     except (TypeError, ValueError):
         completeness = 0.0
     raw_missing = score.get("missing_data")
-    missing_data = tuple(raw_missing) if raw_missing is not None else REQUIRED_METRIC_FIELDS
+    # Fallback for old/serialized scores that pre-date the asset-class-aware
+    # missing_data wiring in scoring/pipeline.py: derive the required set from
+    # the score's asset_class so gold/bond don't get flagged with metrics that
+    # don't apply to them. Passing row=None returns the required set as the
+    # all-missing tuple.
+    missing_data = (
+        tuple(raw_missing) if raw_missing is not None
+        else missing_required_fields(None, asset_class=score.get("asset_class"))
+    )
     venue_status = venue_status_for_trade(trade)
     evidence_status = memo_evidence_status(memo_traceability_coverage)
     blocking_reasons = _blocking_reasons(

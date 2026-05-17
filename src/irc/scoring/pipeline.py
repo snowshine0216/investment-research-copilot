@@ -7,7 +7,6 @@ from typing import Any
 import pandas as pd
 
 from irc.decision.completeness import (
-    REQUIRED_METRIC_FIELDS,
     completeness_ratio,
     is_missing,
     missing_required_fields,
@@ -27,14 +26,6 @@ def _sanitize(text: str, max_len: int = 200) -> str:
     """Strip control characters and truncate external-sourced strings before LLM use."""
     cleaned = "".join(ch for ch in text if ch.isprintable() or ch in (" ", "\t"))
     return cleaned[:max_len]
-
-
-_REQUIRED = REQUIRED_METRIC_FIELDS
-
-
-def _completeness(metric_row: dict, required: tuple[str, ...]) -> float:
-    present = sum(1 for k in required if not is_missing(metric_row.get(k)))
-    return present / len(required)
 
 
 def _get(m: dict, key: str, default: float) -> float:
