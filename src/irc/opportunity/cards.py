@@ -59,4 +59,5 @@ def build_thesis_card(
         review_cadence=review_cadence,
         evidence_gaps=row.evidence_gaps,
         thesis_evidence=row.thesis_evidence,
+        expected_omissions=row.expected_omissions,
     )

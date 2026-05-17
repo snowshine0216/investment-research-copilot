@@ -21,6 +21,30 @@ from irc.opportunity.types import (
 from irc.research.theme_research import ThemeReport
 
 
+EXPECTED_OMISSION_CODES: frozenset[str] = frozenset({
+    "constituent_not_applicable",
+})
+
+
+def _partition_gaps(
+    gaps: tuple[str, ...] | list[str],
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Split a flat gap list into (real_gaps, expected_omissions).
+
+    Real gaps are signals the operator can act on. Expected omissions are
+    structural non-features (e.g. an asset class that has no constituents
+    by design) that we surface separately so they don't pollute the
+    actionable list.
+    """
+    real, expected = [], []
+    for g in gaps:
+        if g in EXPECTED_OMISSION_CODES:
+            expected.append(g)
+        else:
+            real.append(g)
+    return tuple(real), tuple(expected)
+
+
 # ---------------------------------------------------------------------------
 # Task 3: Valuation classifier
 # ---------------------------------------------------------------------------
@@ -311,6 +335,8 @@ def build_opportunity_row(
     )
     target = map_lookthrough(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
+    combined_gaps = tuple(structural_gaps) + tuple(thesis_gaps)
+    evidence_gaps_filtered, expected_omissions = _partition_gaps(combined_gaps)
     return OpportunityRow(
         instrument_id=inp.instrument_id,
         name_cn=inp.name_cn,
@@ -323,6 +349,7 @@ def build_opportunity_row(
         product_quality_state=product,
         opportunity_state=state,
         opportunity_reason=reason,
-        evidence_gaps=tuple(structural_gaps + list(thesis_gaps)),
+        evidence_gaps=evidence_gaps_filtered,
+        expected_omissions=expected_omissions,
         thesis_evidence=evidence,
     )

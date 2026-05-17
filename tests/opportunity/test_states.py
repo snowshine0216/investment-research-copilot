@@ -357,7 +357,7 @@ def test_compose_small_watch_reason_falls_back_on_conflict():
 
 
 def test_build_opportunity_row_passes_asset_class_to_thesis_evidence():
-    """A gold instrument with no snapshot picks up the refined label."""
+    """A gold instrument with no snapshot picks up the refined label in expected_omissions."""
     from irc.opportunity.types import OpportunityInput
 
     inp = OpportunityInput(
@@ -374,7 +374,8 @@ def test_build_opportunity_row_passes_asset_class_to_thesis_evidence():
         snapshot=None,
         theme_report=None,
     )
-    assert "constituent_not_applicable" in row.evidence_gaps
+    assert "constituent_not_applicable" not in row.evidence_gaps
+    assert "constituent_not_applicable" in row.expected_omissions
 
 
 # ---------------------------------------------------------------------------
@@ -434,3 +435,38 @@ def test_build_opportunity_row_marks_missing_snapshot_gap_when_table_used():
     inp = _make_full_input()
     row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
     assert "missing_constituent_snapshot" in row.evidence_gaps
+
+
+# ---------------------------------------------------------------------------
+# expected_omissions partition tests
+# ---------------------------------------------------------------------------
+
+from irc.opportunity.states import EXPECTED_OMISSION_CODES
+
+
+def _gold_input(**over):
+    base = dict(
+        instrument_id="518880", name_cn="黄金ETF", asset_class="gold",
+        market="cn_on_exchange",
+    )
+    base.update(over)
+    return OpportunityInput(**base)
+
+
+def test_constituent_not_applicable_lives_in_expected_omissions_for_gold():
+    inp = _gold_input()
+    row = build_opportunity_row(inp, theme_thesis=None, snapshot=None, theme_report=None)
+    assert "constituent_not_applicable" not in row.evidence_gaps
+    assert "constituent_not_applicable" in row.expected_omissions
+
+
+def test_real_gaps_stay_in_evidence_gaps_for_indexable_asset_class():
+    inp = _gold_input(asset_class="cn_etf", theme="broad")  # indexable
+    row = build_opportunity_row(inp, theme_thesis=None, snapshot=None, theme_report=None)
+    # For an indexable asset_class with no snapshot, 'constituent_missing' is a real gap
+    assert "constituent_not_applicable" not in row.expected_omissions
+    assert "constituent_not_applicable" not in row.evidence_gaps
+
+
+def test_expected_omission_codes_constant_documented():
+    assert "constituent_not_applicable" in EXPECTED_OMISSION_CODES
