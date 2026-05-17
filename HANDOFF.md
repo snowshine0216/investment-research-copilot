@@ -1,5 +1,58 @@
 # Handoff Document
-*Last updated: 2026-05-15 late night CST (post-push)*
+*Last updated: 2026-05-17 CST (post-autodev-loop)*
+
+---
+
+## Session: May 17 — P0 + P1 + P2 enhance/fix backlog (autodev-loop)
+
+### Goal
+Investigate the 2026-05-17 pipeline output failures (PIPELINE_HALTED at ingest, decision_report all-`avoid` with `blocked_no_proxy`, memo_traceability `coverage_ratio=0`, gold `regime=unknown`, opportunity_report rejection-code spam) and ship a structured 8-item fix plan: P0 (1 item: ingest halt diagnostics) merged manually, P1+P2 (7 items) merged via the autodev-loop skill.
+
+### What landed (8 PRs, all squash-merged to `feat/evidence-wiring-and-memo-enrichment`)
+
+| PR | Item | Summary |
+| :--- | :--- | :--- |
+| (P0) | ingest halt diagnostics | Preflight canary + `HaltReason` sidecar; `PIPELINE_HALTED.md` now reports `kind`, per-source stats, `first_error` instead of generic "stage exit code 1" |
+| #18 | p1p2-005 | `constituent_not_applicable` partitioned into new `OpportunityRow.expected_omissions` field (was polluting `evidence_gaps`) |
+| #19 | p1p2-007 | Memo traceability rewritten — replaced fake `coverage_ratio` (token-overlap, always 0 on Chinese text) with honest `n_refs_provided` / `n_refs_quoted_verbatim` exact-substring counts |
+| #20 | p1p2-010 | `geopolitical_stress_0to1` wired from persisted `geopolitics` theme report (was hardcoded 0.4); word-boundary regex for ASCII tokens to avoid `war` matching `forward`/`warning` |
+| #21 | p1p2-006 | `missing_recent_news` split into three actionable codes: `news_stage_skipped` / `news_search_empty` / `news_llm_failed` |
+| #22 | p1p2-008 | `_proxy_for` allows cross-asset-class substitution (`cn_etf` ↔ `cn_equity_fund` via matching `tracked_index`) so CMB-bank-only users get proxies for on-exchange ETFs |
+| #23 | p1p2-009 | Asset-class-aware required-metrics in `completeness.py`; `aum_stability_pct` dropped universally (never ingested); `holdings_concentration_top10` dropped for ETFs/bond/gold; `downside_capture` dropped for bond/gold |
+| #24 | p1p2-004 | `gold` / `opportunity` / `memo` stages now gate on ingest freshness (24h window from akshare manifest); `STALE_INGEST.md` marker; `IRC_ALLOW_STALE=1` env override |
+
+### Current state
+- Full suite: **1139 passed, 17 skipped, 0 failed** on `feat/evidence-wiring-and-memo-enrichment` (post-#24).
+- All 7 backlog items merged. Phase 3 cross-cutting verification ran clean.
+- Scaffold + per-item specs/plans live in `docs/AUTODEV-LOOP/`.
+
+### What Worked
+- **Per-item sub-branches + squash merge** kept the feature-branch history clean (one commit per item).
+- **Diagnosis-first plan-writing for items 8/9/4** — investigating the actual data (decision_report.md, completeness.py source) BEFORE drafting the plan avoided several blind alleys (e.g., item 8 turned out to be a logic relaxation, not a data backfill).
+- **QA + review subagents in parallel per PR** caught real latent bugs (e.g., #20 `war` matching `forward`/`warning`; #23 `gates.py` fallback using the old full required set on legacy scores).
+- **Inline fixes for ≤1-file nits** (per autodev-loop skill); separate sub-branch only for new code work.
+
+### What Didn't Work
+- Orchestrator git operations CONFLICTED with subagent `git checkout` calls in the same worktree — committed Item 007's plan onto Item 005's sub-branch by mistake. Mitigated by mirroring the plan to base and noting in the PR. Lesson: don't do orchestrator git work while a subagent is running.
+- Subagent reports sometimes truncated when the subagent's own monitor timed out — had to verify state via `git log` directly. Reliable but adds a step.
+
+### Next Steps
+1. Run the actual `irc` pipeline against today's DuckDB once the freshness gate is satisfied (re-run ingest first, then gold → opportunity → memo) to see the new decision_report.md shape — confirm `blocked_no_proxy` rates dropped and completeness rates rose.
+2. Consider following up on these intentionally-deferred items from review comments:
+   - `settings.py` field for `ingest_max_age_hours` (currently hardcoded `DEFAULT_MAX_AGE` in `freshness.py`).
+   - `STALE_INGEST.md` overwrite behavior across multiple stages (only reflects the last stage's `stage=` value).
+   - In-body "STALE INGEST" header on artifacts when `IRC_ALLOW_STALE=1` (currently only the sidecar marker exists).
+   - `_SEARCH_EMPTY_PATTERNS` dead entries (`"missing 'results'"`, `"missing 'webPages"`) live on `provider_failures`, never on `ThemeReport.failure_reason` — harmless but misleading documentation.
+3. The user has parallel automation on this branch (commits with `fix(review): address all code review issues` pattern). When resuming, `git pull` first and reconcile any drift with the scaffold in `docs/AUTODEV-LOOP/PROGRESS.md`.
+
+### Key Files & Locations
+| File | What it is |
+| :--- | :--- |
+| `docs/AUTODEV-LOOP/MASTER-SPEC.md` | The 7-item IN/OUT classification + judgment calls |
+| `docs/AUTODEV-LOOP/PROGRESS.md` | Per-item status (spec/plan/branch/impl/PR/QA/review/fix/merge) |
+| `docs/AUTODEV-LOOP/items/<id>-{spec,plan}.md` | Per-item spec + plan, both committed for resumability |
+| `docs/superpowers/specs/2026-05-17-ingest-halt-diagnostics-design.md` | P0 design (pre-autodev-loop work) |
+| `docs/superpowers/plans/2026-05-17-ingest-halt-diagnostics.md` | P0 implementation plan |
 
 ---
 
