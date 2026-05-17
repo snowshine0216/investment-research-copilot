@@ -60,3 +60,76 @@ def write_halted(
     path = out_dir / "PIPELINE_HALTED.md"
     atomic_write_text(path, body)
     return path
+
+
+_REMEDIATION_BY_KIND: dict[str, str] = {
+    "akshare_unreachable": (
+        "Akshare/EastMoney was unreachable during the preflight network "
+        "check. Verify outbound connectivity to push2.eastmoney.com and "
+        "fund.eastmoney.com (e.g., `curl -I https://push2.eastmoney.com`), "
+        "then re-run `irc ingest --repo-root .`."
+    ),
+    "akshare_empty": (
+        "Every akshare fetch attempt failed (see the Diagnostics section "
+        "for per-source attempt/success counts and the first error). "
+        "Inspect the stage stdout for the per-instrument failure pattern, "
+        "then re-run `irc ingest --repo-root .` after the upstream is healthy."
+    ),
+    "akshare_error": (
+        "The akshare preflight call raised a non-network error (likely a "
+        "schema change or upstream API change). Re-run with `DEBUG=1 irc "
+        "ingest --repo-root .` to capture the full traceback."
+    ),
+    "preflight_unexpected": (
+        "The ingest preflight crashed with an unexpected exception type. "
+        "Re-run with `DEBUG=1 irc ingest --repo-root .` to capture the "
+        "traceback and report the failure mode."
+    ),
+}
+
+
+def _render_stats_table(stats: Mapping[str, int]) -> str:
+    if not stats:
+        return ""
+    lines = ["| Metric | Value |", "|---|---:|"]
+    for key, value in stats.items():
+        lines.append(f"| {key} | {value} |")
+    return "\n".join(lines) + "\n"
+
+
+def _render_diagnostics(reason: HaltReason) -> str:
+    parts = [
+        "## Diagnostics\n",
+        f"- **kind:** `{reason.kind}`",
+        f"- **detail:** {reason.detail}",
+    ]
+    stats_table = _render_stats_table(reason.stats)
+    if stats_table:
+        parts.append("\n" + stats_table)
+    if reason.first_error:
+        parts.append("\n**First error:**\n\n```\n" + reason.first_error + "\n```")
+    return "\n".join(parts) + "\n"
+
+
+def write_halted_structured(
+    repo_root: Path, date: str, reason: HaltReason,
+) -> Path:
+    out_dir = repo_root / "outputs" / date
+    out_dir.mkdir(parents=True, exist_ok=True)
+    remediation = _REMEDIATION_BY_KIND.get(
+        reason.kind,
+        f"Inspect the stage output and re-run `irc {reason.stage} "
+        f"--repo-root .` after fixing.",
+    )
+    body = (
+        f"# Pipeline Halted — {date}\n\n"
+        f"**Stopped at stage:** `{reason.stage}`\n\n"
+        f"**Reason:** {reason.kind} — {reason.detail}\n\n"
+        f"**Remediation:**\n{remediation}\n\n"
+        f"{_render_diagnostics(reason)}\n"
+        f"**Generated at:** {datetime.now(timezone(timedelta(hours=8))).isoformat()}\n"
+    )
+    path = out_dir / "PIPELINE_HALTED.md"
+    atomic_write_text(path, body)
+    return path
+
