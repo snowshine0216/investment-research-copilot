@@ -6,6 +6,7 @@ import json
 import yaml
 import pandas as pd
 from irc.config_loader import load_repo_configs
+from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.wgc_ingest import cb_purchases_yearly_tons, etf_holdings_30d_change_tons
 from irc.io_utils import atomic_write_text
@@ -39,6 +40,10 @@ def _macro_value(con, series: str, default: float) -> float:
 
 def run_gold(repo_root: str) -> int:
     root = Path(repo_root)
+    if not require_fresh_ingest(root, stage="gold"):
+        print("ERROR: gold stage halted — ingest is stale. "
+              "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
+        return 1
     bundle = load_repo_configs(root)
     cfg = bundle.gold_drivers
     exchange_gold = [i for i in bundle.universe_gold.instruments if i.market != "cmb_internal"]

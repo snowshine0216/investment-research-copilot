@@ -5,9 +5,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
-import yaml
 
 from irc.config_loader import load_repo_configs
+from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.opportunity.inputs_loader import populate_inputs
 from irc.io_utils import atomic_write_text
@@ -328,6 +328,10 @@ def _write_opportunity_outputs(
 
 def run_opportunity(repo_root: str) -> int:
     root = Path(repo_root)
+    if not require_fresh_ingest(root, stage="opportunity"):
+        print("ERROR: opportunity stage halted — ingest is stale. "
+              "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
+        return 1
     bundle = load_repo_configs(root)
     today = _today()
     available_venues: set[str] = {
