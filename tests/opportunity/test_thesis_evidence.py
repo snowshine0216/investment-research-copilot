@@ -8,9 +8,48 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
 )
-from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
+from irc.opportunity.thesis_evidence import _classify_theme_report, derive_thesis_from_evidence
 from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
+
+
+# ---------------------------------------------------------------------------
+# _classify_theme_report — unit tests (Task 1, Step 1.1)
+# ---------------------------------------------------------------------------
+
+def _r(failure_reason: str = "", report_md: str = "body") -> ThemeReport:
+    return ThemeReport(theme="t", query="q", locale="en",
+                       report_md=report_md, citations=[],
+                       failure_reason=failure_reason)
+
+
+def test_classify_usable_report():
+    assert _classify_theme_report(_r()) == "usable"
+
+
+def test_classify_search_empty():
+    assert _classify_theme_report(_r(failure_reason="no sources to synthesize from")) == "search_empty"
+
+
+def test_classify_search_empty_via_provider_no_results():
+    # bocha/tavily/brave emit "no results", dispatch may forward this verbatim
+    assert _classify_theme_report(_r(failure_reason="bocha: no results")) == "search_empty"
+
+
+def test_classify_llm_failed_on_arbitrary_exception_text():
+    assert _classify_theme_report(_r(failure_reason="ChatCompletionError: 429 rate limit")) == "llm_failed"
+
+
+def test_classify_llm_failed_on_unrecognized_failure():
+    # Any failure_reason that doesn't match the search-empty pattern is treated as LLM/synth-side
+    assert _classify_theme_report(_r(failure_reason="something else")) == "llm_failed"
+
+
+def test_classify_treats_empty_body_with_no_failure_as_search_empty():
+    # ThemeReport with empty report_md but no failure_reason — only happens when
+    # the synthesizer returned an empty string for an unknown reason; treat as
+    # search-empty (closer to user-actionable than llm_failed).
+    assert _classify_theme_report(_r(report_md="")) == "search_empty"
 
 
 def _filing(symbol: str, yoy: float | None, *, period: str = "Q1") -> FilingDigest:

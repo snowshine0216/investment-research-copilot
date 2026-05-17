@@ -117,8 +117,46 @@ def _news_evidence(report: ThemeReport | None) -> tuple[ThesisEvidence, ...]:
     return tuple(out)
 
 
+# Substring patterns that indicate a search-side failure (zero hits, provider
+# unavailable). Anything else with a failure_reason is treated as LLM/synth side.
+# Pattern-match is intentionally permissive — failure_reasons are free-text
+# concatenations from providers, dispatch, and synthesize.py.
+_SEARCH_EMPTY_PATTERNS: tuple[str, ...] = (
+    "no sources to synthesize from",
+    "no results",
+    "missing 'results'",
+    "missing 'webPages",
+)
+
+
+def _classify_theme_report(report: ThemeReport | None) -> str:
+    """Classify a ThemeReport into one of:
+      - "usable": has body and no failure_reason.
+      - "search_empty": search returned zero/empty results.
+      - "llm_failed": LLM synthesis raised, or any other non-search failure.
+
+    Returns "search_empty" if the report has an empty body with no failure_reason
+    (treat as user-actionable rather than internal error).
+    Does NOT cover the report-is-None case — that's "stage_skipped" and the
+    caller checks for it before classifying.
+    """
+    if report is None:
+        # Defensive — callers should check is-None first. Treat as stage_skipped.
+        return "stage_skipped"
+    reason = (report.failure_reason or "").lower()
+    if reason:
+        for pat in _SEARCH_EMPTY_PATTERNS:
+            if pat in reason:
+                return "search_empty"
+        return "llm_failed"
+    if not report.report_md or not report.report_md.strip():
+        return "search_empty"
+    return "usable"
+
+
 def _theme_report_usable(report: ThemeReport | None) -> bool:
-    return report is not None and not report.failure_reason and bool(report.report_md)
+    """Back-compat shim: True iff classifier says 'usable'."""
+    return _classify_theme_report(report) == "usable"
 
 
 _MIN_RESEARCH_CITATIONS = 3
