@@ -194,6 +194,35 @@ def test_ingest_allows_missing_manager_tenure_for_passive_funds(repo: Path) -> N
     assert stored == (None,)
 
 
+def test_successful_ingest_clears_stale_pipeline_halted_sentinel(repo: Path) -> None:
+    """A leftover PIPELINE_HALTED.md from a prior failed ``irc run`` must be
+    removed when ingest succeeds. Without this, the decision stage's
+    pipeline_halted gate stays tripped forever — even after the underlying
+    issue has cleared and downstream stages are producing fresh output.
+    """
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    empty_macro = pd.DataFrame({"date": [], "value": []})
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    today_dir = repo / "outputs" / _china_today()
+    today_dir.mkdir(parents=True, exist_ok=True)
+    halt_path = today_dir / "PIPELINE_HALTED.md"
+    halt_path.write_text("stale halt from a prior run", encoding="utf-8")
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=empty_macro),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    assert not halt_path.exists(), "successful ingest must remove the stale halt sentinel"
+
+
 def _make_instrument(asset_class: str, market: str = "cn_off_exchange"):
     """Tiny stand-in for an Instrument — only the manager-tenure predicate
     fields are needed. Avoids pulling in the full pydantic schema."""

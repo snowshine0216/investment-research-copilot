@@ -16,13 +16,22 @@ def drop_correlated_and_renormalize(
     threshold: float,
 ) -> list[dict]:
     """Drop high-correlation pairs within each asset class (keeping the higher-weighted),
-    then renormalize weights within each class so they sum to 1.0.
+    then renormalize the kept items' target_weight so the within-class sum is
+    preserved at its pre-drop value.
+
+    Preserving the pre-drop class total (rather than rescaling to 1.0) keeps the
+    portfolio's per-class weighting intact: the global ``sum(target_weight)``
+    matches ``sum(class_weights)`` regardless of how many duplicates were
+    dropped. Rescaling to 1.0 silently turns target_weight into an intra-class
+    share, which makes the diagnostics' total_weight equal the number of
+    represented classes instead of 1.0.
     """
     by_class: dict[str, list[dict]] = {}
     for r in selected:
         by_class.setdefault(r["asset_class"], []).append(r)
     kept: list[dict] = []
     for cls, rows in by_class.items():
+        class_total = sum(r["target_weight"] for r in rows)
         rows_sorted = sorted(rows, key=lambda r: -r["target_weight"])
         keep_ids: list[str] = []
         for r in rows_sorted:
@@ -34,9 +43,10 @@ def drop_correlated_and_renormalize(
             if not collides:
                 keep_ids.append(iid)
         kept_rows = [r for r in rows if r["instrument_id"] in keep_ids]
-        total = sum(r["target_weight"] for r in kept_rows) or 1.0
+        kept_total = sum(r["target_weight"] for r in kept_rows)
+        scale = (class_total / kept_total) if kept_total > 0 else 0.0
         kept.extend(
-            {**r, "target_weight": r["target_weight"] / total} for r in kept_rows
+            {**r, "target_weight": r["target_weight"] * scale} for r in kept_rows
         )
     return kept
 

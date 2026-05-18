@@ -11,15 +11,25 @@ _AVOID_ACTIONS = {"avoid", "strong_avoid"}
 
 
 def target_weights_are_valid(allocation: dict[str, Any], tolerance: float = 1e-3) -> bool:
-    total = allocation.get("diagnostics", {}).get("total_weight")
+    """Allocation is valid when invested weight + cash residual ≈ 1.0.
+
+    The allocation pipeline reports the explicitly invested portion as
+    ``diagnostics.total_weight``. Classes without a scored candidate
+    (always ``cash``; sometimes ``hk_etf``) leave an unfilled hole reported
+    as ``diagnostics.cash_residual_weight``. The gate accepts the allocation
+    when invested + residual cover the whole portfolio.
+    """
+    diagnostics = allocation.get("diagnostics", {})
+    total = diagnostics.get("total_weight")
     if total is None:
         selected = allocation.get("selected_instruments", [])
         total = sum(
             float(row.get("target_weight") or 0.0) if row.get("target_weight") is not None else 0.0
             for row in selected
         )
+    cash_residual = diagnostics.get("cash_residual_weight") or 0.0
     try:
-        return abs(float(total) - 1.0) <= tolerance
+        return abs(float(total) + float(cash_residual) - 1.0) <= tolerance
     except (TypeError, ValueError):
         return False
 

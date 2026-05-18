@@ -82,6 +82,9 @@ def _scores_missing_action(scores: list[dict[str, Any]]) -> bool:
     return missing / len(scores) > _PIPELINE_INCOMPLETE_THRESHOLD
 
 
+_BUY_ACTIONS = frozenset({"buy_candidate", "strong_buy_candidate"})
+
+
 def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool, target_weight_valid: bool) -> list[str]:
     reasons: list[str] = []
     if pipeline_halted:
@@ -90,7 +93,16 @@ def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool,
         reasons.append("target_weights_invalid")
     if any(row.get("memo_evidence_status") == "narrative_only" for row in rows):
         reasons.append("memo_narrative_only")
-    if any("data_incomplete" in row.get("blocking_reasons", []) for row in rows):
+    # data_incomplete is a system-level blocker only when an *actionable buy
+    # candidate* is missing required data. A watch-only or avoid row with
+    # missing fields is a watchlist-quality issue, not a portfolio-decision
+    # blocker — surfacing it as a system blocker stops the whole report even
+    # when no buy decision actually depends on the missing field.
+    if any(
+        "data_incomplete" in row.get("blocking_reasons", [])
+        and row.get("score_action") in _BUY_ACTIONS
+        for row in rows
+    ):
         reasons.append("data_incomplete")
     return reasons
 
