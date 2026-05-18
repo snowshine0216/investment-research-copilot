@@ -10,7 +10,37 @@ from irc.llm.gateway import resolve_route
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.picks_table import PickRow, render_picks_table
 from irc.memo.template import MemoInputs
-from irc.memo.pipeline import run_memo_pipeline
+from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
+
+
+_DEFAULT_TIMELINESS_NOTE = (
+    "数据时效：行情/净值通常为T+1；具体日期见证据池。"
+)
+
+
+def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
+    """Return the memo risk-notes tuple, with the data-timeliness bullet
+    rewritten when we know the evidence-pool cutoff date.
+
+    When ``cutoff`` is non-None, the bullet calls out the exact ISO date the
+    snapshot was taken plus the typical lag patterns (境内 T+1, QDII 跨境结算
+    更长). When None, fall back to today's boilerplate so the path is
+    backwards-compatible.
+    """
+    if cutoff is None:
+        timeliness = _DEFAULT_TIMELINESS_NOTE
+    else:
+        timeliness = (
+            f"数据时效：证据池截止 {cutoff}（akshare 净值/价格快照）；"
+            "境内净值/价格通常滞后 1 个交易日，QDII 跨境结算可能滞后更长，"
+            "节假日/停牌将进一步延长。所有数值不代表实时市场状态，执行前须自行核实。"
+        )
+    return (
+        "实际利率上行风险：实际利率反弹会压制金价。",
+        "估值压力：宽基ETF在估值百分位偏高时回撤风险加大。",
+        "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
+        timeliness,
+    )
 
 
 def _today() -> str:
@@ -121,6 +151,10 @@ def run_memo(repo_root: str) -> int:
     )
 
     tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
+
+    cutoff = extract_evidence_cutoff(raw_ref_pool)
+    risk_notes = _compose_risk_notes(cutoff)
+
     inputs = MemoInputs(
         date_str=today,
         gold_regime=gold.get("regime", "unknown"),
@@ -132,12 +166,7 @@ def run_memo(repo_root: str) -> int:
             " 数据请以证据池中的具体数字为准，不要自行编造。"
         ),
         top_picks=tuple(r.instrument_id for r in pick_rows),
-        risk_notes=(
-            "实际利率上行风险：实际利率反弹会压制金价。",
-            "估值压力：宽基ETF在估值百分位偏高时回撤风险加大。",
-            "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
-            "数据时效：行情/净值通常为T+1；具体日期见证据池。",
-        ),
+        risk_notes=risk_notes,
         tldr_lines=tldr,
         picks_table_md=picks_table_md,
     )
