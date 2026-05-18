@@ -30,7 +30,7 @@ def _tg() -> TriggersConfig:
     return TriggersConfig.model_validate({"triggers": {
         "vix_high":        {"data_field": "macro.vix",         "comparator": ">",  "threshold": 25.0},
         "real_yield_low":  {"data_field": "macro.real_yield_10y_tips","comparator": "<=", "threshold": 0.0},
-        "weekly_drawdown": {"data_field": "instrument.weekly_return", "comparator": "<=", "threshold": -0.04},
+        "weekly_drawdown_4pct": {"data_field": "instrument.weekly_return", "comparator": "<=", "threshold": -0.04},
     }})
 
 
@@ -61,4 +61,4 @@ def test_trade_plan_includes_buy_method_and_triggers():
         valuation=_vc(), triggers=_tg(),
     )
     assert rows[0]["buy_method"] == "lump_sum"  # 0.20 percentile → lump_sum
-    assert any(t["name"] == "weekly_drawdown" for t in rows[0]["triggers"])
+    assert any(t["name"] == "weekly_drawdown_4pct" for t in rows[0]["triggers"])
