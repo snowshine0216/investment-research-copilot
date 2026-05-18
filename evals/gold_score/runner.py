@@ -1,8 +1,10 @@
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+
 import json
-from irc.io_utils import atomic_write_text
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from evals._shared.locator import locate
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
     EVAL_RC_PASS,
@@ -10,85 +12,75 @@ from evals._shared.missing_input import (
     missing_input_report,
     write_missing_input_report,
 )
+from evals._shared.report_paths import write_report
+from evals._shared.report_schema import MetricReport, StageReport
 from evals._shared.status import classify_status, worst_status
-from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
-from evals.gold_score.metrics import drivers_freshness, regime_flip_4w, tilt_within_preferences_band
+from evals.gold_score.metrics import (
+    gold_regime_schema_completeness,
+    gold_score_in_range,
+    gold_tilt_valid_enum,
+)
+
 
 _TZ = timezone(timedelta(hours=8))
-_FRESHNESS_TH = {"warn_above": 5, "fail_above": 7}
-_FLIP_TH = {"warn_above": 2, "fail_above": 4}
-_TILT_TH = {"warn_below": 0.8, "fail_below": 0.6}
+_SCHEMA_TH = {"warn_below": 1.0, "fail_below": 0.7}
+_BINARY_TH = {"warn_below": 1.0, "fail_below": 1.0}
+
+_DEFERRED_METRICS_NOTE = (
+    "Phase 2 redesign required for: drivers_freshness, regime_flip_4w, "
+    "tilt_within_preferences_band — current producer does not write the "
+    "drivers / regime_history / preferences_band fields these metrics need."
+)
 
 
 def run(repo_root: Path) -> int:
-    gold_file = repo_root / "outputs" / "gold_score" / "gold_score.json"
-    if not gold_file.exists():
+    located = locate(repo_root, ("gold_regime.json", "gold_band.yaml"))
+    if located is None:
         report = missing_input_report(
             stage="gold_score",
-            reason="outputs/gold_score/gold_score.json is missing — gold_score stage did not run",
-            based_on_path="outputs/gold_score/gold_score.json",
+            reason=(
+                "no outputs/<date>/ contains both gold_regime.json and gold_band.yaml — "
+                "gold stage did not run"
+            ),
+            based_on_path="outputs/<date>/gold_regime.json + gold_band.yaml",
         )
         write_missing_input_report(repo_root, report)
         print(f"gold_score eval: {report.overall} (no input file)")
         return EVAL_RC_FAIL
 
-    data: dict = json.loads(gold_file.read_text(encoding="utf-8"))
+    regime_path = located.paths[0]
+    regime = json.loads(regime_path.read_text(encoding="utf-8"))
 
-    drivers = data.get("drivers", [])
-    freshness = drivers_freshness(drivers)
-    max_age = max(freshness.values(), default=0)
-
-    history = data.get("regime_history", [])
-    flips = regime_flip_4w(history)
-
-    tilt = data.get("tilt", {})
-    prefs = {k: tuple(v) for k, v in data.get("preferences_band", {}).items()}
-    tilt_ok = tilt_within_preferences_band(tilt, prefs)
+    schema = gold_regime_schema_completeness(regime)
+    tilt_ok = gold_tilt_valid_enum(regime.get("tilt"))
+    score_ok = gold_score_in_range(regime.get("score"))
 
     metrics: list[MetricReport] = [
         MetricReport(
-            name="drivers_freshness_max_days",
-            value=float(max_age),
-            status=classify_status(float(max_age), _FRESHNESS_TH, "lower_is_better"),
-            n_observations=len(drivers),
-            threshold=_FRESHNESS_TH,
+            name="gold_regime_schema_completeness", value=schema,
+            status=classify_status(schema, _SCHEMA_TH, "higher_is_better"),
+            n_observations=1, threshold=_SCHEMA_TH,
         ),
         MetricReport(
-            name="regime_flip_4w",
-            value=float(flips),
-            status=classify_status(float(flips), _FLIP_TH, "lower_is_better"),
-            n_observations=len(history),
-            threshold=_FLIP_TH,
+            name="gold_tilt_valid_enum", value=tilt_ok,
+            status=classify_status(tilt_ok, _BINARY_TH, "higher_is_better"),
+            n_observations=1, threshold=_BINARY_TH,
         ),
         MetricReport(
-            name="tilt_within_preferences_band",
-            value=tilt_ok,
-            status=classify_status(tilt_ok, _TILT_TH, "higher_is_better"),
-            n_observations=len(prefs),
-            threshold=_TILT_TH,
+            name="gold_score_in_range", value=score_ok,
+            status=classify_status(score_ok, _BINARY_TH, "higher_is_better"),
+            n_observations=1, threshold=_BINARY_TH,
         ),
     ]
     overall = worst_status([m.status for m in metrics])
     report = StageReport(
         stage="gold_score",
         ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[str(gold_file)],
+        based_on=[str(p) for p in located.paths],
         metrics=metrics,
         overall=overall,
+        notes=_DEFERRED_METRICS_NOTE,
     )
-    _write(repo_root, report)
+    write_report(repo_root, report, artifact_date=located.artifact_date)
     print(f"gold_score eval: {overall}")
     return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
-
-
-def _pass_report() -> StageReport:
-    return StageReport(
-        stage="gold_score", ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[], metrics=[], overall="PASS",
-    )
-
-
-def _write(repo_root: Path, report: StageReport) -> None:
-    out_dir = (repo_root / "outputs" / datetime.now(_TZ).date().isoformat() / "evals" / "gold_score")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
