@@ -42,7 +42,10 @@ def test_build_evidence_pool_includes_numeric_facts_per_instrument():
     assert "518880" in blob
     assert "华安黄金ETF" in blob
     assert "51.8" in blob          # composite_score
-    assert "76" in blob             # valuation_cost
+    assert "cost_grade=76" in blob  # renamed from valuation_cost to avoid
+    # collision with the price-percentile axis carried in 状态=A/B/C/D
+    assert "valuation_cost=" not in blob  # display rename — JSON keeps the old key
+    assert "risk=42" in blob        # other factors keep their names
     assert "core_dca" in blob       # opportunity state
     assert "56.4%" in blob          # target_weight
     assert "range_bound" in blob    # gold regime mixed in
