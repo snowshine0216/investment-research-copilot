@@ -59,6 +59,7 @@ def compose_decision_report(
 
 def render_decision_markdown(report: dict[str, Any]) -> str:
     is_blocked = report["overall_status"] == "blocked"
+    rows: list[dict[str, Any]] = report.get("rows", [])
     lines = [
         f"# Decision Report {report['date']}",
         "",
@@ -70,8 +71,15 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(_blocking_section(report.get("blocking_reasons", [])))
-    lines.extend(["", "## Instrument Decisions", ""])
-    lines.extend(_table_section(report.get("rows", [])))
+    lines.append("")
+    # Three reader-first sections replace the single 100-row instrument
+    # table. JSON output is unchanged. See
+    # docs/2026-05-18-fix-memo-audit/items/011-spec.md.
+    lines.extend(_actionable_buys_section(rows))
+    lines.append("")
+    lines.extend(_blocked_fixable_section(rows))
+    lines.append("")
+    lines.extend(_watch_collapsed_section(rows))
     lines.append("")
     return "\n".join(lines)
 
@@ -173,6 +181,120 @@ _WATCH_REASON_LABEL: dict[str, str] = {
     "venue_unknown": "venue unknown",
 }
 
+_BLOCKING_REASON_LABEL: dict[str, str] = {
+    "data_incomplete": "Data incomplete (required financial metrics missing)",
+    "venue_blocked": "Venue blocked (no compatible account or proxy)",
+    "target_weights_invalid": "Target weights invalid (allocation normalization broken)",
+    "pipeline_halted": "Pipeline halted (an upstream stage failed)",
+    "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
+    "score_avoid": "Score action is avoid",
+}
+
+_BLOCKING_REMEDIATION: dict[str, str] = {
+    "data_incomplete":
+        "Repair the required financial metrics in the data layer and rerun scoring.",
+    "venue_blocked":
+        "Add a compatible account venue, register a proxy in the universe, or accept the position is not reachable.",
+    "target_weights_invalid":
+        "Fix allocation normalization before using target weights.",
+    "pipeline_halted":
+        "Fix the halted stage and rerun the pipeline.",
+    "memo_narrative_only":
+        "Improve memo traceability before treating narrative claims as evidence.",
+    "score_avoid":
+        "Scoring action is avoid — review the underlying factor scores.",
+}
+
+
+def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
+    actionable = [r for r in rows if r.get("decision_status") == "actionable_buy"]
+    out = ["## Actionable buys", ""]
+    if not actionable:
+        out.append("（无）")
+        return out
+    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Next Step |")
+    out.append("|---|---|---|---:|---|---|")
+    for row in actionable:
+        out.append(
+            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
+                instrument_id=_md(row["instrument_id"]),
+                score_action=_md(row["score_action"]),
+                conviction=_md(row["conviction"]),
+                data_completeness=row["data_completeness"],
+                venue_status=row["venue_status"],
+                next_step=_md(row["next_step"]),
+            )
+        )
+    return out
+
+
+def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
+    blocked = [r for r in rows if r.get("decision_status") == "blocked"]
+    out = ["## Blocked — fixable today", ""]
+    if not blocked:
+        out.append("（无）")
+        return out
+    # Group by first blocking_reason.
+    groups: dict[str, list[dict[str, Any]]] = {}
+    for r in blocked:
+        reasons = r.get("blocking_reasons") or ["unknown"]
+        groups.setdefault(reasons[0], []).append(r)
+    for reason, group in groups.items():
+        label = _BLOCKING_REASON_LABEL.get(reason, reason)
+        out.extend([
+            f"### Blocked by: {label}",
+            "",
+            "| Instrument | Score Action | Conviction | Completeness | Venue |",
+            "|---|---|---|---:|---|",
+        ])
+        for row in group:
+            out.append(
+                "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} |".format(
+                    instrument_id=_md(row["instrument_id"]),
+                    score_action=_md(row["score_action"]),
+                    conviction=_md(row["conviction"]),
+                    data_completeness=row["data_completeness"],
+                    venue_status=row["venue_status"],
+                )
+            )
+        remediation = _BLOCKING_REMEDIATION.get(reason, "Investigate the root cause.")
+        out.extend(["", f"_Remediation:_ {remediation}", ""])
+    return out
+
+
+def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
+    watch_rows = [r for r in rows if r.get("decision_status") == "watch_only"]
+    out = ["## Watch (no trade)", ""]
+    if not watch_rows:
+        out.append(f"0 个标的暂未触发交易决策。")
+        return out
+    by_reason: dict[str, int] = {}
+    for r in watch_rows:
+        by_reason[r.get("watch_reason") or "unknown"] = by_reason.get(r.get("watch_reason") or "unknown", 0) + 1
+    out.append(f"{len(watch_rows)} 个标的暂未触发交易决策。")
+    out.append("")
+    for reason_key in ("score_watch", "not_selected_by_allocation", "venue_unknown"):
+        cnt = by_reason.get(reason_key, 0)
+        if cnt:
+            label = _WATCH_REASON_LABEL[reason_key]
+            out.append(f"- {label}: {cnt}")
+    out.extend(["", "<details><summary>展开所有 watch 标的</summary>", "", ])
+    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Why watch |")
+    out.append("|---|---|---|---:|---|---|")
+    for row in watch_rows:
+        out.append(
+            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} |".format(
+                instrument_id=_md(row["instrument_id"]),
+                score_action=_md(row["score_action"]),
+                conviction=_md(row["conviction"]),
+                data_completeness=row["data_completeness"],
+                venue_status=row["venue_status"],
+                watch_reason=_watch_reason_cell(row),
+            )
+        )
+    out.extend(["", "</details>"])
+    return out
+
 
 def _watch_reason_cell(row: dict[str, Any]) -> str:
     """Render the ``Why watch`` column. Empty string when the row isn't watch_only
@@ -184,22 +306,3 @@ def _watch_reason_cell(row: dict[str, Any]) -> str:
     return _WATCH_REASON_LABEL.get(reason, str(reason))
 
 
-def _table_section(rows: list[dict[str, Any]]) -> list[str]:
-    lines = [
-        "| Instrument | Status | Score Action | Conviction | Completeness | Venue | Why watch | Next Step |",
-        "|---|---|---|---|---:|---|---|---|",
-    ]
-    for row in rows:
-        lines.append(
-            "| {instrument_id} | {decision_status} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} | {next_step} |".format(
-                instrument_id=_md(row["instrument_id"]),
-                decision_status=row["decision_status"],
-                score_action=_md(row["score_action"]),
-                conviction=_md(row["conviction"]),
-                data_completeness=row["data_completeness"],
-                venue_status=row["venue_status"],
-                watch_reason=_watch_reason_cell(row),
-                next_step=_md(row["next_step"]),
-            )
-        )
-    return lines
