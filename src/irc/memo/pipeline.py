@@ -37,6 +37,28 @@ _INJECT_PATTERNS = (
     re.compile(r"(?i)ignore (previous|prior|all) (instructions|prompts)"),
 )
 
+_ISO_DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def extract_evidence_cutoff(refs: list[str] | tuple[str, ...]) -> str | None:
+    """Return the maximum ISO date (`YYYY-MM-DD`) found across raw_refs, or
+    None if no ref carries a parseable date.
+
+    Every raw_ref the scoring layer emits today is shaped like
+    ``akshare:nav_history:000105:2026-05-15`` — the trailing date is the
+    binding cutoff. The memo's risk-notes section uses the max across the
+    pool so the disclosure is honest about how stale the snapshot is.
+    """
+    best: str | None = None
+    for ref in refs:
+        m = _ISO_DATE_RE.search(ref)
+        if m is None:
+            continue
+        date_str = m.group(1)
+        if best is None or date_str > best:
+            best = date_str
+    return best
+
 
 def sanitize_refs_for_auditor(refs: tuple[str, ...]) -> tuple[str, ...]:
     out: list[str] = []
