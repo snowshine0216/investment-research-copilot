@@ -143,6 +143,46 @@ def test_hk_etf_proxied_by_cn_equity_fund_qdii_with_same_index():
     assert out.proxy_id == "QDIIHK"
 
 
+def test_gold_etf_proxied_by_paper_gold_without_tracked_index_match():
+    """Gold instruments don't share a tracked_index (paper gold has none,
+    ETFs typically reference SHFE Au99.99). For gold targets the proxy
+    rule drops the tracked_index equality check while keeping the
+    same-asset_class constraint. See
+    docs/2026-05-18-fix-memo-audit/items/010-spec.md.
+    """
+    universe = _u([
+        {"instrument_id": "518880", "ticker": "518880", "market": "cn_on_exchange",
+         "name_cn": "黄金ETF华安", "asset_class": "gold", "currency": "cny",
+         "tracked_index": "SHFE Au99.99", "venue_required": ["cn_brokerage"]},
+        {"instrument_id": "cmb_paper_gold", "ticker": "CMB_AU", "market": "cmb_internal",
+         "name_cn": "招商银行账户金", "asset_class": "gold", "currency": "cny",
+         "venue_required": ["cmb_gold"]},  # no tracked_index
+    ])
+    out = check_venue(instrument_id="518880",
+                      available_venues=["cmb_gold"], universe=universe)
+    assert out.compatible is False
+    assert out.proxy_id == "cmb_paper_gold"
+    assert "招商银行账户金" in out.note
+
+
+def test_non_gold_relaxation_does_not_bleed_into_other_classes():
+    """The gold-only tracked_index relaxation must NOT apply to cn_etf
+    even when no tracked_index match exists. (Defensive regression — the
+    earlier strict-equality check at this position remains required.)"""
+    universe = _u([
+        {"instrument_id": "510300", "ticker": "510300", "market": "cn_on_exchange",
+         "name_cn": "华泰柏瑞沪深300ETF", "asset_class": "cn_etf", "currency": "cny",
+         "tracked_index": "沪深300", "venue_required": ["cn_brokerage"]},
+        # An off-exchange fund with NO tracked_index. Must NOT proxy.
+        {"instrument_id": "OFFNOIDX", "ticker": "OFFNOIDX", "market": "cn_off_exchange",
+         "name_cn": "无指数基金", "asset_class": "cn_etf", "currency": "cny",
+         "venue_required": ["cmb_fund"]},
+    ])
+    out = check_venue(instrument_id="510300",
+                      available_venues=["cmb_fund"], universe=universe)
+    assert out.proxy_id is None  # gold relaxation didn't leak here
+
+
 def test_proxy_note_includes_asset_class_when_cross_class():
     """The VenueCheckResult.note should expose the proxy's asset_class so a
     human reading decision_report.md can tell same-class from cross-class."""

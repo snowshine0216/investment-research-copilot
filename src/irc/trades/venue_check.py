@@ -41,6 +41,11 @@ def _proxy_for(
 
     Cross-asset-class substitution is gated on a non-empty target tracked_index:
     we never silently substitute an active/unindexed fund.
+
+    Exception for gold: paper-gold instruments don't carry a tracked_index
+    (they reference the bullion price directly), so strict tracked_index
+    equality blocks the natural same-class substitution. For gold targets
+    we drop the tracked_index check while keeping the same-class constraint.
     """
     target_index = (target.tracked_index or "").strip()
     allowed_classes = _allowed_proxy_classes(target.asset_class)
@@ -49,12 +54,16 @@ def _proxy_for(
     # be index-tracked — otherwise we have no benchmark to match on.
     if cross_class and not target_index:
         allowed_classes = frozenset({target.asset_class})
+    # Gold-class proxies don't need a matching tracked_index; the asset
+    # exposure IS the benchmark (Au99.99 spot). Other classes keep the
+    # strict equality check.
+    require_index_match = target.asset_class != "gold"
     for i in universe.instruments:
         if i.instrument_id == target.instrument_id:
             continue
         if i.asset_class not in allowed_classes:
             continue
-        if (i.tracked_index or "").strip() != target_index:
+        if require_index_match and (i.tracked_index or "").strip() != target_index:
             continue
         if not i.venue_required or set(i.venue_required) & available_venues:
             return i
