@@ -6,8 +6,15 @@ def candidates_per_role(watchlist: pd.DataFrame) -> dict[str, int]:
     return watchlist.groupby("role").size().to_dict()
 
 
-def filter_integrity(watchlist: pd.DataFrame, required_cols: tuple[str, ...] = ("ticker", "role", "score")) -> float:
-    """Fraction of rows where all required columns are non-null."""
+def filter_integrity(
+    watchlist: pd.DataFrame,
+    required_cols: tuple[str, ...] = ("instrument_id", "ticker", "role"),
+) -> float:
+    """Fraction of rows where all required columns are non-null.
+
+    Default matches the producer's actual CSV contract
+    (src/irc/discovery/pipeline.py _WATCHLIST_COLUMNS).
+    """
     if watchlist.empty:
         return 1.0
     cols = [c for c in required_cols if c in watchlist.columns]

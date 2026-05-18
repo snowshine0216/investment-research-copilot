@@ -1,3 +1,12 @@
+"""Allocation metric functions.
+
+`in_band_per_class`, `currency_in_tolerance`, and `max_pair_correlation_1y`
+read fields the current producer (src/irc/commands/allocate_cmd.py) does
+not write. The runner no longer calls them — they are kept here so existing
+tests still exercise their logic, and they are candidates for a Phase-2
+redesign that decides what the allocation eval should measure against the
+current artifact set.
+"""
 from __future__ import annotations
 
 

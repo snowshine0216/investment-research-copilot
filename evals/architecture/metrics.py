@@ -7,7 +7,7 @@ _REQUIRED_OUTPUTS: tuple[str, ...] = (
     "discovered_watchlist.csv", "scoring.json",
     "gold_regime.json", "gold_band.yaml",
     "proposed_allocation.yaml", "trade_plan.yaml",
-    "research_memo.md",
+    "memo.md",
 )
 
 

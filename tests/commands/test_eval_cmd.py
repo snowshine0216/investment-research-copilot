@@ -18,7 +18,7 @@ def test_eval_unknown_stage_errors(tmp_path: Path):
 
 
 def test_run_eval_all_prints_summary(tmp_path, capsys):
-    # No inputs anywhere → every eval should FAIL (rc=2).
+    # No inputs anywhere → every active stage should FAIL (rc=2).
     from irc.commands.eval_cmd import run_eval
     rc = run_eval(str(tmp_path), stage=None, all_stages=True)
     captured = capsys.readouterr()
@@ -27,3 +27,57 @@ def test_run_eval_all_prints_summary(tmp_path, capsys):
     # Summary line must enumerate per-stage status.
     assert "eval summary:" in out.lower(), f"no summary in: {out!r}"
     assert "fail" in out.lower(), f"no FAIL in: {out!r}"
+
+
+def test_eval_inactive_news_returns_inactive_message(tmp_path, capsys):
+    """Direct invocation of news (inactive_legacy) must emit a clear
+    inactive-stage message, not a misleading missing-input report.
+
+    Item: AUTODEV-LOOP/items/002-spec.md
+    """
+    from irc.commands.eval_cmd import run_eval
+    rc = run_eval(str(tmp_path), stage="news", all_stages=False)
+    captured = capsys.readouterr()
+    out = (captured.out + captured.err).lower()
+    assert rc == 2
+    assert "inactive" in out
+    assert "news" in out
+
+
+def test_eval_inactive_queries_returns_inactive_message(tmp_path, capsys):
+    from irc.commands.eval_cmd import run_eval
+    rc = run_eval(str(tmp_path), stage="queries", all_stages=False)
+    captured = capsys.readouterr()
+    out = (captured.out + captured.err).lower()
+    assert rc == 2
+    assert "inactive" in out
+    assert "queries" in out
+
+
+def test_eval_inactive_does_not_invoke_runner(tmp_path, monkeypatch):
+    """Inactive-stage invocation must NOT import the runner module — otherwise
+    the runner would write a misleading missing-input report."""
+    from irc.commands import eval_cmd
+
+    called: list[str] = []
+
+    def fake_import(name: str):
+        called.append(name)
+        raise AssertionError(f"runner module {name} should not be imported for inactive stages")
+
+    monkeypatch.setattr(eval_cmd.importlib, "import_module", fake_import)
+    rc = eval_cmd.run_eval(str(tmp_path), stage="news", all_stages=False)
+    assert rc == 2
+    assert called == []
+
+
+def test_eval_all_excludes_inactive_stages(tmp_path, capsys):
+    from irc.commands.eval_cmd import run_eval
+    rc = run_eval(str(tmp_path), stage=None, all_stages=True)
+    captured = capsys.readouterr()
+    out = (captured.out + captured.err).lower()
+    assert rc == 2
+    assert "news" not in out
+    assert "queries" not in out
+    for stage in ("data", "research", "discovery", "triggers"):
+        assert stage in out, f"active stage {stage} missing from --all summary"
