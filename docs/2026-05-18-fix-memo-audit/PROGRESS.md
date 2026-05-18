@@ -5,15 +5,15 @@ Updated after every step. ⏳ pending · 🔄 in progress · ✅ done · ⚠️ 
 | # | Item | spec | plan | branch | impl | PR | QA | review | fix | merge |
 |---|---|---|---|---|---|---|---|---|---|---|
 | 001 | trigger key mismatch | ✅ | ✅ | ✅ | ✅ | ✅ (#29) | ✅ | ✅ (inline) | — | ✅ (d769bc2) |
-| 002 | bond required-metric drop | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 003 | name_cn backfill | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 004 | rename valuation_cost in evidence pool | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 005 | evidence-cutoff date in memo | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 006 | numeric-prose sanity validator | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 007 | tag watch_only with reason | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 008 | derive venue_status (drop unknown default) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 009 | deterministic Section 7 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
-| 010 | gold paper-gold proxy without index match | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
+| 002 | bond required-metric drop | ✅ | ✅ | ✅ | ✅ | ✅ (#30) | ✅ | ✅ (inline) | — | ✅ |
+| 003 | name_cn backfill | ✅ | ✅ | ✅ | ✅ | ✅ (#31) | ✅ | ✅ (inline) | — | ✅ |
+| 004 | rename valuation_cost in evidence pool | ✅ | ✅ | ✅ | ✅ | ✅ (#32) | ✅ | ✅ (inline) | — | ✅ |
+| 005 | evidence-cutoff date in memo | ✅ | ✅ | ✅ | ✅ | ✅ (#33) | ✅ | ✅ (inline) | — | ✅ |
+| 006 | numeric-prose sanity validator | ✅ | ✅ | ✅ | ✅ | ✅ (#34) | ✅ | ✅ (inline) | — | ✅ |
+| 007 | tag watch_only with reason | ✅ | ✅ | ✅ | ✅ | ✅ (#35) | ✅ | ✅ (inline) | — | ✅ |
+| 008 | derive venue_status (drop unknown default) | ✅ | ✅ | ✅ | ✅ | ✅ (#36) | ✅ | ✅ (inline) | — | ✅ |
+| 009 | deterministic Section 7 | ✅ | ✅ | ✅ | ✅ | ✅ (#37) | ✅ | ✅ (inline) | — | ✅ |
+| 010 | gold paper-gold proxy without index match | ✅ | ✅ | ✅ | ✅ | ✅ (#38) | ✅ | ✅ (inline) | — | ✅ |
 | 011 | collapse decision-report markdown | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | — | ⏳ |
 
 ## Notes & deviations
