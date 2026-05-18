@@ -135,3 +135,41 @@ def test_pipeline_per_class_top_k_zero_selects_none() -> None:
 
     assert out.selected_instruments == []
     assert out.diagnostics["total_weight"] == 0
+
+
+def test_pipeline_preserves_class_target_after_correlation_drop() -> None:
+    class_targets = {
+        "gold": {"center": 0.20, "band": [0.12, 0.28]},
+        "us_etf": {"center": 0.50, "band": [0.40, 0.60]},
+        "cash": {"center": 0.30, "band": [0.20, 0.40]},
+    }
+    scores = [
+        {"instrument_id": "GLD", "asset_class": "gold", "role": "gold",
+         "composite_score": 70.0, "action": "watch", "conviction": "low"},
+        {"instrument_id": "VTI", "asset_class": "us_etf", "role": "core_us_equity",
+         "composite_score": 80.0, "action": "watch", "conviction": "low"},
+        {"instrument_id": "VOO", "asset_class": "us_etf", "role": "core_us_equity_alt",
+         "composite_score": 70.0, "action": "watch", "conviction": "low"},
+    ]
+    correlation = pd.DataFrame(
+        [[1.0, 0.20, 0.20], [0.20, 1.0, 0.95], [0.20, 0.95, 1.0]],
+        index=["GLD", "VTI", "VOO"],
+        columns=["GLD", "VTI", "VOO"],
+    )
+
+    out = run_allocation(
+        scores=scores,
+        class_targets=class_targets,
+        gold_tilt="neutral",
+        correlation=correlation,
+        per_class_top_k=2,
+    )
+
+    by_id = {row["instrument_id"]: row for row in out.selected_instruments}
+    assert set(by_id) == {"GLD", "VTI"}
+    assert abs(by_id["VTI"]["target_weight"] - 0.50) < 1e-9
+    assert abs(out.diagnostics["total_weight"] - 0.70) < 1e-9
+    assert abs(out.diagnostics["cash_residual_weight"] - 0.30) < 1e-9
+    assert out.dropped_due_to_correlation == [
+        {"instrument_id": "VOO", "dropped_due_to": "VTI", "rho": 0.95}
+    ]

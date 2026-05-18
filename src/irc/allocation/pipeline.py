@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from typing import Any
 import pandas as pd
 from irc.allocation.target_weights import compute_target_weights, softmax_distribute
-from irc.allocation.correlation_filter import drop_high_correlation_pairs, drop_correlated_and_renormalize
+from irc.allocation.correlation_filter import drop_high_correlation_pairs
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,33 @@ def _effective_n(weights: list[float]) -> float:
     return 1.0 / s if s > 0 else 0.0
 
 
+def _class_weight_totals(rows: list[dict[str, Any]]) -> dict[str, float]:
+    totals: dict[str, float] = {}
+    for row in rows:
+        asset_class = row["asset_class"]
+        totals[asset_class] = totals.get(asset_class, 0.0) + row["target_weight"]
+    return totals
+
+
+def _keep_and_preserve_class_totals(
+    selected: list[dict[str, Any]],
+    kept_ids: set[str],
+) -> list[dict[str, Any]]:
+    kept_rows = [row for row in selected if row["instrument_id"] in kept_ids]
+    pre_drop_totals = _class_weight_totals(selected)
+    kept_totals = _class_weight_totals(kept_rows)
+
+    return [
+        {
+            **row,
+            "target_weight": row["target_weight"]
+            * (pre_drop_totals[row["asset_class"]] / kept_totals[row["asset_class"]]),
+        }
+        for row in kept_rows
+        if kept_totals.get(row["asset_class"], 0.0) > 0
+    ]
+
+
 def run_allocation(
     scores: list[dict],
     class_targets: dict[str, dict[str, object]],
@@ -103,12 +130,10 @@ def run_allocation(
         ])
         filt = drop_high_correlation_pairs(cand_df, correlation, threshold=0.85)
         kept_ids = set(filt.kept["instrument_id"])
-        selected = [s for s in selected if s["instrument_id"] in kept_ids]
+        selected = _keep_and_preserve_class_totals(selected, kept_ids)
         dropped = filt.dropped
     else:
         dropped = []
-    # Renormalize intra-class weights after any drops, using empty corr dict (no further drops)
-    selected = drop_correlated_and_renormalize(selected, corr_matrix={}, threshold=0.85)
     eff_n = _effective_n([s["target_weight"] for s in selected])
     invested = sum(s["target_weight"] for s in selected)
     # Honest accounting of the unallocated portion. Classes that lack a scored
