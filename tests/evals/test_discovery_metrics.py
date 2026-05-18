@@ -9,10 +9,12 @@ from evals.discovery.metrics import (
 
 
 def _make_watchlist() -> pd.DataFrame:
+    """Mirrors the producer's CSV (src/irc/discovery/pipeline.py _WATCHLIST_COLUMNS)."""
+    tickers = ["AAPL", "MSFT", "GOOG", "TSLA", "AMZN", "META", "NVDA", "AMD", "INTC", "QCOM"]
     return pd.DataFrame({
-        "ticker": ["AAPL", "MSFT", "GOOG", "TSLA", "AMZN", "META", "NVDA", "AMD", "INTC", "QCOM"],
+        "instrument_id": tickers,
+        "ticker": tickers,
         "role": ["growth"] * 5 + ["value"] * 5,
-        "score": [0.9, 0.85, 0.8, 0.75, 0.7, 0.65, 0.6, 0.55, 0.5, 0.45],
         "cited_refs": ["ref1", "ref2", "", "ref4", "ref5", "", "ref7", "ref8", "ref9", ""],
     })
 
@@ -25,7 +27,7 @@ def test_candidates_per_role():
 
 
 def test_candidates_per_role_empty():
-    wl = pd.DataFrame({"role": [], "ticker": [], "score": [], "cited_refs": []})
+    wl = pd.DataFrame({"instrument_id": [], "ticker": [], "role": [], "cited_refs": []})
     result = candidates_per_role(wl)
     assert result == {}
 
@@ -36,8 +38,10 @@ def test_filter_integrity_all_present():
 
 
 def test_filter_integrity_with_nulls():
+    """Default `required_cols` is the producer's actual contract:
+    instrument_id, ticker, role. Null one of those to exercise the default."""
     wl = _make_watchlist()
-    wl.loc[0, "score"] = None
+    wl.loc[0, "role"] = None
     rate = filter_integrity(wl)
     assert abs(rate - 9 / 10) < 1e-9
 
@@ -67,5 +71,5 @@ def test_llm_reason_grounding():
 
 
 def test_llm_reason_grounding_empty():
-    wl = pd.DataFrame({"ticker": [], "role": [], "score": [], "cited_refs": []})
+    wl = pd.DataFrame({"instrument_id": [], "ticker": [], "role": [], "cited_refs": []})
     assert llm_reason_grounding(wl) == 1.0
