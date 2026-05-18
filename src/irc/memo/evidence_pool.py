@@ -25,10 +25,24 @@ def _format_instrument_evidence(
         if cs is not None:
             parts.append(f"score={cs:.1f}")
         fb = score_row.get("factor_breakdown") or {}
-        for k in ("valuation_cost", "risk", "quality", "macro_fit", "thesis_news"):
-            sub = fb.get(k) or {}
+        # The scoring factor key is ``valuation_cost`` (0-100, higher = lower
+        # expense ratio = better to hold). The opportunity-state token
+        # ``状态=cheap/...`` is the price-percentile bucket — a separate
+        # axis. We emit the cost factor as ``cost_grade`` here so the
+        # synthesizer prompt (and any reader) can't collapse the two into
+        # one "valuation" axis. JSON outputs keep the historical
+        # ``valuation_cost`` key untouched — this rename is display-only.
+        _EVIDENCE_FACTOR_NAMES: tuple[tuple[str, str], ...] = (
+            ("valuation_cost", "cost_grade"),
+            ("risk", "risk"),
+            ("quality", "quality"),
+            ("macro_fit", "macro_fit"),
+            ("thesis_news", "thesis_news"),
+        )
+        for json_key, display_key in _EVIDENCE_FACTOR_NAMES:
+            sub = fb.get(json_key) or {}
             if "score" in sub:
-                parts.append(f"{k}={sub['score']:.0f}")
+                parts.append(f"{display_key}={sub['score']:.0f}")
     if trade is not None:
         tw = trade.get("target_weight")
         if tw is not None:
