@@ -85,8 +85,9 @@ def run_scoring(
     for r in rows:
         m = by_id.get(r.instrument_id, {})
         asset_class = getattr(r, "asset_class", None)
-        completeness = completeness_ratio(m, asset_class=asset_class)
-        missing_data = list(missing_required_fields(m, asset_class=asset_class))
+        market = getattr(r, "market", None)
+        completeness = completeness_ratio(m, asset_class=asset_class, market=market)
+        missing_data = list(missing_required_fields(m, asset_class=asset_class, market=market))
         refs = tuple(r.cited_refs.split(",")) if isinstance(getattr(r, "cited_refs", None), str) else ()
         v = score_valuation_cost(
             expense_ratio=_get(m, "expense_ratio", 0.01),
