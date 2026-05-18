@@ -35,3 +35,6 @@ diff.txt
 # Coverage
 .coverage
 htmlcov/
+
+# autodev-loop session pointer
+.autodev-current
