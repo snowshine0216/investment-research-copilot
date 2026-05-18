@@ -149,20 +149,38 @@ def _md(s: object) -> str:
     return str(s).replace("|", "\\|").replace("\n", " ")
 
 
+_WATCH_REASON_LABEL: dict[str, str] = {
+    "score_watch": "scored watch",
+    "not_selected_by_allocation": "not selected by allocation",
+    "venue_unknown": "venue unknown",
+}
+
+
+def _watch_reason_cell(row: dict[str, Any]) -> str:
+    """Render the ``Why watch`` column. Empty string when the row isn't watch_only
+    or watch_reason is missing — keeps non-watch rows visually clean.
+    """
+    reason = row.get("watch_reason")
+    if not reason:
+        return ""
+    return _WATCH_REASON_LABEL.get(reason, str(reason))
+
+
 def _table_section(rows: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| Instrument | Status | Score Action | Conviction | Completeness | Venue | Next Step |",
-        "|---|---|---|---|---:|---|---|",
+        "| Instrument | Status | Score Action | Conviction | Completeness | Venue | Why watch | Next Step |",
+        "|---|---|---|---|---:|---|---|---|",
     ]
     for row in rows:
         lines.append(
-            "| {instrument_id} | {decision_status} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
+            "| {instrument_id} | {decision_status} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} | {next_step} |".format(
                 instrument_id=_md(row["instrument_id"]),
                 decision_status=row["decision_status"],
                 score_action=_md(row["score_action"]),
                 conviction=_md(row["conviction"]),
                 data_completeness=row["data_completeness"],
                 venue_status=row["venue_status"],
+                watch_reason=_watch_reason_cell(row),
                 next_step=_md(row["next_step"]),
             )
         )
