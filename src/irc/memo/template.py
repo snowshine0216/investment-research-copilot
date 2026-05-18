@@ -14,10 +14,30 @@ class MemoInputs:
     risk_notes: tuple[str, ...]
     tldr_lines: tuple[str, ...]
     picks_table_md: str = ""
+    # One bullet per trade plan row. When non-empty, section 7 renders
+    # deterministically and the synthesizer is asked to leave it alone.
+    # When empty (dry-run with no trades), section 7 falls back to the
+    # legacy placeholder.
+    execution_lines: tuple[str, ...] = ()
+
+
+_LEGACY_EXECUTION_PLACEHOLDER = "<!-- 由AI合成器填充 -->"
+# Marker the synthesizer prompt can grep for to know it must NOT touch
+# this section. See synthesizer.py — when the marker is present, the
+# prompt explicitly instructs the LLM to copy the section verbatim.
+EXECUTION_SECTION_MARKER = "<!-- IRC_EXECUTION_LINES_BEGIN -->"
+EXECUTION_SECTION_MARKER_END = "<!-- IRC_EXECUTION_LINES_END -->"
 
 
 def _section(n: int, title: str, body: str) -> str:
     return f"## {n}. {title}\n\n{body}\n"
+
+
+def _render_execution_section(lines: tuple[str, ...]) -> str:
+    if not lines:
+        return _LEGACY_EXECUTION_PLACEHOLDER
+    body = "\n".join(f"- {line}" for line in lines)
+    return f"{EXECUTION_SECTION_MARKER}\n{body}\n{EXECUTION_SECTION_MARKER_END}"
 
 
 def render_skeleton(inputs: MemoInputs) -> str:
@@ -37,6 +57,6 @@ def render_skeleton(inputs: MemoInputs) -> str:
         _section(4, "资产配置", f"- 建仓模式：{inputs.allocation_mode}"),
         _section(5, "精选标的", picks_section),
         _section(6, "风险提示", risks_md),
-        _section(7, "执行要点", "<!-- 由AI合成器填充 -->"),
+        _section(7, "执行要点", _render_execution_section(inputs.execution_lines)),
     ]
     return "\n".join(sections)

@@ -31,10 +31,21 @@ def _sanitize_ref(ref: str) -> str:
 
 def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute) -> ChatResponse:
     refs_block = "\n".join(f"- {_sanitize_ref(r)}" for r in raw_ref_pool[:40])
+    # When section 7 was prefilled deterministically (marker present), tell
+    # the LLM to copy that section verbatim. Otherwise leave today's
+    # behavior unchanged — the LLM still fills the placeholder.
+    section7_instruction = ""
+    if "<!-- IRC_EXECUTION_LINES_BEGIN -->" in skeleton:
+        section7_instruction = (
+            "第7节『执行要点』的内容已由系统生成（位于 IRC_EXECUTION_LINES_BEGIN/END "
+            "标记之间），必须**原样保留**这两个 HTML 注释之间的所有 bullet，"
+            "不要改写、合并或扩写其中的任何条目。"
+        )
     user_msg = (
         f"{_GLOSSARY}\n\n"
         f"以下是备忘录骨架：\n\n{skeleton}\n\n"
         f"以下是相关原始数据摘录（请结合数据充实各章节，勿发明数据）：\n{refs_block}\n\n"
+        f"{section7_instruction}\n\n"
         "请按骨架章节结构输出完整备忘录。"
     )
     return call_chat(

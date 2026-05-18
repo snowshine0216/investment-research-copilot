@@ -18,6 +18,36 @@ _DEFAULT_TIMELINESS_NOTE = (
 )
 
 
+def _compose_execution_lines(
+    trades: list[dict],
+    opportunity_rows: list[dict],
+) -> tuple[str, ...]:
+    """Build one bullet per trade row for memo section 7.
+
+    Sourcing data deterministically from the trade plan removes the
+    LLM-fillable placeholder that left section 7 empty in 2026-05-18.
+    Each bullet carries: id+name, target weight cap, buy_method,
+    granularity, trigger names (or "无"), and venue_note.
+    """
+    name_by_id = {str(r.get("instrument_id")): r.get("name_cn", "")
+                  for r in opportunity_rows}
+    lines: list[str] = []
+    for t in trades:
+        iid = str(t.get("target", ""))
+        name = name_by_id.get(iid, "")
+        weight = float(t.get("target_weight") or 0.0)
+        trig_names = [str(tr.get("name", "")) for tr in (t.get("triggers") or [])]
+        triggers = "，".join(n for n in trig_names if n) or "无"
+        venue_note = str(t.get("venue_note", ""))
+        bullet = (
+            f"**{iid} {name}** | 目标权重 ≤ {weight*100:.1f}% | "
+            f"建仓方式 {t.get('buy_method', 'unknown')} ({t.get('granularity', 'default')}) | "
+            f"触发 {triggers} | 渠道 {venue_note}"
+        )
+        lines.append(bullet)
+    return tuple(lines)
+
+
 def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
     """Return the memo risk-notes tuple, with the data-timeliness bullet
     rewritten when we know the evidence-pool cutoff date.
@@ -154,6 +184,7 @@ def run_memo(repo_root: str) -> int:
 
     cutoff = extract_evidence_cutoff(raw_ref_pool)
     risk_notes = _compose_risk_notes(cutoff)
+    execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
 
     inputs = MemoInputs(
         date_str=today,
@@ -169,6 +200,7 @@ def run_memo(repo_root: str) -> int:
         risk_notes=risk_notes,
         tldr_lines=tldr,
         picks_table_md=picks_table_md,
+        execution_lines=execution_lines,
     )
 
     synth_route = resolve_route("memo_synthesis", bundle.llm)
