@@ -14,6 +14,10 @@ def compose_decision_report(
     trade_plan: dict[str, Any],
     memo_traceability: dict[str, Any],
     pipeline_halted: bool,
+    *,
+    venue_requirements_by_id: dict[str, list[str]] | None = None,
+    available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
+    proxies_by_id: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -33,7 +37,13 @@ def compose_decision_report(
     pipeline_incomplete = _scores_missing_action(scores)
     if pipeline_incomplete:
         pipeline_halted = True
-    rows = _build_rows(scoring, selected_ids, trades_by_target, target_weight_valid, pipeline_halted, coverage)
+    rows = _build_rows(
+        scoring, selected_ids, trades_by_target, target_weight_valid,
+        pipeline_halted, coverage,
+        venue_requirements_by_id=venue_requirements_by_id or {},
+        available_venues=available_venues,
+        proxies_by_id=proxies_by_id or {},
+    )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     return {
         "date": date,
@@ -124,18 +134,26 @@ def _build_rows(
     target_weight_valid: bool,
     pipeline_halted: bool,
     coverage: float,
+    *,
+    venue_requirements_by_id: dict[str, list[str]],
+    available_venues: list[str] | tuple[str, ...] | set[str] | None,
+    proxies_by_id: dict[str, str],
 ) -> list[dict[str, Any]]:
-    return [
-        decide_row(
+    rows: list[dict[str, Any]] = []
+    for score in scoring.get("scores", []):
+        iid = str(score.get("instrument_id"))
+        rows.append(decide_row(
             score=score,
-            allocation_selected=str(score.get("instrument_id")) in selected_ids,
+            allocation_selected=iid in selected_ids,
             target_weight_valid=target_weight_valid,
-            trade=trades_by_target.get(str(score.get("instrument_id"))),
+            trade=trades_by_target.get(iid),
             pipeline_halted=pipeline_halted,
             memo_traceability_coverage=coverage,
-        )
-        for score in scoring.get("scores", [])
-    ]
+            venue_required=venue_requirements_by_id.get(iid),
+            available_venues=available_venues,
+            proxy_id=proxies_by_id.get(iid),
+        ))
+    return rows
 
 
 def _blocking_section(blocking_reasons: list[str]) -> list[str]:
