@@ -1,57 +1,53 @@
 from __future__ import annotations
+
+import importlib
 from pathlib import Path
 from typing import Callable
-import importlib
+
+from evals._shared.registry import (
+    EvalStageSpec,
+    active_suite_stages,
+    get_spec,
+    is_inactive,
+)
 
 
-def _get_runner(stage: str) -> Callable[[Path], int]:
-    runners: dict[str, str] = {
-        "data":         "evals.data.runner",
-        "news":         "evals.news.runner",
-        "research":     "evals.research.runner",
-        "discovery":    "evals.discovery.runner",
-        "scoring":      "evals.scoring.runner",
-        "gold_score":   "evals.gold_score.runner",
-        "allocation":   "evals.allocation.runner",
-        "trade_plan":   "evals.trade_plan.runner",
-        "memo":         "evals.memo.runner",
-        "queries":      "evals.queries.runner",
-        "triggers":     "evals.triggers.runner",
-        "architecture": "evals.architecture.runner",
-        "opportunity":  "evals.opportunity.runner",
-    }
-    if stage not in runners:
-        raise KeyError(f"unknown eval stage: {stage}")
-    mod = importlib.import_module(runners[stage])
+def _resolve_runner(spec: EvalStageSpec) -> Callable[[Path], int]:
+    mod = importlib.import_module(spec.runner_module)
     return mod.run
 
 
 def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
     root = Path(repo_root)
     if all_stages:
-        stages = (
-            "data", "news", "research", "discovery", "scoring",
-            "gold_score", "allocation", "trade_plan",
-            "memo", "queries", "triggers", "architecture", "opportunity",
-        )
-        by_stage: dict[str, int] = {}
-        for s in stages:
-            try:
-                rc = _get_runner(s)(root)
-            except Exception as e:
-                print(f"eval {s} raised: {e}")
-                rc = 2
-            by_stage[s] = rc
-        _print_eval_summary(by_stage)
-        return max(by_stage.values())
+        return _run_active_suite(root)
     if stage is None:
         print("ERROR: provide a stage or --all")
         return 2
     try:
-        return _get_runner(stage)(root)
+        spec = get_spec(stage)
     except KeyError as e:
         print(f"ERROR: {e}")
         return 2
+    if is_inactive(spec):
+        print(
+            f"{spec.stage} eval is {spec.lifecycle}; "
+            f"not part of the active suite — no current artifact contract to evaluate"
+        )
+        return 2
+    return _resolve_runner(spec)(root)
+
+
+def _run_active_suite(root: Path) -> int:
+    by_stage: dict[str, int] = {}
+    for s in active_suite_stages():
+        try:
+            by_stage[s] = _resolve_runner(get_spec(s))(root)
+        except Exception as e:  # noqa: BLE001 — one stage failing must not kill the suite
+            print(f"eval {s} raised: {e}")
+            by_stage[s] = 2
+    _print_eval_summary(by_stage)
+    return max(by_stage.values()) if by_stage else 0
 
 
 def _print_eval_summary(by_stage: dict[str, int]) -> None:
@@ -60,5 +56,5 @@ def _print_eval_summary(by_stage: dict[str, int]) -> None:
     print("eval summary:")
     for stage, rc in by_stage.items():
         print(f"  {label(rc):4} {stage}")
-    worst = max(by_stage.values())
-    print(f"overall: {label(worst)}")
+    if by_stage:
+        print(f"overall: {label(max(by_stage.values()))}")

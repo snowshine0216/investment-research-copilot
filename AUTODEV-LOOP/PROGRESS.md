@@ -5,7 +5,7 @@ States: ⏳ pending · 🔄 in-flight · ✅ done · ⚠️ blocked · ⏭️ sk
 | ID | Title | spec | plan | impl | QA | review | fix | merge |
 |---|---|---|---|---|---|---|---|---|
 | 001 | Package evals/ for installed CLI + regression test | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
-| 002 | Eval registry with lifecycle classification | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | Eval registry with lifecycle classification | ✅ | ✅ | ✅ | ✅ | ✅ | — | ✅ |
 | 003 | Shared artifact locator | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | Report-date policy follows source | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | Discovery runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -25,3 +25,4 @@ States: ⏳ pending · 🔄 in-flight · ✅ done · ⚠️ blocked · ⏭️ sk
 
 - 2026-05-18 — Skill fired. MASTER-SPEC.md, MASTER-PLAN.md, SKIPPED.md drafted. Beginning 001.
 - 2026-05-18 — Item 001 merged. `pyproject.toml` packages `evals` alongside `src/irc`; `tests/evals/test_packaging.py` guards via isolated subprocess import. CLI no longer raises ModuleNotFoundError. Full suite: 1143 pass, 20 skipped.
+- 2026-05-18 — Item 002 merged. `evals/_shared/registry.py` is the single source of truth for stage list, runner module, lifecycle, and active-suite membership. `eval_cmd.py` rewritten to use registry. Direct invocation of `news`/`queries` now prints inactive-stage message (verified manually); `--all` skips them. Full suite: 1156 pass.
