@@ -1,9 +1,10 @@
 from __future__ import annotations
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
+
 import json
-from irc.decision.completeness import MIN_BUY_COMPLETENESS
-from irc.io_utils import atomic_write_text
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+from evals._shared.locator import locate
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
     EVAL_RC_PASS,
@@ -11,8 +12,9 @@ from evals._shared.missing_input import (
     missing_input_report,
     write_missing_input_report,
 )
+from evals._shared.report_paths import write_report
+from evals._shared.report_schema import MetricReport, StageReport
 from evals._shared.status import classify_status, worst_status
-from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 from evals.scoring.metrics import (
     buy_candidate_min_completeness,
     factor_breakdown_completeness,
@@ -21,6 +23,7 @@ from evals.scoring.metrics import (
     score_distribution_stability,
     scoring_data_completeness_avg,
 )
+from irc.decision.completeness import MIN_BUY_COMPLETENESS
 
 _TZ = timezone(timedelta(hours=8))
 _FBC_TH = {"warn_below": 0.99, "fail_below": 0.9}
@@ -29,20 +32,7 @@ _RHO_TH = {"warn_below": 0.0, "fail_below": -0.5}
 _STABILITY_TH = {"warn_above": 0.1, "fail_above": 0.2}
 _DATA_COMPLETENESS_AVG_TH = {"warn_below": 0.90, "fail_below": 0.75}
 # Spec: FAIL when any buy candidate < MIN_BUY_COMPLETENESS; no WARN band for buys.
-# warn_below == fail_below collapses the WARN tier; classify_status returns FAIL or PASS only.
 _BUY_COMPLETENESS_TH = {"warn_below": MIN_BUY_COMPLETENESS, "fail_below": MIN_BUY_COMPLETENESS}
-
-
-def _load_scores(repo_root: Path) -> tuple[list[dict], Path | None]:
-    today = datetime.now(_TZ).date().isoformat()
-    today_path = repo_root / "outputs" / today / "scoring.json"
-    if today_path.exists():
-        return _parse_scores(today_path), today_path
-    candidates = sorted((repo_root / "outputs").glob("*/scoring.json"))
-    if candidates:
-        latest = candidates[-1]
-        return _parse_scores(latest), latest
-    return [], None
 
 
 def _parse_scores(path: Path) -> list[dict]:
@@ -55,8 +45,8 @@ def _parse_scores(path: Path) -> list[dict]:
 
 
 def run(repo_root: Path) -> int:
-    scores, source = _load_scores(repo_root)
-    if source is None:
+    located = locate(repo_root, ("scoring.json",))
+    if located is None:
         report = missing_input_report(
             stage="scoring",
             reason="outputs/<date>/scoring.json (or latest) is missing — scoring stage did not run",
@@ -65,6 +55,9 @@ def run(repo_root: Path) -> int:
         write_missing_input_report(repo_root, report)
         print(f"scoring eval: {report.overall} (no input file)")
         return EVAL_RC_FAIL
+
+    source = located.paths[0]
+    scores = _parse_scores(source)
 
     index: set[str] = set()
     for s in scores:
@@ -134,15 +127,6 @@ def run(repo_root: Path) -> int:
         metrics=metrics,
         overall=overall,
     )
-    # Derive date from the source folder so the eval report is co-located with its artifact.
-    source_date = Path(source).parent.name
-    _write(repo_root, report, source_date)
+    write_report(repo_root, report, artifact_date=located.artifact_date)
     print(f"scoring eval: {overall}")
     return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
-
-
-def _write(repo_root: Path, report: StageReport, date_str: str | None = None) -> None:
-    date_str = date_str or datetime.now(_TZ).date().isoformat()
-    out_dir = (repo_root / "outputs" / date_str / "evals" / "scoring")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "report.json", json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))

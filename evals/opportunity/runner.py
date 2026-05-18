@@ -6,6 +6,7 @@ from pathlib import Path
 
 import yaml
 
+from evals._shared.locator import locate
 from evals._shared.missing_input import (
     EVAL_RC_FAIL,
     EVAL_RC_PASS,
@@ -13,7 +14,8 @@ from evals._shared.missing_input import (
     missing_input_report,
     write_missing_input_report,
 )
-from evals._shared.report_schema import MetricReport, StageReport, report_to_dict
+from evals._shared.report_paths import write_report
+from evals._shared.report_schema import MetricReport, StageReport
 from evals._shared.status import classify_status, worst_status
 from evals.opportunity.metrics import (
     drawdown_not_auto_sell,
@@ -24,36 +26,11 @@ from evals.opportunity.metrics import (
     thesis_card_required_field_completeness,
     valid_action_enums,
 )
-from irc.io_utils import atomic_write_text
 
 
 _TZ = timezone(timedelta(hours=8))
 _HIGH_TH = {"warn_below": 0.95, "fail_below": 0.80}
 _BINARY_TH = {"warn_below": 1.0, "fail_below": 1.0}
-
-
-def _today() -> str:
-    return datetime.now(_TZ).date().isoformat()
-
-
-def _locate_inputs(root: Path) -> tuple[Path | None, Path | None, Path | None, str]:
-    today = _today()
-    today_dir = root / "outputs" / today
-    target_dir = today_dir if today_dir.exists() else None
-    if target_dir is None:
-        dated = sorted((root / "outputs").glob("*/opportunity_report.json"))
-        if not dated:
-            return None, None, None, today
-        target_dir = dated[-1].parent
-    report = target_dir / "opportunity_report.json"
-    cards = target_dir / "thesis_cards.yaml"
-    md = target_dir / "discipline_report.md"
-    return (
-        report if report.exists() else None,
-        cards if cards.exists() else None,
-        md if md.exists() else None,
-        target_dir.name,
-    )
 
 
 def _read_opportunity_cmd_source() -> str:
@@ -63,9 +40,9 @@ def _read_opportunity_cmd_source() -> str:
 
 def run(repo_root: Path) -> int:
     root = Path(repo_root)
-    report_path, cards_path, md_path, date_str = _locate_inputs(root)
+    located = locate(root, ("opportunity_report.json",))
 
-    if report_path is None:
+    if located is None:
         report = missing_input_report(
             stage="opportunity",
             reason="no opportunity_report.json found — opportunity stage did not run",
@@ -74,6 +51,13 @@ def run(repo_root: Path) -> int:
         write_missing_input_report(root, report)
         print(f"opportunity eval: {report.overall} (no input file)")
         return EVAL_RC_FAIL
+
+    report_path = located.paths[0]
+    artifact_dir = report_path.parent
+    cards_path = artifact_dir / "thesis_cards.yaml"
+    md_path = artifact_dir / "discipline_report.md"
+    cards_path = cards_path if cards_path.is_file() else None
+    md_path = md_path if md_path.is_file() else None
 
     rows = json.loads(report_path.read_text(encoding="utf-8")).get("rows", [])
     cards = (
@@ -119,21 +103,18 @@ def run(repo_root: Path) -> int:
         for name, value in metrics_values.items()
     ]
     overall = worst_status([m.status for m in metrics_list])
+    based_on = [str(report_path)]
+    if cards_path:
+        based_on.append(str(cards_path))
+    if md_path:
+        based_on.append(str(md_path))
     report = StageReport(
-        stage="opportunity", ran_at=datetime.now(_TZ).isoformat(),
-        based_on=[str(report_path)] + ([str(cards_path)] if cards_path else [])
-        + ([str(md_path)] if md_path else []),
-        metrics=metrics_list, overall=overall,
+        stage="opportunity",
+        ran_at=datetime.now(_TZ).isoformat(),
+        based_on=based_on,
+        metrics=metrics_list,
+        overall=overall,
     )
-    _write(root, report, date_str)
+    write_report(root, report, artifact_date=located.artifact_date)
     print(f"opportunity eval: {overall}")
     return EVAL_RC_PASS if overall == "PASS" else (EVAL_RC_WARN if overall == "WARN" else EVAL_RC_FAIL)
-
-
-def _write(repo_root: Path, report: StageReport, date_str: str) -> None:
-    out_dir = repo_root / "outputs" / date_str / "evals" / "opportunity"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(
-        out_dir / "report.json",
-        json.dumps(report_to_dict(report), ensure_ascii=False, indent=2),
-    )

@@ -4,15 +4,17 @@ Replaces the historical 'missing input → PASS' pattern in every runner.
 A missing input file means the upstream stage did not run (or crashed before
 writing). Treating that as PASS lets broken pipelines look healthy. We treat
 it as FAIL with exit code 2 so the CLI returns non-zero and dashboards turn red.
+
+Path construction is delegated to ``evals._shared.report_paths.write_report``
+so there is one location producing ``outputs/<date>/evals/<stage>/report.json``.
 """
 from __future__ import annotations
 
-import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from evals._shared.report_schema import StageReport, report_to_dict
-from irc.io_utils import atomic_write_text
+from evals._shared.report_paths import write_report
+from evals._shared.report_schema import StageReport
 
 
 EVAL_RC_PASS = 0
@@ -49,13 +51,7 @@ def missing_input_report(
 def write_missing_input_report(
     repo_root: Path, report: StageReport, *, date_str: str | None = None,
 ) -> Path:
-    """Write the FAIL report under outputs/<date>/evals/<stage>/report.json."""
+    """Write the FAIL report under the run date (default) or a caller-supplied date."""
     if date_str is None:
         date_str = datetime.now(_TZ).date().isoformat()
-    out_dir = repo_root / "outputs" / date_str / "evals" / report.stage
-    out_dir.mkdir(parents=True, exist_ok=True)
-    out = out_dir / "report.json"
-    atomic_write_text(
-        out, json.dumps(report_to_dict(report), ensure_ascii=False, indent=2)
-    )
-    return out
+    return write_report(repo_root, report, artifact_date=date_str)
