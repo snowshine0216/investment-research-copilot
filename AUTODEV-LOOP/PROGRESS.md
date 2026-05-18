@@ -1,0 +1,26 @@
+# PROGRESS — live tracker
+
+States: ⏳ pending · 🔄 in-flight · ✅ done · ⚠️ blocked · ⏭️ skipped
+
+| ID | Title | spec | plan | impl | QA | review | fix | merge |
+|---|---|---|---|---|---|---|---|---|
+| 001 | Package evals/ for installed CLI + regression test | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | Eval registry with lifecycle classification | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | Shared artifact locator | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | Report-date policy follows source | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 005 | Discovery runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 006 | Gold_score runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 007 | Allocation runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 008 | Trade_plan runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 009 | Memo runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 010 | Architecture runner modernization | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+
+## Notes
+
+- Working branch: `claude/intelligent-shtern-d84f4d`
+- Per-item PRs collapsed into per-item squashed commits (worktree mode); see MASTER-PLAN.md.
+- Phase 3 final validation: ⏳
+
+## Status log
+
+- 2026-05-18 — Skill fired. MASTER-SPEC.md, MASTER-PLAN.md, SKIPPED.md drafted. Beginning 001.
