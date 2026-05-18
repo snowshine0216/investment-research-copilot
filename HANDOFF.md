@@ -1,5 +1,72 @@
 # Handoff Document
-*Last updated: 2026-05-17 CST (post-autodev-loop)*
+*Last updated: 2026-05-19 CST (post-autodev-loop, memo-audit cleanup)*
+
+---
+
+## Session: May 18 — Memo-audit cleanup backlog (autodev-loop)
+
+### Goal
+Address the auditor's findings on `outputs/2026-05-18/memo.md` (HIGH: empty Section 7, internal contradiction on 000105's `valuation_cost=85` vs `状态=cheap`, T+1 boilerplate without a cutoff date) plus the structural issues a manual review surfaced (CN trade rows shipping with `triggers: []`, 8 bond ETFs stuck at completeness 0.75, 85 of 103 `decision_report.md` rows reporting `venue=unknown`, gold ETFs target-weighted to positions the account cannot trade, "110022 110022" identity-as-name rows, decision report being one 100-row wall). 11 in-scope items shipped as per-item squash-merged PRs to `main`; 3 design-level items deferred with documented unblock paths.
+
+### What landed (11 PRs, all squash-merged to `main`)
+
+| PR | Item | Summary |
+| :--- | :--- | :--- |
+| #29 | 001 | Match real config key `weekly_drawdown_4pct` in `emit_triggers_for_trade`; align test fixtures with the prod config so future drift is caught. |
+| #30 | 002 | `required_for_instrument(asset_class, market)`: passive bond ETFs (`cn_bond_fund` + `cn_on_exchange`) drop `manager_tenure_years` from required metrics. Unblocks 8 ETFs. |
+| #31 | 003 | Defensive `_build_input` fallback (`未登记(<id>)` instead of raw id); regression test pins the 5 missing names in the template `cn_funds.yaml`. |
+| #32 | 004 | Rename evidence-pool `valuation_cost` → `cost_grade`; prepend a glossary to the synthesizer prompt distinguishing the price-percentile axis from the cost-grade factor. |
+| #33 | 005 | `extract_evidence_cutoff(refs)` + reworked risk-notes bullet ("证据池截止 YYYY-MM-DD … 境内 T+1, QDII 跨境结算更长 …"). |
+| #34 | 006 | New `irc.memo.numeric_audit` module; `cheap_claim_vs_state` detector flags prose contradicting the underlying evidence; findings prepended into `MemoOutput.audit_notes`. |
+| #35 | 007 | `watch_reason` field on `DecisionRow` (`score_watch` / `not_selected_by_allocation` / `venue_unknown`). |
+| #36 | 008 | `derive_venue_status()` plus universe+account threading in `decision_cmd`; `unknown` only when no account configured. |
+| #37 | 009 | Section 7 (执行要点) now composed deterministically from the trade plan via `MemoInputs.execution_lines` and `IRC_EXECUTION_LINES_BEGIN/END` markers; synthesizer told to copy verbatim. |
+| #38 | 010 | Same-class gold proxy without `tracked_index` match — paper gold now picks up the 20% weight the user can actually execute. |
+| #39 | 011 | `decision_report.md` rewritten as 3 reader-first sections (Actionable buys / Blocked — fixable today / Watch (no trade) with sub-tallies and a collapsible details block). JSON shape unchanged. |
+
+### Skipped (documented in `docs/2026-05-18-fix-memo-audit/SKIPPED.md`)
+- **B10 — synthesizer rewrite for per-claim citations.** Needs a prompt-eval harness and a `decide_row` contract change; bigger than this loop.
+- **C12 — zero-weight untradeable instruments.** Allocation-policy change; should be a preferences flag, not a default.
+- **C14 — real macro evidence block (real yields, DXY, CB buying).** Requires new data ingestion modules.
+
+### Current state
+- Full suite green on the modules touched: `tests/decision tests/memo tests/trades tests/scoring tests/opportunity tests/allocation tests/discovery` all pass.
+- 2 pre-existing unrelated failures (`tests/integration/test_thesis_coverage.py::test_no_all_evidence_insufficient_valuation`, `tests/test_e2e_full_pipeline.py::test_eval_single_stage_data`) reproduce on `main` from before this run; out of scope.
+- Scaffold + per-item specs/plans live in `docs/2026-05-18-fix-memo-audit/`.
+
+### What Worked
+- **Inline self-review for surgical fixes** (001-005, 010): a 1-line config-key alignment, an evidence-pool field rename, a regex helper — dispatching a Sonnet subagent for these would have burned more tokens than the change itself. Deviation noted in `PROGRESS.md`.
+- **Threading the universe + available_venues through `compose_decision_report`** (008) as optional kwargs with safe defaults — every existing caller and every existing test kept working with zero changes.
+- **`extract_evidence_cutoff` writing a Python date string into prose** (005) — the LLM prompt no longer has to be careful about dates; the cutoff is composed deterministically and the synthesizer sees it as text.
+- **Pinning the JSON contract with an invariant test** (011) before rewriting the markdown renderer — `test_json_shape_unchanged_after_markdown_refactor` makes it obvious if anyone later tries to "improve" the JSON.
+
+### What Didn't Work
+- **First-draft tests in 001 assumed `_wants_weekly_drawdown` was scoped to CN classes only** — it's intentionally broader (DCA + anchor methods globally). Rewrote the negative assertion to document the actual breadth rather than hide it.
+- **Pointing the universe-completeness test at `config/universe/cn_funds.yaml`** (003) failed: that file is gitignored (per-user). Moved the assertion to the template path (`src/irc/templates/config/universe/cn_funds.yaml`) so the test is meaningful on a fresh checkout.
+- **Splitting the watch-blocked section by `"##"`** (011) caught the inner `### Blocked by:` subheaders. Fixed by splitting on `"\n## "` (level-2 header with the leading newline) explicitly.
+
+### Next Steps
+1. Re-run the actual pipeline (`irc ingest → discover → score → opportunity → memo → decision`) once the user has refreshed their local `config/universe/cn_funds.yaml` (it's gitignored; the template has the names but the user's copy is trimmed). Expected differences in the new `outputs/<date>/`:
+   - `memo.md` Section 2 no longer narrates `valuation_cost=85` as "极高" — evidence pool says `cost_grade=85`.
+   - Section 7 populated from the trade plan with one bullet per row.
+   - Section 6 cutoff bullet carries a real date.
+   - `audit_notes` may include the new `### 自动数值审核` block when prose still drifts from evidence.
+   - `decision_report.md` has three sections instead of one 103-row table.
+   - `trade_plan.yaml` gold rows route through `cmb_paper_gold` as proxy.
+   - 8 bond ETFs jump from completeness 0.75 → 1.0.
+2. Consider the three skipped items as a follow-up backlog: B10 most useful (closes the loop on traceability), C14 second (real macro evidence is the only structural way to ground "intact" claims), C12 last (needs a preferences flag and user input).
+
+### Key Files & Locations
+| File | What it is |
+| :--- | :--- |
+| `docs/2026-05-18-fix-memo-audit/MASTER-SPEC.md` | 11-item IN/OUT classification + judgment calls |
+| `docs/2026-05-18-fix-memo-audit/PROGRESS.md` | Per-item status (all ✅) |
+| `docs/2026-05-18-fix-memo-audit/SKIPPED.md` | B10/C12/C14 rationale + unblock paths |
+| `docs/2026-05-18-fix-memo-audit/items/<id>-{spec,plan}.md` | Per-item spec + plan |
+| `src/irc/memo/numeric_audit.py` | NEW: pure-function memo numeric sanity validator |
+| `src/irc/decision/gates.py` | Now exports `derive_venue_status`, `WatchReason` |
+| `src/irc/memo/pipeline.py` | Now exports `extract_evidence_cutoff` |
+| `src/irc/memo/template.py` | Section 7 wraps execution_lines in `IRC_EXECUTION_LINES_BEGIN/END` markers |
 
 ---
 
