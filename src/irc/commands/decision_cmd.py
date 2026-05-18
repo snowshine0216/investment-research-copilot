@@ -7,8 +7,33 @@ from typing import Any
 
 import yaml
 
+from irc.config_loader import load_repo_configs
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
+from irc.schemas.universe import UniverseConfig
+
+
+def _venue_maps_from_bundle(bundle, root: Path) -> tuple[dict[str, list[str]], list[str]]:
+    """Aggregate venue_required per instrument across every universe yaml,
+    plus the account's available_venues. Returns (venue_requirements_by_id,
+    available_venues).
+    """
+    universes: list[UniverseConfig] = [
+        bundle.universe_qdii_us,
+        bundle.universe_qdii_hk,
+        bundle.universe_cn_funds,
+        bundle.universe_gold,
+    ]
+    requirements: dict[str, list[str]] = {}
+    for u in universes:
+        for instr in u.instruments:
+            # The same id should not exist in multiple universes; last-write
+            # is fine if a config drift ever introduces a duplicate.
+            requirements[instr.instrument_id] = list(instr.venue_required)
+    venues: list[str] = []
+    for acc in bundle.account.accounts:
+        venues.extend(acc.available_venues)
+    return requirements, sorted(set(venues))
 
 
 _TZ = timezone(timedelta(hours=8))
@@ -31,6 +56,22 @@ def run_decision(repo_root: str) -> int:
     allocation = _read_yaml(out_dir / "proposed_allocation.yaml")
     trade_plan = _read_yaml(out_dir / "trade_plan.yaml")
     memo_traceability = _read_json(out_dir / "memo_traceability.json")
+    # Load venue context so rows without a trade entry can still report a
+    # precise venue_status (direct / blocked_no_proxy) instead of "unknown".
+    # Item 008: 85 of 103 rows in 2026-05-18's report had venue=unknown
+    # because no trade was generated; for in-universe instruments the
+    # status is fully derivable from venue_required ∩ available_venues.
+    try:
+        bundle = load_repo_configs(root)
+        venue_reqs, available_venues = _venue_maps_from_bundle(bundle, root)
+    except Exception as exc:  # noqa: BLE001 — graceful degrade
+        print(f"WARNING: could not load venue context ({exc}); falling back to unknown venue for rows without trades.")
+        venue_reqs, available_venues = {}, []
+    proxies = {
+        str(row.get("target")): str(row.get("proxy_id"))
+        for row in trade_plan.get("trades", [])
+        if row.get("proxy_id")
+    }
     report = compose_decision_report(
         date=out_dir.name,
         scoring=scoring,
@@ -38,6 +79,9 @@ def run_decision(repo_root: str) -> int:
         trade_plan=trade_plan,
         memo_traceability=memo_traceability,
         pipeline_halted=(out_dir / "PIPELINE_HALTED.md").exists(),
+        venue_requirements_by_id=venue_reqs,
+        available_venues=available_venues,
+        proxies_by_id=proxies,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))

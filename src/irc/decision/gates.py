@@ -44,6 +44,36 @@ def venue_status_for_trade(trade: dict[str, Any] | None) -> VenueStatus:
     return "blocked_no_proxy"
 
 
+def derive_venue_status(
+    trade: dict[str, Any] | None,
+    *,
+    venue_required: list[str] | tuple[str, ...] | None = None,
+    available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
+    proxy_id: str | None = None,
+) -> VenueStatus:
+    """Pick the most precise venue status available.
+
+    When a trade row exists, defer to the legacy ``venue_status_for_trade``
+    behavior. When the trade is None but the caller knows both the
+    instrument's ``venue_required`` set and the user's ``available_venues``,
+    derive the status from their intersection — direct if they overlap,
+    proxy_available when a proxy is registered, blocked_no_proxy when
+    neither route works. Falls back to ``unknown`` when ``available_venues``
+    is None or empty (the user hasn't configured an account yet).
+    """
+    if trade is not None:
+        return venue_status_for_trade(trade)
+    if not available_venues:
+        return "unknown"
+    if venue_required is None:
+        return "unknown"
+    if set(venue_required) & set(available_venues):
+        return "direct"
+    if proxy_id is not None:
+        return "proxy_available"
+    return "blocked_no_proxy"
+
+
 def memo_evidence_status(coverage: float) -> str:
     return "evidence_linked" if coverage > 0.0 else "narrative_only"
 
@@ -56,6 +86,10 @@ def decide_row(
     pipeline_halted: bool,
     memo_traceability_coverage: float,
     completeness_threshold: float = MIN_BUY_COMPLETENESS,
+    *,
+    venue_required: list[str] | tuple[str, ...] | None = None,
+    available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
+    proxy_id: str | None = None,
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -73,7 +107,12 @@ def decide_row(
         tuple(raw_missing) if raw_missing is not None
         else missing_required_fields(None, asset_class=score.get("asset_class"))
     )
-    venue_status = venue_status_for_trade(trade)
+    venue_status = derive_venue_status(
+        trade,
+        venue_required=venue_required,
+        available_venues=available_venues,
+        proxy_id=proxy_id,
+    )
     evidence_status = memo_evidence_status(memo_traceability_coverage)
     blocking_reasons = _blocking_reasons(
         pipeline_halted=pipeline_halted,
