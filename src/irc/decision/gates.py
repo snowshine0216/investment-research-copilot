@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from irc.decision.completeness import MIN_BUY_COMPLETENESS, missing_required_fields
-from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus
+from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus, WatchReason
 
 
 _BUY_ACTIONS = {"buy_candidate", "strong_buy_candidate"}
@@ -85,6 +85,7 @@ def decide_row(
         score_action=score_action,
     )
     decision_status = _decision_status(score_action, blocking_reasons, allocation_selected)
+    watch_reason = _watch_reason(decision_status, score_action, allocation_selected, venue_status)
     return _build_decision_row(
         score=score,
         score_action=score_action,
@@ -95,6 +96,7 @@ def decide_row(
         evidence_status=evidence_status,
         blocking_reasons=blocking_reasons,
         decision_status=decision_status,
+        watch_reason=watch_reason,
     ).to_dict()
 
 
@@ -108,6 +110,7 @@ def _build_decision_row(
     evidence_status: str,
     blocking_reasons: list[str],
     decision_status: str,
+    watch_reason: WatchReason | None,
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
@@ -124,6 +127,7 @@ def _build_decision_row(
         blocking_reasons=tuple(blocking_reasons),
         reason=_reason(decision_status, blocking_reasons, score_action),
         next_step=_next_step(blocking_reasons, decision_status),
+        watch_reason=watch_reason,
     )
 
 
@@ -160,6 +164,29 @@ def _decision_status(score_action: str, blocking_reasons: list[str], allocation_
     if score_action in _BUY_ACTIONS and allocation_selected:
         return "actionable_buy"
     return "watch_only"
+
+
+def _watch_reason(
+    decision_status: str,
+    score_action: str,
+    allocation_selected: bool,
+    venue_status: VenueStatus,
+) -> WatchReason | None:
+    """Explain WHY a row landed in watch_only. None for any other decision status.
+
+    Order matters: score_watch wins over not_selected_by_allocation because
+    a `watch` score wasn't going to be selected anyway; surface the more
+    specific cause first.
+    """
+    if decision_status != "watch_only":
+        return None
+    if score_action == "watch":
+        return "score_watch"
+    if score_action in _BUY_ACTIONS and not allocation_selected:
+        return "not_selected_by_allocation"
+    if venue_status == "unknown":
+        return "venue_unknown"
+    return None  # defensive — should not occur given _decision_status
 
 
 def _reason(decision_status: str, blocking_reasons: list[str], score_action: str) -> str:
