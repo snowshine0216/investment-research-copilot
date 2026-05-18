@@ -7,6 +7,7 @@ from irc.decision.completeness import (
     completeness_ratio,
     missing_required_fields,
     required_for_asset_class,
+    required_for_instrument,
     summarize_completeness,
 )
 
@@ -155,3 +156,58 @@ def test_missing_required_fields_uses_asset_class_when_provided() -> None:
     assert "holdings_concentration_top10" not in missing
     assert "downside_capture" not in missing
     assert "aum_stability_pct" not in missing
+
+
+def test_required_for_passive_bond_etf_drops_manager_tenure() -> None:
+    # On-exchange bond ETF = passively replicated; no active manager.
+    req = required_for_instrument("cn_bond_fund", "cn_on_exchange")
+    assert "manager_tenure_years" not in req
+    assert "holdings_concentration_top10" not in req
+    assert "downside_capture" not in req
+    assert "expense_ratio" in req
+    assert "drawdown_3y" in req
+
+
+def test_required_for_active_bond_fund_keeps_manager_tenure() -> None:
+    # Off-exchange bond fund = actively managed; tenure still matters.
+    req = required_for_instrument("cn_bond_fund", "cn_off_exchange")
+    assert "manager_tenure_years" in req
+
+
+def test_required_for_instrument_without_market_falls_back_to_asset_class() -> None:
+    # Defensive: callers may not always know the market. Don't silently
+    # apply the passive-bond drop when market is unknown.
+    req = required_for_instrument("cn_bond_fund", None)
+    assert "manager_tenure_years" in req
+
+
+def test_completeness_ratio_passive_bond_etf_one_point_zero_without_tenure() -> None:
+    row = {
+        "expense_ratio": 0.0015,
+        "drawdown_3y": 0.02,
+        "vol_1y": 0.04,
+        # downside_capture / holdings_concentration_top10 / manager_tenure_years
+        # / aum_stability_pct all missing
+    }
+    assert completeness_ratio(row, asset_class="cn_bond_fund", market="cn_on_exchange") == 1.0
+
+
+def test_completeness_ratio_active_bond_fund_partial_without_tenure() -> None:
+    row = {
+        "expense_ratio": 0.005,
+        "drawdown_3y": 0.05,
+        "vol_1y": 0.07,
+        # manager_tenure_years missing — active fund cannot drop it
+    }
+    # cn_bond_fund required set (off-exchange) = 4 fields:
+    #   expense_ratio, drawdown_3y, vol_1y, manager_tenure_years
+    # 3/4 present → 0.75
+    assert completeness_ratio(row, asset_class="cn_bond_fund", market="cn_off_exchange") == 0.75
+
+
+def test_missing_required_fields_passive_bond_etf_excludes_tenure() -> None:
+    row = {"expense_ratio": 0.0015}
+    missing = missing_required_fields(row, asset_class="cn_bond_fund", market="cn_on_exchange")
+    assert "manager_tenure_years" not in missing
+    assert "drawdown_3y" in missing
+    assert "vol_1y" in missing

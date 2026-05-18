@@ -73,6 +73,38 @@ def required_for_asset_class(asset_class: str | None) -> tuple[str, ...]:
     return REQUIRED_METRICS_BY_ASSET_CLASS.get(asset_class, _FULL_MINUS_AUM_STABILITY)
 
 
+# On-exchange bond ETFs (e.g. 511010 国债ETF国泰, 511260 十年国债ETF国泰,
+# 511020, 511520, 511220, 511180, 511380, 159650) are passively replicated.
+# Manager-tenure is not meaningful and we never ingest it for them. Keeping
+# it required forced every passive bond-ETF row to data_completeness=0.75
+# (3/4), tripping the system-wide data_incomplete gate in 2026-05-18.
+# Same rationale gold already uses (see _FULL_MINUS_AUM_STABILITY drops above).
+_PASSIVE_BOND_ETF_REQUIRED: tuple[str, ...] = tuple(
+    f for f in REQUIRED_METRICS_BY_ASSET_CLASS["cn_bond_fund"]
+    if f != "manager_tenure_years"
+)
+
+
+def required_for_instrument(
+    asset_class: str | None,
+    market: str | None,
+) -> tuple[str, ...]:
+    """Return the required-metric set for an instrument, branching on both
+    asset_class and market.
+
+    Today the only market-aware branch is passive bond ETFs (on-exchange
+    bond funds). Other asset classes ignore market and fall through to
+    ``required_for_asset_class``.
+
+    When ``market`` is None we conservatively keep the asset-class default —
+    don't silently apply the passive-bond drop if the caller doesn't know
+    the market.
+    """
+    if asset_class == "cn_bond_fund" and market == "cn_on_exchange":
+        return _PASSIVE_BOND_ETF_REQUIRED
+    return required_for_asset_class(asset_class)
+
+
 def is_missing(value: Any) -> bool:
     if value is None:
         return True
@@ -87,14 +119,16 @@ def missing_required_fields(
     required: Sequence[str] | None = None,
     *,
     asset_class: str | None = None,
+    market: str | None = None,
 ) -> tuple[str, ...]:
     """Return the names of required fields that are missing on `row`.
 
-    Precedence: explicit `required` > `asset_class`-derived set > full required.
+    Precedence: explicit `required` > `(asset_class, market)`-derived set
+    via ``required_for_instrument`` > full required.
     """
     if required is None:
         required = (
-            required_for_asset_class(asset_class)
+            required_for_instrument(asset_class, market)
             if asset_class is not None
             else REQUIRED_METRIC_FIELDS
         )
@@ -108,11 +142,12 @@ def completeness_ratio(
     required: Sequence[str] | None = None,
     *,
     asset_class: str | None = None,
+    market: str | None = None,
 ) -> float:
     """Fraction of required fields present on `row`. 1.0 when nothing is required."""
     if required is None:
         required = (
-            required_for_asset_class(asset_class)
+            required_for_instrument(asset_class, market)
             if asset_class is not None
             else REQUIRED_METRIC_FIELDS
         )
