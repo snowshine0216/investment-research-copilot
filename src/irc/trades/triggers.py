@@ -27,7 +27,7 @@ def emit_triggers_for_trade(
         keep = (
             (name == "vix_high" and _wants_vix(asset_class))
             or (name == "real_yield_low" and _wants_real_yield(asset_class))
-            or (name == "weekly_drawdown" and _wants_weekly_drawdown(asset_class, buy_method))
+            or (name == "weekly_drawdown_4pct" and _wants_weekly_drawdown(asset_class, buy_method))
         )
         if keep:
             out.append({"name": name, "data_field": t.data_field,
