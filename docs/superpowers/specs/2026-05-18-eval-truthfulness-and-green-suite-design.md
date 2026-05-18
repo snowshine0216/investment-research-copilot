@@ -1,7 +1,7 @@
 # Eval truthfulness first, green suite second
 
-**Date:** 2026-05-18  
-**Branch:** `feat/evidence-wiring-and-memo-enrichment`  
+**Date:** 2026-05-18
+**Branch:** `feat/evidence-wiring-and-memo-enrichment`
 **Scope:** Repair the eval framework in two phases:
 1. make evals runnable and truthful against the pipeline that exists today;
 2. only after that, use the repaired framework to drive the active eval suite green.
