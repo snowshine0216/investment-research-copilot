@@ -89,7 +89,12 @@ def _build_input(
     market = instr.market if instr else "cn_off_exchange"
     theme = instr.theme if instr else None
     tracked_index = instr.tracked_index if instr else None
-    name_cn = instr.name_cn if instr else score_row.get("instrument_id", "")
+    # When the instrument isn't in any universe yaml, mark the row with a
+    # placeholder rather than the raw id. The discipline report previously
+    # rendered "110022 110022" because the fallback was the id itself; the
+    # placeholder makes future unknown IDs visually distinct.
+    iid = score_row.get("instrument_id", "")
+    name_cn = instr.name_cn if instr is not None else f"未登记({iid})"
     weight = None
     if holding is not None and portfolio_total_cny > 0:
         weight = holding.cost_basis_cny / portfolio_total_cny
