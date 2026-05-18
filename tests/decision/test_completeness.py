@@ -109,6 +109,7 @@ def test_required_for_gold_drops_holdings_and_downside() -> None:
     req = required_for_asset_class("gold")
     assert "holdings_concentration_top10" not in req
     assert "downside_capture" not in req
+    assert "manager_tenure_years" not in req
 
 
 def test_required_for_active_equity_fund_keeps_holdings_concentration() -> None:
