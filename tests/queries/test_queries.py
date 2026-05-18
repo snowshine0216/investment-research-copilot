@@ -44,8 +44,26 @@ def test_parse_query_detects_cn_bond_asset_class():
     assert "memo" in q.context_keys
 
 
+def test_parse_query_detects_cn_equity_asset_class():
+    q = parse_query("红利低波现在还值得定投吗")
+    assert q.asset_class == "cn_equity"
+    assert "memo" in q.context_keys
+
+
 def test_parse_query_buy_timing_attaches_memo_without_instrument():
     q = parse_query("现在该不该买黄金")
+    assert "memo" in q.context_keys
+
+
+def test_parse_query_bullish_intent_still_attaches_memo():
+    q = parse_query("518880 为什么看多？")
+    assert "memo" in q.context_keys
+    assert "scores" in q.context_keys
+
+
+def test_parse_query_bearish_intent_attaches_memo():
+    q = parse_query("159934 为什么看空？")
+    assert q.intent == "bearish"
     assert "memo" in q.context_keys
 
 
@@ -80,6 +98,9 @@ def test_ask_gold_question_passes_gold_context_to_llm(tmp_path: Path):
     (out_dir / "gold_band.yaml").write_text(
         "high: 11.9\nlow: 7.4\nmidpoint: 9.6\n", encoding="utf-8",
     )
+    (out_dir / "decision_report.md").write_text(
+        "# Decision Report\n\n518880: blocked (blocked_no_proxy)\n", encoding="utf-8",
+    )
 
     captured = {}
 
@@ -95,3 +116,4 @@ def test_ask_gold_question_passes_gold_context_to_llm(tmp_path: Path):
     assert "黄金视角" in user_msg, "memo gold section must be in LLM context"
     assert "range_bound" in user_msg, "gold_regime must be in LLM context"
     assert "midpoint" in user_msg or "9.6" in user_msg, "gold_band must be in LLM context"
+    assert "blocked_no_proxy" in user_msg, "decision_report must be in LLM context"
