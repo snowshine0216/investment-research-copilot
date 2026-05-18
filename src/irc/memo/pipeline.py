@@ -6,6 +6,11 @@ from irc.llm._types import ResolvedRoute
 from irc.memo.template import MemoInputs, render_skeleton
 from irc.memo.synthesizer import synthesize_memo
 from irc.memo.auditor import audit_memo
+from irc.memo.numeric_audit import (
+    NumericFinding,
+    find_prose_data_contradictions,
+    render_findings_block,
+)
 from irc.memo.traceability import check_traceability
 
 
@@ -116,11 +121,17 @@ def run_memo_pipeline(
     synth_resp = synthesize_memo(skeleton, sanitized_refs, synthesis_route)
     final_draft = synth_resp.text + _render_evidence_appendix(sanitized_refs)
     audit_resp = audit_memo(final_draft, audit_route)
+    # Programmatic safety net: catch numeric-prose disagreements (e.g.
+    # the 2026-05-18 audit's "estimated cheap" claim contradicting
+    # 状态=expensive). The findings are merged into audit_notes as a
+    # prefix block so a human reviewer sees them alongside the LLM audit.
+    numeric_findings = find_prose_data_contradictions(synth_resp.text, sanitized_refs)
+    audit_notes = render_findings_block(numeric_findings) + audit_resp.text
     trace = check_traceability(final_draft, sanitized_refs)
     return MemoOutput(
         skeleton=skeleton,
         draft=final_draft,
-        audit_notes=audit_resp.text,
+        audit_notes=audit_notes,
         traceability=trace,
         prompt_tokens_total=synth_resp.prompt_tokens + audit_resp.prompt_tokens,
         completion_tokens_total=synth_resp.completion_tokens + audit_resp.completion_tokens,
