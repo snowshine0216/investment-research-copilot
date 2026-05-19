@@ -7,6 +7,7 @@ from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+from irc.memo.diagnostics import compose_execution_drift_lines
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.picks_table import PickRow, render_picks_table
 from irc.memo.template import MemoInputs
@@ -184,6 +185,15 @@ def run_memo(repo_root: str) -> int:
 
     cutoff = extract_evidence_cutoff(raw_ref_pool)
     risk_notes = _compose_risk_notes(cutoff)
+    # Deterministic diagnostics injected into risk_notes so the LLM can't
+    # omit them and the audit gate can verify presence
+    # (adversarial-review items 013, 014).
+    cash_target_center = float(
+        getattr(bundle.preferences.asset_class_targets.get("cash", None), "center", 0.05) or 0.05
+    )
+    drift_lines = compose_execution_drift_lines(alloc, cash_target_center)
+    if drift_lines:
+        risk_notes = tuple(drift_lines) + risk_notes
     execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
 
     inputs = MemoInputs(
