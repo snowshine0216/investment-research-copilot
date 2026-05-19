@@ -81,7 +81,35 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines.append("")
     lines.extend(_watch_collapsed_section(rows))
     lines.append("")
+    lines.extend(_glossary_section())
+    lines.append("")
     return "\n".join(lines)
+
+
+def _glossary_section() -> list[str]:
+    return [
+        "## 术语速查 (Glossary)",
+        "",
+        "- **buy_candidate / 候选买入**: 评分模型给出的买入候选，*尚未*等同于"
+        "\"立即执行\"。执行前需人工核对 venue、溢价、合规审核。",
+        "- **actionable_buy**: 候选买入 ∩ 资产配置选中 ∩ 通过所有阻断闸口。"
+        "仍需人工核对。",
+        "- **core_dca / 正常定投**: 当前评估状态适合按月常规定投。",
+        "- **pause_wait / 暂停加仓**: 当前估值/事件层面建议本周不加仓，"
+        "等待下次重评。",
+        "- **venue_status=direct**: 你的主账户支持直接下单（不代表已开通 "
+        "QDII 权限；首次交易前请在券商 App 内确认）。",
+        "- **venue_status=blocked_no_proxy**: 当前账户无法直接交易，"
+        "且未配置代理 (proxy)。",
+        "- **venue_status=unknown**: 系统未确认 venue 状态，"
+        "请勿据此判断可执行性。",
+        "- **data_completeness**: 必需字段的*填充率*（0–1），**不等于**"
+        "信心或胜率。1.00 仅表示字段齐全，*不代表*该笔交易高确定性。",
+        "- **watch_reason=scored watch**: 评分本身给出 watch 行动。",
+        "- **watch_reason=not_selected_by_allocation**: "
+        "评分尚可，但资产配置未选中。",
+        "- **watch_reason=venue_unknown**: venue 数据缺失。",
+    ]
 
 
 def _render_verdict(overall_status: str, summary: dict[str, int]) -> str:
