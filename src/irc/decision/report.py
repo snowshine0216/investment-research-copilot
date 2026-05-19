@@ -47,6 +47,7 @@ def compose_decision_report(
         names_by_id=names_by_id or {},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
+    proxy_coverage = _build_proxy_coverage(trade_plan)
     return {
         "date": date,
         "overall_status": "blocked" if blocking_reasons else "ok",
@@ -56,7 +57,31 @@ def compose_decision_report(
         # pipeline_incomplete: True when >50% of score rows lack an 'action' field,
         # signalling a corrupt/partial scoring run. Forces overall_status to 'blocked'.
         "pipeline_incomplete": pipeline_incomplete,
+        # Asset classes that have at least one proxy-fulfilled trade with non-zero
+        # target_weight. Used by the markdown renderer to surface "role already met"
+        # banners next to blocked rows whose class is already covered.
+        "proxy_coverage": proxy_coverage,
     }
+
+
+def _build_proxy_coverage(trade_plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    coverage: dict[str, list[dict[str, Any]]] = {}
+    for trade in trade_plan.get("trades", []):
+        proxy_id = trade.get("proxy_id")
+        if not proxy_id:
+            continue
+        target_weight = float(trade.get("target_weight") or 0.0)
+        if target_weight <= 0:
+            continue
+        asset_class = str(trade.get("asset_class") or "")
+        if not asset_class:
+            continue
+        coverage.setdefault(asset_class, []).append({
+            "target": str(trade.get("target") or ""),
+            "target_weight": target_weight,
+            "proxy_id": str(proxy_id),
+        })
+    return coverage
 
 
 def render_decision_markdown(report: dict[str, Any]) -> str:
@@ -79,7 +104,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     # docs/2026-05-18-fix-memo-audit/items/011-spec.md.
     lines.extend(_actionable_buys_section(rows))
     lines.append("")
-    lines.extend(_blocked_fixable_section(rows))
+    lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
     lines.append("")
     lines.extend(_watch_collapsed_section(rows))
     lines.append("")
@@ -280,7 +305,10 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
     return out
 
 
-def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
+def _blocked_fixable_section(
+    rows: list[dict[str, Any]],
+    proxy_coverage: dict[str, list[dict[str, Any]]],
+) -> list[str]:
     blocked = [r for r in rows if r.get("decision_status") == "blocked"]
     out = ["## Blocked — fixable today", ""]
     if not blocked:
@@ -311,8 +339,39 @@ def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
                 )
             )
         remediation = _BLOCKING_REMEDIATION.get(reason, "Investigate the root cause.")
-        out.extend(["", f"_Remediation:_ {remediation}", ""])
+        out.extend(["", f"_Remediation:_ {remediation}"])
+        out.extend(_proxy_coverage_banners(group, proxy_coverage))
+        out.append("")
     return out
+
+
+def _proxy_coverage_banners(
+    group: list[dict[str, Any]],
+    proxy_coverage: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    """For each asset_class in the blocked group that has a proxy filling the
+    role, emit a one-line "Role already met" note so the reader knows the
+    blocked rows are redundant."""
+    if not proxy_coverage:
+        return []
+    classes_in_group: dict[str, int] = {}
+    for row in group:
+        cls = str(row.get("asset_class") or "")
+        if cls and cls in proxy_coverage:
+            classes_in_group[cls] = classes_in_group.get(cls, 0) + 1
+    lines: list[str] = []
+    for cls, count in classes_in_group.items():
+        entries = proxy_coverage[cls]
+        descriptions = ", ".join(
+            f"{e['proxy_id']} ({e['target_weight'] * 100:.0f}% target_weight)"
+            for e in entries
+        )
+        lines.append(
+            f"_✓ Role already met for {cls}: {descriptions} — "
+            f"the {count} blocked row(s) above in this class are redundant; "
+            f"no action required._"
+        )
+    return lines
 
 
 def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:

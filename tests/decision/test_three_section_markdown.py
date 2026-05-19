@@ -120,6 +120,78 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def test_proxy_coverage_in_report_dict():
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "GOLDETF", "asset_class": "gold",
+                              "action": "buy_candidate", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "cmb_paper_gold", "asset_class": "gold",
+             "target_weight": 0.2, "proxy_id": "cmb_paper_gold",
+             "venue_compatible": False},
+            {"target": "017641", "asset_class": "us_etf",
+             "target_weight": 0.2, "proxy_id": None,
+             "venue_compatible": True},
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    coverage = report.get("proxy_coverage", {})
+    assert "gold" in coverage
+    assert any(entry["proxy_id"] == "cmb_paper_gold" for entry in coverage["gold"])
+    # us_etf has a direct trade (proxy_id=None) → should NOT be in proxy_coverage.
+    assert "us_etf" not in coverage
+
+
+def test_blocked_section_emits_proxy_coverage_banner():
+    # 518880 gold ETF blocked (no venue) but cmb_paper_gold proxy fills gold role.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "518880", "asset_class": "gold",
+                              "action": "buy_candidate", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "cmb_paper_gold", "asset_class": "gold",
+             "target_weight": 0.2, "proxy_id": "cmb_paper_gold",
+             "venue_compatible": False},
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+        venue_requirements_by_id={"518880": ["broker_a_share"]},
+        available_venues=["cmb"],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "Role already met" in section
+    assert "cmb_paper_gold" in section
+    assert "gold" in section
+
+
+def test_blocked_section_no_banner_when_no_proxy_for_class():
+    # Bond ETF blocked by venue, no proxy in cn_bond_fund → no banner.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "511520", "asset_class": "cn_bond_fund",
+                              "action": "buy_candidate", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+        venue_requirements_by_id={"511520": ["broker_a_share"]},
+        available_venues=["cmb"],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "Role already met" not in section
+
+
 def test_score_action_cell_is_bilingual_in_actionable_section():
     report = _report(
         scores=[_score("X1", "buy_candidate")],
