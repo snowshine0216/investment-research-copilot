@@ -71,6 +71,44 @@ def test_decision_sets_pipeline_halted_when_marker_file_present(tmp_path: Path) 
     assert "pipeline_halted" in report["blocking_reasons"]
 
 
+def test_decision_populates_instrument_name_from_universe(tmp_path: Path) -> None:
+    """run_decision should resolve instrument_name from the universe configs
+    so the markdown table no longer shows naked instrument ids."""
+    run_init(str(tmp_path), force=False)
+    out_dir = tmp_path / "outputs" / _today()
+    out_dir.mkdir(parents=True)
+    # 518880 ships in the init template config/universe/gold.yaml with name_cn = "华安黄金ETF".
+    (out_dir / "scoring.json").write_text(json.dumps({
+        "scores": [{
+            "instrument_id": "518880",
+            "asset_class": "gold",
+            "action": "buy_candidate",
+            "conviction": "high",
+            "data_completeness": 1.0,
+            "missing_data": [],
+        }]
+    }), encoding="utf-8")
+    (out_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({
+        "selected_instruments": [{"instrument_id": "518880", "target_weight": 1.0}],
+        "diagnostics": {"total_weight": 1.0},
+    }), encoding="utf-8")
+    (out_dir / "trade_plan.yaml").write_text(yaml.safe_dump({
+        "mode": "build",
+        "trades": [{"target": "518880", "venue_compatible": True, "proxy_id": None}],
+    }), encoding="utf-8")
+    (out_dir / "memo_traceability.json").write_text(
+        json.dumps({"n_refs_quoted_verbatim": 1, "n_refs_provided": 1}),
+        encoding="utf-8",
+    )
+
+    assert run_decision(repo_root=str(tmp_path)) == 0
+
+    report = json.loads((out_dir / "decision_report.json").read_text(encoding="utf-8"))
+    assert report["rows"][0]["instrument_name"] == "华安黄金ETF"
+    md = (out_dir / "decision_report.md").read_text(encoding="utf-8")
+    assert "华安黄金ETF" in md
+
+
 def test_decision_resolves_output_dir_to_latest_when_today_absent(tmp_path: Path) -> None:
     run_init(str(tmp_path), force=False)
     past_dir = tmp_path / "outputs" / "2026-05-01"

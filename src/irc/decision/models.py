@@ -48,6 +48,9 @@ class DecisionRow:
     next_step: str = ""
     # Populated only when ``decision_status == "watch_only"``. None on every other row.
     watch_reason: WatchReason | None = None
+    # Human-readable name resolved from universe configs / discovered watchlist.
+    # None when the caller didn't pass a names map or the id wasn't found.
+    instrument_name: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

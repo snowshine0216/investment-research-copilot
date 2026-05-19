@@ -18,6 +18,7 @@ def compose_decision_report(
     venue_requirements_by_id: dict[str, list[str]] | None = None,
     available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
     proxies_by_id: dict[str, str] | None = None,
+    names_by_id: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -43,6 +44,7 @@ def compose_decision_report(
         venue_requirements_by_id=venue_requirements_by_id or {},
         available_venues=available_venues,
         proxies_by_id=proxies_by_id or {},
+        names_by_id=names_by_id or {},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     return {
@@ -174,6 +176,7 @@ def _build_rows(
     venue_requirements_by_id: dict[str, list[str]],
     available_venues: list[str] | tuple[str, ...] | set[str] | None,
     proxies_by_id: dict[str, str],
+    names_by_id: dict[str, str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
@@ -188,6 +191,7 @@ def _build_rows(
             venue_required=venue_requirements_by_id.get(iid),
             available_venues=available_venues,
             proxy_id=proxies_by_id.get(iid),
+            instrument_name=names_by_id.get(iid),
         ))
     return rows
 
@@ -208,6 +212,25 @@ _WATCH_REASON_LABEL: dict[str, str] = {
     "not_selected_by_allocation": "not selected by allocation",
     "venue_unknown": "venue unknown",
 }
+
+# Bilingual labels for score_action. The trust-check doc (B2) noted the same
+# row reads bullish in English (`buy_candidate`) and bearish in Chinese
+# (`暂停加仓` from discipline_report). Pairing the English machine label with
+# a Chinese gloss in-place forces the reader to see both sides at once.
+_SCORE_ACTION_LABEL: dict[str, str] = {
+    "strong_buy_candidate": "strong_buy_candidate / 重点候选买入",
+    "buy_candidate": "buy_candidate / 候选买入",
+    "watch": "watch / 观察",
+    "avoid": "avoid / 回避",
+    "strong_avoid": "strong_avoid / 重点回避",
+}
+
+
+def _score_action_cell(row: dict[str, Any]) -> str:
+    action = row.get("score_action")
+    if not action:
+        return ""
+    return _md(_SCORE_ACTION_LABEL.get(action, str(action)))
 
 _BLOCKING_REASON_LABEL: dict[str, str] = {
     "data_incomplete": "Data incomplete (required financial metrics missing)",
@@ -240,13 +263,14 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
     if not actionable:
         out.append("（无）")
         return out
-    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Next Step |")
-    out.append("|---|---|---|---:|---|---|")
+    out.append("| Instrument | Name | Score Action | Conviction | Completeness | Venue | Next Step |")
+    out.append("|---|---|---|---|---:|---|---|")
     for row in actionable:
         out.append(
-            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
+            "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
                 instrument_id=_md(row["instrument_id"]),
-                score_action=_md(row["score_action"]),
+                instrument_name=_name_cell(row),
+                score_action=_score_action_cell(row),
                 conviction=_md(row["conviction"]),
                 data_completeness=row["data_completeness"],
                 venue_status=row["venue_status"],
@@ -272,14 +296,15 @@ def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
         out.extend([
             f"### Blocked by: {label}",
             "",
-            "| Instrument | Score Action | Conviction | Completeness | Venue |",
-            "|---|---|---|---:|---|",
+            "| Instrument | Name | Score Action | Conviction | Completeness | Venue |",
+            "|---|---|---|---|---:|---|",
         ])
         for row in group:
             out.append(
-                "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} |".format(
+                "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} |".format(
                     instrument_id=_md(row["instrument_id"]),
-                    score_action=_md(row["score_action"]),
+                    instrument_name=_name_cell(row),
+                    score_action=_score_action_cell(row),
                     conviction=_md(row["conviction"]),
                     data_completeness=row["data_completeness"],
                     venue_status=row["venue_status"],
@@ -307,13 +332,14 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
             label = _WATCH_REASON_LABEL[reason_key]
             out.append(f"- {label}: {cnt}")
     out.extend(["", "<details><summary>展开所有 watch 标的</summary>", "", ])
-    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Why watch |")
-    out.append("|---|---|---|---:|---|---|")
+    out.append("| Instrument | Name | Score Action | Conviction | Completeness | Venue | Why watch |")
+    out.append("|---|---|---|---|---:|---|---|")
     for row in watch_rows:
         out.append(
-            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} |".format(
+            "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} |".format(
                 instrument_id=_md(row["instrument_id"]),
-                score_action=_md(row["score_action"]),
+                instrument_name=_name_cell(row),
+                score_action=_score_action_cell(row),
                 conviction=_md(row["conviction"]),
                 data_completeness=row["data_completeness"],
                 venue_status=row["venue_status"],
@@ -322,6 +348,16 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
         )
     out.extend(["", "</details>"])
     return out
+
+
+def _name_cell(row: dict[str, Any]) -> str:
+    """Render the ``Name`` column. Empty string when name is missing — keeps
+    rows clean (avoids a literal ``None`` token in the rendered table).
+    """
+    name = row.get("instrument_name")
+    if not name:
+        return ""
+    return _md(name)
 
 
 def _watch_reason_cell(row: dict[str, Any]) -> str:
