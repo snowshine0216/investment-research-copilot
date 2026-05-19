@@ -7,7 +7,10 @@ from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
-from irc.memo.diagnostics import compose_execution_drift_lines
+from irc.memo.diagnostics import (
+    compose_execution_drift_lines,
+    compose_fx_qdii_lines,
+)
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.picks_table import PickRow, render_picks_table
 from irc.memo.template import MemoInputs
@@ -194,6 +197,13 @@ def run_memo(repo_root: str) -> int:
     drift_lines = compose_execution_drift_lines(alloc, cash_target_center)
     if drift_lines:
         risk_notes = tuple(drift_lines) + risk_notes
+    usd_tol_pair: tuple[float, float] | None = None
+    _usd_tol = getattr(bundle.preferences.currency_tolerance, "usd", None)
+    if _usd_tol and len(_usd_tol) >= 2:
+        usd_tol_pair = (float(_usd_tol[0]), float(_usd_tol[1]))
+    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair)
+    if fx_lines:
+        risk_notes = tuple(fx_lines) + risk_notes
     execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
 
     inputs = MemoInputs(

@@ -15,6 +15,12 @@ from typing import Any
 
 _EXECUTION_DRIFT_FLOOR_PP = 0.05  # 5 percentage points
 
+# Adversarial review §C4+§C5 (2026-05-19): ~25% USD QDII exposure went
+# out without any FX-hedge, premium/discount, or quota mention. When
+# QDII weight exceeds this floor, the memo gets a dedicated diagnostic.
+_QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC = 0.20
+_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf"})
+
 
 def compose_execution_drift_lines(
     allocation: dict[str, Any] | None,
@@ -70,3 +76,54 @@ def compose_execution_drift_lines(
         "将未填仓权重重分配到同 role 的兼容替代品。"
     )
     return (header, detail, remediation)
+
+
+def _qdii_weight(selected: list[dict]) -> float:
+    return sum(
+        float(r.get("target_weight") or 0.0)
+        for r in selected
+        if str(r.get("asset_class") or "") in _QDII_ASSET_CLASSES
+    )
+
+
+def compose_fx_qdii_lines(
+    allocation: dict[str, Any] | None,
+    usd_tolerance: tuple[float, float] | None,
+) -> tuple[str, ...]:
+    """Emit FX & QDII diagnostic lines when QDII weight crosses the floor.
+
+    Adversarial review §C4+§C5: a CNY-based investor running 25% QDII
+    weight has unhedged USD exposure plus QDII premium/discount risk
+    plus quota-suspension risk. None of these surface today.
+
+    Returns an empty tuple when QDII weight is below the floor or the
+    allocation doesn't carry selected_instruments. Returns a 3-line
+    diagnostic when above the floor:
+      1. total QDII weight + tolerance status
+      2. premium/discount placeholder (data layer to populate later)
+      3. hedge-cost placeholder (likewise)
+    """
+    if not allocation:
+        return ()
+    selected = allocation.get("selected_instruments") or []
+    qdii_w = _qdii_weight(selected)
+    if qdii_w < _QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC:
+        return ()
+    tolerance_line = ""
+    if usd_tolerance is not None:
+        lo, hi = float(usd_tolerance[0]), float(usd_tolerance[1])
+        in_range = lo <= qdii_w <= hi
+        tolerance_line = (
+            f"配置区间 [{lo * 100:.0f}%, {hi * 100:.0f}%]，当前"
+            f"{'落在' if in_range else '超出'}区间。"
+        )
+    header = (
+        f"外汇与QDII敞口提醒：QDII 标的合计目标权重 {qdii_w * 100:.1f}% "
+        f"({'≥' if qdii_w >= _QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC else '<'} "
+        f"{_QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC * 100:.0f}% 触发线)。"
+        + (f" {tolerance_line}" if tolerance_line else "")
+    )
+    premium = "溢价/折价：数据未采集——请在交易前查阅各 QDII 二级市场溢价。"
+    hedge = "对冲成本：未对冲——未配置 FX 对冲数据。"
+    return (header, premium, hedge)
+
