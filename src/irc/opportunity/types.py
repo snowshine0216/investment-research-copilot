@@ -88,6 +88,12 @@ class OpportunityInput:
     holdings_concentration_top10: float | None = None
     style_drift_flag: bool | None = None
     venue_compatible: bool = True
+    # Adversarial review §B3: percentile-only valuation tells a long-horizon
+    # DCA investor to underweight any multi-year bull. Earnings yield vs
+    # real rate is the second-signal sanity anchor: positive ⇒ equity offers
+    # positive expected real return even when its price percentile is high.
+    earnings_yield: float | None = None
+    real_yield_10y: float | None = None
 
 
 ThesisEvidenceKind = Literal["filing", "broker", "news", "policy", "snapshot"]
