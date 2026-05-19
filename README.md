@@ -43,8 +43,7 @@ Copy `.env.example` to `.env`, keep every secret there, and treat `.env.example`
 | `OPENBB_FMP_KEY`, `OPENBB_TIINGO_KEY` | Optional OpenBB premium data | MVP works without these; they improve premium provider coverage when available. |
 | `FRED_API_KEY`, `INTRINIO_API_KEY` | Optional FRED macro data | Used when OpenBB pulls live FRED macro series. Without them, the ingest stage falls back where possible. |
 | `ACTIVE_FUND_TENURE_PROXY_ENABLED` | Active fund discovery behavior | Defaults to `true`; set `false` to require real manager-tenure data for active funds. |
-| `{PROVIDER}_HTTPS_PROXY` | Per-LLM-provider proxy | Examples: `OPENROUTER_HTTPS_PROXY`, `DEEPSEEK_HTTPS_PROXY`. Only that provider's LLM calls use the proxy. |
-| `AKSHARE_HTTPS_PROXY` | AkShare/EastMoney proxy | Use only when EastMoney endpoints are geo-restricted or disconnecting. |
+| `IRC_HTTPS_PROXY` | Outbound HTTPS proxy | Single value applied to every outbound HTTPS call this codebase makes. See "HTTPS proxy" below for the full list of call sites. Leave unset for direct connections. |
 | `DEBUG` | Troubleshooting | Set `DEBUG=true` for verbose CLI logging and full tracebacks. Default output still includes progress bars and categorized error summaries. |
 
 Minimum local `.env` for the default config:
@@ -73,6 +72,17 @@ FRED_API_KEY=
 INTRINIO_API_KEY=
 OPENBB_FMP_KEY=
 ```
+
+### HTTPS proxy
+
+Set `IRC_HTTPS_PROXY` (e.g. `http://10.27.7.110:8080`) when running from a network that blocks any of the upstream hosts the pipeline calls. One value, applied uniformly to:
+
+- LLM provider calls — DeepSeek (`api.deepseek.com`) and OpenRouter (`openrouter.ai`), driven by `config/llm.yaml`.
+- Web search providers — Tavily (`api.tavily.com`), Brave News (`api.search.brave.com`), and Bocha (`api.bochaai.com`).
+- Page extractor — Jina Reader (`r.jina.ai`).
+- DXY ingest only — EastMoney via AkShare. Other AkShare calls stay direct because most of them serve mainland-CN domains where a non-CN proxy hurts more than it helps.
+
+Leave the variable unset (or blank) for direct connections everywhere. If a single host on this list is the only one you need to route, point the proxy at a forwarder that you control which can selectively bypass the rest.
 
 ## Workflows by cadence
 
