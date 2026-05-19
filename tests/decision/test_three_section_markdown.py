@@ -120,6 +120,58 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def _audit_report(summary):
+    return compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "X1", "asset_class": "gold",
+                              "action": "watch", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+        audit_summary=summary,
+    )
+
+
+def test_audit_summary_banner_emitted_when_p1_present():
+    report = _audit_report({"verdict": "条件通过", "p1_count": 2,
+                             "p1_findings": ["| **P1** | foo |"]})
+    md = render_decision_markdown(report)
+    assert "合规审核未达标" in md
+    assert "条件通过" in md
+    assert "P1 必改项 2 条" in md
+
+
+def test_audit_summary_banner_emitted_when_blocked_verdict():
+    report = _audit_report({"verdict": "审核未通过", "p1_count": 0,
+                             "p1_findings": []})
+    md = render_decision_markdown(report)
+    assert "合规审核未达标" in md
+    assert "审核未通过" in md
+
+
+def test_audit_summary_banner_suppressed_when_clean_pass():
+    report = _audit_report({"verdict": "审核通过", "p1_count": 0,
+                             "p1_findings": []})
+    md = render_decision_markdown(report)
+    assert "合规审核未达标" not in md
+
+
+def test_audit_summary_banner_suppressed_when_none():
+    report = _audit_report(None)
+    md = render_decision_markdown(report)
+    assert "合规审核未达标" not in md
+
+
+def test_audit_summary_in_report_dict():
+    summary = {"verdict": "条件通过", "p1_count": 2,
+               "p1_findings": ["finding 1", "finding 2"]}
+    report = _audit_report(summary)
+    assert report["audit_summary"] == summary
+
+
 def _drift_report(cash_target, cash_residual):
     return compose_decision_report(
         date="2026-05-19",
