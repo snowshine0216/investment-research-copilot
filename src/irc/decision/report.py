@@ -48,6 +48,7 @@ def compose_decision_report(
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
+    execution_drift = _execution_drift(allocation)
     return {
         "date": date,
         "overall_status": "blocked" if blocking_reasons else "ok",
@@ -61,6 +62,28 @@ def compose_decision_report(
         # target_weight. Used by the markdown renderer to surface "role already met"
         # banners next to blocked rows whose class is already covered.
         "proxy_coverage": proxy_coverage,
+        # Banner-trigger payload when the allocation parked >= 5pp of NAV in cash
+        # beyond its target — the layperson's view never showed this; the trust-check
+        # priority #3 demanded it surface here, not just in memo.md §4.
+        "execution_drift": execution_drift,
+    }
+
+
+_EXECUTION_DRIFT_THRESHOLD = 0.05
+
+
+def _execution_drift(allocation: dict[str, Any]) -> dict[str, float] | None:
+    target_weights = allocation.get("target_weights_per_class") or {}
+    diagnostics = allocation.get("diagnostics") or {}
+    cash_target = float(target_weights.get("cash") or 0.0)
+    cash_residual = float(diagnostics.get("cash_residual_weight") or 0.0)
+    drift = round(max(0.0, cash_residual - cash_target), 6)
+    if drift < _EXECUTION_DRIFT_THRESHOLD:
+        return None
+    return {
+        "drift_pct": drift,
+        "cash_target": cash_target,
+        "cash_residual": cash_residual,
     }
 
 
@@ -94,9 +117,12 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
         _render_verdict(report["overall_status"], report.get("summary", {})),
         "",
+    ]
+    lines.extend(_execution_drift_banner(report.get("execution_drift")))
+    lines.extend([
         "## Why Blocked" if is_blocked else "## Gates Passed",
         "",
-    ]
+    ])
     lines.extend(_blocking_section(report.get("blocking_reasons", [])))
     lines.append("")
     # Three reader-first sections replace the single 100-row instrument
@@ -111,6 +137,21 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines.extend(_glossary_section())
     lines.append("")
     return "\n".join(lines)
+
+
+def _execution_drift_banner(drift: dict[str, float] | None) -> list[str]:
+    if not drift:
+        return []
+    drift_pp = drift["drift_pct"] * 100
+    residual_pp = drift["cash_residual"] * 100
+    target_pp = drift["cash_target"] * 100
+    return [
+        f"> ⚠️ **执行漂移提醒 / Execution drift**: 现金残余权重 "
+        f"{residual_pp:.0f}% > 目标 {target_pp:.0f}% (drift +{drift_pp:.0f}pp). "
+        f"多个目标未填仓 — 详见 memo.md §4 与 trade_plan.yaml. "
+        f"仅做提醒，不阻断本周决策。",
+        "",
+    ]
 
 
 def _glossary_section() -> list[str]:

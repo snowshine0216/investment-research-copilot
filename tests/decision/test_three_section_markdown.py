@@ -120,6 +120,68 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def _drift_report(cash_target, cash_residual):
+    return compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "X1", "asset_class": "gold",
+                              "action": "watch", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={
+            "target_weights_per_class": {"cash": cash_target, "gold": 0.2},
+            "selected_instruments": [],
+            "diagnostics": {"total_weight": 1.0, "cash_residual_weight": cash_residual},
+        },
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+
+
+def test_execution_drift_banner_emitted_when_above_threshold():
+    report = _drift_report(cash_target=0.05, cash_residual=0.15)
+    md = render_decision_markdown(report)
+    assert "执行漂移提醒" in md
+    assert "Execution drift" in md
+
+
+def test_execution_drift_banner_suppressed_when_below_threshold():
+    report = _drift_report(cash_target=0.05, cash_residual=0.07)  # drift 0.02
+    md = render_decision_markdown(report)
+    assert "执行漂移提醒" not in md
+
+
+def test_execution_drift_banner_emitted_at_exact_threshold():
+    # 5pp exactly should fire — the spec is "≥ 5pp".
+    report = _drift_report(cash_target=0.05, cash_residual=0.10)
+    md = render_decision_markdown(report)
+    assert "执行漂移提醒" in md
+
+
+def test_execution_drift_field_in_report_dict():
+    report = _drift_report(cash_target=0.05, cash_residual=0.15)
+    drift = report.get("execution_drift")
+    assert drift is not None
+    assert drift["drift_pct"] == 0.10
+    assert drift["cash_target"] == 0.05
+    assert drift["cash_residual"] == 0.15
+
+
+def test_execution_drift_handles_missing_diagnostics():
+    # Allocation lacks target_weights_per_class entirely — should not raise.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{"instrument_id": "X1", "asset_class": "gold",
+                              "action": "watch", "conviction": "high",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    assert report.get("execution_drift") is None
+
+
 def test_proxy_coverage_in_report_dict():
     report = compose_decision_report(
         date="2026-05-19",
