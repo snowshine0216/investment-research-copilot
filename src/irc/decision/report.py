@@ -325,6 +325,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "pipeline_halted": "Pipeline halted (an upstream stage failed)",
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
+    "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
 }
 
 _BLOCKING_REMEDIATION: dict[str, str] = {
@@ -340,6 +341,9 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
         "Improve memo traceability before treating narrative claims as evidence.",
     "score_avoid":
         "Scoring action is avoid — review the underlying factor scores.",
+    "qdii_premium_unknown":
+        "Fetch real-time QDII premium / FX status before treating as actionable. "
+        "QDII feeders frequently trade 5–15% above NAV.",
 }
 
 

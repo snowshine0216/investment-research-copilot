@@ -120,6 +120,33 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def test_qdii_premium_unknown_renders_in_blocked_section():
+    # A QDII buy_candidate with no qdii_premium_pct → blocked. Rendered
+    # markdown must surface the qdii_premium_unknown reason + remediation.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{
+            "instrument_id": "017641", "asset_class": "us_etf",
+            "action": "buy_candidate", "conviction": "med",
+            "data_completeness": 1.0, "missing_data": [],
+        }]},
+        allocation={"selected_instruments": [
+            {"instrument_id": "017641", "target_weight": 0.2}
+        ], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "017641", "asset_class": "us_etf",
+             "venue_compatible": True, "proxy_id": None,
+             "target_weight": 0.2}
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "QDII premium-to-NAV" in section
+    assert "Fetch real-time QDII premium" in section
+
+
 def _audit_report(summary):
     return compose_decision_report(
         date="2026-05-19",

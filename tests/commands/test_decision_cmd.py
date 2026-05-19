@@ -32,6 +32,7 @@ def test_decision_writes_json_and_markdown(tmp_path: Path) -> None:
             "conviction": "med",
             "data_completeness": 1.0,
             "missing_data": [],
+            "qdii_premium_pct": 0.05,
         }]
     }), encoding="utf-8")
     (out_dir / "proposed_allocation.yaml").write_text(yaml.safe_dump({
