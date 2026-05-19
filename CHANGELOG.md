@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.5.1] — 2026-05-19
+
+### Changed
+- **Single HTTPS proxy env var.** Replaced the per-provider proxy convention
+  (`OPENROUTER_HTTPS_PROXY`, `DEEPSEEK_HTTPS_PROXY`, `AKSHARE_HTTPS_PROXY`) with
+  a single `IRC_HTTPS_PROXY` read by `irc.http_proxy.resolve_proxy()`. Applied
+  uniformly to every outbound HTTPS call: LLM providers (DeepSeek, OpenRouter),
+  web search providers (Tavily, Brave, Bocha), the Jina page extractor, and the
+  DXY ingest path. Other akshare paths stay direct because they hit mainland-CN
+  hosts that a non-CN proxy would hurt. `README.md` now documents the full list
+  of call sites under "HTTPS proxy". Motivated by Tavily quota exhaustion +
+  Brave News TLS timeouts that halted `irc research` for every EN theme; the
+  proxy unblocks Brave (and Jina) while leaving the call-site-narrow akshare
+  behavior intact.
+
 ## [0.8.5.0] — 2026-05-17
 
 ### Added
