@@ -3,7 +3,8 @@ from __future__ import annotations
 from irc.decision.report import compose_decision_report, render_decision_markdown
 
 
-def _report(scores, allocation_selected, trades, blocking_reasons_per_id=None):
+def _report(scores, allocation_selected, trades, blocking_reasons_per_id=None,
+            names_by_id=None):
     allocation_rows = [{"instrument_id": iid, "target_weight": 0.5}
                        for iid in allocation_selected]
     return compose_decision_report(
@@ -14,6 +15,7 @@ def _report(scores, allocation_selected, trades, blocking_reasons_per_id=None):
         trade_plan={"trades": trades},
         memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
         pipeline_halted=False,
+        names_by_id=names_by_id,
     )
 
 
@@ -118,6 +120,51 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def test_score_action_cell_is_bilingual_in_actionable_section():
+    report = _report(
+        scores=[_score("X1", "buy_candidate")],
+        allocation_selected=["X1"],
+        trades=[{"target": "X1", "venue_compatible": True, "proxy_id": None}],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Actionable buys", 1)[1].split("\n## ", 1)[0]
+    assert "buy_candidate / 候选买入" in section
+
+
+def test_score_action_cell_is_bilingual_in_watch_section():
+    report = _report(
+        scores=[_score("W1", "watch")],
+        allocation_selected=[],
+        trades=[],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Watch (no trade)", 1)[1]
+    assert "watch / 观察" in section
+
+
+def test_score_action_cell_is_bilingual_in_blocked_section():
+    # data_completeness < 0.5 → buy_candidate becomes blocked by data_incomplete.
+    report = _report(
+        scores=[_score("B1", "buy_candidate", completeness=0.4)],
+        allocation_selected=[],
+        trades=[],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "buy_candidate / 候选买入" in section
+
+
+def test_unknown_score_action_falls_back_to_raw_label():
+    # Unknown action passes through unchanged (no KeyError, no blank cell).
+    report = _report(
+        scores=[_score("X1", "weird_new_action")],
+        allocation_selected=[],
+        trades=[],
+    )
+    md = render_decision_markdown(report)
+    assert "weird_new_action" in md
+
+
 def test_markdown_has_glossary_section():
     report = _report(
         scores=[_score("X1", "buy_candidate"), _score("X2", "watch")],
@@ -182,3 +229,81 @@ def test_json_shape_unchanged_after_markdown_refactor():
     row = report["rows"][0]
     assert "decision_status" in row
     assert "watch_reason" in row
+
+
+def test_rows_carry_instrument_name_when_names_provided():
+    report = _report(
+        scores=[
+            _score("BUY1", "buy_candidate"),
+            _score("LOW1", "buy_candidate", completeness=0.5),
+            _score("W1", "watch"),
+        ],
+        allocation_selected=["BUY1"],
+        trades=[{"target": "BUY1", "venue_compatible": True, "proxy_id": None}],
+        names_by_id={"BUY1": "Acme Buy Fund", "LOW1": "Acme Low Fund", "W1": "Acme Watch Fund"},
+    )
+    names_by_iid = {r["instrument_id"]: r.get("instrument_name") for r in report["rows"]}
+    assert names_by_iid == {
+        "BUY1": "Acme Buy Fund",
+        "LOW1": "Acme Low Fund",
+        "W1": "Acme Watch Fund",
+    }
+
+
+def test_rows_have_none_name_when_names_map_missing():
+    report = _report(
+        scores=[_score("X1", "buy_candidate")],
+        allocation_selected=["X1"],
+        trades=[{"target": "X1", "venue_compatible": True, "proxy_id": None}],
+    )
+    assert report["rows"][0].get("instrument_name") is None
+
+
+def test_markdown_actionable_section_shows_instrument_name():
+    report = _report(
+        scores=[_score("BUY1", "buy_candidate")],
+        allocation_selected=["BUY1"],
+        trades=[{"target": "BUY1", "venue_compatible": True, "proxy_id": None}],
+        names_by_id={"BUY1": "Acme Buy Fund"},
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Actionable buys", 1)[1].split("\n## ", 1)[0]
+    assert "Acme Buy Fund" in section
+    assert "BUY1" in section
+
+
+def test_markdown_blocked_section_shows_instrument_name():
+    report = _report(
+        scores=[_score("LOW1", "buy_candidate", completeness=0.5)],
+        allocation_selected=[],
+        trades=[],
+        names_by_id={"LOW1": "Acme Low Fund"},
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "Acme Low Fund" in section
+
+
+def test_markdown_watch_section_shows_instrument_name():
+    report = _report(
+        scores=[_score("W1", "watch")],
+        allocation_selected=[],
+        trades=[],
+        names_by_id={"W1": "Acme Watch Fund"},
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Watch (no trade)", 1)[1]
+    assert "Acme Watch Fund" in section
+
+
+def test_markdown_renders_without_name_when_unknown():
+    report = _report(
+        scores=[_score("UNKNOWN", "buy_candidate")],
+        allocation_selected=["UNKNOWN"],
+        trades=[{"target": "UNKNOWN", "venue_compatible": True, "proxy_id": None}],
+        names_by_id={},
+    )
+    md = render_decision_markdown(report)
+    # No "None" leaks into the table when the name is missing.
+    assert "| None |" not in md
+    assert "UNKNOWN" in md
