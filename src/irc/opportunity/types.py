@@ -65,6 +65,12 @@ class OpportunityInput:
     drawdown_since_entry: float | None = None
     valuation_percentile_self: float | None = None
     valuation_percentile_vs_benchmark: float | None = None
+    # Adversarial review §B1: for cn_bond_fund the NAV-percentile says
+    # nothing about whether duration is cheap or rich. A 10Y CGB yield
+    # percentile (or analogous local-curve yield) is the right anchor.
+    # Semantic: 0 = yields at floor (bonds expensive), 1 = yields at
+    # ceiling (bonds cheap).
+    cn_bond_yield_percentile: float | None = None
     pe_ttm: float | None = None
     pb: float | None = None
     dividend_yield: float | None = None

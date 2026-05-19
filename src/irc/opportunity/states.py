@@ -56,8 +56,43 @@ def _percentile(inp: OpportunityInput) -> float | None:
     return inp.valuation_percentile_vs_benchmark
 
 
+_BOND_ASSET_CLASSES: frozenset[str] = frozenset({"cn_bond_fund"})
+
+
+def classify_bond_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
+    """Classify bond-fund valuation from 10Y CGB yield percentile.
+
+    A pure-bond fund's NAV percentile is a momentum proxy with no
+    economic interpretation. The right anchor is the local yield curve:
+    high yield-percentile ⇔ yields elevated ⇔ bonds cheap.
+
+    Bands on ``cn_bond_yield_percentile``:
+      cheap:           pct >= 0.80
+      reasonable_low:  0.60 <= pct < 0.80
+      fair:            0.30 <= pct < 0.60
+      expensive:       0.10 <= pct < 0.30
+      very_expensive:  pct < 0.10
+    """
+    pct = inp.cn_bond_yield_percentile
+    if pct is None:
+        return (
+            "evidence_insufficient",
+            "10Y CGB 收益率百分位数据缺失，未能对债券估值给出方向性结论。",
+        )
+    if pct >= 0.80:
+        return "cheap", f"10Y 收益率位于 {pct:.0%} 高位，债券估值便宜。"
+    if pct >= 0.60:
+        return "reasonable_low", f"10Y 收益率位于 {pct:.0%} 偏高位，估值偏低。"
+    if pct >= 0.30:
+        return "fair", f"10Y 收益率位于 {pct:.0%} 中位区间，估值中性。"
+    if pct >= 0.10:
+        return "expensive", f"10Y 收益率位于 {pct:.0%} 低位，债券估值偏贵。"
+    return "very_expensive", f"10Y 收益率位于 {pct:.0%} 极低，债券估值极贵。"
+
+
 def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
-    """Classify valuation state. Bands:
+    """Classify valuation state. Bonds use a yield-curve anchor; all
+    other asset classes use the price/percentile bands:
       cheap: pct < 0.20
       reasonable_low: 0.20 <= pct < 0.40
       fair: 0.40 <= pct < 0.70
@@ -65,6 +100,8 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
       very_expensive: pct >= 0.90
     Drawdown alone is NEVER evidence of cheapness.
     """
+    if inp.asset_class in _BOND_ASSET_CLASSES:
+        return classify_bond_valuation(inp)
     pct = _percentile(inp)
     if pct is None:
         return "evidence_insufficient", "估值数据缺失，未能判定。"
