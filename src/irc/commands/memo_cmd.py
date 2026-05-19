@@ -7,6 +7,7 @@ from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+from irc.memo.auditor import audit_blocks_publish
 from irc.memo.diagnostics import (
     compose_execution_drift_lines,
     compose_fx_qdii_lines,
@@ -251,13 +252,39 @@ def run_memo(repo_root: str) -> int:
 
     out_dir = root / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "memo.md", output.draft)
+    # Audit-blocking gate (item 009, 2026-05-19): if the auditor returned
+    # 审核未通过 OR P-tier 高风险 findings, refuse to publish memo.md;
+    # write memo_blocked.md instead and exit non-zero.
+    blocked, block_reasons = audit_blocks_publish(output.audit_notes)
     atomic_write_text(out_dir / "memo_audit.txt", output.audit_notes)
     atomic_write_text(out_dir / "memo_traceability.json", json.dumps({
         "n_refs_provided": output.traceability["n_refs_provided"],
         "n_refs_quoted_verbatim": output.traceability["n_refs_quoted_verbatim"],
         "n_refs": output.traceability["n_refs"],
     }, indent=2))
+    if blocked:
+        block_header = (
+            "# 备忘录发布被审核拒绝\n\n"
+            "审核报告含 P-tier 高风险项或 '审核未通过' 明确否决；"
+            "下面是被拒草稿，仅供修订使用，请勿直接对外发布。\n\n"
+            "## 阻断原因\n\n"
+            + "\n".join(f"- {r}" for r in block_reasons)
+            + "\n\n---\n\n"
+        )
+        atomic_write_text(out_dir / "memo_blocked.md", block_header + output.draft)
+        # Remove a stale memo.md from a prior good run so it can't be
+        # mistaken for the current verdict.
+        memo_path = out_dir / "memo.md"
+        if memo_path.exists():
+            memo_path.unlink()
+        print(
+            "memo BLOCKED: audit gate flagged the draft — "
+            f"see {out_dir/'memo_blocked.md'} and {out_dir/'memo_audit.txt'}"
+        )
+        for reason in block_reasons:
+            print(f"  - {reason}")
+        return 2
+    atomic_write_text(out_dir / "memo.md", output.draft)
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"
         f"{output.traceability['n_refs_provided']} refs quoted verbatim "
