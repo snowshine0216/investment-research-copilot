@@ -7,6 +7,12 @@ from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+from irc.memo.auditor import audit_blocks_publish
+from irc.memo.diagnostics import (
+    compose_execution_drift_lines,
+    compose_fx_qdii_lines,
+    compose_role_bucket_banner,
+)
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.picks_table import PickRow, render_picks_table
 from irc.memo.template import MemoInputs
@@ -88,6 +94,22 @@ def _load_json(p: Path) -> dict:
 
 def _load_yaml(p: Path) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def _load_discovery_diagnostics(out_dir: Path) -> list[dict]:
+    """Best-effort read of discovery_diagnostics.csv for the role-bucket
+    banner (item 010, 2026-05-19). Returns an empty list when the file
+    is absent or unreadable so memo can still render."""
+    import csv
+
+    path = out_dir / "discovery_diagnostics.csv"
+    if not path.exists():
+        return []
+    try:
+        with path.open(encoding="utf-8", newline="") as f:
+            return list(csv.DictReader(f))
+    except (OSError, csv.Error):
+        return []
 
 
 def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -> tuple[str, ...]:
@@ -184,6 +206,27 @@ def run_memo(repo_root: str) -> int:
 
     cutoff = extract_evidence_cutoff(raw_ref_pool)
     risk_notes = _compose_risk_notes(cutoff)
+    # Deterministic diagnostics injected into risk_notes so the LLM can't
+    # omit them and the audit gate can verify presence
+    # (adversarial-review items 013, 014).
+    cash_target_center = float(
+        getattr(bundle.preferences.asset_class_targets.get("cash", None), "center", 0.05) or 0.05
+    )
+    drift_lines = compose_execution_drift_lines(alloc, cash_target_center)
+    if drift_lines:
+        risk_notes = tuple(drift_lines) + risk_notes
+    usd_tol_pair: tuple[float, float] | None = None
+    _usd_tol = getattr(bundle.preferences.currency_tolerance, "usd", None)
+    if _usd_tol and len(_usd_tol) >= 2:
+        usd_tol_pair = (float(_usd_tol[0]), float(_usd_tol[1]))
+    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair)
+    if fx_lines:
+        risk_notes = tuple(fx_lines) + risk_notes
+    # Role-bucket banner (item 010): adversarial review §E.
+    diag_rows = _load_discovery_diagnostics(out_today)
+    role_lines = compose_role_bucket_banner(diag_rows)
+    if role_lines:
+        risk_notes = tuple(role_lines) + risk_notes
     execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
 
     inputs = MemoInputs(
@@ -209,13 +252,39 @@ def run_memo(repo_root: str) -> int:
 
     out_dir = root / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out_dir / "memo.md", output.draft)
+    # Audit-blocking gate (item 009, 2026-05-19): if the auditor returned
+    # 审核未通过 OR P-tier 高风险 findings, refuse to publish memo.md;
+    # write memo_blocked.md instead and exit non-zero.
+    blocked, block_reasons = audit_blocks_publish(output.audit_notes)
     atomic_write_text(out_dir / "memo_audit.txt", output.audit_notes)
     atomic_write_text(out_dir / "memo_traceability.json", json.dumps({
         "n_refs_provided": output.traceability["n_refs_provided"],
         "n_refs_quoted_verbatim": output.traceability["n_refs_quoted_verbatim"],
         "n_refs": output.traceability["n_refs"],
     }, indent=2))
+    if blocked:
+        block_header = (
+            "# 备忘录发布被审核拒绝\n\n"
+            "审核报告含 P-tier 高风险项或 '审核未通过' 明确否决；"
+            "下面是被拒草稿，仅供修订使用，请勿直接对外发布。\n\n"
+            "## 阻断原因\n\n"
+            + "\n".join(f"- {r}" for r in block_reasons)
+            + "\n\n---\n\n"
+        )
+        atomic_write_text(out_dir / "memo_blocked.md", block_header + output.draft)
+        # Remove a stale memo.md from a prior good run so it can't be
+        # mistaken for the current verdict.
+        memo_path = out_dir / "memo.md"
+        if memo_path.exists():
+            memo_path.unlink()
+        print(
+            "memo BLOCKED: audit gate flagged the draft — "
+            f"see {out_dir/'memo_blocked.md'} and {out_dir/'memo_audit.txt'}"
+        )
+        for reason in block_reasons:
+            print(f"  - {reason}")
+        return 2
+    atomic_write_text(out_dir / "memo.md", output.draft)
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"
         f"{output.traceability['n_refs_provided']} refs quoted verbatim "

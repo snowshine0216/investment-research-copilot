@@ -6,6 +6,7 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 import httpx
+from irc.http_proxy import resolve_proxy
 from irc.llm._types import ResolvedRoute, ChatResponse
 
 
@@ -37,16 +38,6 @@ def _resolve_key(env_name: str) -> str:
     if not val:
         raise RuntimeError(f"missing required env var: {env_name}")
     return val
-
-
-def _resolve_proxy(provider: str) -> str | None:
-    """Optional per-provider HTTPS proxy from `{PROVIDER}_HTTPS_PROXY` env var.
-
-    Returns None when unset/empty so httpx falls back to a direct connection.
-    Used to route geo-restricted providers (e.g., openrouter for Anthropic
-    models) through a corporate proxy without affecting other traffic.
-    """
-    return os.environ.get(f"{provider.upper()}_HTTPS_PROXY", "").strip() or None
 
 
 def _build_payload(
@@ -112,7 +103,7 @@ def call_chat(
 ) -> ChatResponse:
     """Make a single chat-completions call. Raises httpx.HTTPStatusError on 4xx/5xx."""
     api_key = _resolve_key(route.api_key_env)
-    proxy = _resolve_proxy(route.provider)
+    proxy = resolve_proxy()
     payload = _build_payload(route.model, messages, temperature, max_tokens)
     url = f"{route.base_url.rstrip('/')}/chat/completions"
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

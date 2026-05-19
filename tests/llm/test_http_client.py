@@ -3,29 +3,24 @@ import pytest
 import respx
 import httpx
 from unittest.mock import patch
+from irc.http_proxy import resolve_proxy
 from irc.llm._types import ResolvedRoute
-from irc.llm.http_client import call_chat, ChatResponse, _resolve_proxy
+from irc.llm.http_client import call_chat, ChatResponse
 
 
 def test_resolve_proxy_unset_returns_none(monkeypatch):
-    monkeypatch.delenv("OPENROUTER_HTTPS_PROXY", raising=False)
-    assert _resolve_proxy("openrouter") is None
+    monkeypatch.delenv("IRC_HTTPS_PROXY", raising=False)
+    assert resolve_proxy() is None
 
 
 def test_resolve_proxy_empty_returns_none(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "  ")
-    assert _resolve_proxy("openrouter") is None
+    monkeypatch.setenv("IRC_HTTPS_PROXY", "  ")
+    assert resolve_proxy() is None
 
 
 def test_resolve_proxy_set_returns_url(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "http://10.27.7.110:8080")
-    assert _resolve_proxy("openrouter") == "http://10.27.7.110:8080"
-
-
-def test_resolve_proxy_is_provider_scoped(monkeypatch):
-    monkeypatch.setenv("OPENROUTER_HTTPS_PROXY", "http://corp:8080")
-    monkeypatch.delenv("DEEPSEEK_HTTPS_PROXY", raising=False)
-    assert _resolve_proxy("deepseek") is None
+    monkeypatch.setenv("IRC_HTTPS_PROXY", "http://10.27.7.110:8080")
+    assert resolve_proxy() == "http://10.27.7.110:8080"
 
 
 @pytest.fixture

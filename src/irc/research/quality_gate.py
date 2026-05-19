@@ -19,6 +19,16 @@ from irc.research.theme_research import ThemeReport
 _FAIL_SUCCESS_FLOOR = 0.5
 _WARN_SUCCESS_FLOOR = 0.8
 
+# Adversarial review §A4 (2026-05-19): when a critical theme silently
+# loses a provider or returns no relevant sources, downstream thesis
+# work loses an axis of independent corroboration. Surface this as a
+# WARN-level signal so the memo can flag it even if the overall pipeline
+# pass rate is still high.
+_CRITICAL_THEMES: frozenset[str] = frozenset({
+    "gold_drivers", "cn_monetary", "us_monetary", "holdings_sector",
+})
+_CRITICAL_DEGRADATION_WARN_THRESHOLD = 2
+
 
 @dataclass(frozen=True)
 class QualityVerdict:
@@ -26,6 +36,7 @@ class QualityVerdict:
     warning: bool       # True → run completed but quality is degraded
     exit_code: int      # 0 PASS or WARN; 2 FAIL
     reasons: tuple[str, ...]
+    degraded_themes: tuple[str, ...] = ()  # critical themes that lost a provider or returned no relevant sources
 
 
 def _dead_locale_reasons(reports: list[ThemeReport]) -> list[str]:
@@ -53,6 +64,28 @@ def _rate_and_reasons(
     return rate, reasons
 
 
+def _critical_theme_degraded(report: ThemeReport) -> bool:
+    """A critical theme is degraded when (a) it lost any provider, or
+    (b) it returned a non-empty failure_reason (which subsumes the
+    "no relevant sources after relevance filter" case from item 001).
+    Note: the locale-dead and overall-rate checks already catch the
+    case where ALL themes failed; this is the more sensitive signal
+    that one critical axis is down even when the overall rate is fine.
+    """
+    if report.failure_reason:
+        return True
+    if report.provider_failures:
+        return True
+    return False
+
+
+def _degraded_critical_themes(reports: list[ThemeReport]) -> tuple[str, ...]:
+    return tuple(
+        r.theme for r in reports
+        if r.theme in _CRITICAL_THEMES and _critical_theme_degraded(r)
+    )
+
+
 def evaluate_research_quality(reports: list[ThemeReport]) -> QualityVerdict:
     if not reports:
         return QualityVerdict(
@@ -63,19 +96,33 @@ def evaluate_research_quality(reports: list[ThemeReport]) -> QualityVerdict:
     reasons = _dead_locale_reasons(reports)
     rate, rate_reasons = _rate_and_reasons(reports)
     reasons.extend(rate_reasons)
+    degraded = _degraded_critical_themes(reports)
 
     if reasons:
         return QualityVerdict(
-            passed=False, warning=False, exit_code=2, reasons=tuple(reasons),
+            passed=False, warning=False, exit_code=2,
+            reasons=tuple(reasons), degraded_themes=degraded,
         )
 
+    warn_reasons: list[str] = []
     if rate < _WARN_SUCCESS_FLOOR:
+        warn_reasons.append(
+            f"success rate {rate:.0%} is below the {_WARN_SUCCESS_FLOOR:.0%} "
+            "warn threshold (run continues)"
+        )
+    if len(degraded) >= _CRITICAL_DEGRADATION_WARN_THRESHOLD:
+        warn_reasons.append(
+            "critical themes degraded: " + ", ".join(degraded)
+            + " — downstream thesis evidence loses an axis of corroboration"
+        )
+
+    if warn_reasons:
         return QualityVerdict(
             passed=True, warning=True, exit_code=0,
-            reasons=(
-                f"success rate {rate:.0%} is below the {_WARN_SUCCESS_FLOOR:.0%} "
-                "warn threshold (run continues)",
-            ),
+            reasons=tuple(warn_reasons), degraded_themes=degraded,
         )
 
-    return QualityVerdict(passed=True, warning=False, exit_code=0, reasons=())
+    return QualityVerdict(
+        passed=True, warning=False, exit_code=0,
+        reasons=(), degraded_themes=degraded,
+    )

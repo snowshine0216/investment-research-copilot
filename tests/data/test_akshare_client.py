@@ -509,7 +509,7 @@ def test_fetch_macro_series_dxy_uses_proxy_lock_when_proxy_env_is_set(monkeypatc
             return False
 
     probe = _LockProbe()
-    monkeypatch.setenv("AKSHARE_HTTPS_PROXY", "http://proxy.example.com:8080")
+    monkeypatch.setenv("IRC_HTTPS_PROXY", "http://proxy.example.com:8080")
 
     with patch("irc.data.akshare_client._AKSHARE_PROXY_LOCK", probe), \
          patch("irc.data.akshare_client._ak_call", return_value=fake):

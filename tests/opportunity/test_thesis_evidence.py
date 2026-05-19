@@ -266,13 +266,18 @@ def test_missing_broker_coverage_gap_when_no_broker_reports():
 # ---------------------------------------------------------------------------
 
 def _research_theme_report(n_citations: int, *, failure: str = "") -> ThemeReport:
+    # Use trusted-tier URLs (wire service) so adversarial-fix item 002's
+    # tier gate (intact requires ≥1 trusted-tier citation) doesn't downgrade
+    # the legacy "≥3 citations → intact" path being tested here.
     return ThemeReport(
         theme="gold_drivers",
         query="gold drivers",
         locale="en",
         report_md="# gold drivers\n\nContent body.\n",
         citations=[
-            Citation(index=i, title=f"t{i}", url=f"https://x/{i}", published_iso="2026-05-01")
+            Citation(index=i, title=f"t{i}",
+                     url=f"https://www.reuters.com/article/{i}",
+                     published_iso="2026-05-01")
             for i in range(n_citations)
         ],
         failure_reason=failure,

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 
 import httpx
 
+from irc.http_proxy import resolve_proxy
 from irc.research.search.types import ExtractedPage
 
 
@@ -37,11 +38,11 @@ class JinaReader:
             headers["Authorization"] = f"Bearer {self._api_key}"
         now = datetime.now(tz=timezone.utc).isoformat()
         try:
-            resp = httpx.get(
-                f"{_BASE}/{url}",
-                headers=headers,
+            with httpx.Client(
                 timeout=timeout_s or self._timeout_s,
-            )
+                proxy=resolve_proxy(),
+            ) as client:
+                resp = client.get(f"{_BASE}/{url}", headers=headers)
         except httpx.TimeoutException as exc:
             return self._fail(url=url, now=now, reason=f"timeout: {exc}")
         except httpx.HTTPError as exc:

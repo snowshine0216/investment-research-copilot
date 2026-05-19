@@ -56,8 +56,61 @@ def _percentile(inp: OpportunityInput) -> float | None:
     return inp.valuation_percentile_vs_benchmark
 
 
+_BOND_ASSET_CLASSES: frozenset[str] = frozenset({"cn_bond_fund"})
+_EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
+    "cn_equity_fund", "cn_etf", "us_etf", "hk_etf",
+})
+_EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
+
+
+def expected_real_return_positive(inp: OpportunityInput) -> bool | None:
+    """Earnings-yield vs real-yield sanity anchor (review §B3).
+
+    Returns:
+      True  — equity offers a positive expected real return
+              (earnings_yield > real_yield_10y)
+      False — equity offers a negative or zero expected real return
+      None  — either input missing; no opinion
+    """
+    if inp.earnings_yield is None or inp.real_yield_10y is None:
+        return None
+    return float(inp.earnings_yield) > float(inp.real_yield_10y)
+
+
+def classify_bond_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
+    """Classify bond-fund valuation from 10Y CGB yield percentile.
+
+    A pure-bond fund's NAV percentile is a momentum proxy with no
+    economic interpretation. The right anchor is the local yield curve:
+    high yield-percentile ⇔ yields elevated ⇔ bonds cheap.
+
+    Bands on ``cn_bond_yield_percentile``:
+      cheap:           pct >= 0.80
+      reasonable_low:  0.60 <= pct < 0.80
+      fair:            0.30 <= pct < 0.60
+      expensive:       0.10 <= pct < 0.30
+      very_expensive:  pct < 0.10
+    """
+    pct = inp.cn_bond_yield_percentile
+    if pct is None:
+        return (
+            "evidence_insufficient",
+            "10Y CGB 收益率百分位数据缺失，未能对债券估值给出方向性结论。",
+        )
+    if pct >= 0.80:
+        return "cheap", f"10Y 收益率位于 {pct:.0%} 高位，债券估值便宜。"
+    if pct >= 0.60:
+        return "reasonable_low", f"10Y 收益率位于 {pct:.0%} 偏高位，估值偏低。"
+    if pct >= 0.30:
+        return "fair", f"10Y 收益率位于 {pct:.0%} 中位区间，估值中性。"
+    if pct >= 0.10:
+        return "expensive", f"10Y 收益率位于 {pct:.0%} 低位，债券估值偏贵。"
+    return "very_expensive", f"10Y 收益率位于 {pct:.0%} 极低，债券估值极贵。"
+
+
 def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
-    """Classify valuation state. Bands:
+    """Classify valuation state. Bonds use a yield-curve anchor; all
+    other asset classes use the price/percentile bands:
       cheap: pct < 0.20
       reasonable_low: 0.20 <= pct < 0.40
       fair: 0.40 <= pct < 0.70
@@ -65,18 +118,42 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
       very_expensive: pct >= 0.90
     Drawdown alone is NEVER evidence of cheapness.
     """
+    if inp.asset_class in _BOND_ASSET_CLASSES:
+        return classify_bond_valuation(inp)
     pct = _percentile(inp)
     if pct is None:
         return "evidence_insufficient", "估值数据缺失，未能判定。"
     if pct < 0.20:
-        return "cheap", f"估值百分位 {pct:.0%} 偏低。"
-    if pct < 0.40:
-        return "reasonable_low", f"估值百分位 {pct:.0%} 偏低但未极低。"
-    if pct < 0.70:
-        return "fair", f"估值百分位 {pct:.0%} 中性。"
-    if pct < 0.90:
-        return "expensive", f"估值百分位 {pct:.0%} 偏高。"
-    return "very_expensive", f"估值百分位 {pct:.0%} 极高。"
+        state, reason = "cheap", f"估值百分位 {pct:.0%} 偏低。"
+    elif pct < 0.40:
+        state, reason = "reasonable_low", f"估值百分位 {pct:.0%} 偏低但未极低。"
+    elif pct < 0.70:
+        state, reason = "fair", f"估值百分位 {pct:.0%} 中性。"
+    elif pct < 0.90:
+        state, reason = "expensive", f"估值百分位 {pct:.0%} 偏高。"
+    else:
+        state, reason = "very_expensive", f"估值百分位 {pct:.0%} 极高。"
+    # Equity sanity anchor (§B3): high price percentile can persist for
+    # years (1995-2000); if earnings_yield - real_yield_10y > 0 the
+    # equity is still offering a positive expected real return, which a
+    # DCA investor should know before treating "very_expensive" as
+    # "avoid".
+    if (
+        state in _EXPENSIVE_VALUATION_STATES
+        and inp.asset_class in _EQUITY_ASSET_CLASSES
+    ):
+        signal = expected_real_return_positive(inp)
+        if signal is True:
+            reason = (
+                f"{reason} 但 earnings_yield - real_yield 为正，"
+                f"长期 DCA 视为正期望，估值高位不等于退出信号。"
+            )
+        elif signal is False:
+            reason = (
+                f"{reason} 且 earnings_yield - real_yield 非正，"
+                f"长期实际回报预期偏弱。"
+            )
+    return state, reason
 
 
 # ---------------------------------------------------------------------------

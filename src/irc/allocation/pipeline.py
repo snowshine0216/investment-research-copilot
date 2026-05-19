@@ -2,8 +2,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 import pandas as pd
-from irc.allocation.target_weights import compute_target_weights, softmax_distribute
-from irc.allocation.correlation_filter import drop_high_correlation_pairs
+from irc.allocation.target_weights import (
+    DEFAULT_SATELLITE_QDII_MAX_WEIGHT,
+    cap_satellite_qdii,
+    compute_target_weights,
+    is_satellite_qdii,
+    redistribute_shaved_to_class,
+    softmax_distribute,
+)
+from irc.allocation.correlation_filter import (
+    drop_duplicate_index_trackers,
+    drop_high_correlation_pairs,
+)
 
 
 @dataclass(frozen=True)
@@ -93,12 +103,40 @@ def _keep_and_preserve_class_totals(
     ]
 
 
+def _apply_satellite_qdii_cap(
+    selected: list[dict[str, Any]],
+    cap: float,
+) -> tuple[list[dict[str, Any]], float]:
+    """Cap satellite-role QDII rows and redistribute the shaved weight.
+
+    Strategy: shaved weight first tries to spill back into the same QDII
+    class (giving headroom to a non-capped peer); whatever doesn't fit
+    becomes cash residual (returned as the second tuple element).
+    """
+    if cap <= 0:
+        return selected, 0.0
+    capped_rows, shaved = cap_satellite_qdii(selected, cap=cap)
+    if shaved <= 0:
+        return capped_rows, 0.0
+    qdii_classes_present = {
+        r["asset_class"] for r in capped_rows if is_satellite_qdii(r)
+    }
+    remaining = shaved
+    rows = capped_rows
+    for cls in sorted(qdii_classes_present):
+        if remaining <= 0:
+            break
+        rows, remaining = redistribute_shaved_to_class(rows, remaining, cls, cap=cap)
+    return rows, remaining
+
+
 def run_allocation(
     scores: list[dict],
     class_targets: dict[str, dict[str, object]],
     gold_tilt: str,
     correlation: pd.DataFrame,
     per_class_top_k: int = 2,
+    satellite_qdii_cap: float = DEFAULT_SATELLITE_QDII_MAX_WEIGHT,
 ) -> AllocationOutput:
     """Compose Stage 5 allocation:
     1. apply gold_tilt to class centers
@@ -119,10 +157,21 @@ def run_allocation(
             selected.append({
                 "instrument_id": row["instrument_id"], "asset_class": cls,
                 "role": row.get("role", ""),
+                "tracked_index": row.get("tracked_index", ""),
                 "composite_score": row["composite_score"],
                 "intra_class_share": w,
                 "target_weight": class_weights.get(cls, 0.0) * w,
             })
+    # Dedupe by tracked_index BEFORE the numeric correlation filter:
+    # two S&P500 share classes are deterministically the same factor
+    # exposure, so we don't need a correlation matrix to drop the dup.
+    pre_dedupe_selected = list(selected)
+    selected, index_dupes = drop_duplicate_index_trackers(selected)
+    if index_dupes:
+        kept_ids = {r["instrument_id"] for r in selected}
+        # Renormalize per class so the class total is preserved
+        # (the dedupe takes weight away; the remaining row absorbs it).
+        selected = _keep_and_preserve_class_totals(pre_dedupe_selected, kept_ids)
     if not correlation.empty:
         cand_df = pd.DataFrame([
             {"instrument_id": s["instrument_id"], "score": s["composite_score"], "asset_class": s["asset_class"]}
@@ -131,9 +180,11 @@ def run_allocation(
         filt = drop_high_correlation_pairs(cand_df, correlation, threshold=0.85)
         kept_ids = set(filt.kept["instrument_id"])
         selected = _keep_and_preserve_class_totals(selected, kept_ids)
-        dropped = filt.dropped
+        dropped = list(filt.dropped)
     else:
         dropped = []
+    dropped = list(index_dupes) + dropped
+    selected, satellite_qdii_residual = _apply_satellite_qdii_cap(selected, satellite_qdii_cap)
     eff_n = _effective_n([s["target_weight"] for s in selected])
     invested = sum(s["target_weight"] for s in selected)
     # Honest accounting of the unallocated portion. Classes that lack a scored
@@ -141,11 +192,16 @@ def run_allocation(
     # leave a hole — surface it as cash_residual so total + cash ≈ 1.0 instead
     # of pretending the allocation covers the whole portfolio.
     cash_residual = max(0.0, 1.0 - invested)
+    diagnostics: dict[str, float] = {
+        "effective_n": eff_n,
+        "total_weight": invested,
+        "cash_residual_weight": cash_residual,
+    }
+    if satellite_qdii_residual > 0:
+        diagnostics["satellite_qdii_excess_to_cash"] = satellite_qdii_residual
     return AllocationOutput(
         target_weights_per_class=class_weights,
         selected_instruments=selected,
         dropped_due_to_correlation=dropped,
-        diagnostics={"effective_n": eff_n,
-                     "total_weight": invested,
-                     "cash_residual_weight": cash_residual},
+        diagnostics=diagnostics,
     )

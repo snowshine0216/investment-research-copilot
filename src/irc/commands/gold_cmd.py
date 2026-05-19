@@ -15,7 +15,43 @@ from irc.research.geopolitical_stress import geopolitical_stress_from_theme_repo
 from irc.scoring.regime_detect import classify_regime
 from irc.scoring.gold_band import compute_band, classify_zone
 from irc.scoring.gold_scenarios import classify_scenario
-from irc.scoring.gold_score import compute_gold_score, GoldDriverInputs, gold_tilt_from_score
+from irc.scoring.gold_score import (
+    compute_gold_score,
+    GoldDriverInputs,
+    GoldTilt,
+    gold_tilt_from_score,
+)
+
+
+# Tilt magnitude ordering for the regime-vs-drivers clamp.
+_TILT_ORDER: tuple[GoldTilt, ...] = (
+    "underweight", "neutral_minus", "neutral", "neutral_plus", "overweight",
+)
+
+
+def _combine_tilts(
+    regime: str,
+    drivers_tilt: GoldTilt,
+    drivers_availability: str,
+) -> GoldTilt:
+    """Combine the regime-only tilt and the driver-score tilt.
+
+    Adversarial review §B2: drivers_tilt should drive the decision when
+    data is complete. When the regime contradicts the drivers (e.g.
+    drivers say overweight but the price is trending down), clamp to
+    neutral_plus so we never aggressively buy into a downtrend.
+    """
+    if drivers_availability == "unavailable":
+        return "neutral"  # honest fallback — no driver signal
+    if drivers_availability == "partial":
+        # Be conservative: take the more cautious of regime-neutral vs drivers.
+        idx = _TILT_ORDER.index(drivers_tilt)
+        cautious_idx = min(idx, _TILT_ORDER.index("neutral_plus"))
+        return _TILT_ORDER[cautious_idx]
+    # complete: drivers dominate; clamp on trending_down + overweight
+    if regime == "trending_down" and drivers_tilt == "overweight":
+        return "neutral_plus"
+    return drivers_tilt
 
 
 def _today() -> str:
@@ -80,6 +116,14 @@ def run_gold(repo_root: str) -> int:
         geo_stress = geopolitical_stress_from_theme_report(
             reports.get("geopolitics"),
         )
+        # Track which drivers are real vs fallback so the gold report
+        # can honestly say "drivers_availability=partial" when WGC data
+        # is missing. Adversarial review §B2.
+        unavailable_drivers: list[str] = []
+        if cb_tons == 0.0:
+            unavailable_drivers.append("cb_purchases_wgc")
+        if etf_change == 0.0:
+            unavailable_drivers.append("etf_holdings_gld")
         inputs = GoldDriverInputs(
             real_yield_10y_tips=_macro_value(con, "DGS10", 1.65) - 2.30,  # rough TIPS proxy
             dxy=_macro_value(con, "DXY", 104.0),
@@ -88,11 +132,21 @@ def run_gold(repo_root: str) -> int:
             etf_holdings_30d_change_tons=etf_change,
             geopolitical_stress_0to1=geo_stress,
         )
-        if cb_tons == 0.0 or etf_change == 0.0:
-            print("WARN: gold driver(s) using stub value; "
-                  "WGC CSV absent for cb_purchases/etf_holdings → 0.0 fallback")
-        score = compute_gold_score(inputs, cfg)
-        tilt = gold_tilt_from_score(score)
+        if unavailable_drivers:
+            print(
+                "WARN: gold driver(s) using stub value; "
+                f"WGC CSV absent for {', '.join(unavailable_drivers)} → 0.0 fallback"
+            )
+        drivers_score = compute_gold_score(inputs, cfg)
+        drivers_tilt = gold_tilt_from_score(drivers_score)
+        # 2 or more unavailable → "unavailable"; 1 → "partial"; 0 → "complete"
+        if len(unavailable_drivers) >= 2:
+            drivers_availability = "unavailable"
+        elif unavailable_drivers:
+            drivers_availability = "partial"
+        else:
+            drivers_availability = "complete"
+        tilt = _combine_tilts(regime.regime, drivers_tilt, drivers_availability)
         scenario = classify_scenario(
             real_yield=inputs.real_yield_10y_tips, dxy=inputs.dxy,
             cb_purchases_yearly_tons=inputs.cb_purchases_yearly_tons,
@@ -104,10 +158,21 @@ def run_gold(repo_root: str) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_dir / "gold_regime.json", json.dumps({
         "regime": regime.regime, "vol_ratio": regime.vol_ratio, "adx": regime.adx,
-        "trend_sign": regime.trend_sign, "score": score, "tilt": tilt,
+        "trend_sign": regime.trend_sign,
+        # Legacy "score" preserved as alias of drivers_score for downstream
+        # consumers; new fields are the source of truth.
+        "score": drivers_score,
+        "drivers_score": drivers_score,
+        "drivers_tilt": drivers_tilt,
+        "drivers_availability": drivers_availability,
+        "drivers_unavailable": unavailable_drivers,
+        "tilt": tilt,
         "zone": zone,
         "scenario": scenario.scenario, "scenario_triggers": list(scenario.triggers_met),
     }, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "gold_band.yaml", yaml.safe_dump(asdict(band), sort_keys=False))
-    print(f"gold OK: regime={regime.regime} score={score:.1f} tilt={tilt}")
+    print(
+        f"gold OK: regime={regime.regime} drivers={drivers_score:.1f} "
+        f"({drivers_availability}) tilt={tilt}"
+    )
     return 0

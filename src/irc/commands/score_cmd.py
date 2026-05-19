@@ -59,18 +59,22 @@ def run_score(repo_root: str) -> int:
         cfg_scoring=bundle.scoring,
     )
 
-    # Enrich each score entry with asset_class and role from the watchlist
-    # (allocation pipeline needs these fields for per-class grouping)
+    # Enrich each score entry with asset_class, role, and tracked_index
+    # from the watchlist (allocation needs them for per-class grouping
+    # and intra-index dedupe — see 2026-05-19-adversarial-fixes item 008).
+    _meta_cols = ["instrument_id", "asset_class", "role", "tracked_index"]
+    _have_meta = {"asset_class", "role"}.issubset(watchlist.columns)
     watchlist_meta = (
-        watchlist[["instrument_id", "asset_class", "role"]].drop_duplicates("instrument_id")
-        if {"asset_class", "role"}.issubset(watchlist.columns)
-        else pd.DataFrame(columns=["instrument_id", "asset_class", "role"])
+        watchlist[[c for c in _meta_cols if c in watchlist.columns]].drop_duplicates("instrument_id")
+        if _have_meta
+        else pd.DataFrame(columns=_meta_cols)
     )
     meta_by_id = watchlist_meta.set_index("instrument_id").to_dict("index")
     for entry in out["scores"]:
         m = meta_by_id.get(entry["instrument_id"], {})
         entry.setdefault("asset_class", m.get("asset_class", "unknown"))
         entry.setdefault("role", m.get("role", ""))
+        entry.setdefault("tracked_index", m.get("tracked_index") or "")
 
     out_path = root / "outputs" / today / "scoring.json"
     atomic_write_text(out_path, json.dumps(out, ensure_ascii=False, indent=2))

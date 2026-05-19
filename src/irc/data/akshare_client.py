@@ -11,6 +11,8 @@ from typing import Any, Generator, TypeVar
 
 import pandas as pd
 
+from irc.http_proxy import resolve_proxy
+
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
@@ -349,9 +351,12 @@ def _fetch_dxy_via_akshare(start: str, end: str) -> pd.DataFrame:
     are calibrated for DXY's ~95–115 range. FRED's DTWEXBGS sits ~120 and is
     not interchangeable, so this path is the canonical DXY source.
 
-    If AKSHARE_HTTPS_PROXY is set in the environment, the EastMoney request is
-    routed through that proxy (useful when the host is geo-restricted)."""
-    proxy_url = os.environ.get("AKSHARE_HTTPS_PROXY")
+    If IRC_HTTPS_PROXY is set in the environment, the EastMoney request is
+    routed through that proxy (useful when the host is geo-restricted).
+
+    The DXY path is the only akshare call that opts in — other akshare
+    sources serve mainland-CN domains where a non-CN proxy would hurt."""
+    proxy_url = resolve_proxy()
     ctx = _proxy_env(proxy_url) if proxy_url else contextlib.nullcontext()
     # _proxy_env temporarily mutates process env; lock to avoid cross-thread bleed.
     with _AKSHARE_PROXY_LOCK:
