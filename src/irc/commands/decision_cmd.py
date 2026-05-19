@@ -10,6 +10,7 @@ import yaml
 from irc.config_loader import load_repo_configs
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
+from irc.memo.auditor import extract_audit_summary
 from irc.schemas.universe import UniverseConfig
 
 
@@ -34,6 +35,49 @@ def _venue_maps_from_bundle(bundle, root: Path) -> tuple[dict[str, list[str]], l
     for acc in bundle.account.accounts:
         venues.extend(acc.available_venues)
     return requirements, sorted(set(venues))
+
+
+def _names_from_bundle(bundle) -> dict[str, str]:
+    """Aggregate human-readable name_cn per instrument across every universe
+    yaml. Used to render decision tables with a readable name column."""
+    universes: list[UniverseConfig] = [
+        bundle.universe_qdii_us,
+        bundle.universe_qdii_hk,
+        bundle.universe_cn_funds,
+        bundle.universe_gold,
+    ]
+    names: dict[str, str] = {}
+    for u in universes:
+        for instr in u.instruments:
+            names[instr.instrument_id] = instr.name_cn
+    return names
+
+
+def _load_audit_summary(path: Path) -> dict[str, Any] | None:
+    """Read memo_audit.txt if present and return its structured summary.
+    Returns None when the file is absent so the decision report renders
+    without an audit banner (rather than failing or emitting a misleading
+    "未知" banner)."""
+    if not path.exists():
+        return None
+    return extract_audit_summary(path.read_text(encoding="utf-8"))
+
+
+def _names_from_watchlist_csv(path: Path) -> dict[str, str]:
+    """Fallback name map sourced from discovered_watchlist.csv. Used to fill
+    rows whose ids aren't in any universe yaml (e.g. discovery added them
+    this run but generated universe yaml hadn't propagated yet)."""
+    if not path.exists():
+        return {}
+    import csv
+    names: dict[str, str] = {}
+    with path.open(newline="", encoding="utf-8") as fh:
+        for row in csv.DictReader(fh):
+            iid = (row.get("instrument_id") or "").strip()
+            name = (row.get("name_cn") or "").strip()
+            if iid and name:
+                names[iid] = name
+    return names
 
 
 _TZ = timezone(timedelta(hours=8))
@@ -64,14 +108,21 @@ def run_decision(repo_root: str) -> int:
     try:
         bundle = load_repo_configs(root)
         venue_reqs, available_venues = _venue_maps_from_bundle(bundle, root)
+        names = _names_from_bundle(bundle)
     except Exception as exc:  # noqa: BLE001 — graceful degrade
         print(f"WARNING: could not load venue context ({exc}); falling back to unknown venue for rows without trades.")
-        venue_reqs, available_venues = {}, []
+        venue_reqs, available_venues, names = {}, [], {}
+    # Universe yamls miss instruments only present in the discovered watchlist
+    # for this run. Fall back to that CSV so the markdown never renders naked ids.
+    watchlist_names = _names_from_watchlist_csv(out_dir / "discovered_watchlist.csv")
+    for iid, name in watchlist_names.items():
+        names.setdefault(iid, name)
     proxies = {
         str(row.get("target")): str(row.get("proxy_id"))
         for row in trade_plan.get("trades", [])
         if row.get("proxy_id")
     }
+    audit_summary = _load_audit_summary(out_dir / "memo_audit.txt")
     report = compose_decision_report(
         date=out_dir.name,
         scoring=scoring,
@@ -82,6 +133,8 @@ def run_decision(repo_root: str) -> int:
         venue_requirements_by_id=venue_reqs,
         available_venues=available_venues,
         proxies_by_id=proxies,
+        names_by_id=names,
+        audit_summary=audit_summary,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))

@@ -8,6 +8,11 @@ from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus, WatchR
 
 _BUY_ACTIONS = {"buy_candidate", "strong_buy_candidate"}
 _AVOID_ACTIONS = {"avoid", "strong_avoid"}
+# Asset classes where premium-to-NAV must be known before the row can be
+# treated as actionable. QDII feeders trade at 5–15% premium and can suspend
+# large subscriptions — the trust-check doc (A2, priority #4) flagged this as
+# the highest single-trade-loss risk in the layperson-facing report.
+_QDII_ASSET_CLASSES = {"us_etf", "hk_etf"}
 
 
 def target_weights_are_valid(allocation: dict[str, Any], tolerance: float = 1e-3) -> bool:
@@ -90,6 +95,9 @@ def decide_row(
     venue_required: list[str] | tuple[str, ...] | None = None,
     available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
     proxy_id: str | None = None,
+    instrument_name: str | None = None,
+    target_weight: float = 0.0,
+    role: str = "",
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -114,6 +122,12 @@ def decide_row(
         proxy_id=proxy_id,
     )
     evidence_status = memo_evidence_status(memo_traceability_coverage)
+    asset_class = str(score.get("asset_class") or "")
+    qdii_premium_unknown = (
+        asset_class in _QDII_ASSET_CLASSES
+        and score.get("qdii_premium_pct") is None
+        and score_action in _BUY_ACTIONS
+    )
     blocking_reasons = _blocking_reasons(
         pipeline_halted=pipeline_halted,
         completeness=completeness,
@@ -122,6 +136,7 @@ def decide_row(
         venue_status=venue_status,
         evidence_status=evidence_status,
         score_action=score_action,
+        qdii_premium_unknown=qdii_premium_unknown,
     )
     decision_status = _decision_status(score_action, blocking_reasons, allocation_selected)
     watch_reason = _watch_reason(decision_status, score_action, allocation_selected, venue_status)
@@ -136,6 +151,9 @@ def decide_row(
         blocking_reasons=blocking_reasons,
         decision_status=decision_status,
         watch_reason=watch_reason,
+        instrument_name=instrument_name,
+        target_weight=target_weight,
+        role=role,
     ).to_dict()
 
 
@@ -150,6 +168,9 @@ def _build_decision_row(
     blocking_reasons: list[str],
     decision_status: str,
     watch_reason: WatchReason | None,
+    instrument_name: str | None = None,
+    target_weight: float = 0.0,
+    role: str = "",
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
@@ -167,6 +188,9 @@ def _build_decision_row(
         reason=_reason(decision_status, blocking_reasons, score_action),
         next_step=_next_step(blocking_reasons, decision_status),
         watch_reason=watch_reason,
+        instrument_name=instrument_name,
+        target_weight=target_weight,
+        role=role,
     )
 
 
@@ -178,6 +202,7 @@ def _blocking_reasons(
     venue_status: VenueStatus,
     evidence_status: str,
     score_action: str,
+    qdii_premium_unknown: bool = False,
 ) -> list[str]:
     reasons: list[str] = []
     if pipeline_halted:
@@ -192,6 +217,8 @@ def _blocking_reasons(
         reasons.append("memo_narrative_only")
     if score_action in _AVOID_ACTIONS:
         reasons.append("score_avoid")
+    if qdii_premium_unknown:
+        reasons.append("qdii_premium_unknown")
     return reasons
 
 

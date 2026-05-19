@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.6] — 2026-05-19
+
+### Added
+- **decision_report.md trust-check fixes (7-item autodev-loop).** A
+  non-finance reader opening `decision_report.md` previously had no
+  in-document way to decode column terms, no visibility into the
+  memo's compliance audit, no warning about execution drift, no
+  protection against QDII premium-blind buying, and no headline
+  telling them what (if anything) to actually do today. The
+  layperson-facing report now leads with a bilingual **"今日唯一行动
+  / Today's only action"** headline, surfaces a **🛑 合规审核未达标**
+  banner whenever `memo_audit.txt` reports anything weaker than
+  `审核通过`, surfaces an **⚠️ 执行漂移提醒** banner when cash
+  residual exceeds target by ≥ 5pp, refuses to mark any
+  `us_etf` / `hk_etf` row `actionable` until `qdii_premium_pct` is
+  collected, collapses redundant blocked rows with **"✓ Role already
+  met"** lines when a proxy already fills the asset class, renders
+  every row with a Chinese `name_cn` column plus bilingual
+  `score_action / 中文标签` cells, and closes with a `## 术语速查
+  (Glossary)` explaining 11 cryptic terms. Pure-functional throughout
+  — `extract_audit_summary`, `_execution_drift`, `_build_proxy_coverage`,
+  the QDII gate in `decide_row`, the headline renderer — all
+  deterministic; no I/O inside. Per-item PRs #41–#47; see
+  `2026-05-19-trust-check-fixes/MASTER-SPEC.md` for the full
+  decomposition and `cross-branch-diff.md` for the acceptance matrix.
+
 ## [0.8.5.1] — 2026-05-19
 
 ### Changed

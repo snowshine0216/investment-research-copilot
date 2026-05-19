@@ -310,3 +310,74 @@ def test_next_step_memo_narrative_only_text() -> None:
         memo_traceability_coverage=0.0,
     )
     assert "memo traceability" in decision["next_step"]
+
+
+def test_qdii_buy_without_premium_blocks() -> None:
+    """QDII row marked as buy_candidate but with no qdii_premium_pct should
+    be downgraded from actionable to blocked — the trust-check identified
+    this as the highest single-trade-loss risk."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf"),  # no qdii_premium_pct
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert decision["decision_status"] == "blocked"
+    assert "qdii_premium_unknown" in decision["blocking_reasons"]
+
+
+def test_qdii_buy_with_premium_passes_qdii_gate() -> None:
+    """Once premium data flows in, the gate releases and the row can be
+    actionable_buy (subject to other gates)."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", qdii_premium_pct=0.05),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+    assert decision["decision_status"] == "actionable_buy"
+
+
+def test_non_qdii_buy_without_premium_passes() -> None:
+    """A-share / bond rows must not be gated by QDII-specific premium data."""
+    decision = decide_row(
+        score=_score(asset_class="cn_equity_fund"),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_watch_without_premium_not_blocked_by_gate() -> None:
+    """Only buy-side actions trigger the QDII premium gate — a watch row
+    with no premium data is still watch_only, not blocked."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", action="watch"),
+        allocation_selected=False,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_hk_etf_also_gated() -> None:
+    """hk_etf is also a QDII class — same gate applies."""
+    decision = decide_row(
+        score=_score(asset_class="hk_etf"),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+    )
+    assert "qdii_premium_unknown" in decision["blocking_reasons"]

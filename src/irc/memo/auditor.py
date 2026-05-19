@@ -30,6 +30,58 @@ _AUDIT_FAILED_TOKEN = "审核未通过"
 _AUDIT_PASSED_TOKEN = "审核通过"
 
 
+_VERDICT_TOKENS: tuple[tuple[str, str], ...] = (
+    ("审核未通过", "审核未通过"),
+    ("条件通过", "条件通过"),
+    ("审核通过", "审核通过"),
+)
+
+# Broader P1 detection than audit_blocks_publish. The current auditor format
+# uses several incarnations of P1: pipe-table rows (`| P1 |`), bold-decorated
+# rows (`| **P1（必改）** |`), and bullet items from the numeric audit
+# (`- [005561] cheap_claim_vs_state: ...`). The trust-check doc (A6)
+# specifically calls out the cheap_claim_vs_state / expensive_claim_vs_state
+# numeric-audit contradictions as P1-grade.
+_P_TIER_TABLE_RE = re.compile(r"\|\s*(?:\*+\s*)?P\d\b")
+_NUMERIC_AUDIT_FINDING_RE = re.compile(
+    r"^-\s*\[[^\]]+\]\s*(cheap_claim_vs_state|expensive_claim_vs_state|"
+    r"weak_claim_vs_state|state_mismatch)"
+)
+
+
+def extract_audit_summary(audit_text: str) -> dict:
+    """Return a structured summary of an auditor.py-style memo audit.
+
+    Schema: ``{"verdict": str, "p1_count": int, "p1_findings": list[str]}``.
+
+    - ``verdict`` is one of ``审核通过`` / ``条件通过`` / ``审核未通过`` /
+      ``未知`` (no marker found). If multiple verdict tokens appear, the
+      strictest one wins (``审核未通过`` > ``条件通过`` > ``审核通过``).
+    - ``p1_count`` is the total number of P1-grade findings detected
+      across both the priority table and the numeric-audit bullets.
+    - ``p1_findings`` lists up to the first 10 trimmed finding lines.
+    """
+    if not audit_text:
+        return {"verdict": "未知", "p1_count": 0, "p1_findings": []}
+    verdict = "未知"
+    for token, label in _VERDICT_TOKENS:
+        if token in audit_text:
+            verdict = label
+            break
+    findings: list[str] = []
+    for raw in audit_text.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if _P_TIER_TABLE_RE.search(line) or _NUMERIC_AUDIT_FINDING_RE.match(line):
+            findings.append(line)
+    return {
+        "verdict": verdict,
+        "p1_count": len(findings),
+        "p1_findings": findings[:10],
+    }
+
+
 def audit_blocks_publish(audit_text: str) -> tuple[bool, tuple[str, ...]]:
     """Classify audit content. Pure function.
 

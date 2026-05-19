@@ -18,10 +18,21 @@ def compose_decision_report(
     venue_requirements_by_id: dict[str, list[str]] | None = None,
     available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
     proxies_by_id: dict[str, str] | None = None,
+    names_by_id: dict[str, str] | None = None,
+    audit_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
     trades_by_target = {str(row.get("target")): row for row in trade_plan.get("trades", [])}
+    target_weight_by_id: dict[str, float] = {
+        str(row.get("instrument_id")): float(row.get("target_weight") or 0.0)
+        for row in allocation.get("selected_instruments", [])
+    }
+    role_by_id: dict[str, str] = {
+        str(row.get("target")): str(row.get("role") or "")
+        for row in trade_plan.get("trades", [])
+        if row.get("role")
+    }
     # Compute coverage from the verbatim-count schema.
     # • Key absent → legacy on-disk file (old coverage_ratio schema); do not block.
     # • n_refs_provided == 0 → no evidence was available; vacuous truth, do not block.
@@ -43,8 +54,13 @@ def compose_decision_report(
         venue_requirements_by_id=venue_requirements_by_id or {},
         available_venues=available_venues,
         proxies_by_id=proxies_by_id or {},
+        names_by_id=names_by_id or {},
+        target_weight_by_id=target_weight_by_id,
+        role_by_id=role_by_id,
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
+    proxy_coverage = _build_proxy_coverage(trade_plan)
+    execution_drift = _execution_drift(allocation)
     return {
         "date": date,
         "overall_status": "blocked" if blocking_reasons else "ok",
@@ -54,7 +70,56 @@ def compose_decision_report(
         # pipeline_incomplete: True when >50% of score rows lack an 'action' field,
         # signalling a corrupt/partial scoring run. Forces overall_status to 'blocked'.
         "pipeline_incomplete": pipeline_incomplete,
+        # Asset classes that have at least one proxy-fulfilled trade with non-zero
+        # target_weight. Used by the markdown renderer to surface "role already met"
+        # banners next to blocked rows whose class is already covered.
+        "proxy_coverage": proxy_coverage,
+        # Banner-trigger payload when the allocation parked >= 5pp of NAV in cash
+        # beyond its target — the layperson's view never showed this; the trust-check
+        # priority #3 demanded it surface here, not just in memo.md §4.
+        "execution_drift": execution_drift,
+        # Structured summary of memo_audit.txt: verdict + P1 count + first 10
+        # findings. None when the caller did not pass one in (back-compat).
+        "audit_summary": audit_summary,
     }
+
+
+_EXECUTION_DRIFT_THRESHOLD = 0.05
+
+
+def _execution_drift(allocation: dict[str, Any]) -> dict[str, float] | None:
+    target_weights = allocation.get("target_weights_per_class") or {}
+    diagnostics = allocation.get("diagnostics") or {}
+    cash_target = float(target_weights.get("cash") or 0.0)
+    cash_residual = float(diagnostics.get("cash_residual_weight") or 0.0)
+    drift = round(max(0.0, cash_residual - cash_target), 6)
+    if drift < _EXECUTION_DRIFT_THRESHOLD:
+        return None
+    return {
+        "drift_pct": drift,
+        "cash_target": cash_target,
+        "cash_residual": cash_residual,
+    }
+
+
+def _build_proxy_coverage(trade_plan: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    coverage: dict[str, list[dict[str, Any]]] = {}
+    for trade in trade_plan.get("trades", []):
+        proxy_id = trade.get("proxy_id")
+        if not proxy_id:
+            continue
+        target_weight = float(trade.get("target_weight") or 0.0)
+        if target_weight <= 0:
+            continue
+        asset_class = str(trade.get("asset_class") or "")
+        if not asset_class:
+            continue
+        coverage.setdefault(asset_class, []).append({
+            "target": str(trade.get("target") or ""),
+            "target_weight": target_weight,
+            "proxy_id": str(proxy_id),
+        })
+    return coverage
 
 
 def render_decision_markdown(report: dict[str, Any]) -> str:
@@ -63,13 +128,20 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines = [
         f"# Decision Report {report['date']}",
         "",
+    ]
+    lines.extend(_todays_only_action_section(rows))
+    lines.extend([
         "## Verdict",
         "",
         _render_verdict(report["overall_status"], report.get("summary", {})),
         "",
+    ])
+    lines.extend(_execution_drift_banner(report.get("execution_drift")))
+    lines.extend(_audit_summary_banner(report.get("audit_summary")))
+    lines.extend([
         "## Why Blocked" if is_blocked else "## Gates Passed",
         "",
-    ]
+    ])
     lines.extend(_blocking_section(report.get("blocking_reasons", [])))
     lines.append("")
     # Three reader-first sections replace the single 100-row instrument
@@ -77,11 +149,95 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     # docs/2026-05-18-fix-memo-audit/items/011-spec.md.
     lines.extend(_actionable_buys_section(rows))
     lines.append("")
-    lines.extend(_blocked_fixable_section(rows))
+    lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
     lines.append("")
     lines.extend(_watch_collapsed_section(rows))
     lines.append("")
+    lines.extend(_glossary_section())
+    lines.append("")
     return "\n".join(lines)
+
+
+def _todays_only_action_section(rows: list[dict[str, Any]]) -> list[str]:
+    """Render the layperson-first headline. Shown above Verdict so the
+    reader's first impression is "this is what to do today", not "here's
+    a 100-row table"."""
+    actionable = [r for r in rows if r.get("decision_status") == "actionable_buy"]
+    out = ["## 今日唯一行动 / Today's only action", ""]
+    if not actionable:
+        out.extend([
+            "⏸️ 本周无可执行标的 — 详见下方 Verdict 阻断原因。",
+            "",
+        ])
+        return out
+    for row in actionable:
+        iid = _md(row["instrument_id"])
+        name = row.get("instrument_name") or ""
+        name_part = f" {_md(name)}" if name else ""
+        role = row.get("role") or ""
+        role_part = _md(role) if role else "—"
+        target_pct = float(row.get("target_weight") or 0.0) * 100
+        out.append(
+            f"✅ **{iid}{name_part}** — {role_part}, target {target_pct:.1f}%."
+        )
+    out.append("")
+    return out
+
+
+def _audit_summary_banner(summary: dict[str, Any] | None) -> list[str]:
+    if not summary:
+        return []
+    verdict = str(summary.get("verdict") or "未知")
+    p1_count = int(summary.get("p1_count") or 0)
+    if verdict == "审核通过" and p1_count == 0:
+        return []
+    return [
+        f"> 🛑 **合规审核未达标 / Memo compliance audit failed**: 审核结论 "
+        f"\"{verdict}\", 含 P1 必改项 {p1_count} 条 (见 memo_audit.txt). "
+        f"本周决策应视 memo §5 为草稿，**不应**直接执行。",
+        "",
+    ]
+
+
+def _execution_drift_banner(drift: dict[str, float] | None) -> list[str]:
+    if not drift:
+        return []
+    drift_pp = drift["drift_pct"] * 100
+    residual_pp = drift["cash_residual"] * 100
+    target_pp = drift["cash_target"] * 100
+    return [
+        f"> ⚠️ **执行漂移提醒 / Execution drift**: 现金残余权重 "
+        f"{residual_pp:.0f}% > 目标 {target_pp:.0f}% (drift +{drift_pp:.0f}pp). "
+        f"多个目标未填仓 — 详见 memo.md §4 与 trade_plan.yaml. "
+        f"仅做提醒，不阻断本周决策。",
+        "",
+    ]
+
+
+def _glossary_section() -> list[str]:
+    return [
+        "## 术语速查 (Glossary)",
+        "",
+        "- **buy_candidate / 候选买入**: 评分模型给出的买入候选，*尚未*等同于"
+        "\"立即执行\"。执行前需人工核对 venue、溢价、合规审核。",
+        "- **actionable_buy**: 候选买入 ∩ 资产配置选中 ∩ 通过所有阻断闸口。"
+        "仍需人工核对。",
+        "- **core_dca / 正常定投**: 当前评估状态适合按月常规定投。",
+        "- **pause_wait / 暂停加仓**: 当前估值/事件层面建议本周不加仓，"
+        "等待下次重评。",
+        "- **venue_status=direct**: 你的主账户支持直接下单（不代表已开通 "
+        "QDII 权限；首次交易前请在券商 App 内确认）。",
+        "- **venue_status=blocked_no_proxy**: 当前账户无法直接交易，"
+        "且未配置代理 (proxy)。",
+        "- **venue_status=unknown**: 系统未确认 venue 状态，"
+        "请勿据此判断可执行性。",
+        "- **data_completeness**: 必需字段的*填充率*（0–1），**不等于**"
+        "信心或胜率。1.00 仅表示字段齐全，*不代表*该笔交易高确定性。",
+        "- **watch_reason=scored watch**: 评分本身给出 watch 行动。",
+        "- **watch_reason=not_selected_by_allocation**: "
+        "评分尚可，但资产配置未选中。",
+        "- **watch_reason=venue_unknown**: venue 数据缺失。",
+    ]
 
 
 def _render_verdict(overall_status: str, summary: dict[str, int]) -> str:
@@ -146,6 +302,9 @@ def _build_rows(
     venue_requirements_by_id: dict[str, list[str]],
     available_venues: list[str] | tuple[str, ...] | set[str] | None,
     proxies_by_id: dict[str, str],
+    names_by_id: dict[str, str],
+    target_weight_by_id: dict[str, float],
+    role_by_id: dict[str, str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
@@ -160,6 +319,9 @@ def _build_rows(
             venue_required=venue_requirements_by_id.get(iid),
             available_venues=available_venues,
             proxy_id=proxies_by_id.get(iid),
+            instrument_name=names_by_id.get(iid),
+            target_weight=target_weight_by_id.get(iid, 0.0),
+            role=role_by_id.get(iid, ""),
         ))
     return rows
 
@@ -181,6 +343,25 @@ _WATCH_REASON_LABEL: dict[str, str] = {
     "venue_unknown": "venue unknown",
 }
 
+# Bilingual labels for score_action. The trust-check doc (B2) noted the same
+# row reads bullish in English (`buy_candidate`) and bearish in Chinese
+# (`暂停加仓` from discipline_report). Pairing the English machine label with
+# a Chinese gloss in-place forces the reader to see both sides at once.
+_SCORE_ACTION_LABEL: dict[str, str] = {
+    "strong_buy_candidate": "strong_buy_candidate / 重点候选买入",
+    "buy_candidate": "buy_candidate / 候选买入",
+    "watch": "watch / 观察",
+    "avoid": "avoid / 回避",
+    "strong_avoid": "strong_avoid / 重点回避",
+}
+
+
+def _score_action_cell(row: dict[str, Any]) -> str:
+    action = row.get("score_action")
+    if not action:
+        return ""
+    return _md(_SCORE_ACTION_LABEL.get(action, str(action)))
+
 _BLOCKING_REASON_LABEL: dict[str, str] = {
     "data_incomplete": "Data incomplete (required financial metrics missing)",
     "venue_blocked": "Venue blocked (no compatible account or proxy)",
@@ -188,6 +369,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "pipeline_halted": "Pipeline halted (an upstream stage failed)",
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
+    "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
 }
 
 _BLOCKING_REMEDIATION: dict[str, str] = {
@@ -203,6 +385,9 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
         "Improve memo traceability before treating narrative claims as evidence.",
     "score_avoid":
         "Scoring action is avoid — review the underlying factor scores.",
+    "qdii_premium_unknown":
+        "Fetch real-time QDII premium / FX status before treating as actionable. "
+        "QDII feeders frequently trade 5–15% above NAV.",
 }
 
 
@@ -212,13 +397,14 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
     if not actionable:
         out.append("（无）")
         return out
-    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Next Step |")
-    out.append("|---|---|---|---:|---|---|")
+    out.append("| Instrument | Name | Score Action | Conviction | Completeness | Venue | Next Step |")
+    out.append("|---|---|---|---|---:|---|---|")
     for row in actionable:
         out.append(
-            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
+            "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {next_step} |".format(
                 instrument_id=_md(row["instrument_id"]),
-                score_action=_md(row["score_action"]),
+                instrument_name=_name_cell(row),
+                score_action=_score_action_cell(row),
                 conviction=_md(row["conviction"]),
                 data_completeness=row["data_completeness"],
                 venue_status=row["venue_status"],
@@ -228,7 +414,10 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
     return out
 
 
-def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
+def _blocked_fixable_section(
+    rows: list[dict[str, Any]],
+    proxy_coverage: dict[str, list[dict[str, Any]]],
+) -> list[str]:
     blocked = [r for r in rows if r.get("decision_status") == "blocked"]
     out = ["## Blocked — fixable today", ""]
     if not blocked:
@@ -244,22 +433,54 @@ def _blocked_fixable_section(rows: list[dict[str, Any]]) -> list[str]:
         out.extend([
             f"### Blocked by: {label}",
             "",
-            "| Instrument | Score Action | Conviction | Completeness | Venue |",
-            "|---|---|---|---:|---|",
+            "| Instrument | Name | Score Action | Conviction | Completeness | Venue |",
+            "|---|---|---|---|---:|---|",
         ])
         for row in group:
             out.append(
-                "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} |".format(
+                "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} |".format(
                     instrument_id=_md(row["instrument_id"]),
-                    score_action=_md(row["score_action"]),
+                    instrument_name=_name_cell(row),
+                    score_action=_score_action_cell(row),
                     conviction=_md(row["conviction"]),
                     data_completeness=row["data_completeness"],
                     venue_status=row["venue_status"],
                 )
             )
         remediation = _BLOCKING_REMEDIATION.get(reason, "Investigate the root cause.")
-        out.extend(["", f"_Remediation:_ {remediation}", ""])
+        out.extend(["", f"_Remediation:_ {remediation}"])
+        out.extend(_proxy_coverage_banners(group, proxy_coverage))
+        out.append("")
     return out
+
+
+def _proxy_coverage_banners(
+    group: list[dict[str, Any]],
+    proxy_coverage: dict[str, list[dict[str, Any]]],
+) -> list[str]:
+    """For each asset_class in the blocked group that has a proxy filling the
+    role, emit a one-line "Role already met" note so the reader knows the
+    blocked rows are redundant."""
+    if not proxy_coverage:
+        return []
+    classes_in_group: dict[str, int] = {}
+    for row in group:
+        cls = str(row.get("asset_class") or "")
+        if cls and cls in proxy_coverage:
+            classes_in_group[cls] = classes_in_group.get(cls, 0) + 1
+    lines: list[str] = []
+    for cls, count in classes_in_group.items():
+        entries = proxy_coverage[cls]
+        descriptions = ", ".join(
+            f"{e['proxy_id']} ({e['target_weight'] * 100:.0f}% target_weight)"
+            for e in entries
+        )
+        lines.append(
+            f"_✓ Role already met for {cls}: {descriptions} — "
+            f"the {count} blocked row(s) above in this class are redundant; "
+            f"no action required._"
+        )
+    return lines
 
 
 def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
@@ -279,13 +500,14 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
             label = _WATCH_REASON_LABEL[reason_key]
             out.append(f"- {label}: {cnt}")
     out.extend(["", "<details><summary>展开所有 watch 标的</summary>", "", ])
-    out.append("| Instrument | Score Action | Conviction | Completeness | Venue | Why watch |")
-    out.append("|---|---|---|---:|---|---|")
+    out.append("| Instrument | Name | Score Action | Conviction | Completeness | Venue | Why watch |")
+    out.append("|---|---|---|---|---:|---|---|")
     for row in watch_rows:
         out.append(
-            "| {instrument_id} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} |".format(
+            "| {instrument_id} | {instrument_name} | {score_action} | {conviction} | {data_completeness:.2f} | {venue_status} | {watch_reason} |".format(
                 instrument_id=_md(row["instrument_id"]),
-                score_action=_md(row["score_action"]),
+                instrument_name=_name_cell(row),
+                score_action=_score_action_cell(row),
                 conviction=_md(row["conviction"]),
                 data_completeness=row["data_completeness"],
                 venue_status=row["venue_status"],
@@ -294,6 +516,16 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
         )
     out.extend(["", "</details>"])
     return out
+
+
+def _name_cell(row: dict[str, Any]) -> str:
+    """Render the ``Name`` column. Empty string when name is missing — keeps
+    rows clean (avoids a literal ``None`` token in the rendered table).
+    """
+    name = row.get("instrument_name")
+    if not name:
+        return ""
+    return _md(name)
 
 
 def _watch_reason_cell(row: dict[str, Any]) -> str:
