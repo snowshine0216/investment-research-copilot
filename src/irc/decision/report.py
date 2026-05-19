@@ -19,6 +19,7 @@ def compose_decision_report(
     available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
     proxies_by_id: dict[str, str] | None = None,
     names_by_id: dict[str, str] | None = None,
+    audit_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -66,6 +67,9 @@ def compose_decision_report(
         # beyond its target — the layperson's view never showed this; the trust-check
         # priority #3 demanded it surface here, not just in memo.md §4.
         "execution_drift": execution_drift,
+        # Structured summary of memo_audit.txt: verdict + P1 count + first 10
+        # findings. None when the caller did not pass one in (back-compat).
+        "audit_summary": audit_summary,
     }
 
 
@@ -119,6 +123,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(_execution_drift_banner(report.get("execution_drift")))
+    lines.extend(_audit_summary_banner(report.get("audit_summary")))
     lines.extend([
         "## Why Blocked" if is_blocked else "## Gates Passed",
         "",
@@ -137,6 +142,21 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines.extend(_glossary_section())
     lines.append("")
     return "\n".join(lines)
+
+
+def _audit_summary_banner(summary: dict[str, Any] | None) -> list[str]:
+    if not summary:
+        return []
+    verdict = str(summary.get("verdict") or "未知")
+    p1_count = int(summary.get("p1_count") or 0)
+    if verdict == "审核通过" and p1_count == 0:
+        return []
+    return [
+        f"> 🛑 **合规审核未达标 / Memo compliance audit failed**: 审核结论 "
+        f"\"{verdict}\", 含 P1 必改项 {p1_count} 条 (见 memo_audit.txt). "
+        f"本周决策应视 memo §5 为草稿，**不应**直接执行。",
+        "",
+    ]
 
 
 def _execution_drift_banner(drift: dict[str, float] | None) -> list[str]:

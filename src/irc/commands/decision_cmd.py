@@ -10,6 +10,7 @@ import yaml
 from irc.config_loader import load_repo_configs
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
+from irc.memo.auditor import extract_audit_summary
 from irc.schemas.universe import UniverseConfig
 
 
@@ -50,6 +51,16 @@ def _names_from_bundle(bundle) -> dict[str, str]:
         for instr in u.instruments:
             names[instr.instrument_id] = instr.name_cn
     return names
+
+
+def _load_audit_summary(path: Path) -> dict[str, Any] | None:
+    """Read memo_audit.txt if present and return its structured summary.
+    Returns None when the file is absent so the decision report renders
+    without an audit banner (rather than failing or emitting a misleading
+    "未知" banner)."""
+    if not path.exists():
+        return None
+    return extract_audit_summary(path.read_text(encoding="utf-8"))
 
 
 def _names_from_watchlist_csv(path: Path) -> dict[str, str]:
@@ -111,6 +122,7 @@ def run_decision(repo_root: str) -> int:
         for row in trade_plan.get("trades", [])
         if row.get("proxy_id")
     }
+    audit_summary = _load_audit_summary(out_dir / "memo_audit.txt")
     report = compose_decision_report(
         date=out_dir.name,
         scoring=scoring,
@@ -122,6 +134,7 @@ def run_decision(repo_root: str) -> int:
         available_venues=available_venues,
         proxies_by_id=proxies,
         names_by_id=names,
+        audit_summary=audit_summary,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))
