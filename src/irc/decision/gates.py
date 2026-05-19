@@ -96,6 +96,8 @@ def decide_row(
     available_venues: list[str] | tuple[str, ...] | set[str] | None = None,
     proxy_id: str | None = None,
     instrument_name: str | None = None,
+    target_weight: float = 0.0,
+    role: str = "",
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -150,6 +152,8 @@ def decide_row(
         decision_status=decision_status,
         watch_reason=watch_reason,
         instrument_name=instrument_name,
+        target_weight=target_weight,
+        role=role,
     ).to_dict()
 
 
@@ -165,6 +169,8 @@ def _build_decision_row(
     decision_status: str,
     watch_reason: WatchReason | None,
     instrument_name: str | None = None,
+    target_weight: float = 0.0,
+    role: str = "",
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
@@ -183,6 +189,8 @@ def _build_decision_row(
         next_step=_next_step(blocking_reasons, decision_status),
         watch_reason=watch_reason,
         instrument_name=instrument_name,
+        target_weight=target_weight,
+        role=role,
     )
 
 

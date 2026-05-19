@@ -120,6 +120,98 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def test_todays_only_action_lists_actionable_buys():
+    # 1 actionable_buy with a known name → headline shows it.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{
+            "instrument_id": "000139", "asset_class": "cn_bond_fund",
+            "action": "buy_candidate", "conviction": "high",
+            "data_completeness": 1.0, "missing_data": [],
+        }]},
+        allocation={"selected_instruments": [
+            {"instrument_id": "000139", "target_weight": 0.054}
+        ], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "000139", "asset_class": "cn_bond_fund",
+             "role": "defensive_cn_bond", "venue_compatible": True,
+             "proxy_id": None, "target_weight": 0.054}
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+        names_by_id={"000139": "富国国有企业债债券A/B"},
+    )
+    md = render_decision_markdown(report)
+    assert "## 今日唯一行动 / Today's only action" in md
+    section = md.split("## 今日唯一行动", 1)[1].split("\n## ", 1)[0]
+    assert "000139" in section
+    assert "富国国有企业债债券" in section
+    assert "defensive_cn_bond" in section
+    assert "5" in section  # target weight 5.4%
+
+
+def test_todays_only_action_empty_when_no_actionable():
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{
+            "instrument_id": "X1", "asset_class": "gold",
+            "action": "watch", "conviction": "high",
+            "data_completeness": 1.0, "missing_data": [],
+        }]},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## 今日唯一行动", 1)[1].split("\n## ", 1)[0]
+    assert "本周无可执行标的" in section
+
+
+def test_todays_only_action_appears_before_verdict():
+    # The headline must be the FIRST level-2 section so a layperson sees it
+    # before anything else.
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": []},
+        allocation={"selected_instruments": [],
+                    "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    md = render_decision_markdown(report)
+    todays = md.find("## 今日唯一行动")
+    verdict = md.find("## Verdict")
+    assert todays != -1 and verdict != -1
+    assert todays < verdict
+
+
+def test_decision_row_has_target_weight_and_role_fields():
+    report = compose_decision_report(
+        date="2026-05-19",
+        scoring={"scores": [{
+            "instrument_id": "000139", "asset_class": "cn_bond_fund",
+            "action": "buy_candidate", "conviction": "high",
+            "data_completeness": 1.0, "missing_data": [],
+        }]},
+        allocation={"selected_instruments": [
+            {"instrument_id": "000139", "target_weight": 0.054}
+        ], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "000139", "asset_class": "cn_bond_fund",
+             "role": "defensive_cn_bond", "venue_compatible": True,
+             "proxy_id": None, "target_weight": 0.054}
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+    )
+    row = report["rows"][0]
+    assert row["target_weight"] == 0.054
+    assert row["role"] == "defensive_cn_bond"
+
+
 def test_qdii_premium_unknown_renders_in_blocked_section():
     # A QDII buy_candidate with no qdii_premium_pct → blocked. Rendered
     # markdown must surface the qdii_premium_unknown reason + remediation.

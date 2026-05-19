@@ -51,6 +51,13 @@ class DecisionRow:
     # Human-readable name resolved from universe configs / discovered watchlist.
     # None when the caller didn't pass a names map or the id wasn't found.
     instrument_name: str | None = None
+    # Target weight from proposed_allocation.yaml when the row was selected;
+    # 0.0 when the row isn't in the allocation. Used by the "Today's only
+    # action" headline to size each actionable buy.
+    target_weight: float = 0.0
+    # Allocation/trade-plan role tag (e.g. "defensive_cn_bond",
+    # "core_gold_hedge"). Empty when no trade exists for this id.
+    role: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
