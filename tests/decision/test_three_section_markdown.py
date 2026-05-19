@@ -118,6 +118,54 @@ def test_watch_section_collapses_with_details_block():
     assert "</details>" in section
 
 
+def test_markdown_has_glossary_section():
+    report = _report(
+        scores=[_score("X1", "buy_candidate"), _score("X2", "watch")],
+        allocation_selected=["X1"],
+        trades=[{"target": "X1", "venue_compatible": True, "proxy_id": None}],
+    )
+    md = render_decision_markdown(report)
+    assert "## 术语速查 (Glossary)" in md
+
+
+def test_glossary_contains_required_terms():
+    report = _report(
+        scores=[_score("X1", "buy_candidate")],
+        allocation_selected=["X1"],
+        trades=[{"target": "X1", "venue_compatible": True, "proxy_id": None}],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## 术语速查 (Glossary)", 1)[1]
+    for term in (
+        "buy_candidate",
+        "actionable_buy",
+        "core_dca",
+        "pause_wait",
+        "venue_status=direct",
+        "venue_status=blocked_no_proxy",
+        "venue_status=unknown",
+        "data_completeness",
+        "watch_reason=scored watch",
+        "watch_reason=not_selected_by_allocation",
+        "watch_reason=venue_unknown",
+    ):
+        assert term in section, f"glossary missing term: {term}"
+
+
+def test_glossary_data_completeness_warning():
+    # The trust-check doc's concern A3: "completeness=1.00 reads as
+    # 100% confident". The glossary must explicitly disambiguate.
+    report = _report(
+        scores=[_score("X1", "buy_candidate")],
+        allocation_selected=["X1"],
+        trades=[{"target": "X1", "venue_compatible": True, "proxy_id": None}],
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## 术语速查 (Glossary)", 1)[1]
+    assert "不等于" in section
+    assert "信心" in section or "胜率" in section
+
+
 def test_json_shape_unchanged_after_markdown_refactor():
     # The JSON report shape is the contract for downstream tools.
     # Markdown restructure must not change it.
