@@ -162,15 +162,38 @@ def _theme_report_usable(report: ThemeReport | None) -> bool:
 _MIN_RESEARCH_CITATIONS = 3
 
 
+def _count_trusted_citations(report: ThemeReport) -> int:
+    """Citations whose host tier is PAPER-or-better.
+
+    Adversarial review §A2: ``len(citations) >= 3`` is not enough to
+    call a thesis ``intact`` when every citation is a republisher (e.g.
+    我的钢铁网 reposting a PBOC press release). At least one citation
+    must come from a tier-1 wire / paper / primary source.
+    """
+    from irc.research.source_tier import classify, is_trusted
+
+    return sum(1 for c in report.citations if is_trusted(classify(c.url)))
+
+
 def _thesis_from_theme_report(
     report: ThemeReport,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...]]:
-    """Conservative rule: usable report with ≥3 citations → intact (research-backed)."""
+    """Rule: report with ≥3 citations AND ≥1 trusted-tier citation
+    → intact (research-backed). Otherwise evidence_insufficient."""
     if len(report.citations) < _MIN_RESEARCH_CITATIONS:
         return "evidence_insufficient", "", ()
+    trusted = _count_trusted_citations(report)
+    if trusted < 1:
+        return (
+            "evidence_insufficient",
+            f"主题研究 {len(report.citations)} 条引用全部来自次级转载源，"
+            f"未达到一级新闻/研究层级，长期逻辑暂不可背书。",
+            _news_evidence(report),
+        )
     return (
         "intact",
-        f"长期逻辑由主题研究背书（citations={len(report.citations)}），暂未触发证伪。",
+        f"长期逻辑由主题研究背书（citations={len(report.citations)}，"
+        f"其中一级来源 {trusted} 条），暂未触发证伪。",
         _news_evidence(report),
     )
 
@@ -291,7 +314,11 @@ def derive_thesis_from_evidence(
     # Path B: no usable snapshot → try theme_report-only thesis
     if theme_report is not None and _theme_report_usable(theme_report):
         state, reason, evidence = _thesis_from_theme_report(theme_report)
-        if state != "evidence_insufficient":
+        # A non-empty reason means Path B reached a definite verdict —
+        # either intact (research-backed) or a specific
+        # evidence_insufficient ruling (e.g. all-republisher tier). The
+        # empty-reason case is the legacy "no opinion, fall through".
+        if reason:
             return state, reason, evidence, tuple(gaps)
 
     return (
