@@ -1,4 +1,5 @@
 triggers:
+  # Buy-side triggers — fire when the market hands a long-horizon entry.
   real_yield_low:
     data_field: macro.real_yield_10y_tips
     comparator: "<="
@@ -11,3 +12,19 @@ triggers:
     data_field: instrument.weekly_return
     comparator: "<="
     threshold: -0.04
+
+  # Trim-side triggers (adversarial-review item 012, 2026-05-19).
+  # Symmetric discipline: trim_review fires on persistent valuation/heat
+  # extremes; trim_now fires only when current weight is above band high.
+  valuation_very_expensive:
+    data_field: instrument.valuation_state
+    comparator: "=="
+    threshold: very_expensive
+  heat_crowded:
+    data_field: instrument.heat_state
+    comparator: "=="
+    threshold: crowded
+  weight_above_band_high:
+    data_field: instrument.weight_vs_band_ratio
+    comparator: ">="
+    threshold: 1.10

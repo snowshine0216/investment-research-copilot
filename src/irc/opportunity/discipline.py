@@ -56,9 +56,14 @@ def derive_risk_action(row: OpportunityRow, pos: PositionContext) -> RiskAction:
     """Derive risk action with strict separation between trim and exit.
 
     - Falsified thesis OR poor product quality => exit_review
-    - Trim conditions => trim_review:
-      * expensive/very_expensive valuation AND overweight
-      * crowded/overheated heat AND overweight
+    - Trim conditions for holdings (adversarial review §F: symmetric
+      discipline; trim_review fires on valuation/heat alone, not gated
+      on overweight, so the system can advise scaling out from
+      very_expensive positions even when their weight is at target):
+      * expensive/very_expensive valuation AND is_holding => trim_review
+      * crowded/overheated heat AND is_holding => trim_review
+      * overweight AND (expensive or hot) => trim_review (legacy path,
+        catches non-holdings flagged via portfolio_weight)
     - Drawdown >= 20% alone => review_required (NEVER auto-sell)
     - Otherwise => none
     """
@@ -67,7 +72,7 @@ def derive_risk_action(row: OpportunityRow, pos: PositionContext) -> RiskAction:
     overweight = _is_overweight(pos)
     expensive = row.valuation_state in ("expensive", "very_expensive")
     hot = row.heat_state in ("crowded", "overheated")
-    if overweight and (expensive or hot):
+    if (overweight and (expensive or hot)) or (pos.is_holding and (expensive or hot)):
         return "trim_review"
     drawdown = pos.drawdown_since_entry
     if drawdown is not None and drawdown >= _DRAWDOWN_REVIEW_THRESHOLD:
