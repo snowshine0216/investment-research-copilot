@@ -10,6 +10,60 @@ class FilteredCandidates:
     dropped: list[dict[str, Any]]
 
 
+def _tracked_index_key(row: dict[str, Any]) -> str:
+    return str(row.get("tracked_index") or "").strip().lower()
+
+
+def drop_duplicate_index_trackers(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Within each asset_class, dedupe rows that share a tracked_index.
+
+    Two S&P500 share classes (e.g. 017641 + 050025) carry the same
+    ``tracked_index``; they are 99%+ correlated and represent the same
+    factor exposure. Keep the row with the higher ``target_weight``
+    (tie-broken by ``composite_score`` then ``instrument_id``) and drop
+    the rest. Rows with an empty / missing ``tracked_index`` are passed
+    through unchanged — we never silently dedupe an active fund whose
+    holdings happen to overlap.
+
+    Returns (kept, dropped). Each dropped entry carries a
+    ``reason: duplicate_tracked_index`` and a ``kept_against`` field so
+    diagnostics can surface the decision.
+    """
+    by_group: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    pass_through: list[dict[str, Any]] = []
+    for row in rows:
+        idx = _tracked_index_key(row)
+        if not idx:
+            pass_through.append(dict(row))
+            continue
+        cls = str(row.get("asset_class") or "")
+        by_group.setdefault((cls, idx), []).append(row)
+    kept: list[dict[str, Any]] = list(pass_through)
+    dropped: list[dict[str, Any]] = []
+    for group_rows in by_group.values():
+        sorted_rows = sorted(
+            group_rows,
+            key=lambda r: (
+                -float(r.get("target_weight", 0.0)),
+                -float(r.get("composite_score", 0.0)),
+                str(r.get("instrument_id", "")),
+            ),
+        )
+        winner = sorted_rows[0]
+        kept.append(dict(winner))
+        for loser in sorted_rows[1:]:
+            dropped.append({
+                "instrument_id": loser["instrument_id"],
+                "asset_class": loser.get("asset_class"),
+                "tracked_index": loser.get("tracked_index"),
+                "kept_against": winner["instrument_id"],
+                "reason": "duplicate_tracked_index",
+            })
+    return kept, dropped
+
+
 def drop_correlated_and_renormalize(
     selected: list[dict],
     corr_matrix: dict[tuple[str, str], float],

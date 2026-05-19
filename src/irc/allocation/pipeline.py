@@ -10,7 +10,10 @@ from irc.allocation.target_weights import (
     redistribute_shaved_to_class,
     softmax_distribute,
 )
-from irc.allocation.correlation_filter import drop_high_correlation_pairs
+from irc.allocation.correlation_filter import (
+    drop_duplicate_index_trackers,
+    drop_high_correlation_pairs,
+)
 
 
 @dataclass(frozen=True)
@@ -154,10 +157,21 @@ def run_allocation(
             selected.append({
                 "instrument_id": row["instrument_id"], "asset_class": cls,
                 "role": row.get("role", ""),
+                "tracked_index": row.get("tracked_index", ""),
                 "composite_score": row["composite_score"],
                 "intra_class_share": w,
                 "target_weight": class_weights.get(cls, 0.0) * w,
             })
+    # Dedupe by tracked_index BEFORE the numeric correlation filter:
+    # two S&P500 share classes are deterministically the same factor
+    # exposure, so we don't need a correlation matrix to drop the dup.
+    pre_dedupe_selected = list(selected)
+    selected, index_dupes = drop_duplicate_index_trackers(selected)
+    if index_dupes:
+        kept_ids = {r["instrument_id"] for r in selected}
+        # Renormalize per class so the class total is preserved
+        # (the dedupe takes weight away; the remaining row absorbs it).
+        selected = _keep_and_preserve_class_totals(pre_dedupe_selected, kept_ids)
     if not correlation.empty:
         cand_df = pd.DataFrame([
             {"instrument_id": s["instrument_id"], "score": s["composite_score"], "asset_class": s["asset_class"]}
@@ -166,9 +180,10 @@ def run_allocation(
         filt = drop_high_correlation_pairs(cand_df, correlation, threshold=0.85)
         kept_ids = set(filt.kept["instrument_id"])
         selected = _keep_and_preserve_class_totals(selected, kept_ids)
-        dropped = filt.dropped
+        dropped = list(filt.dropped)
     else:
         dropped = []
+    dropped = list(index_dupes) + dropped
     selected, satellite_qdii_residual = _apply_satellite_qdii_cap(selected, satellite_qdii_cap)
     eff_n = _effective_n([s["target_weight"] for s in selected])
     invested = sum(s["target_weight"] for s in selected)
