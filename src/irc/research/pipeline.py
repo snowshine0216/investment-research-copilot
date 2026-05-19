@@ -31,6 +31,7 @@ def run_research_pipeline(
     providers: tuple[SearchProvider, ...],
     extractor: ContentExtractor,
     route: ResolvedRoute,
+    holdings_keywords: tuple[str, ...] = (),
 ) -> int:
     """Run all theme research; persist outputs; return rc per the quality gate.
 
@@ -39,6 +40,7 @@ def run_research_pipeline(
     out_dir = repo_root / "data" / "research"
     reports = build_theme_reports(
         themes=themes, providers=providers, extractor=extractor, route=route,
+        holdings_keywords=holdings_keywords,
     )
     write_research_outputs(out_dir, reports)
     _print_summary(reports)

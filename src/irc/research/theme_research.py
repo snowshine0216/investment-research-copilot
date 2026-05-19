@@ -1,5 +1,5 @@
 from __future__ import annotations
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 
@@ -44,6 +44,23 @@ _THEME_QUERIES: dict[str, str] = {
     ),
     "holdings_sector": "用户组合涉及行业的最新新闻和研报要点，附原始出处。",
 }
+
+
+def build_holdings_query(keywords: Iterable[str]) -> str:
+    """Build a concrete holdings_sector query from user holdings.
+
+    Adversarial review §A1: the generic ``用户组合涉及行业的最新新闻`` query
+    tokenizes to ``用户/研究/组合`` and matches unrelated industry reports.
+    Inject the user's actual sector codes / fund-house names so the
+    query has a concrete hook.
+    """
+    items = [k for k in (str(t).strip() for t in keywords) if k]
+    if not items:
+        return _THEME_QUERIES["holdings_sector"]
+    # Keep the sequence stable so the same holdings produce the same query.
+    return (
+        "近期 " + "、".join(items) + " 等行业/资产的政策、基本面与研报要点，附原始出处。"
+    )
 
 FRESHNESS_DAYS_BY_THEME: Mapping[str, int] = MappingProxyType({
     "us_monetary": 7,
@@ -116,6 +133,49 @@ def _build_one(
     )
 
 
+def _query_for_with_context(theme: str, holdings_keywords: tuple[str, ...]) -> str:
+    if theme == "holdings_sector":
+        return build_holdings_query(holdings_keywords)
+    return _query_for(theme)
+
+
+def _apply_relevance_filter(
+    report: ThemeReport,
+    keywords: frozenset[str],
+) -> ThemeReport:
+    """Drop citations that don't mention any keyword. If the filter
+    leaves zero citations on a successful report, mark the whole report
+    as failed so the quality gate (item 003) sees the degradation.
+    """
+    if not keywords or not report.citations:
+        return report
+    # Local import keeps the module import graph shallow.
+    from irc.research.relevance import filter_relevant_citations
+
+    kept = filter_relevant_citations(tuple(report.citations), keywords)
+    if len(kept) == len(report.citations):
+        return report
+    if not kept:
+        return ThemeReport(
+            theme=report.theme,
+            query=report.query,
+            locale=report.locale,
+            report_md=report.report_md,
+            citations=[],
+            failure_reason="no relevant sources after relevance filter",
+            provider_failures=report.provider_failures,
+        )
+    return ThemeReport(
+        theme=report.theme,
+        query=report.query,
+        locale=report.locale,
+        report_md=report.report_md,
+        citations=list(kept),
+        failure_reason=report.failure_reason,
+        provider_failures=report.provider_failures,
+    )
+
+
 def build_theme_reports(
     themes: tuple[str, ...],
     *,
@@ -124,19 +184,32 @@ def build_theme_reports(
     route: ResolvedRoute,
     max_hits: int = 8,
     top_pages: int = 5,
+    holdings_keywords: tuple[str, ...] = (),
 ) -> list[ThemeReport]:
     """For each theme: pick locale → fan-out search → extract top pages → LLM synth.
 
     Per-theme failures (no provider, no hits, LLM error) are recorded in the report's
     failure_reason; other themes still run. Wall-clock target ≤30 s per theme.
+
+    ``holdings_keywords`` (item 001) drives two behaviors:
+
+    1. For the ``holdings_sector`` theme, a concrete query is built from
+       the user's actual sector/asset-class hooks instead of the broken
+       generic placeholder.
+    2. For any theme, after fetching, citations whose title or URL
+       doesn't mention at least one keyword are dropped. A theme whose
+       filter leaves zero citations is marked failed so the quality
+       gate sees the degradation.
     """
     from irc.observability import progress_iter
+    from irc.research.relevance import normalize_keywords
 
+    norm_keywords = normalize_keywords(holdings_keywords)
     out: list[ThemeReport] = []
     for theme in progress_iter(themes, "research", total=len(themes)):
-        out.append(_build_one(
+        report = _build_one(
             theme=theme,
-            query=_query_for(theme),
+            query=_query_for_with_context(theme, holdings_keywords),
             locale=theme_locale(theme),
             providers=providers,
             extractor=extractor,
@@ -144,5 +217,12 @@ def build_theme_reports(
             max_hits=max_hits,
             top_pages=top_pages,
             freshness_days=FRESHNESS_DAYS_BY_THEME.get(theme, _DEFAULT_FRESHNESS_DAYS),
-        ))
+        )
+        # Only the holdings_sector theme is gated on the user's
+        # holdings keywords — the broader macro themes (us_monetary,
+        # gold_drivers, geopolitics, etc.) carry general-market signal
+        # that we want even when no keyword matches.
+        if theme == "holdings_sector":
+            report = _apply_relevance_filter(report, norm_keywords)
+        out.append(report)
     return out
