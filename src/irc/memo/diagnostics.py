@@ -15,6 +15,11 @@ from typing import Any
 
 _EXECUTION_DRIFT_FLOOR_PP = 0.05  # 5 percentage points
 
+# Adversarial review §E (2026-05-19): 10 of 16 role buckets returned
+# 0 candidates passing both hard and quality filters. The memo treated
+# the picks as if the universe were exhaustive. Surface failed roles.
+_ROLE_BUCKET_FAILED_REASON: str = "below fail_below"
+
 # Adversarial review §C4+§C5 (2026-05-19): ~25% USD QDII exposure went
 # out without any FX-hedge, premium/discount, or quota mention. When
 # QDII weight exceeds this floor, the memo gets a dedicated diagnostic.
@@ -84,6 +89,47 @@ def _qdii_weight(selected: list[dict]) -> float:
         for r in selected
         if str(r.get("asset_class") or "") in _QDII_ASSET_CLASSES
     )
+
+
+def compose_role_bucket_banner(
+    diagnostics_rows: list[dict[str, Any]] | None,
+) -> tuple[str, ...]:
+    """Surface failed role buckets as a banner.
+
+    Adversarial review §E: in 2026-05-19, 10 of 16 role buckets returned
+    zero candidates. The memo's TL;DR didn't say so. Pure function — the
+    caller reads ``discovery_diagnostics.csv`` and passes the parsed
+    rows in.
+
+    Returns an empty tuple when no role bucket failed.
+    """
+    if not diagnostics_rows:
+        return ()
+    failed = [
+        str(r.get("role") or "")
+        for r in diagnostics_rows
+        if str(r.get("stage") or "") == "role_bucket"
+        and str(r.get("status") or "") == "failed"
+        and r.get("role")
+    ]
+    total_bucketed = sum(
+        1 for r in diagnostics_rows
+        if str(r.get("stage") or "") == "role_bucket"
+        and str(r.get("status") or "") == "bucketed"
+    )
+    total_roles = total_bucketed + len(failed) if total_bucketed else len(failed)
+    if not failed:
+        return ()
+    failed_unique = list(dict.fromkeys(failed))
+    header = (
+        f"发现层覆盖警告：{len(failed_unique)}/{total_roles} 角色桶本期未召回"
+        f"任何候选 — {'、'.join(failed_unique)}。"
+    )
+    caveat = (
+        "组合层面缺角，请把当周配置视为「在残缺集合中的最优选」，"
+        "而非「全集合最优」。"
+    )
+    return (header, caveat)
 
 
 def compose_fx_qdii_lines(

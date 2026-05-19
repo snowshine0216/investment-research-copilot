@@ -10,6 +10,7 @@ from irc.llm.gateway import resolve_route
 from irc.memo.diagnostics import (
     compose_execution_drift_lines,
     compose_fx_qdii_lines,
+    compose_role_bucket_banner,
 )
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.picks_table import PickRow, render_picks_table
@@ -92,6 +93,22 @@ def _load_json(p: Path) -> dict:
 
 def _load_yaml(p: Path) -> dict:
     return yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}
+
+
+def _load_discovery_diagnostics(out_dir: Path) -> list[dict]:
+    """Best-effort read of discovery_diagnostics.csv for the role-bucket
+    banner (item 010, 2026-05-19). Returns an empty list when the file
+    is absent or unreadable so memo can still render."""
+    import csv
+
+    path = out_dir / "discovery_diagnostics.csv"
+    if not path.exists():
+        return []
+    try:
+        with path.open(encoding="utf-8", newline="") as f:
+            return list(csv.DictReader(f))
+    except (OSError, csv.Error):
+        return []
 
 
 def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -> tuple[str, ...]:
@@ -204,6 +221,11 @@ def run_memo(repo_root: str) -> int:
     fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair)
     if fx_lines:
         risk_notes = tuple(fx_lines) + risk_notes
+    # Role-bucket banner (item 010): adversarial review §E.
+    diag_rows = _load_discovery_diagnostics(out_today)
+    role_lines = compose_role_bucket_banner(diag_rows)
+    if role_lines:
+        risk_notes = tuple(role_lines) + risk_notes
     execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
 
     inputs = MemoInputs(
