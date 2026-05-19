@@ -24,6 +24,15 @@ def compose_decision_report(
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
     trades_by_target = {str(row.get("target")): row for row in trade_plan.get("trades", [])}
+    target_weight_by_id: dict[str, float] = {
+        str(row.get("instrument_id")): float(row.get("target_weight") or 0.0)
+        for row in allocation.get("selected_instruments", [])
+    }
+    role_by_id: dict[str, str] = {
+        str(row.get("target")): str(row.get("role") or "")
+        for row in trade_plan.get("trades", [])
+        if row.get("role")
+    }
     # Compute coverage from the verbatim-count schema.
     # • Key absent → legacy on-disk file (old coverage_ratio schema); do not block.
     # • n_refs_provided == 0 → no evidence was available; vacuous truth, do not block.
@@ -46,6 +55,8 @@ def compose_decision_report(
         available_venues=available_venues,
         proxies_by_id=proxies_by_id or {},
         names_by_id=names_by_id or {},
+        target_weight_by_id=target_weight_by_id,
+        role_by_id=role_by_id,
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -117,11 +128,14 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines = [
         f"# Decision Report {report['date']}",
         "",
+    ]
+    lines.extend(_todays_only_action_section(rows))
+    lines.extend([
         "## Verdict",
         "",
         _render_verdict(report["overall_status"], report.get("summary", {})),
         "",
-    ]
+    ])
     lines.extend(_execution_drift_banner(report.get("execution_drift")))
     lines.extend(_audit_summary_banner(report.get("audit_summary")))
     lines.extend([
@@ -142,6 +156,32 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     lines.extend(_glossary_section())
     lines.append("")
     return "\n".join(lines)
+
+
+def _todays_only_action_section(rows: list[dict[str, Any]]) -> list[str]:
+    """Render the layperson-first headline. Shown above Verdict so the
+    reader's first impression is "this is what to do today", not "here's
+    a 100-row table"."""
+    actionable = [r for r in rows if r.get("decision_status") == "actionable_buy"]
+    out = ["## 今日唯一行动 / Today's only action", ""]
+    if not actionable:
+        out.extend([
+            "⏸️ 本周无可执行标的 — 详见下方 Verdict 阻断原因。",
+            "",
+        ])
+        return out
+    for row in actionable:
+        iid = _md(row["instrument_id"])
+        name = row.get("instrument_name") or ""
+        name_part = f" {_md(name)}" if name else ""
+        role = row.get("role") or ""
+        role_part = _md(role) if role else "—"
+        target_pct = float(row.get("target_weight") or 0.0) * 100
+        out.append(
+            f"✅ **{iid}{name_part}** — {role_part}, target {target_pct:.1f}%."
+        )
+    out.append("")
+    return out
 
 
 def _audit_summary_banner(summary: dict[str, Any] | None) -> list[str]:
@@ -263,6 +303,8 @@ def _build_rows(
     available_venues: list[str] | tuple[str, ...] | set[str] | None,
     proxies_by_id: dict[str, str],
     names_by_id: dict[str, str],
+    target_weight_by_id: dict[str, float],
+    role_by_id: dict[str, str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
@@ -278,6 +320,8 @@ def _build_rows(
             available_venues=available_venues,
             proxy_id=proxies_by_id.get(iid),
             instrument_name=names_by_id.get(iid),
+            target_weight=target_weight_by_id.get(iid, 0.0),
+            role=role_by_id.get(iid, ""),
         ))
     return rows
 
