@@ -19,6 +19,15 @@ _RISK_CN: dict[str, str] = {
 }
 
 
+# Audit P5 (2026-05-20) required composite_score methodology disclosure.
+# Single-line footnote keeps the table compact while satisfying the
+# transparency requirement and carrying the load-bearing disclaimer.
+_SCORING_FOOTNOTE = (
+    "> 综合分由内部多因子模型生成（估值百分位 / 热度 / 长期逻辑 / 产品质量 / 宏观契合度 /"
+    " 持有成本），仅作为辅助参考，不构成投资建议。详见评分体系说明文档。"
+)
+
+
 @dataclass(frozen=True)
 class PickRow:
     instrument_id: str
@@ -64,4 +73,6 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
             f"{weight_str} | {score_str} | {r.opportunity_state} | "
             f"{_action_cn(r)} | {r.one_line_reason} |"
         )
+    lines.append("")
+    lines.append(_SCORING_FOOTNOTE)
     return "\n".join(lines)

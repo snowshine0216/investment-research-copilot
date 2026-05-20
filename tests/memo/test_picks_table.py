@@ -39,6 +39,51 @@ def test_render_picks_table_dedupes_and_lists_action_and_rationale():
     assert "16.1%" in md
 
 
+def test_render_picks_table_appends_scoring_methodology_footnote():
+    """Audit P5 (2026-05-20) — 综合分 is used to order picks but the memo
+    never discloses methodology. Footnote must reference multi-factor
+    derivation and include the explicit '不构成投资建议' disclaimer."""
+    rows = [
+        PickRow(
+            instrument_id="518880", name_cn="华安黄金ETF", asset_class="gold",
+            role="core_gold_hedge", target_weight=0.564, composite_score=51.8,
+            opportunity_state="core_dca", dca_action="normal_dca", risk_action="none",
+            one_line_reason="reason",
+        ),
+    ]
+    md = render_picks_table(rows)
+    assert "综合分" in md
+    # Footnote present (the load-bearing disclaimer phrase from the audit):
+    assert "不构成投资建议" in md
+    # Mention factor composition so the score isn't a black box:
+    assert ("估值" in md and "热度" in md) or "多因子" in md
+
+
+def test_render_picks_table_footnote_only_once_even_with_many_rows():
+    """Two rows in, one footnote out — footnote must not be duplicated per row."""
+    rows = [
+        PickRow(
+            instrument_id="A", name_cn="一", asset_class="x", role="r",
+            target_weight=0.1, composite_score=10.0, opportunity_state="core_dca",
+            dca_action="normal_dca", risk_action="none", one_line_reason="x",
+        ),
+        PickRow(
+            instrument_id="B", name_cn="二", asset_class="x", role="r",
+            target_weight=0.1, composite_score=10.0, opportunity_state="core_dca",
+            dca_action="normal_dca", risk_action="none", one_line_reason="x",
+        ),
+    ]
+    md = render_picks_table(rows)
+    assert md.count("不构成投资建议") == 1
+
+
+def test_render_picks_table_footnote_emitted_even_when_no_rows():
+    """Empty picks table still gets the disclaimer — methodology disclosure
+    is decoupled from row count."""
+    md = render_picks_table([])
+    assert "不构成投资建议" in md
+
+
 def test_render_picks_table_groups_zero_weight_as_observation_only():
     rows = [
         PickRow(
