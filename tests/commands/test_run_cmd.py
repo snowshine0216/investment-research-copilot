@@ -263,3 +263,56 @@ def test_pipeline_accepts_memo_blocked_as_memo_success(tmp_path: Path):
         rc = run_pipeline(str(tmp_path))
 
     assert rc == 0
+
+
+def test_halt_writes_pipeline_state_file(tmp_path: Path):
+    today = _china_today()
+    out_dir = tmp_path / "outputs" / today
+
+    def fail_score(_repo_root: str) -> int:
+        return 1
+
+    runners = {s: (lambda r: 0) for s in STAGE_NAMES}
+    runners["score"] = fail_score
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners):
+        rc = run_pipeline(str(tmp_path), only_stage="score")
+
+    assert rc == 1
+    from irc.pipeline_state import read_state
+    state = read_state(out_dir)
+    assert state is not None
+    assert state.status == "halted"
+    assert state.failed_stage == "score"
+    assert state.reason_kind  # some non-empty string
+
+
+def test_successful_pipeline_clears_state_and_halt_markdown(tmp_path: Path):
+    today = _china_today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+    # Pre-seed stale halt + state files from a hypothetical prior run.
+    (out_dir / "PIPELINE_HALTED.md").write_text("stale", encoding="utf-8")
+    from irc.pipeline_state import PipelineState, STATE_FILENAME, write_state
+    write_state(out_dir, PipelineState(
+        status="halted", failed_stage="memo",
+        halted_at="2026-05-20T10:00:00+08:00", reason_kind="generic",
+    ))
+
+    from irc.pipeline_outputs import STAGE_REQUIRED_OUTPUTS
+
+    def runner(stage: str):
+        def _run(_repo_root: str) -> int:
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            if stage == "memo":
+                (out_dir / "memo.md").write_text("memo body", encoding="utf-8")
+            return 0
+        return _run
+
+    runners = {s: runner(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners):
+        rc = run_pipeline(str(tmp_path))
+
+    assert rc == 0
+    assert not (out_dir / STATE_FILENAME).exists()
+    assert not (out_dir / "PIPELINE_HALTED.md").exists()

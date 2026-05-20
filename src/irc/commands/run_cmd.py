@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from datetime import datetime, timezone, timedelta
 import os
 from typing import Callable
 from irc.commands.ingest_cmd import run_ingest, _china_today
@@ -94,19 +95,31 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted, write_halted_structured, HaltReason
+            from irc.pipeline_state import PipelineState, write_state
             sidecar = out_dir / ".halt_reason.json"
             structured = HaltReason.read_sidecar(sidecar)
             if structured is not None:
                 write_halted_structured(repo_root=Path(repo_root), date=today,
                                         reason=structured)
                 sidecar.unlink(missing_ok=True)
+                reason_kind = structured.kind
             else:
                 write_halted(
                     repo_root=Path(repo_root), date=today, stage=stage,
                     reason=f"stage exit code {rc}",
                     remediation=f"Inspect the stage output and re-run `irc {stage} --repo-root {repo_root}` after fixing.",
                 )
+                reason_kind = "generic"
+            write_state(out_dir, PipelineState(
+                status="halted",
+                failed_stage=stage,
+                halted_at=datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+                reason_kind=reason_kind,
+            ))
             return rc
+    from irc.pipeline_state import clear_state
+    clear_state(out_dir)
+    (out_dir / "PIPELINE_HALTED.md").unlink(missing_ok=True)
     print(f"pipeline OK: ran {stages}")
     return 0
 
