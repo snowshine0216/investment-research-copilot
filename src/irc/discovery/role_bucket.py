@@ -26,8 +26,24 @@ def _is_core_gold(r: UniverseRow) -> bool:
     return r.asset_class == "gold"
 
 
+# Broad-market US trackers. Substring match (lowercased) so the predicate
+# accepts variants like "S&P 500 Index" or "MSCI USA IMI" without requiring
+# an exhaustive index-name enum. Sector / factor ETFs (Nasdaq, sector SPDRs,
+# small-cap factor) are excluded — guarded by explicit tests.
+_BROAD_US_INDEX_FRAGMENTS: tuple[str, ...] = (
+    "s&p 500",
+    "msci usa",
+    "russell 1000",
+    "russell 3000",
+    "crsp us total market",
+)
+
+
 def _is_core_us(r: UniverseRow) -> bool:
-    return r.asset_class == "us_etf" and (r.tracked_index or "").lower() in ("s&p 500", "msci usa")
+    if r.asset_class != "us_etf":
+        return False
+    idx = (r.tracked_index or "").lower()
+    return any(fragment in idx for fragment in _BROAD_US_INDEX_FRAGMENTS)
 
 
 def _is_core_cn(r: UniverseRow) -> bool:

@@ -24,6 +24,42 @@ def test_bucket_assigns_us_etf_to_core_us_equity() -> None:
     assert out.buckets["core_us_equity"][0].instrument_id == "VTI"
 
 
+# === E5 Phase 3: broadened _is_core_us predicate ===
+
+
+def test_bucket_assigns_russell_1000_etf_to_core_us_equity() -> None:
+    rows = (_row("IWB", "us_etf", "Russell 1000"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "IWB"
+
+
+def test_bucket_assigns_crsp_total_market_etf_to_core_us_equity() -> None:
+    rows = (_row("VTI", "us_etf", "CRSP US Total Market"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "VTI"
+
+
+def test_bucket_assigns_russell_3000_etf_to_core_us_equity() -> None:
+    rows = (_row("IWV", "us_etf", "Russell 3000"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "IWV"
+
+
+def test_bucket_does_not_assign_nasdaq_to_core_us_equity() -> None:
+    """Sector/factor US ETFs must NOT bucket as core_us — they belong in tech."""
+    rows = (_row("QQQ", "us_etf", "Nasdaq 100"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"] == ()
+    assert out.buckets["satellite_us_tech"][0].instrument_id == "QQQ"
+
+
+def test_bucket_does_not_assign_sector_us_etf_to_core_us_equity() -> None:
+    """Sector SPDRs (XLK, XLE etc.) must not pollute core_us."""
+    rows = (_row("XLK", "us_etf", "Technology Select Sector"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"] == ()
+
+
 def test_bucket_assigns_gold_role() -> None:
     rows = (_row("518880", "gold", None),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
