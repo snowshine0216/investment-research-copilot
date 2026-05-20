@@ -389,3 +389,53 @@ def test_cli_run_resume_flag_invokes_run_pipeline_with_resume_true(tmp_path: Pat
     assert captured["resume"] is True
     assert captured["from_stage"] is None
     assert captured["only_stage"] is None
+
+
+def test_end_to_end_halt_then_resume_recovers_pipeline(tmp_path: Path):
+    """Simulate the C1 failure mode: stage X returns 0 but writes no outputs.
+    Pipeline halts; a follow-up `--resume` after the stage is "fixed" picks up
+    from X and completes."""
+    today = _china_today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    from irc.pipeline_outputs import STAGE_REQUIRED_OUTPUTS
+
+    # Phase 1: opportunity returns 0 but writes nothing -> halt.
+    def runner_broken(stage: str):
+        def _run(_repo_root: str) -> int:
+            if stage == "opportunity":
+                return 0  # silent failure: no outputs written
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            return 0
+        return _run
+
+    runners_broken = {s: runner_broken(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners_broken):
+        rc1 = run_pipeline(str(tmp_path))
+    assert rc1 == 1
+
+    from irc.pipeline_state import STATE_FILENAME, read_state
+    state = read_state(out_dir)
+    assert state is not None and state.failed_stage == "opportunity"
+    assert (out_dir / "PIPELINE_HALTED.md").exists()
+
+    # Phase 2: "fix" opportunity -> resume.
+    def runner_fixed(stage: str):
+        def _run(_repo_root: str) -> int:
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            if stage == "memo":
+                (out_dir / "memo.md").write_text("memo body", encoding="utf-8")
+            return 0
+        return _run
+
+    runners_fixed = {s: runner_fixed(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners_fixed):
+        rc2 = run_pipeline(str(tmp_path), resume=True)
+    assert rc2 == 0
+    assert not (out_dir / STATE_FILENAME).exists()
+    assert not (out_dir / "PIPELINE_HALTED.md").exists()
+    assert (out_dir / "opportunity_report.json").exists()
+    assert (out_dir / "memo.md").exists()
