@@ -32,17 +32,21 @@ _MACRO_SUMMARY = (
     "实际利率与美元走向通常被视为黄金定价的重要参考变量之一；"
     "地缘风险、央行购金行为等其他因素同样可能对金价产生显著影响。"
     "A 股宽基估值百分位以证据池中的具体读数为准，本节不做定性结论。"
-    " 数据请以证据池中的具体数字为准，不要自行编造。"
+    "数据请以证据池中的具体数字为准，不要自行编造。"
 )
 
 
 def _format_threshold(threshold: object) -> str:
     """Render a trigger threshold for display.
 
-    Numeric thresholds (real_yield, VIX, weekly_return) render with their
-    repr to preserve sign and decimals; categorical string thresholds
-    (valuation_state, heat_state) render verbatim.
+    Numeric thresholds (real_yield, VIX, weekly_return) render with default
+    ``f"{n}"`` formatting to preserve sign and decimals; categorical string
+    thresholds (valuation_state, heat_state) render verbatim. A missing
+    threshold (yaml key absent → ``None``) is shown as ``"（未设阈值）"``
+    rather than the literal string ``"None"``.
     """
+    if threshold is None:
+        return "（未设阈值）"
     if isinstance(threshold, bool):
         return str(threshold)
     if isinstance(threshold, (int, float)):

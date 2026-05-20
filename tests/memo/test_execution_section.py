@@ -126,6 +126,25 @@ def test_compose_execution_lines_no_or_marker_for_single_trigger():
     assert "vix_high (macro.vix > 25.0)" in lines[0]
 
 
+def test_compose_execution_lines_threshold_missing_does_not_render_literal_None():
+    """Latent bug from review: a yaml trigger with no ``threshold`` key
+    would render as ``... <= None`` and surface the Python literal to the
+    auditor. Missing threshold must use a human-readable placeholder."""
+    trades = [{
+        "target": "X",
+        "target_weight": 0.05,
+        "buy_method": "dca_normal",
+        "granularity": "default",
+        "triggers": [
+            {"name": "vix_high", "data_field": "macro.vix", "comparator": ">"},
+        ],
+        "venue_note": "",
+    }]
+    lines = _compose_execution_lines(trades, [])
+    assert "None" not in lines[0]
+    assert "（未设阈值）" in lines[0]
+
+
 def test_compose_execution_lines_threshold_string_value_renders_verbatim():
     """Triggers can carry categorical (string) thresholds — render them
     without trying to format as float."""

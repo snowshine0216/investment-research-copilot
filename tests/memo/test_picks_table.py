@@ -79,9 +79,15 @@ def test_render_picks_table_footnote_only_once_even_with_many_rows():
 
 def test_render_picks_table_footnote_emitted_even_when_no_rows():
     """Empty picks table still gets the disclaimer — methodology disclosure
-    is decoupled from row count."""
+    is decoupled from row count. Header row must also be present so the
+    footnote isn't a bare blockquote (review nit)."""
     md = render_picks_table([])
     assert "不构成投资建议" in md
+    # Header invariant: the table scaffolding (column titles + separator)
+    # must render regardless of row count, otherwise the footnote would
+    # appear as a bare blockquote.
+    assert "代码" in md and "名称" in md
+    assert "|---|" in md
 
 
 def test_render_picks_table_groups_zero_weight_as_observation_only():
