@@ -288,7 +288,8 @@ def run_memo(repo_root: str) -> int:
     _usd_tol = getattr(bundle.preferences.currency_tolerance, "usd", None)
     if _usd_tol and len(_usd_tol) >= 2:
         usd_tol_pair = (float(_usd_tol[0]), float(_usd_tol[1]))
-    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair)
+    fx_policy = getattr(getattr(bundle.preferences, "fx_hedge", None), "policy", None)
+    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair, fx_hedge_policy=fx_policy)
     if fx_lines:
         risk_notes = tuple(fx_lines) + risk_notes
     # Role-bucket banner (item 010): adversarial review §E.

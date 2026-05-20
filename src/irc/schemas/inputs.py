@@ -93,6 +93,14 @@ class InvestmentPlan(FrozenModel):
     current_total_cny: float | None = Field(default=None, ge=0)
 
 
+FxHedgePolicyName = Literal["accept_unhedged"]
+
+
+class FxHedgePolicy(FrozenModel):
+    policy: FxHedgePolicyName
+    notes: str | None = None
+
+
 _TARGETS_TOLERANCE = 1e-4  # tightened from 0.02 (2%) to 1e-4 (0.01%)
 
 
@@ -104,6 +112,7 @@ class PreferencesFile(FrozenModel):
     constraints: Constraints
     investment_plan: InvestmentPlan
     report_language: ReportLang
+    fx_hedge: FxHedgePolicy | None = None
 
     @model_validator(mode="after")
     def _centers_sum_to_one(self) -> "PreferencesFile":

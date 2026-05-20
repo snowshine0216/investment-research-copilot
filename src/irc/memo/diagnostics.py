@@ -135,6 +135,7 @@ def compose_role_bucket_banner(
 def compose_fx_qdii_lines(
     allocation: dict[str, Any] | None,
     usd_tolerance: tuple[float, float] | None,
+    fx_hedge_policy: str | None = None,
 ) -> tuple[str, ...]:
     """Emit FX & QDII diagnostic lines when QDII weight crosses the floor.
 
@@ -142,12 +143,18 @@ def compose_fx_qdii_lines(
     weight has unhedged USD exposure plus QDII premium/discount risk
     plus quota-suspension risk. None of these surface today.
 
+    ``fx_hedge_policy`` (E4, 2026-05-20): the user's declared FX policy
+    from ``preferences.yaml``. When ``"accept_unhedged"``, the hedge
+    line reframes from "数据未配置" (missing feed) to "政策允许" (a
+    deliberate choice) — but only while QDII weight stays within the
+    USD tolerance band. Breaching the band still warns.
+
     Returns an empty tuple when QDII weight is below the floor or the
     allocation doesn't carry selected_instruments. Returns a 3-line
     diagnostic when above the floor:
       1. total QDII weight + tolerance status
       2. premium/discount placeholder (data layer to populate later)
-      3. hedge-cost placeholder (likewise)
+      3. hedge-cost / policy line
     """
     if not allocation:
         return ()
@@ -156,9 +163,11 @@ def compose_fx_qdii_lines(
     if qdii_w < _QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC:
         return ()
     tolerance_line = ""
+    tolerance_state: str = "unknown"  # "in_band" | "out_of_band" | "unknown"
     if usd_tolerance is not None:
         lo, hi = float(usd_tolerance[0]), float(usd_tolerance[1])
         in_range = lo <= qdii_w <= hi
+        tolerance_state = "in_band" if in_range else "out_of_band"
         tolerance_line = (
             f"配置区间 [{lo * 100:.0f}%, {hi * 100:.0f}%]，当前"
             f"{'落在' if in_range else '超出'}区间。"
@@ -170,6 +179,19 @@ def compose_fx_qdii_lines(
         + (f" {tolerance_line}" if tolerance_line else "")
     )
     premium = "溢价/折价：数据未采集——请在交易前查阅各 QDII 二级市场溢价。"
-    hedge = "对冲成本：未对冲——未配置 FX 对冲数据。"
+    hedge = _compose_hedge_line(fx_hedge_policy, tolerance_state)
     return (header, premium, hedge)
+
+
+def _compose_hedge_line(policy: str | None, tolerance_state: str) -> str:
+    if policy == "accept_unhedged":
+        if tolerance_state == "in_band":
+            return "对冲成本：未对冲（政策允许——USD 敞口落在容忍带内）。"
+        if tolerance_state == "out_of_band":
+            return (
+                "对冲成本：未对冲（政策允许，但当前 USD 敞口超出容忍带，"
+                "请收敛权重或临时上对冲工具）。"
+            )
+        return "对冲成本：未对冲（政策允许——未配置 USD 容忍带，无法核对敞口）。"
+    return "对冲成本：未对冲——未配置 FX 对冲数据。"
 

@@ -116,6 +116,63 @@ def test_asset_class_target_band_must_contain_center():
         AssetClassTarget(center=0.20, band=[0.30, 0.40])
 
 
+def test_preferences_fx_hedge_optional_block_parses():
+    """E4 (2026-05-20): preferences may carry an optional ``fx_hedge`` block
+    declaring the user's FX policy. Absent → policy defaults to None for
+    backward compat. Present → must validate the policy literal."""
+    raw = {
+        "risk_band": {"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"},
+        "universe": {"cn_funds": True, "cn_etfs": True, "hk_etfs": True, "us_etfs": True},
+        "asset_class_targets": {
+            "gold": {"center": 0.20, "band": [0.12, 0.28]},
+            "cn_equity_fund": {"center": 0.25, "band": [0.18, 0.35]},
+            "cn_bond_fund": {"center": 0.15, "band": [0.10, 0.25]},
+            "hk_etf": {"center": 0.10, "band": [0.05, 0.15]},
+            "us_etf": {"center": 0.25, "band": [0.18, 0.35]},
+            "cash": {"center": 0.05, "band": [0.00, 0.10]},
+        },
+        "currency_tolerance": {
+            "cny": [0.40, 0.65],
+            "usd": [0.25, 0.45],
+            "hkd": [0.05, 0.20],
+        },
+        "constraints": {"allow_short": False, "allow_leverage": False, "exclude_themes": []},
+        "investment_plan": {"monthly_new_capital_cny": 0},
+        "report_language": "zh",
+        "fx_hedge": {"policy": "accept_unhedged", "notes": "starter portfolio"},
+    }
+    cfg = PreferencesFile.model_validate(raw)
+    assert cfg.fx_hedge is not None
+    assert cfg.fx_hedge.policy == "accept_unhedged"
+    assert cfg.fx_hedge.notes == "starter portfolio"
+
+
+def test_preferences_fx_hedge_rejects_unknown_policy():
+    raw = {
+        "risk_band": {"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"},
+        "universe": {"cn_funds": True, "cn_etfs": True, "hk_etfs": True, "us_etfs": True},
+        "asset_class_targets": {
+            "gold": {"center": 0.20, "band": [0.12, 0.28]},
+            "cn_equity_fund": {"center": 0.25, "band": [0.18, 0.35]},
+            "cn_bond_fund": {"center": 0.15, "band": [0.10, 0.25]},
+            "hk_etf": {"center": 0.10, "band": [0.05, 0.15]},
+            "us_etf": {"center": 0.25, "band": [0.18, 0.35]},
+            "cash": {"center": 0.05, "band": [0.00, 0.10]},
+        },
+        "currency_tolerance": {
+            "cny": [0.40, 0.65],
+            "usd": [0.25, 0.45],
+            "hkd": [0.05, 0.20],
+        },
+        "constraints": {"allow_short": False, "allow_leverage": False, "exclude_themes": []},
+        "investment_plan": {"monthly_new_capital_cny": 0},
+        "report_language": "zh",
+        "fx_hedge": {"policy": "moon_phase"},
+    }
+    with pytest.raises(ValidationError):
+        PreferencesFile.model_validate(raw)
+
+
 def test_targets_summing_to_1_005_rejected():
     payload = {
         "risk_band": {"max_drawdown": [0.10, 0.20], "horizon": "long_core_medium_rotation"},
