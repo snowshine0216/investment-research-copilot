@@ -1,6 +1,5 @@
 from __future__ import annotations
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 import os
 from typing import Callable
 from irc.commands.ingest_cmd import run_ingest, _china_today
@@ -58,9 +57,13 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
     stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
     total = len(stages)
     from irc.observability import stage_banner
+    from irc.pipeline_outputs import missing_outputs
 
     class _StageFailed(Exception):
         pass
+
+    today = _china_today()
+    out_dir = Path(repo_root) / "outputs" / today
 
     for index, stage in enumerate(stages, start=1):
         rc = 0
@@ -72,11 +75,26 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
                     raise _StageFailed(stage, rc)
         except _StageFailed:
             pass  # stage_banner already printed FAILED; rc is set correctly
+        if rc == 0:
+            missing = missing_outputs(out_dir, stage)
+            if missing:
+                from irc.pipeline_halt import HaltReason
+                sidecar = out_dir / ".halt_reason.json"
+                HaltReason.write_sidecar(sidecar, HaltReason(
+                    kind="missing_required_outputs",
+                    stage=stage,
+                    detail=(
+                        f"stage exited 0 but did not produce: "
+                        f"{', '.join(missing)}"
+                    ),
+                    stats={"missing_count": len(missing)},
+                    first_error=None,
+                ))
+                rc = 1
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted, write_halted_structured, HaltReason
-            today = _china_today()
-            sidecar = Path(repo_root) / "outputs" / today / ".halt_reason.json"
+            sidecar = out_dir / ".halt_reason.json"
             structured = HaltReason.read_sidecar(sidecar)
             if structured is not None:
                 write_halted_structured(repo_root=Path(repo_root), date=today,
