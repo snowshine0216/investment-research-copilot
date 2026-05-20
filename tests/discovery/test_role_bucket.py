@@ -137,6 +137,29 @@ def test_bucket_assigns_hk_dividend_etf_to_hedge_low_correlation() -> None:
     assert out.buckets["hedge_low_correlation"][0].instrument_id == "3188.HK"
 
 
+# === E5 Phase 3: broadened _is_hedge_low_corr predicate ===
+
+
+def test_bucket_assigns_hk_high_dividend_etf_to_hedge_low_correlation() -> None:
+    rows = (_row_named("3110.HK", "hk_etf", "HK High Dividend"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "3110.HK"
+
+
+def test_bucket_assigns_hsi_central_soe_dividend_to_hedge_low_correlation() -> None:
+    """恒生中国央企红利 — Chinese-only index name, must still bucket as low-corr."""
+    rows = (_row_named("159892", "hk_etf", "恒生中国央企红利"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "159892"
+
+
+def test_bucket_assigns_hk_stock_connect_soe_dividend_to_hedge_low_correlation() -> None:
+    """中证港股通央企红利 — Stock-Connect SOE dividend."""
+    rows = (_row_named("513920", "hk_etf", "中证港股通央企红利"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "513920"
+
+
 # === theme-based bucketing (sector ETFs + sector active funds bucket together) ===
 
 

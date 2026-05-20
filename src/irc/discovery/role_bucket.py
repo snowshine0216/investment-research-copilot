@@ -98,8 +98,21 @@ def _is_defensive_us_bond(r: UniverseRow) -> bool:
     return r.asset_class == "us_etf" and "bond" in (r.tracked_index or "").lower()
 
 
+# Low-correlation hedge plays: HK dividend / SOE-dividend baskets whose price
+# action decouples from the A-share growth cycle. Mix of English and Chinese
+# fragments — both treated as case-insensitive substrings (Chinese is
+# idempotent under .lower()).
+_LOW_CORR_HK_INDEX_FRAGMENTS: tuple[str, ...] = (
+    "dividend",  # Hang Seng Dividend, HK High Dividend
+    "红利",       # 恒生中国央企红利, 中证港股通央企红利
+)
+
+
 def _is_hedge_low_corr(r: UniverseRow) -> bool:
-    return r.asset_class == "hk_etf" and "dividend" in (r.tracked_index or "").lower()
+    if r.asset_class != "hk_etf":
+        return False
+    idx = (r.tracked_index or "").lower()
+    return any(fragment in idx for fragment in _LOW_CORR_HK_INDEX_FRAGMENTS)
 
 
 # First-match-wins. Order matters where predicates overlap:
