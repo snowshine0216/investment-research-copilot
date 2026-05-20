@@ -24,6 +24,28 @@ _GLOSSARY = (
 )
 
 
+# Hard guardrails added 2026-05-20 in response to audit P2 / P3 / P6:
+# - P2: '对金价短期不利' was an unsupported directional prediction.
+# - P3: '估值处于历史中位附近' and '偏高位置' were fabricated specifics
+#       co-existing in one paragraph with no data backing.
+# - P6: '敞口可接受' was claimed in §4 while §6 said the underlying
+#       QDII premium/discount data was never collected.
+# The synthesizer must read these rules before drafting any section.
+_GUARDRAILS = (
+    "撰写规则（硬性约束，违反将被审核拒绝）：\n"
+    "1. 禁止对未来价格走势做方向性预测。不得使用'对…不利'、'对…有利'、'即将上涨/下跌'、"
+    "'短期承压'、'回撤风险尚未释放'等暗示未来方向的措辞；如需引用历史规律，须使用"
+    "'根据历史经验'前缀并附'不构成对未来走势的预测'免责说明。\n"
+    "2. 数据缺失必须显式声明，禁止自行推断或编造具体数值。若证据池未提供某一字段"
+    "（如 A 股估值百分位、QDII 溢价/折价），必须在该处显式标注'本期数据缺失，待补充'，"
+    "而非给出'中位附近'、'偏高位置'这类无数据支撑的定性结论。\n"
+    "3. QDII 溢价/折价数据缺失时，禁止在第 4 节或任何处给出'敞口可接受'或'敞口不可接受'"
+    "的结论；正确表述：'本期 QDII 溢价/折价数据未采集，敞口是否可接受暂无法确认，"
+    "须在交易前查阅二级市场溢价后方可执行。'\n"
+    "4. 同一段落内的估值描述必须自洽：不得既说'中位附近'又说'偏高位置'。"
+)
+
+
 def _sanitize_ref(ref: str) -> str:
     """Strip control characters to prevent prompt injection from external data sources."""
     return ref.replace("\n", " ").replace("\r", " ").strip()[:400]
@@ -43,6 +65,7 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
         )
     user_msg = (
         f"{_GLOSSARY}\n\n"
+        f"{_GUARDRAILS}\n\n"
         f"以下是备忘录骨架：\n\n{skeleton}\n\n"
         f"以下是相关原始数据摘录（请结合数据充实各章节，勿发明数据）：\n{refs_block}\n\n"
         f"{section7_instruction}\n\n"
