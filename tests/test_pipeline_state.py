@@ -57,6 +57,22 @@ def test_clear_state_is_idempotent(tmp_path: Path):
     clear_state(tmp_path)
 
 
+def test_read_state_returns_none_on_unreadable_file(tmp_path: Path, monkeypatch):
+    """A PermissionError (or any OSError) reading the state file must surface as
+    None, not propagate a traceback out of `irc run --resume`."""
+    (tmp_path / STATE_FILENAME).write_text('{"status": "halted"}', encoding="utf-8")
+
+    real_read_text = Path.read_text
+
+    def boom(self, *args, **kwargs):
+        if self.name == STATE_FILENAME:
+            raise PermissionError("simulated chmod 000")
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", boom)
+    assert read_state(tmp_path) is None
+
+
 def test_pipeline_state_is_frozen():
     state = PipelineState(
         status="halted", failed_stage="memo",

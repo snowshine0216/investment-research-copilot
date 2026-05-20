@@ -36,7 +36,10 @@ def read_state(out_dir: Path) -> PipelineState | None:
             halted_at=str(raw["halted_at"]),
             reason_kind=str(raw["reason_kind"]),
         )
-    except (json.JSONDecodeError, KeyError, TypeError):
+    except (json.JSONDecodeError, KeyError, TypeError, OSError):
+        # OSError covers PermissionError, IsADirectoryError, and other I/O
+        # faults that would otherwise propagate a raw traceback out of the
+        # CLI instead of the intended "no resumable state" error message.
         return None
 
 

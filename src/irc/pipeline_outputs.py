@@ -9,6 +9,9 @@ STAGE_REQUIRED_OUTPUTS: dict[str, tuple[str, ...]] = {
     "allocate":    ("proposed_allocation.yaml",),
     "plan":        ("trade_plan.yaml",),
     "opportunity": ("opportunity_report.json", "thesis_cards.yaml", "discipline_report.md"),
+    # Memo's real contract is enforced in `missing_outputs` below (either
+    # `memo.md` for audit pass or `memo_blocked.md` for audit block satisfies);
+    # this empty tuple is just the manifest-presence sentinel.
     "memo":        (),
 }
 

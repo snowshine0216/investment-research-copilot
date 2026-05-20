@@ -47,13 +47,15 @@ def run_pipeline(
     only_stage: str | None = None,
     resume: bool = False,
 ) -> int:
+    # Capture today's date once at function entry so a pipeline that straddles
+    # the China-midnight boundary reads + writes state under the same date.
+    today = _china_today()
+    out_dir = Path(repo_root) / "outputs" / today
     if resume:
         if from_stage is not None or only_stage is not None:
             print("ERROR: --resume cannot be combined with --from or --only.")
             return 1
         from irc.pipeline_state import read_state
-        today = _china_today()
-        out_dir = Path(repo_root) / "outputs" / today
         state = read_state(out_dir)
         if state is None:
             print(
@@ -92,9 +94,6 @@ def run_pipeline(
 
     class _StageFailed(Exception):
         pass
-
-    today = _china_today()
-    out_dir = Path(repo_root) / "outputs" / today
 
     for index, stage in enumerate(stages, start=1):
         rc = 0
