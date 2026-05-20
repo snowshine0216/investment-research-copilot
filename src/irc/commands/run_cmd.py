@@ -10,9 +10,13 @@ from irc.commands.gold_cmd import run_gold
 from irc.commands.allocate_cmd import run_allocate
 from irc.commands.plan_cmd import run_plan
 from irc.commands.memo_cmd import run_memo
+from irc.commands.opportunity_cmd import run_opportunity
 from irc.commands.research_cmd import run_research
 
-STAGE_NAMES: tuple[str, ...] = ("ingest", "research", "discover", "score", "gold", "allocate", "plan", "memo")
+STAGE_NAMES: tuple[str, ...] = (
+    "ingest", "research", "discover", "score", "gold",
+    "allocate", "plan", "opportunity", "memo",
+)
 _TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
 
@@ -91,12 +95,13 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
 
 def _runners_map() -> dict[str, Callable[[str], int]]:
     return {
-        "ingest":   run_ingest,
-        "research": run_research,
-        "discover": run_discover,
-        "score":    run_score,
-        "gold":     run_gold,
-        "allocate": run_allocate,
-        "plan":     run_plan,
-        "memo":     run_memo,
+        "ingest":      run_ingest,
+        "research":    run_research,
+        "discover":    run_discover,
+        "score":       run_score,
+        "gold":        run_gold,
+        "allocate":    run_allocate,
+        "plan":        run_plan,
+        "opportunity": run_opportunity,
+        "memo":        run_memo,
     }

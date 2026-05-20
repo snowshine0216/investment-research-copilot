@@ -29,7 +29,6 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-import pandas as pd
 import pytest
 from click.testing import CliRunner
 
@@ -268,9 +267,11 @@ def test_irc_ingest_end_to_end_populates_duckdb(tmp_path: Path) -> None:
         missing_nav = expectations["nav_ids"] - nav_ids
         assert not missing_nav, f"missing NAV data: {sorted(missing_nav)}"
 
-        # Macro series: DGS10 (FRED+akshare fallback) + DXY (akshare-only).
+        # Macro series: legacy DGS10/DXY plus canonical fields consumed by triggers.
         macro_series = {r[0] for r in con.execute("SELECT DISTINCT series_id FROM macro_series").fetchall()}
-        assert macro_series == {"DGS10", "DXY"}, f"macro_series populated: {macro_series}"
+        assert macro_series == {
+            "DGS10", "DXY", "real_yield_10y_tips", "vix", "inflation_5y5y",
+        }, f"macro_series populated: {macro_series}"
 
         # Sanity: every populated table has > 0 rows.
         for tbl in ("instruments", "prices", "nav_history", "macro_series"):

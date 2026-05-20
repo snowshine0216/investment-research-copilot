@@ -19,7 +19,11 @@ def _recording_runners(called: list[str]) -> dict[str, Callable[[str], int]]:
 def test_stage_names_complete():
     assert "ingest" in STAGE_NAMES
     assert "memo" in STAGE_NAMES
-    assert len(STAGE_NAMES) == 8  # ingest, research, discover, score, gold, allocate, plan, memo
+    assert "opportunity" in STAGE_NAMES
+    # opportunity runs before memo so memo can read opportunity_report.json
+    # and render real name_cn instead of falling back to instrument ids.
+    assert STAGE_NAMES.index("opportunity") < STAGE_NAMES.index("memo")
+    assert len(STAGE_NAMES) == 9  # ingest, research, discover, score, gold, allocate, plan, opportunity, memo
 
 
 def test_only_stage_runs_single():
@@ -65,7 +69,7 @@ def test_default_pipeline_skips_research_when_research_disabled(monkeypatch):
 
     assert rc == 0
     assert called == [
-        "ingest", "discover", "score", "gold", "allocate", "plan", "memo",
+        "ingest", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo",
     ]
 
 
@@ -105,7 +109,7 @@ def test_from_research_runs_research_when_explicit_even_if_research_disabled(mon
         rc = run_pipeline(".", from_stage="research")
 
     assert rc == 0
-    assert called == ["research", "discover", "score", "gold", "allocate", "plan", "memo"]
+    assert called == ["research", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo"]
 
 
 from datetime import date as _date

@@ -66,12 +66,24 @@ def _gold_prices(con, instrument_id: str) -> pd.Series:
     return df["close"]
 
 
-def _macro_value(con, series: str, default: float) -> float:
+def _macro_value_or_none(con, series: str) -> float | None:
     row = con.execute(
         "SELECT value FROM macro_series WHERE series_id = ? ORDER BY date DESC LIMIT 1",
         [series],
     ).fetchone()
-    return float(row[0]) if row else default
+    return float(row[0]) if row else None
+
+
+def _macro_value(con, series: str, default: float) -> float:
+    value = _macro_value_or_none(con, series)
+    return value if value is not None else default
+
+
+def _real_yield_10y_tips(con) -> float:
+    value = _macro_value_or_none(con, "real_yield_10y_tips")
+    if value is not None:
+        return value
+    return _macro_value(con, "DGS10", 1.65) - 2.30
 
 
 def run_gold(repo_root: str) -> int:
@@ -125,9 +137,9 @@ def run_gold(repo_root: str) -> int:
         if etf_change == 0.0:
             unavailable_drivers.append("etf_holdings_gld")
         inputs = GoldDriverInputs(
-            real_yield_10y_tips=_macro_value(con, "DGS10", 1.65) - 2.30,  # rough TIPS proxy
+            real_yield_10y_tips=_real_yield_10y_tips(con),
             dxy=_macro_value(con, "DXY", 104.0),
-            inflation_5y5y=_macro_value(con, "T5YIFR", 2.30),
+            inflation_5y5y=_macro_value(con, "inflation_5y5y", 2.30),
             cb_purchases_yearly_tons=cb_tons,
             etf_holdings_30d_change_tons=etf_change,
             geopolitical_stress_0to1=geo_stress,
