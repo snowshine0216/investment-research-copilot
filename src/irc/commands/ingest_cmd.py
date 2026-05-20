@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,19 @@ from irc.pipeline_halt import HaltReason
 _log = logging.getLogger(__name__)
 
 _SCHEMA_VERSION = "v1"
-_MACRO_SERIES = ("DGS10", "DXY")
+@dataclass(frozen=True)
+class _MacroSeriesSpec:
+    source_id: str
+    storage_id: str
+
+
+_MACRO_SERIES = (
+    _MacroSeriesSpec(source_id="DGS10", storage_id="DGS10"),
+    _MacroSeriesSpec(source_id="DXY", storage_id="DXY"),
+    _MacroSeriesSpec(source_id="DFII10", storage_id="real_yield_10y_tips"),
+    _MacroSeriesSpec(source_id="VIXCLS", storage_id="vix"),
+    _MacroSeriesSpec(source_id="T5YIFR", storage_id="inflation_5y5y"),
+)
 _LOOK_BACK_DAYS = 365 * 3
 _PRICE_HISTORY_MARKETS = frozenset({"cn_on_exchange"})
 _AUM_UNITS = {
@@ -524,16 +537,16 @@ def run_ingest(repo_root: str) -> int:
                     instr.instrument_id, instr.market, instr.ticker,
                 )
 
-        for series_id in _MACRO_SERIES:
+        for series in _MACRO_SERIES:
             try:
-                df = fetch_macro_series(series_id=series_id, start=start, end=end)
-                ob_counts["macro_series"] += _upsert_macro(con, series_id, df)
+                df = fetch_macro_series(series_id=series.source_id, start=start, end=end)
+                ob_counts["macro_series"] += _upsert_macro(con, series.storage_id, df)
             except Exception as exc:
                 _log.warning(
                     "skipping macro series %s: %s. Set FRED_API_KEY for live "
                     "data (https://fred.stlouisfed.org/docs/api/api_key.html); "
                     "downstream stages fall back to defaults when absent.",
-                    series_id, exc,
+                    series.source_id, exc,
                 )
 
         nav_candidates = [

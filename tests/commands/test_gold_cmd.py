@@ -23,7 +23,7 @@ def repo_with_gold_data(tmp_path: Path) -> Path:
              f"openbb:prices:518880:{d.isoformat()}"],
         )
     # Macro series
-    for s, v in (("DGS10", 4.0), ("DXY", 104.0)):
+    for s, v in (("DGS10", 4.0), ("DXY", 104.0), ("real_yield_10y_tips", 1.25)):
         con.execute(
             "INSERT INTO macro_series VALUES (?, ?, ?, ?, ?, ?)",
             [s, base.isoformat(), v, "2026-05-07T10:00:00+08:00", "openbb",
@@ -112,3 +112,20 @@ def test_gold_uses_geopolitical_stress_from_theme_report(monkeypatch, repo_with_
     rc = run_gold(repo_root=str(repo_with_gold_data))
     assert rc == 0
     assert captured["stress"] > 0.4
+
+
+def test_gold_prefers_real_tips_series_over_nominal_proxy(
+    monkeypatch, repo_with_gold_data: Path,
+) -> None:
+    captured: dict[str, float] = {}
+
+    def capture_score(inputs, cfg):
+        captured["real_yield"] = inputs.real_yield_10y_tips
+        return 50.0
+
+    monkeypatch.setattr("irc.commands.gold_cmd.compute_gold_score", capture_score)
+
+    rc = run_gold(repo_root=str(repo_with_gold_data))
+
+    assert rc == 0
+    assert captured["real_yield"] == 1.25

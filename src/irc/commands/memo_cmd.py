@@ -112,6 +112,53 @@ def _load_discovery_diagnostics(out_dir: Path) -> list[dict]:
         return []
 
 
+def _names_from_watchlist_csv(out_dir: Path) -> dict[str, str]:
+    """Best-effort `instrument_id → name_cn` map from discovered_watchlist.csv.
+
+    Used as a fallback when opportunity_report.json is absent (e.g. earlier
+    pipeline run skipped the opportunity stage) so picks-table rows never
+    render their id in the 名称 column.
+    """
+    import csv
+
+    path = out_dir / "discovered_watchlist.csv"
+    if not path.exists():
+        return {}
+    try:
+        with path.open(encoding="utf-8", newline="") as f:
+            return {
+                str(row.get("instrument_id") or ""): str(row.get("name_cn") or "")
+                for row in csv.DictReader(f)
+                if row.get("instrument_id") and row.get("name_cn")
+            }
+    except (OSError, csv.Error):
+        return {}
+
+
+def _names_from_universes(bundle) -> dict[str, str]:
+    """`instrument_id → name_cn` from configured universes.
+
+    Covers venue proxies (e.g. ``cmb_paper_gold`` → ``招商银行账户金``) that
+    appear in trade_plan.yaml as targets but are never scored, so they
+    don't appear in scoring.json or opportunity_report.json.
+    """
+    names: dict[str, str] = {}
+    for uni in (
+        getattr(bundle, "universe_qdii_us", None),
+        getattr(bundle, "universe_qdii_hk", None),
+        getattr(bundle, "universe_cn_funds", None),
+        getattr(bundle, "universe_gold", None),
+    ):
+        if uni is None:
+            continue
+        for instr in getattr(uni, "instruments", ()) or ():
+            iid = getattr(instr, "instrument_id", None)
+            name = getattr(instr, "name_cn", None)
+            if iid and name and iid not in names:
+                names[iid] = name
+    return names
+
+
 def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -> tuple[str, ...]:
     summary = opportunity.get("summary") or {}
     n_core = summary.get("core_dca_count", 0)
@@ -129,9 +176,15 @@ def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -
     return tuple(lines)
 
 
-def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> list[PickRow]:
+def _build_pick_rows(
+    trades: list[dict],
+    opportunity: dict,
+    scoring: dict,
+    extra_names: dict[str, str] | None = None,
+) -> list[PickRow]:
     op_by_id = {r["instrument_id"]: r for r in (opportunity.get("rows") or [])}
     score_by_id = {s["instrument_id"]: s for s in (scoring.get("scores") or [])}
+    extra_names = extra_names or {}
     rows: list[PickRow] = []
     seen: set[str] = set()  # Canonical dedup; render_picks_table has a safety-net guard.
     for t in trades:
@@ -146,13 +199,20 @@ def _build_pick_rows(trades: list[dict], opportunity: dict, scoring: dict) -> li
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
                "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(opp_state, "slow_dca")
+        # Trade plan carries composite_score directly; prefer it so venue
+        # proxies (whose target id isn't in scoring.json) still show the
+        # underlying instrument's score instead of 0.0.
+        score = t.get("composite_score")
+        if score is None:
+            score = sc.get("composite_score") or 0.0
+        name = op.get("name_cn") or extra_names.get(str(iid)) or iid
         rows.append(PickRow(
             instrument_id=iid,
-            name_cn=op.get("name_cn") or iid,
+            name_cn=name,
             asset_class=op.get("asset_class") or t.get("asset_class", ""),
             role=t.get("role") or "",
             target_weight=float(t.get("target_weight") or 0.0),
-            composite_score=float(sc.get("composite_score") or 0.0),
+            composite_score=float(score),
             opportunity_state=opp_state,
             dca_action=dca,
             risk_action="none",
@@ -187,7 +247,16 @@ def run_memo(repo_root: str) -> int:
     opportunity = _load_json(out_today / "opportunity_report.json")
 
     trades = list(plan.get("trades") or [])
-    pick_rows = _build_pick_rows(trades, opportunity, scoring)
+    # Resilience: when opportunity_report.json is missing (e.g. an older
+    # pipeline run that skipped the opportunity stage) or when the trade
+    # target is a venue proxy that doesn't exist in opportunity rows,
+    # fall back to universe-config / watchlist-CSV names so the 名称
+    # column never renders an instrument id verbatim.
+    fallback_names = {
+        **_names_from_watchlist_csv(out_today),
+        **_names_from_universes(bundle),
+    }
+    pick_rows = _build_pick_rows(trades, opportunity, scoring, fallback_names)
     picks_table_md = render_picks_table(pick_rows)
 
     gold_regime = {

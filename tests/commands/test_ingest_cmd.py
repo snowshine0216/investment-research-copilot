@@ -9,7 +9,8 @@ import pandas as pd
 import pytest
 
 from irc.commands.init_cmd import run_init
-from irc.commands.ingest_cmd import _china_today, _upsert_nav, run_ingest
+from irc.commands.ingest_cmd import _china_today, _ingest_preflight, _upsert_nav, run_ingest
+from irc.pipeline_halt import HaltReason
 
 
 @pytest.fixture
@@ -49,6 +50,48 @@ def _fake_missing_manager_tenure_fund_metadata(fund_code: str) -> dict[str, obje
         k: v for k, v in _fake_fund_metadata(fund_code).items()
         if k != "manager_tenure_years"
     }
+
+
+def test_ingest_persists_canonical_macro_series(repo: Path) -> None:
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    macro_values = {
+        "DGS10": 4.61,
+        "DXY": 104.0,
+        "DFII10": 2.13,
+        "VIXCLS": 17.82,
+        "T5YIFR": 2.32,
+    }
+
+    def fake_macro(series_id: str, start: str, end: str) -> pd.DataFrame:
+        return pd.DataFrame({"date": [date(2026, 5, 6)], "value": [macro_values[series_id]]})
+
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", side_effect=fake_macro),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    from irc.data.duckdb_helper import connect
+    con = connect(repo / "data" / "local.duckdb")
+    try:
+        stored = dict(con.execute(
+            "SELECT series_id, value FROM macro_series WHERE date = '2026-05-06'"
+        ).fetchall())
+    finally:
+        con.close()
+    assert stored["DGS10"] == 4.61
+    assert stored["DXY"] == 104.0
+    assert stored["real_yield_10y_tips"] == 2.13
+    assert stored["vix"] == 17.82
+    assert stored["inflation_5y5y"] == 2.32
 
 
 def test_ingest_creates_duckdb_and_manifest(repo: Path) -> None:
@@ -899,7 +942,6 @@ def test_parse_float_invalid_text_returns_none() -> None:
 
 
 def test_is_missing_with_none_nan_and_value() -> None:
-    import math
     assert _is_missing(None) is True
     assert _is_missing(float("nan")) is True
     assert _is_missing(1.0) is False
@@ -909,10 +951,6 @@ def test_is_missing_with_none_nan_and_value() -> None:
 # ---------------------------------------------------------------------------
 # _ingest_preflight tests
 # ---------------------------------------------------------------------------
-from irc.commands.ingest_cmd import _ingest_preflight
-from irc.pipeline_halt import HaltReason
-
-
 def test_preflight_returns_none_on_success(monkeypatch):
     monkeypatch.setattr(
         "irc.commands.ingest_cmd._preflight_call",
@@ -1003,8 +1041,12 @@ def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
     def fail_nav(*_a, **_kw):
         raise ConnectionResetError("simulated outage (nav)")
 
+    empty_macro = pd.DataFrame({"date": [], "value": []})
     monkeypatch.setattr("irc.commands.ingest_cmd.fetch_etf_price_history", fail_price)
     monkeypatch.setattr("irc.commands.ingest_cmd.fetch_fund_nav_history", fail_nav)
+    monkeypatch.setattr("irc.commands.ingest_cmd.fetch_macro_series", lambda *_a, **_kw: empty_macro)
+    monkeypatch.setattr("irc.commands.ingest_cmd.fetch_fund_metadata", _fake_fund_metadata)
+    monkeypatch.setattr("irc.commands.ingest_cmd.fetch_etf_metadata_em", _fake_fund_metadata)
 
     rc = run_ingest(str(repo))
 
