@@ -23,6 +23,17 @@ currency_tolerance:
   usd: [0.25, 0.45]
   hkd: [0.05, 0.20]
 
+# Optional. Declare your FX-hedge policy so the memo's risk-notes can frame
+# unhedged USD exposure as a deliberate choice instead of "数据未配置".
+# policy:
+#   accept_unhedged — no hedge; the memo warns only when USD weight breaks
+#                     the currency_tolerance.usd band above.
+#   hedged          — you've registered a CNY-hedged USD instrument elsewhere.
+# Omit the block entirely to keep the legacy "数据未配置" warning.
+fx_hedge:
+  policy: accept_unhedged
+  notes: "USD 敞口在容忍带内不对冲；超出容忍带时再考虑临时对冲工具"
+
 constraints:
   allow_short: false
   allow_leverage: false
