@@ -80,6 +80,15 @@ _REMEDIATION_BY_KIND: dict[str, str] = {
         "schema change or upstream API change). Re-run with `DEBUG=1 irc "
         "ingest --repo-root .` to capture the full traceback."
     ),
+    "missing_required_outputs": (
+        "The stage exited with code 0 but the expected output artifact(s) "
+        "were not written to `outputs/<today>/`. This usually indicates a "
+        "silent failure inside the stage (e.g., an exception swallowed by "
+        "a try/except, or a code path that returned 0 without producing "
+        "results). Inspect the stage stdout above for warnings, then re-run "
+        "`irc <stage> --repo-root .` after fixing. Once the stage produces "
+        "its outputs, resume the pipeline with `irc run --resume`."
+    ),
 }
 
 

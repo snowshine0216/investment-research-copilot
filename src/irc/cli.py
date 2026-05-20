@@ -71,9 +71,11 @@ def ingest(repo_root: str) -> None:
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--from", "from_stage", type=str, default=None, help="Resume from this stage.")
 @click.option("--only", "only_stage", type=str, default=None, help="Run only this stage.")
-def run_command(repo_root: str, from_stage: str | None, only_stage: str | None) -> None:
+@click.option("--resume", is_flag=True, default=False,
+              help="Resume from the stage that halted in the most recent failed run (today only).")
+def run_command(repo_root: str, from_stage: str | None, only_stage: str | None, resume: bool) -> None:
     from irc.commands.run_cmd import run_pipeline
-    rc = run_pipeline(repo_root=repo_root, from_stage=from_stage, only_stage=only_stage)
+    rc = run_pipeline(repo_root=repo_root, from_stage=from_stage, only_stage=only_stage, resume=resume)
     raise SystemExit(rc)
 
 

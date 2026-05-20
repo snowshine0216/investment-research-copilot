@@ -41,7 +41,39 @@ def _without_disabled_optional_stages(
     return [stage for stage in stages if stage != "research"]
 
 
-def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:
+def run_pipeline(
+    repo_root: str,
+    from_stage: str | None = None,
+    only_stage: str | None = None,
+    resume: bool = False,
+) -> int:
+    # Capture today's date once at function entry so a pipeline that straddles
+    # the China-midnight boundary reads + writes state under the same date.
+    today = _china_today()
+    out_dir = Path(repo_root) / "outputs" / today
+    if resume:
+        if from_stage is not None or only_stage is not None:
+            print("ERROR: --resume cannot be combined with --from or --only.")
+            return 1
+        from irc.pipeline_state import read_state
+        state = read_state(out_dir)
+        if state is None:
+            print(
+                f"ERROR: no halted pipeline state found for {today}; "
+                f"nothing to resume. Run `irc run --repo-root {repo_root}` to start a new pipeline."
+            )
+            return 1
+        if state.failed_stage not in STAGE_NAMES:
+            print(
+                f"ERROR: state file references unknown stage '{state.failed_stage}'. "
+                f"Delete `outputs/{today}/.pipeline_state.json` and start over."
+            )
+            return 1
+        from_stage = state.failed_stage
+        print(
+            f"resuming from stage '{from_stage}' (halted at {state.halted_at}, "
+            f"reason: {state.reason_kind})"
+        )
     if only_stage is not None:
         if only_stage not in STAGE_NAMES:
             print(f"ERROR: unknown stage '{only_stage}'. Valid: {list(STAGE_NAMES)}")
@@ -58,6 +90,7 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
     stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
     total = len(stages)
     from irc.observability import stage_banner
+    from irc.pipeline_outputs import missing_outputs
 
     class _StageFailed(Exception):
         pass
@@ -72,23 +105,50 @@ def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str 
                     raise _StageFailed(stage, rc)
         except _StageFailed:
             pass  # stage_banner already printed FAILED; rc is set correctly
+        if rc == 0:
+            missing = missing_outputs(out_dir, stage)
+            if missing:
+                from irc.pipeline_halt import HaltReason
+                sidecar = out_dir / ".halt_reason.json"
+                HaltReason.write_sidecar(sidecar, HaltReason(
+                    kind="missing_required_outputs",
+                    stage=stage,
+                    detail=(
+                        f"stage exited 0 but did not produce: "
+                        f"{', '.join(missing)}"
+                    ),
+                    stats={"missing_count": len(missing)},
+                    first_error=None,
+                ))
+                rc = 1
         if rc != 0:
             print(f"STAGE FAILED: {stage} (rc={rc})")
             from irc.pipeline_halt import write_halted, write_halted_structured, HaltReason
-            today = _china_today()
-            sidecar = Path(repo_root) / "outputs" / today / ".halt_reason.json"
+            from irc.pipeline_state import PipelineState, write_state
+            sidecar = out_dir / ".halt_reason.json"
             structured = HaltReason.read_sidecar(sidecar)
             if structured is not None:
                 write_halted_structured(repo_root=Path(repo_root), date=today,
                                         reason=structured)
                 sidecar.unlink(missing_ok=True)
+                reason_kind = structured.kind
             else:
                 write_halted(
                     repo_root=Path(repo_root), date=today, stage=stage,
                     reason=f"stage exit code {rc}",
                     remediation=f"Inspect the stage output and re-run `irc {stage} --repo-root {repo_root}` after fixing.",
                 )
+                reason_kind = "generic"
+            write_state(out_dir, PipelineState(
+                status="halted",
+                failed_stage=stage,
+                halted_at=datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds"),
+                reason_kind=reason_kind,
+            ))
             return rc
+    from irc.pipeline_state import clear_state
+    clear_state(out_dir)
+    (out_dir / "PIPELINE_HALTED.md").unlink(missing_ok=True)
     print(f"pipeline OK: ran {stages}")
     return 0
 
