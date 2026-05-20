@@ -41,7 +41,37 @@ def _without_disabled_optional_stages(
     return [stage for stage in stages if stage != "research"]
 
 
-def run_pipeline(repo_root: str, from_stage: str | None = None, only_stage: str | None = None) -> int:
+def run_pipeline(
+    repo_root: str,
+    from_stage: str | None = None,
+    only_stage: str | None = None,
+    resume: bool = False,
+) -> int:
+    if resume:
+        if from_stage is not None or only_stage is not None:
+            print("ERROR: --resume cannot be combined with --from or --only.")
+            return 1
+        from irc.pipeline_state import read_state
+        today = _china_today()
+        out_dir = Path(repo_root) / "outputs" / today
+        state = read_state(out_dir)
+        if state is None:
+            print(
+                f"ERROR: no halted pipeline state found for {today}; "
+                f"nothing to resume. Run `irc run --repo-root {repo_root}` to start a new pipeline."
+            )
+            return 1
+        if state.failed_stage not in STAGE_NAMES:
+            print(
+                f"ERROR: state file references unknown stage '{state.failed_stage}'. "
+                f"Delete `outputs/{today}/.pipeline_state.json` and start over."
+            )
+            return 1
+        from_stage = state.failed_stage
+        print(
+            f"resuming from stage '{from_stage}' (halted at {state.halted_at}, "
+            f"reason: {state.reason_kind})"
+        )
     if only_stage is not None:
         if only_stage not in STAGE_NAMES:
             print(f"ERROR: unknown stage '{only_stage}'. Valid: {list(STAGE_NAMES)}")
