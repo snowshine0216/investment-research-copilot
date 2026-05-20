@@ -46,7 +46,12 @@ def test_compose_execution_lines_picks_name_from_opportunity_rows():
         "target_weight": 0.088,
         "buy_method": "small_account_anchor",
         "granularity": "default",
-        "triggers": [{"name": "weekly_drawdown_4pct", "data_field": "...", "comparator": "<=", "threshold": -0.04}],
+        "triggers": [{
+            "name": "weekly_drawdown_4pct",
+            "data_field": "instrument.weekly_return",
+            "comparator": "<=",
+            "threshold": -0.04,
+        }],
         "venue_note": "direct match",
     }]
     opp_rows = [{"instrument_id": "000369", "name_cn": "广发全球医疗保健指数人民币(QDII)A"}]
@@ -57,6 +62,86 @@ def test_compose_execution_lines_picks_name_from_opportunity_rows():
     assert "small_account_anchor" in lines[0]
     assert "weekly_drawdown_4pct" in lines[0]
     assert "direct match" in lines[0]
+
+
+def test_compose_execution_lines_renders_trigger_data_field_comparator_threshold():
+    """Audit P4 — render each trigger as `name (data_field comparator threshold)`
+    so the bare code is not the only thing executors see."""
+    trades = [{
+        "target": "cmb_paper_gold",
+        "target_weight": 0.2,
+        "buy_method": "gold_anchor_plus_band",
+        "granularity": "default",
+        "triggers": [
+            {"name": "real_yield_low", "data_field": "macro.real_yield_10y_tips",
+             "comparator": "<=", "threshold": 0.0},
+            {"name": "weekly_drawdown_4pct", "data_field": "instrument.weekly_return",
+             "comparator": "<=", "threshold": -0.04},
+        ],
+        "venue_note": "venue mismatch",
+    }]
+    lines = _compose_execution_lines(trades, [])
+    assert len(lines) == 1
+    # data_field, comparator, and threshold all visible per trigger:
+    assert "macro.real_yield_10y_tips <= 0.0" in lines[0]
+    assert "instrument.weekly_return <= -0.04" in lines[0]
+
+
+def test_compose_execution_lines_emits_or_semantics_header_when_multiple_triggers():
+    """Audit P4 — clarify trigger logic (OR vs AND). Triggers in trade_plan
+    are independent — 满足任一 should fire — so render with an explicit
+    '满足任一' (any-of) marker."""
+    trades = [{
+        "target": "X",
+        "target_weight": 0.05,
+        "buy_method": "dca_normal",
+        "granularity": "default",
+        "triggers": [
+            {"name": "vix_high", "data_field": "macro.vix",
+             "comparator": ">", "threshold": 25.0},
+            {"name": "weekly_drawdown_4pct", "data_field": "instrument.weekly_return",
+             "comparator": "<=", "threshold": -0.04},
+        ],
+        "venue_note": "",
+    }]
+    lines = _compose_execution_lines(trades, [])
+    assert "满足任一" in lines[0]
+
+
+def test_compose_execution_lines_no_or_marker_for_single_trigger():
+    """With one trigger, the 满足任一 marker is misleading — omit it."""
+    trades = [{
+        "target": "X",
+        "target_weight": 0.05,
+        "buy_method": "dca_normal",
+        "granularity": "default",
+        "triggers": [
+            {"name": "vix_high", "data_field": "macro.vix",
+             "comparator": ">", "threshold": 25.0},
+        ],
+        "venue_note": "",
+    }]
+    lines = _compose_execution_lines(trades, [])
+    assert "满足任一" not in lines[0]
+    assert "vix_high (macro.vix > 25.0)" in lines[0]
+
+
+def test_compose_execution_lines_threshold_string_value_renders_verbatim():
+    """Triggers can carry categorical (string) thresholds — render them
+    without trying to format as float."""
+    trades = [{
+        "target": "X",
+        "target_weight": 0.05,
+        "buy_method": "dca_normal",
+        "granularity": "default",
+        "triggers": [
+            {"name": "valuation_cheap", "data_field": "valuation_state",
+             "comparator": "==", "threshold": "cheap"},
+        ],
+        "venue_note": "",
+    }]
+    lines = _compose_execution_lines(trades, [])
+    assert "valuation_state == cheap" in lines[0]
 
 
 def test_compose_execution_lines_renders_no_triggers_as_无():

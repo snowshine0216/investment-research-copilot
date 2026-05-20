@@ -36,6 +36,36 @@ _MACRO_SUMMARY = (
 )
 
 
+def _format_threshold(threshold: object) -> str:
+    """Render a trigger threshold for display.
+
+    Numeric thresholds (real_yield, VIX, weekly_return) render with their
+    repr to preserve sign and decimals; categorical string thresholds
+    (valuation_state, heat_state) render verbatim.
+    """
+    if isinstance(threshold, bool):
+        return str(threshold)
+    if isinstance(threshold, (int, float)):
+        return f"{threshold}"
+    return str(threshold)
+
+
+def _format_trigger(trigger: dict) -> str:
+    """Render a single trigger as `name (data_field comparator threshold)`.
+
+    Audit P4 (2026-05-20) flagged the prior bare-code form
+    ('real_yield_low，weekly_drawdown_4pct') as ambiguous — executors had
+    no comparator or threshold without consulting trade_plan.yaml.
+    """
+    name = str(trigger.get("name", "") or "")
+    data_field = str(trigger.get("data_field", "") or "")
+    comparator = str(trigger.get("comparator", "") or "")
+    threshold = _format_threshold(trigger.get("threshold"))
+    if not (name and data_field and comparator):
+        return name or "无"
+    return f"{name} ({data_field} {comparator} {threshold})"
+
+
 def _compose_execution_lines(
     trades: list[dict],
     opportunity_rows: list[dict],
@@ -45,7 +75,11 @@ def _compose_execution_lines(
     Sourcing data deterministically from the trade plan removes the
     LLM-fillable placeholder that left section 7 empty in 2026-05-18.
     Each bullet carries: id+name, target weight cap, buy_method,
-    granularity, trigger names (or "无"), and venue_note.
+    granularity, fully-qualified triggers (or "无"), and venue_note.
+
+    Multi-trigger trades render with a 满足任一 (any-of / OR) marker —
+    triggers in the plan are independent by construction
+    (see ``src/irc/trades/triggers.py:emit_triggers_for_trade``).
     """
     name_by_id = {str(r.get("instrument_id")): r.get("name_cn", "")
                   for r in opportunity_rows}
@@ -54,8 +88,15 @@ def _compose_execution_lines(
         iid = str(t.get("target", ""))
         name = name_by_id.get(iid, "")
         weight = float(t.get("target_weight") or 0.0)
-        trig_names = [str(tr.get("name", "")) for tr in (t.get("triggers") or [])]
-        triggers = "，".join(n for n in trig_names if n) or "无"
+        raw_triggers = list(t.get("triggers") or [])
+        formatted = [_format_trigger(tr) for tr in raw_triggers]
+        formatted = [f for f in formatted if f]
+        if not formatted:
+            triggers = "无"
+        elif len(formatted) == 1:
+            triggers = formatted[0]
+        else:
+            triggers = "满足任一：" + "；".join(formatted)
         venue_note = str(t.get("venue_note", ""))
         bullet = (
             f"**{iid} {name}** | 目标权重 ≤ {weight*100:.1f}% | "
