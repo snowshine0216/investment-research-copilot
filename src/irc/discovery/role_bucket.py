@@ -26,8 +26,24 @@ def _is_core_gold(r: UniverseRow) -> bool:
     return r.asset_class == "gold"
 
 
+# Broad-market US trackers. Substring match (lowercased) so the predicate
+# accepts variants like "S&P 500 Index" or "MSCI USA IMI" without requiring
+# an exhaustive index-name enum. Sector / factor ETFs (Nasdaq, sector SPDRs,
+# small-cap factor) are excluded — guarded by explicit tests.
+_BROAD_US_INDEX_FRAGMENTS: tuple[str, ...] = (
+    "s&p 500",
+    "msci usa",
+    "russell 1000",
+    "russell 3000",
+    "crsp us total market",
+)
+
+
 def _is_core_us(r: UniverseRow) -> bool:
-    return r.asset_class == "us_etf" and (r.tracked_index or "").lower() in ("s&p 500", "msci usa")
+    if r.asset_class != "us_etf":
+        return False
+    idx = (r.tracked_index or "").lower()
+    return any(fragment in idx for fragment in _BROAD_US_INDEX_FRAGMENTS)
 
 
 def _is_core_cn(r: UniverseRow) -> bool:
@@ -82,8 +98,21 @@ def _is_defensive_us_bond(r: UniverseRow) -> bool:
     return r.asset_class == "us_etf" and "bond" in (r.tracked_index or "").lower()
 
 
+# Low-correlation hedge plays: HK dividend / SOE-dividend baskets whose price
+# action decouples from the A-share growth cycle. Mix of English and Chinese
+# fragments — both treated as case-insensitive substrings (Chinese is
+# idempotent under .lower()).
+_LOW_CORR_HK_INDEX_FRAGMENTS: tuple[str, ...] = (
+    "dividend",  # Hang Seng Dividend, HK High Dividend
+    "红利",       # 恒生中国央企红利, 中证港股通央企红利
+)
+
+
 def _is_hedge_low_corr(r: UniverseRow) -> bool:
-    return r.asset_class == "hk_etf" and "dividend" in (r.tracked_index or "").lower()
+    if r.asset_class != "hk_etf":
+        return False
+    idx = (r.tracked_index or "").lower()
+    return any(fragment in idx for fragment in _LOW_CORR_HK_INDEX_FRAGMENTS)
 
 
 # First-match-wins. Order matters where predicates overlap:

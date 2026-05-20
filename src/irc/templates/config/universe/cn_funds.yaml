@@ -240,6 +240,9 @@ instruments:
   - { instrument_id: "159707", ticker: "159707", market: cn_on_exchange,
       name_cn: "地产ETF易方达", asset_class: cn_etf, currency: cny,
       tracked_index: "中证全指房地产", theme: real_estate, venue_required: [cn_brokerage] }
+  - { instrument_id: "159768", ticker: "159768", market: cn_on_exchange,
+      name_cn: "房地产ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证全指房地产", theme: real_estate, venue_required: [cn_brokerage] }
 
   # ===================================================================
   # === 央企 / 国企 (soe) ===
@@ -259,6 +262,12 @@ instruments:
   - { instrument_id: "561170", ticker: "561170", market: cn_on_exchange,
       name_cn: "央企红利ETF嘉实", asset_class: cn_etf, currency: cny,
       tracked_index: "中证国新央企股东回报", theme: soe, venue_required: [cn_brokerage] }
+  - { instrument_id: "560090", ticker: "560090", market: cn_on_exchange,
+      name_cn: "中证国新央企ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证国新央企", theme: soe, venue_required: [cn_brokerage] }
+  - { instrument_id: "561380", ticker: "561380", market: cn_on_exchange,
+      name_cn: "国新港股通央企红利ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证国新港股通央企红利", theme: soe, venue_required: [cn_brokerage] }
 
   # ===================================================================
   # === 国债 / 政金债 / 信用债 / 可转债 (bond) ===

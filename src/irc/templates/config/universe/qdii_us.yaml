@@ -14,3 +14,16 @@ instruments:
   - { instrument_id: "159941", ticker: "159941", market: cn_on_exchange,
       name_cn: "广发纳指ETF", asset_class: us_etf, currency: cny,
       tracked_index: "Nasdaq 100", venue_required: [cn_brokerage] }
+  # === US-bond QDII feeders (E5 Phase 2 — rescues defensive_us_bond bucket) ===
+  # Tagged us_etf + cn_off_exchange so they route through
+  # qdii_feeder_expense_ratio_max (0.012); tracked_index contains "bond"
+  # so _is_defensive_us_bond picks them up.
+  - { instrument_id: "161716", ticker: "161716", market: cn_off_exchange,
+      name_cn: "易方达全球美元债LOF", asset_class: us_etf, currency: cny,
+      tracked_index: "Global USD Bond", venue_required: [cmb_fund] }
+  - { instrument_id: "003719", ticker: "003719", market: cn_off_exchange,
+      name_cn: "鹏华全球高收益债", asset_class: us_etf, currency: cny,
+      tracked_index: "Global High Yield Bond", venue_required: [cmb_fund] }
+  - { instrument_id: "006308", ticker: "006308", market: cn_off_exchange,
+      name_cn: "华夏海外收益债", asset_class: us_etf, currency: cny,
+      tracked_index: "Overseas Bond Aggregate", venue_required: [cmb_fund] }

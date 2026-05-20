@@ -12,7 +12,7 @@ quality_filters:
   drawdown_3y_buffer: 1.2
   drawdown_3y_buffer_by_asset_class:
     gold: 1.35
-    cn_equity_fund: 1.6
+    cn_equity_fund: 1.8
     cn_etf: 1.4
     cn_bond_fund: 0.6
     hk_etf: 1.4

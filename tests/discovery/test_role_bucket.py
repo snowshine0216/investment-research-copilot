@@ -24,6 +24,42 @@ def test_bucket_assigns_us_etf_to_core_us_equity() -> None:
     assert out.buckets["core_us_equity"][0].instrument_id == "VTI"
 
 
+# === E5 Phase 3: broadened _is_core_us predicate ===
+
+
+def test_bucket_assigns_russell_1000_etf_to_core_us_equity() -> None:
+    rows = (_row("IWB", "us_etf", "Russell 1000"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "IWB"
+
+
+def test_bucket_assigns_crsp_total_market_etf_to_core_us_equity() -> None:
+    rows = (_row("VTI", "us_etf", "CRSP US Total Market"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "VTI"
+
+
+def test_bucket_assigns_russell_3000_etf_to_core_us_equity() -> None:
+    rows = (_row("IWV", "us_etf", "Russell 3000"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"][0].instrument_id == "IWV"
+
+
+def test_bucket_does_not_assign_nasdaq_to_core_us_equity() -> None:
+    """Sector/factor US ETFs must NOT bucket as core_us — they belong in tech."""
+    rows = (_row("QQQ", "us_etf", "Nasdaq 100"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"] == ()
+    assert out.buckets["satellite_us_tech"][0].instrument_id == "QQQ"
+
+
+def test_bucket_does_not_assign_sector_us_etf_to_core_us_equity() -> None:
+    """Sector SPDRs (XLK, XLE etc.) must not pollute core_us."""
+    rows = (_row("XLK", "us_etf", "Technology Select Sector"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["core_us_equity"] == ()
+
+
 def test_bucket_assigns_gold_role() -> None:
     rows = (_row("518880", "gold", None),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
@@ -99,6 +135,50 @@ def test_bucket_assigns_hk_dividend_etf_to_hedge_low_correlation() -> None:
     rows = (_row_named("3188.HK", "hk_etf", "Hang Seng Dividend Index"),)
     out = bucket_by_role(rows, min_per_role=1, fail_below=0)
     assert out.buckets["hedge_low_correlation"][0].instrument_id == "3188.HK"
+
+
+# === E5 Phase 3: broadened _is_hedge_low_corr predicate ===
+
+
+def test_bucket_assigns_hk_high_dividend_etf_to_hedge_low_correlation() -> None:
+    rows = (_row_named("3110.HK", "hk_etf", "HK High Dividend"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "3110.HK"
+
+
+def test_bucket_assigns_hsi_central_soe_dividend_to_hedge_low_correlation() -> None:
+    """恒生中国央企红利 — Chinese-only index name, must still bucket as low-corr."""
+    rows = (_row_named("159892", "hk_etf", "恒生中国央企红利"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "159892"
+
+
+def test_bucket_assigns_hk_stock_connect_soe_dividend_to_hedge_low_correlation() -> None:
+    """中证港股通央企红利 — Stock-Connect SOE dividend."""
+    rows = (_row_named("513920", "hk_etf", "中证港股通央企红利"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["hedge_low_correlation"][0].instrument_id == "513920"
+
+
+def test_bucket_us_bond_qdii_feeder_routes_to_defensive_us_bond() -> None:
+    """E5 Phase 2: us_etf + cn_off_exchange + 'bond' in tracked_index must
+    route to defensive_us_bond, not be over-matched by _is_core_us (whose
+    broad-market fragments don't contain 'bond')."""
+    rows = (_row_named("161716", "us_etf", "Global USD Bond"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["defensive_us_bond"][0].instrument_id == "161716"
+    assert out.buckets["core_us_equity"] == ()
+
+
+def test_bucket_cn_soe_dividend_etf_does_not_leak_into_hedge_low_correlation() -> None:
+    """561380 国新港股通央企红利ETF is a cn_etf with theme=soe. Its
+    tracked_index contains 红利 — the new Chinese fragment in
+    _is_hedge_low_corr — but the asset_class guard (hk_etf only) must keep
+    it in satellite_cn_soe."""
+    rows = (_row_named("561380", "cn_etf", "中证国新港股通央企红利", theme="soe"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_soe"][0].instrument_id == "561380"
+    assert out.buckets["hedge_low_correlation"] == ()
 
 
 # === theme-based bucketing (sector ETFs + sector active funds bucket together) ===
