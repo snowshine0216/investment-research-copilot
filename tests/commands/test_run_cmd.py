@@ -365,3 +365,27 @@ def test_resume_derives_from_stage_from_state_file(tmp_path: Path):
     # Resume must start at the recorded failed_stage and run only downstream stages.
     # `memo` is the last stage, so only it should have run.
     assert called == ["memo"]
+
+
+def test_cli_run_resume_flag_invokes_run_pipeline_with_resume_true(tmp_path: Path):
+    """The CLI must pass `resume=True` through to run_pipeline when --resume is given."""
+    from click.testing import CliRunner
+    from irc.cli import main
+
+    runner = CliRunner()
+    captured: dict[str, object] = {}
+
+    def fake_pipeline(repo_root, from_stage=None, only_stage=None, resume=False):
+        captured["repo_root"] = repo_root
+        captured["from_stage"] = from_stage
+        captured["only_stage"] = only_stage
+        captured["resume"] = resume
+        return 0
+
+    with patch("irc.commands.run_cmd.run_pipeline", side_effect=fake_pipeline):
+        result = runner.invoke(main, ["run", "--repo-root", str(tmp_path), "--resume"])
+
+    assert result.exit_code == 0
+    assert captured["resume"] is True
+    assert captured["from_stage"] is None
+    assert captured["only_stage"] is None
