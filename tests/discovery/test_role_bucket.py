@@ -160,6 +160,27 @@ def test_bucket_assigns_hk_stock_connect_soe_dividend_to_hedge_low_correlation()
     assert out.buckets["hedge_low_correlation"][0].instrument_id == "513920"
 
 
+def test_bucket_us_bond_qdii_feeder_routes_to_defensive_us_bond() -> None:
+    """E5 Phase 2: us_etf + cn_off_exchange + 'bond' in tracked_index must
+    route to defensive_us_bond, not be over-matched by _is_core_us (whose
+    broad-market fragments don't contain 'bond')."""
+    rows = (_row_named("161716", "us_etf", "Global USD Bond"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["defensive_us_bond"][0].instrument_id == "161716"
+    assert out.buckets["core_us_equity"] == ()
+
+
+def test_bucket_cn_soe_dividend_etf_does_not_leak_into_hedge_low_correlation() -> None:
+    """561380 国新港股通央企红利ETF is a cn_etf with theme=soe. Its
+    tracked_index contains 红利 — the new Chinese fragment in
+    _is_hedge_low_corr — but the asset_class guard (hk_etf only) must keep
+    it in satellite_cn_soe."""
+    rows = (_row_named("561380", "cn_etf", "中证国新港股通央企红利", theme="soe"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_cn_soe"][0].instrument_id == "561380"
+    assert out.buckets["hedge_low_correlation"] == ()
+
+
 # === theme-based bucketing (sector ETFs + sector active funds bucket together) ===
 
 
