@@ -47,6 +47,22 @@ def test_universe_theme_is_validated() -> None:
         UniverseConfig.model_validate(raw)
 
 
+def test_instrument_accepts_qdii_global_asset_class():
+    from irc.schemas.universe import Instrument
+
+    inst = Instrument.model_validate({
+        "instrument_id": "270023",
+        "ticker": "270023",
+        "market": "cn_off_exchange",
+        "name_cn": "广发全球精选股票(QDII)人民币A",
+        "asset_class": "qdii_global",
+        "currency": "cny",
+        "venue_required": ["cmb_fund"],
+    })
+
+    assert inst.asset_class == "qdii_global"
+
+
 def test_cn_funds_template_theme_inventory() -> None:
     root = Path(__file__).parents[2]
     raw = yaml.safe_load(

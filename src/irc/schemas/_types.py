@@ -5,7 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 AssetClass = Literal[
     "gold", "cn_equity_fund", "cn_bond_fund", "cn_etf",
-    "hk_etf", "us_etf", "cash",
+    "hk_etf", "us_etf", "qdii_global", "cash",
 ]
 Currency = Literal["cny", "usd", "hkd"]
 ScoringFactor = Literal["valuation_cost", "risk", "quality", "macro_fit", "thesis_news"]
