@@ -179,3 +179,74 @@ def test_dedupe_excludes_etf_feeder_in_favor_of_main_etf() -> None:
     assert "510300" in ids
     assert "000311" not in ids
     assert "004752" not in ids
+
+
+def test_candidate_rank_with_returns_prefers_higher_1y_return():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank_with_returns,
+    )
+
+    def make(code: str, name: str = "test fund") -> ClassifiedFund:
+        return ClassifiedFund(
+            catalog=CatalogFund(fund_code=code, fund_name=name, fund_type=""),
+            asset_class="cn_equity_fund",
+            market="cn_off_exchange",
+            currency="cny",
+            tracked_index=None,
+            theme=None,
+            venue_required=("cmb_fund",),
+        )
+
+    returns = {"270023": 45.3, "000001": -3.5, "100100": 12.0}
+    items = [make("000001"), make("270023"), make("100100"), make("999999")]
+    rank = _candidate_rank_with_returns(returns)
+    ordered = sorted(items, key=rank)
+
+    # 270023 (45.3%) first, then 100100 (12.0%), then 000001 (-3.5%),
+    # then 999999 (no return — sorts last by fund_code among unranked).
+    assert [it.catalog.fund_code for it in ordered] == ["270023", "100100", "000001", "999999"]
+
+
+def test_candidate_rank_with_returns_falls_back_to_fund_code_when_empty():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank, _candidate_rank_with_returns,
+    )
+
+    def make(code: str) -> ClassifiedFund:
+        return ClassifiedFund(
+            catalog=CatalogFund(fund_code=code, fund_name="x", fund_type=""),
+            asset_class="cn_equity_fund",
+            market="cn_off_exchange",
+            currency="cny",
+            tracked_index=None,
+            theme=None,
+            venue_required=("cmb_fund",),
+        )
+
+    items = [make("270023"), make("000001"), make("100100")]
+    legacy = sorted(items, key=_candidate_rank)
+    via_empty_map = sorted(items, key=_candidate_rank_with_returns({}))
+
+    assert [it.catalog.fund_code for it in legacy] == [it.catalog.fund_code for it in via_empty_map]
+
+
+def test_candidate_rank_with_returns_preserves_feeder_penalty():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank_with_returns,
+    )
+
+    feeder = ClassifiedFund(
+        catalog=CatalogFund(fund_code="000001", fund_name="某基金联接A", fund_type=""),
+        asset_class="cn_equity_fund", market="cn_off_exchange", currency="cny",
+        tracked_index=None, theme=None, venue_required=("cmb_fund",),
+    )
+    direct = ClassifiedFund(
+        catalog=CatalogFund(fund_code="000002", fund_name="某基金A", fund_type=""),
+        asset_class="cn_equity_fund", market="cn_off_exchange", currency="cny",
+        tracked_index=None, theme=None, venue_required=("cmb_fund",),
+    )
+
+    # Feeder has a higher 1Y return but should still sort after direct because of penalty.
+    returns = {"000001": 99.9, "000002": 1.0}
+    ordered = sorted([feeder, direct], key=_candidate_rank_with_returns(returns))
+    assert [it.catalog.fund_code for it in ordered] == ["000002", "000001"]

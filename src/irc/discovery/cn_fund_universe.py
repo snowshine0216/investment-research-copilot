@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 import re
 from typing import Any
@@ -263,6 +263,26 @@ def _cap_for(classified: ClassifiedFund, options: UniverseBuildOptions) -> int:
 def _candidate_rank(classified: ClassifiedFund) -> tuple[int, str]:
     feeder_penalty = 1 if "联接" in classified.catalog.fund_name else 0
     return (feeder_penalty, classified.catalog.fund_code)
+
+
+def _candidate_rank_with_returns(
+    returns: Mapping[str, float],
+) -> Callable[[ClassifiedFund], tuple[int, int, float, str]]:
+    """Build a sort-key function that ranks by (feeder_penalty,
+    missing_return_penalty, -return_1y, fund_code). When `returns` is empty
+    the result is order-equivalent to `_candidate_rank` (ascending fund_code,
+    feeders last)."""
+    def key(classified: ClassifiedFund) -> tuple[int, int, float, str]:
+        feeder_penalty = 1 if "联接" in classified.catalog.fund_name else 0
+        raw = returns.get(classified.catalog.fund_code)
+        if raw is None or (isinstance(raw, float) and raw != raw):  # NaN check
+            missing = 1
+            neg_return = 0.0
+        else:
+            missing = 0
+            neg_return = -float(raw)
+        return (feeder_penalty, missing, neg_return, classified.catalog.fund_code)
+    return key
 
 
 def _apply_caps(classified: Iterable[ClassifiedFund], options: UniverseBuildOptions) -> tuple[ClassifiedFund, ...]:
