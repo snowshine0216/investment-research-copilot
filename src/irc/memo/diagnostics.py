@@ -24,7 +24,7 @@ _ROLE_BUCKET_FAILED_REASON: str = "below fail_below"
 # out without any FX-hedge, premium/discount, or quota mention. When
 # QDII weight exceeds this floor, the memo gets a dedicated diagnostic.
 _QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC = 0.20
-_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf"})
+_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf", "qdii_global"})
 
 
 def compose_execution_drift_lines(

@@ -27,6 +27,7 @@ _ASSET_CLASS_KEYWORDS: dict[str, tuple[str, ...]] = {
     "cn_bond_fund":   ("国债", "信用债", "债基", "10Y", "CGB"),
     "hk_etf":         ("港股", "恒生", "Hang Seng"),
     "us_etf":         ("标普500", "纳斯达克100", "S&P 500", "Nasdaq 100"),
+    "qdii_global":    ("全球股票", "MSCI", "全球精选", "global equity"),
 }
 
 

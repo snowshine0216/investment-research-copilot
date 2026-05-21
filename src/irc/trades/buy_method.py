@@ -13,6 +13,7 @@ _DEFAULTS_STEADY: dict[str, str] = {
     "cn_etf":         "scaled_in_3",
     "hk_etf":         "scaled_in_4",
     "us_etf":         "lump_sum",
+    "qdii_global":    "scaled_in_4",
     "cash":           "lump_sum",
 }
 

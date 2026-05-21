@@ -275,3 +275,22 @@ def test_themed_cn_role_map_matches_schema_sector_themes() -> None:
     sector_themes = set(get_args(Theme)) - {"broad", "dividend"}
     assert set(THEMED_CN_ROLE_BY_THEME) == sector_themes
     assert set(THEMED_CN_ROLE_BY_THEME) == set(SECTOR_THEMES)
+
+
+def test_bucket_qdii_global_routes_to_satellite_global_equity() -> None:
+    """270023 广发全球精选股票(QDII) must bucket as satellite_global_equity,
+    not fall through to satellite_cn_growth or any CN bucket."""
+    rows = (_row_named("270023", "qdii_global", "Global Equity"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert "satellite_global_equity" in out.buckets
+    assert out.buckets["satellite_global_equity"][0].instrument_id == "270023"
+    assert out.buckets.get("satellite_cn_growth", ()) == ()
+
+
+def test_bucket_qdii_global_with_theme_still_routes_to_global_equity() -> None:
+    """A qdii_global fund with a tech theme should still land in satellite_global_equity
+    (not cn_tech) because asset_class check takes precedence."""
+    rows = (_row_named("012348", "qdii_global", "Global Equity", theme="tech"),)
+    out = bucket_by_role(rows, min_per_role=1, fail_below=0)
+    assert out.buckets["satellite_global_equity"][0].instrument_id == "012348"
+    assert out.buckets.get("satellite_cn_tech", ()) == ()

@@ -9,7 +9,7 @@ import math
 # at this fraction of NAV. Excess weight is redistributed to a non-capped
 # same-class peer first; if no peer has headroom, it falls to cash residual.
 DEFAULT_SATELLITE_QDII_MAX_WEIGHT = 0.05
-_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf"})
+_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf", "qdii_global"})
 
 
 @dataclass(frozen=True)

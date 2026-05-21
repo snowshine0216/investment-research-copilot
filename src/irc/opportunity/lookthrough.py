@@ -107,6 +107,10 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
             "qdii_hk", key, _display_for(key, _QDII_HK_DISPLAY, key),
         )
 
+    if inp.asset_class == "qdii_global":
+        raw = tracked or theme or "global_equity"
+        return LookthroughTarget("qdii_global", raw, raw)
+
     if tracked is not None:
         if tracked in _BROAD_INDEX_KEYS:
             return LookthroughTarget("broad_index", tracked, _BROAD_INDEX_DISPLAY[tracked])

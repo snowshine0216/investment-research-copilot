@@ -176,7 +176,7 @@ def _resolve_research_theme(
         return theme_reports.get("gold_drivers")
     if inp.asset_class == "cn_bond_fund":
         return theme_reports.get("cn_monetary")
-    if inp.asset_class in ("us_etf", "hk_etf"):
+    if inp.asset_class in ("us_etf", "hk_etf", "qdii_global"):
         return theme_reports.get("geopolitics")
     # CN equity funds without a direct theme match → holdings_sector
     if inp.asset_class == "cn_equity_fund":

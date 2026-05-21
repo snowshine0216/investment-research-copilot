@@ -4,7 +4,7 @@ from irc.schemas.triggers import TriggersConfig
 
 
 def _wants_vix(asset_class: str) -> bool:
-    return asset_class in ("us_etf", "hk_etf")
+    return asset_class in ("us_etf", "hk_etf", "qdii_global")
 
 
 def _wants_real_yield(asset_class: str) -> bool:
