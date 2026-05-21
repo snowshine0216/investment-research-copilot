@@ -64,3 +64,35 @@ def test_cli_universe_build_cn_funds_command(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     assert "universe build-cn-funds OK" in result.output
     assert (tmp_path / "config" / "universe" / "cn_funds.generated.yaml").exists()
+
+
+def test_run_build_cn_funds_passes_returns_to_builder(monkeypatch, tmp_path):
+    import pandas as pd
+    from irc.commands import universe_cmd
+
+    captured: dict = {}
+
+    def fake_catalog():
+        return pd.DataFrame([
+            {"fund_code": "270023", "fund_name": "广发全球精选股票(QDII)人民币A", "fund_type": ""},
+            {"fund_code": "000001", "fund_name": "华夏成长混合", "fund_type": "混合型"},
+        ])
+
+    def fake_ranks():
+        return pd.DataFrame([
+            {"fund_code": "270023", "return_1y": 45.3},
+            {"fund_code": "000001", "return_1y": -3.5},
+        ])
+
+    def fake_build(rows, options=None, returns=None):
+        captured["returns"] = dict(returns or {})
+        return ()
+
+    monkeypatch.setattr(universe_cmd, "fetch_open_fund_catalog", fake_catalog)
+    monkeypatch.setattr(universe_cmd, "fetch_open_fund_ranks", fake_ranks)
+    monkeypatch.setattr(universe_cmd, "build_cn_fund_universe", fake_build)
+
+    rc = universe_cmd.run_build_cn_funds(str(tmp_path))
+
+    assert rc == 0
+    assert captured["returns"] == {"270023": 45.3, "000001": -3.5}

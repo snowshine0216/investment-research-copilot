@@ -115,6 +115,12 @@ def _is_hedge_low_corr(r: UniverseRow) -> bool:
     return any(fragment in idx for fragment in _LOW_CORR_HK_INDEX_FRAGMENTS)
 
 
+def _is_satellite_global_equity(r: UniverseRow) -> bool:
+    """Global-mandate QDII active funds (e.g. 广发全球精选) — tracked_index
+    is 'Global Equity' and asset_class is 'qdii_global'."""
+    return r.asset_class == "qdii_global"
+
+
 # First-match-wins. Order matters where predicates overlap:
 # - core_cn_equity comes BEFORE sector buckets so theme=broad wins when set
 # - sector themes come BEFORE satellite_cn_growth so themed active funds
@@ -124,6 +130,7 @@ ROLE_RULES: tuple[tuple[str, Callable[[UniverseRow], bool]], ...] = (
     ("core_us_equity", _is_core_us),
     ("core_cn_equity", _is_core_cn),
     ("satellite_us_tech", _is_satellite_us_tech),
+    ("satellite_global_equity", _is_satellite_global_equity),
     ("satellite_cn_dividend", _is_satellite_cn_dividend),
     *_THEMED_CN_ROLE_RULES,
     ("satellite_cn_growth", _is_satellite_cn_growth),

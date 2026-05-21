@@ -231,6 +231,69 @@ def fetch_open_fund_catalog() -> pd.DataFrame:
     return out
 
 
+def _raw_fund_rank_call() -> pd.DataFrame:
+    """Raw call to akshare's fund-rank table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_open_fund_rank_em", symbol="全部")
+    # Per-type fallback if "全部" is unavailable in 1.18.60:
+    # frames = [
+    #     _ak_call("fund_open_fund_rank_em", symbol=s)
+    #     for s in ("股票型", "混合型", "债券型", "指数型", "QDII", "LOF", "FOF")
+    # ]
+    # return pd.concat(frames, ignore_index=True)
+
+
+def _parse_percent(value: Any) -> float:
+    """Convert '45.32%' / '-3.50%' / '--' / '' / NaN / numeric → float or NaN.
+
+    Note: the akshare fund-rank endpoint returns numeric floats directly (e.g.
+    54.85 for 54.85%), not percent-formatted strings. This helper handles both
+    forms so tests and real data are both covered.
+    """
+    if value is None:
+        return float("nan")
+    if isinstance(value, float):
+        import math
+        return float("nan") if math.isnan(value) else value
+    if isinstance(value, (int,)):
+        return float(value)
+    text = str(value).strip().rstrip("%")
+    if not text or text in {"--", "nan", "None"}:
+        return float("nan")
+    try:
+        return float(text)
+    except ValueError:
+        return float("nan")
+
+
+@lru_cache(maxsize=1)
+def _fetch_full_fund_rank_table() -> pd.DataFrame:
+    """Fetch the master fund-rank table with stable internal column names."""
+    df = _raw_fund_rank_call()
+    rename_map: dict[str, str] = {}
+    if "基金代码" in df.columns:
+        rename_map["基金代码"] = "fund_code"
+    if "近1年" in df.columns:
+        rename_map["近1年"] = "return_1y"
+    df = df.rename(columns=rename_map)
+    if "fund_code" in df.columns:
+        df["fund_code"] = df["fund_code"].apply(_normalize_fund_code)
+    if "return_1y" in df.columns:
+        df["return_1y"] = df["return_1y"].apply(_parse_percent)
+    return df
+
+
+@lru_cache(maxsize=1)
+def fetch_open_fund_ranks() -> pd.DataFrame:
+    """Public accessor for the fund-rank table. Returns DataFrame with
+    'fund_code' and 'return_1y' columns; return_1y is float (NaN for missing)."""
+    df = _fetch_full_fund_rank_table()
+    required = ["fund_code", "return_1y"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"Akshare fund-rank table missing columns: {', '.join(missing)}")
+    return df.loc[:, required].copy()
+
+
 def fetch_fund_metadata(fund_code: str) -> dict[str, Any]:
     """Single-row metadata dict via XueQiu — the only akshare path that returns
     individual-fund metadata in 1.18.60. XueQiu is auth-restricted and may fail

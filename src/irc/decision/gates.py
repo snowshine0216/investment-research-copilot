@@ -12,7 +12,7 @@ _AVOID_ACTIONS = {"avoid", "strong_avoid"}
 # treated as actionable. QDII feeders trade at 5–15% premium and can suspend
 # large subscriptions — the trust-check doc (A2, priority #4) flagged this as
 # the highest single-trade-loss risk in the layperson-facing report.
-_QDII_ASSET_CLASSES = {"us_etf", "hk_etf"}
+_QDII_ASSET_CLASSES = {"us_etf", "hk_etf", "qdii_global"}
 
 
 def target_weights_are_valid(allocation: dict[str, Any], tolerance: float = 1e-3) -> bool:

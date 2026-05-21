@@ -179,3 +179,166 @@ def test_dedupe_excludes_etf_feeder_in_favor_of_main_etf() -> None:
     assert "510300" in ids
     assert "000311" not in ids
     assert "004752" not in ids
+
+
+def test_candidate_rank_with_returns_prefers_higher_1y_return():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank_with_returns,
+    )
+
+    def make(code: str, name: str = "test fund") -> ClassifiedFund:
+        return ClassifiedFund(
+            catalog=CatalogFund(fund_code=code, fund_name=name, fund_type=""),
+            asset_class="cn_equity_fund",
+            market="cn_off_exchange",
+            currency="cny",
+            tracked_index=None,
+            theme=None,
+            venue_required=("cmb_fund",),
+        )
+
+    returns = {"270023": 45.3, "000001": -3.5, "100100": 12.0}
+    items = [make("000001"), make("270023"), make("100100"), make("999999")]
+    rank = _candidate_rank_with_returns(returns)
+    ordered = sorted(items, key=rank)
+
+    # 270023 (45.3%) first, then 100100 (12.0%), then 000001 (-3.5%),
+    # then 999999 (no return — sorts last by fund_code among unranked).
+    assert [it.catalog.fund_code for it in ordered] == ["270023", "100100", "000001", "999999"]
+
+
+def test_candidate_rank_with_returns_falls_back_to_fund_code_when_empty():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank, _candidate_rank_with_returns,
+    )
+
+    def make(code: str) -> ClassifiedFund:
+        return ClassifiedFund(
+            catalog=CatalogFund(fund_code=code, fund_name="x", fund_type=""),
+            asset_class="cn_equity_fund",
+            market="cn_off_exchange",
+            currency="cny",
+            tracked_index=None,
+            theme=None,
+            venue_required=("cmb_fund",),
+        )
+
+    items = [make("270023"), make("000001"), make("100100")]
+    legacy = sorted(items, key=_candidate_rank)
+    via_empty_map = sorted(items, key=_candidate_rank_with_returns({}))
+
+    assert [it.catalog.fund_code for it in legacy] == [it.catalog.fund_code for it in via_empty_map]
+
+
+def test_candidate_rank_with_returns_preserves_feeder_penalty():
+    from irc.discovery.cn_fund_universe import (
+        CatalogFund, ClassifiedFund, _candidate_rank_with_returns,
+    )
+
+    feeder = ClassifiedFund(
+        catalog=CatalogFund(fund_code="000001", fund_name="某基金联接A", fund_type=""),
+        asset_class="cn_equity_fund", market="cn_off_exchange", currency="cny",
+        tracked_index=None, theme=None, venue_required=("cmb_fund",),
+    )
+    direct = ClassifiedFund(
+        catalog=CatalogFund(fund_code="000002", fund_name="某基金A", fund_type=""),
+        asset_class="cn_equity_fund", market="cn_off_exchange", currency="cny",
+        tracked_index=None, theme=None, venue_required=("cmb_fund",),
+    )
+
+    # Feeder has a higher 1Y return but should still sort after direct because of penalty.
+    returns = {"000001": 99.9, "000002": 1.0}
+    ordered = sorted([feeder, direct], key=_candidate_rank_with_returns(returns))
+    assert [it.catalog.fund_code for it in ordered] == ["000002", "000001"]
+
+
+def test_build_universe_uses_returns_to_select_high_performers_under_cap():
+    from irc.discovery.cn_fund_universe import build_cn_fund_universe, UniverseBuildOptions
+
+    rows = [
+        {"fund_code": f"00010{i}", "fund_name": f"老基金{i}股票A", "fund_type": "股票型"}
+        for i in range(5)
+    ] + [
+        {"fund_code": "270023", "fund_name": "广发新王者股票A", "fund_type": "股票型"},
+    ]
+    returns = {"270023": 50.0}  # everyone else has no return data
+    options = UniverseBuildOptions(active_broad_cap=3)
+
+    # Without returns: lowest 3 fund codes (000100, 000101, 000102) win.
+    without = build_cn_fund_universe(rows, options=options)
+    assert [it.instrument_id for it in without] == ["000100", "000101", "000102"]
+
+    # With returns: 270023 jumps to position 1 because it has the only positive return.
+    with_returns = build_cn_fund_universe(rows, options=options, returns=returns)
+    ids = [it.instrument_id for it in with_returns]
+    assert "270023" in ids
+    assert len(ids) == 3
+
+
+def test_qdii_global_classification_for_funds_without_us_or_hk_markers():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="270023",
+        fund_name="广发全球精选股票(QDII)人民币A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "qdii_global"
+    assert out.tracked_index == "Global Equity"
+
+
+def test_qdii_with_us_marker_still_classified_as_us_etf():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="000055",
+        fund_name="广发纳斯达克100ETF联接美元(QDII)A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "us_etf"
+
+
+def test_qdii_with_hk_marker_still_classified_as_hk_etf():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="000071",
+        fund_name="华夏恒生ETF联接(QDII)A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "hk_etf"
+
+
+def test_qdii_global_has_its_own_cap_bucket():
+    from irc.discovery.cn_fund_universe import build_cn_fund_universe, UniverseBuildOptions
+
+    rows = [
+        # Forty domestic broad-active equity funds (fill the cn_equity_fund cap).
+        *[
+            {"fund_code": f"00{i:04d}", "fund_name": f"老基金{i}股票A", "fund_type": "股票型"}
+            for i in range(40)
+        ],
+        # One QDII global fund — must not be drowned by the 40 domestic competitors.
+        {"fund_code": "270023", "fund_name": "广发全球精选股票(QDII)人民币A", "fund_type": ""},
+    ]
+    options = UniverseBuildOptions(active_broad_cap=40, qdii_global_cap=5)
+
+    out = build_cn_fund_universe(rows, options=options)
+    ids = [it.instrument_id for it in out]
+
+    # 270023 lives in qdii_global bucket, not in the cn_equity_fund broad_active bucket.
+    assert "270023" in ids
+    classes = {it.instrument_id: it.asset_class for it in out}
+    assert classes["270023"] == "qdii_global"

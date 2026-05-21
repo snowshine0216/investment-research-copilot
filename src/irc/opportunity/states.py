@@ -58,7 +58,7 @@ def _percentile(inp: OpportunityInput) -> float | None:
 
 _BOND_ASSET_CLASSES: frozenset[str] = frozenset({"cn_bond_fund"})
 _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
-    "cn_equity_fund", "cn_etf", "us_etf", "hk_etf",
+    "cn_equity_fund", "cn_etf", "us_etf", "hk_etf", "qdii_global",
 })
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
 

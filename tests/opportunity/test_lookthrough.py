@@ -117,3 +117,30 @@ def test_target_registry_covers_every_lookthrough_display() -> None:
     )
     missing = sorted(required - set(_TARGET_REGISTRY))
     assert missing == [], f"missing registry entries for display names: {missing}"
+
+
+def test_qdii_global_maps_to_qdii_global_kind():
+    target = map_lookthrough(_make(
+        instrument_id="270023", asset_class="qdii_global",
+        tracked_index="Global Equity", theme=None,
+    ))
+    assert target.kind == "qdii_global"
+    assert target.key == "global equity"  # lowercased tracked_index
+
+
+def test_qdii_global_uses_theme_when_no_tracked_index():
+    target = map_lookthrough(_make(
+        instrument_id="012348", asset_class="qdii_global",
+        tracked_index=None, theme="tech",
+    ))
+    assert target.kind == "qdii_global"
+    assert target.key == "tech"
+
+
+def test_qdii_global_defaults_to_global_equity_key_when_no_index_or_theme():
+    target = map_lookthrough(_make(
+        instrument_id="270023", asset_class="qdii_global",
+        tracked_index=None, theme=None,
+    ))
+    assert target.kind == "qdii_global"
+    assert target.key == "global_equity"

@@ -84,6 +84,20 @@ def _discover_chat_response(raw_ref: str) -> MagicMock:
     )
 
 
+# ─── Integration: pin 270023 into qdii_global bucket ─────────────────────────
+
+def test_generated_universe_contains_270023_in_qdii_global_bucket():
+    import yaml
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "config" / "universe" / "cn_funds.generated.yaml"
+    data = yaml.safe_load(path.read_text())
+    by_id = {it["instrument_id"]: it for it in data["instruments"]}
+
+    assert "270023" in by_id, "270023 (广发全球精选股票 QDII) must be in the generated universe"
+    assert by_id["270023"]["asset_class"] == "qdii_global"
+
+
 # ─── Test ─────────────────────────────────────────────────────────────────────
 
 def test_generated_cn_fund_flows_through_discovery(tmp_path: Path) -> None:

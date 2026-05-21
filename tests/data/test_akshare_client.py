@@ -616,3 +616,34 @@ def test_fetch_open_fund_catalog_raises_when_required_columns_missing() -> None:
         fetch_open_fund_catalog.cache_clear()
         with pytest.raises(ValueError, match="fund_name"):
             fetch_open_fund_catalog()
+
+
+def test_fetch_open_fund_ranks_normalizes_columns_and_parses_percentages(monkeypatch):
+    import pandas as pd
+    from irc.data import akshare_client
+
+    mock_df = pd.DataFrame([
+        {"基金代码": "270023", "基金简称": "广发全球精选股票(QDII)人民币A",
+         "近1年": "45.32%", "近3年": "12.10%", "成立来": "180.00%"},
+        {"基金代码": "000001", "基金简称": "华夏成长混合",
+         "近1年": "-3.50%", "近3年": "8.20%", "成立来": "120.00%"},
+        {"基金代码": "999999", "基金简称": "无数据基金",
+         "近1年": "--", "近3年": "", "成立来": "10.00%"},
+    ])
+
+    def fake_ak_call(name, **kwargs):
+        assert name == "fund_open_fund_rank_em"
+        return mock_df
+
+    # Clear cache so the test sees the patched call.
+    akshare_client._fetch_full_fund_rank_table.cache_clear()
+    akshare_client.fetch_open_fund_ranks.cache_clear()
+    monkeypatch.setattr(akshare_client, "_ak_call", fake_ak_call)
+
+    out = akshare_client.fetch_open_fund_ranks()
+
+    assert set(out.columns) >= {"fund_code", "return_1y"}
+    assert out.loc[out["fund_code"] == "270023", "return_1y"].iloc[0] == 45.32
+    assert out.loc[out["fund_code"] == "000001", "return_1y"].iloc[0] == -3.50
+    # Missing returns become NaN (downstream treats NaN as "rank last").
+    assert pd.isna(out.loc[out["fund_code"] == "999999", "return_1y"].iloc[0])

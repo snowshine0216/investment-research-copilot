@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 import re
 from typing import Any
@@ -35,6 +35,7 @@ class UniverseBuildOptions:
     cn_etf_cap: int = 80
     us_qdii_cap: int = 40
     hk_qdii_cap: int = 40
+    qdii_global_cap: int = 30
 
 
 THEME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -126,6 +127,8 @@ def _tracked_index_for(fund_name: str, asset_class: str, theme: str | None) -> s
         if "中概" in fund_name or "互联网" in fund_name:
             return "China Internet"
         return "HK Equity"
+    if asset_class == "qdii_global":
+        return "Global Equity"
     for keyword, tracked in (
         ("沪深300", "沪深300"),
         ("中证A500", "中证A500"),
@@ -160,6 +163,8 @@ def _infer_asset_class(fund: CatalogFund) -> str | None:
         return "us_etf"
     if is_qdii and _has_any(text, _HK_MARKERS):
         return "hk_etf"
+    if is_qdii and _has_any(text, _EQUITY_TYPE_MARKERS) and not _has_any(text, _BOND_MARKERS):
+        return "qdii_global"
     if _is_exchange_traded(fund):
         return "cn_etf"
     if _has_any(text, _BOND_MARKERS):
@@ -257,6 +262,8 @@ def _cap_for(classified: ClassifiedFund, options: UniverseBuildOptions) -> int:
         return options.us_qdii_cap
     if classified.asset_class == "hk_etf":
         return options.hk_qdii_cap
+    if classified.asset_class == "qdii_global":
+        return options.qdii_global_cap
     return 0
 
 
@@ -265,13 +272,38 @@ def _candidate_rank(classified: ClassifiedFund) -> tuple[int, str]:
     return (feeder_penalty, classified.catalog.fund_code)
 
 
-def _apply_caps(classified: Iterable[ClassifiedFund], options: UniverseBuildOptions) -> tuple[ClassifiedFund, ...]:
+def _candidate_rank_with_returns(
+    returns: Mapping[str, float],
+) -> Callable[[ClassifiedFund], tuple[int, int, float, str]]:
+    """Build a sort-key function that ranks by (feeder_penalty,
+    missing_return_penalty, -return_1y, fund_code). When `returns` is empty
+    the result is order-equivalent to `_candidate_rank` (ascending fund_code,
+    feeders last)."""
+    def key(classified: ClassifiedFund) -> tuple[int, int, float, str]:
+        feeder_penalty = 1 if "联接" in classified.catalog.fund_name else 0
+        raw = returns.get(classified.catalog.fund_code)
+        if raw is None or (isinstance(raw, float) and raw != raw):  # NaN check
+            missing = 1
+            neg_return = 0.0
+        else:
+            missing = 0
+            neg_return = -float(raw)
+        return (feeder_penalty, missing, neg_return, classified.catalog.fund_code)
+    return key
+
+
+def _apply_caps(
+    classified: Iterable[ClassifiedFund],
+    options: UniverseBuildOptions,
+    returns: Mapping[str, float] | None = None,
+) -> tuple[ClassifiedFund, ...]:
     grouped: dict[tuple[str, str], list[ClassifiedFund]] = defaultdict(list)
     for item in classified:
         grouped[_cap_key(item)].append(item)
+    rank_key = _candidate_rank_with_returns(returns or {})
     selected: list[ClassifiedFund] = []
     for key in sorted(grouped):
-        items = sorted(grouped[key], key=_candidate_rank)
+        items = sorted(grouped[key], key=rank_key)
         selected.extend(items[: _cap_for(items[0], options)])
     return tuple(sorted(selected, key=lambda item: item.catalog.fund_code))
 
@@ -306,12 +338,13 @@ def _exclude_feeder_funds(classified: tuple[ClassifiedFund, ...]) -> tuple[Class
 def build_cn_fund_universe(
     rows: Iterable[Mapping[str, Any]],
     options: UniverseBuildOptions | None = None,
+    returns: Mapping[str, float] | None = None,
 ) -> tuple[Instrument, ...]:
     build_options = options or UniverseBuildOptions()
     funds = dedupe_share_classes(normalize_catalog_rows(rows))
     classified = tuple(item for fund in funds if (item := classify_catalog_fund(fund)) is not None)
     classified = _exclude_feeder_funds(classified)
-    capped = _apply_caps(classified, build_options)
+    capped = _apply_caps(classified, build_options, returns)
     return tuple(_to_instrument(item) for item in capped)
 
 

@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.7] — 2026-05-21
+
+### Added
+- **Universe quality-weighted ranking + `qdii_global` asset class.** Replaces
+  the fund_code-ascending tiebreaker in `_candidate_rank` with a 1Y-return
+  quality signal fetched via `fetch_open_fund_ranks()` (lru-cached, degrades
+  gracefully to empty on failure). Adds a new `qdii_global` asset class so
+  global-mandate QDII active funds (e.g. 270023 Guafu Global) bucket separately
+  from `qdii` (China-biased). Changes are backward-compatible: `_apply_caps`
+  with `returns={}` yields the same selection as before. Downstream consumers
+  (`decision`, `allocation`, `memo`, `opportunity`) updated to handle
+  `qdii_global` explicitly. See
+  `docs/2026-05-21-universe-quality-ranking-qdii-global/MASTER-SPEC.md` for
+  full decomposition; 11-task plan, 11 commits.
+
 ## [0.8.6] — 2026-05-19
 
 ### Added
