@@ -35,6 +35,7 @@ class UniverseBuildOptions:
     cn_etf_cap: int = 80
     us_qdii_cap: int = 40
     hk_qdii_cap: int = 40
+    qdii_global_cap: int = 30
 
 
 THEME_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
@@ -261,6 +262,8 @@ def _cap_for(classified: ClassifiedFund, options: UniverseBuildOptions) -> int:
         return options.us_qdii_cap
     if classified.asset_class == "hk_etf":
         return options.hk_qdii_cap
+    if classified.asset_class == "qdii_global":
+        return options.qdii_global_cap
     return 0
 
 

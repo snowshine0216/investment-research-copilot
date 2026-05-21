@@ -319,3 +319,26 @@ def test_qdii_with_hk_marker_still_classified_as_hk_etf():
 
     assert out is not None
     assert out.asset_class == "hk_etf"
+
+
+def test_qdii_global_has_its_own_cap_bucket():
+    from irc.discovery.cn_fund_universe import build_cn_fund_universe, UniverseBuildOptions
+
+    rows = [
+        # Forty domestic broad-active equity funds (fill the cn_equity_fund cap).
+        *[
+            {"fund_code": f"00{i:04d}", "fund_name": f"老基金{i}股票A", "fund_type": "股票型"}
+            for i in range(40)
+        ],
+        # One QDII global fund — must not be drowned by the 40 domestic competitors.
+        {"fund_code": "270023", "fund_name": "广发全球精选股票(QDII)人民币A", "fund_type": ""},
+    ]
+    options = UniverseBuildOptions(active_broad_cap=40, qdii_global_cap=5)
+
+    out = build_cn_fund_universe(rows, options=options)
+    ids = [it.instrument_id for it in out]
+
+    # 270023 lives in qdii_global bucket, not in the cn_equity_fund broad_active bucket.
+    assert "270023" in ids
+    classes = {it.instrument_id: it.asset_class for it in out}
+    assert classes["270023"] == "qdii_global"
