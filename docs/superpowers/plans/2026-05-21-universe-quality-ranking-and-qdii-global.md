@@ -82,6 +82,8 @@ Expected: at least one symbol succeeds and the row for `270023` includes a `近1
 
 After running, paste the working symbol(s) and column list into this file as a one-paragraph "Probe results" note. If `'全部'` works, the implementation is one call. If only per-type symbols work, the implementation iterates `("股票型", "混合型", "债券型", "指数型", "QDII", "LOF", "FOF")` and concatenates.
 
+**Probe results (2026-05-21):** `fund_open_fund_rank_em(symbol="全部")` works in akshare 1.18.60, returning 19,584 rows with columns: `['序号', '基金代码', '基金简称', '日期', '单位净值', '累计净值', '日增长率', '近1周', '近1月', '近3月', '近6月', '近1年', '近2年', '近3年', '今年来', '成立来', '自定义', '手续费']`. The `近1年` column is already **numeric** (float, not percent-string) — `270023` row: `近1年=54.85` (54.85% 1-year return). The `基金代码` column is the fund code string. Implementation uses the single-call form with `symbol="全部"`. The `_parse_percent` helper must handle both numeric floats and `"--"` strings (the `自定义` column is NaN for most rows, so the pattern holds).
+
 - [ ] **Step 3: Commit the probe note**
 
 ```bash
