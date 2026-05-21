@@ -126,6 +126,8 @@ def _tracked_index_for(fund_name: str, asset_class: str, theme: str | None) -> s
         if "中概" in fund_name or "互联网" in fund_name:
             return "China Internet"
         return "HK Equity"
+    if asset_class == "qdii_global":
+        return "Global Equity"
     for keyword, tracked in (
         ("沪深300", "沪深300"),
         ("中证A500", "中证A500"),
@@ -160,6 +162,8 @@ def _infer_asset_class(fund: CatalogFund) -> str | None:
         return "us_etf"
     if is_qdii and _has_any(text, _HK_MARKERS):
         return "hk_etf"
+    if is_qdii and _has_any(text, _EQUITY_TYPE_MARKERS) and not _has_any(text, _BOND_MARKERS):
+        return "qdii_global"
     if _is_exchange_traded(fund):
         return "cn_etf"
     if _has_any(text, _BOND_MARKERS):

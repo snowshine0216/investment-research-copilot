@@ -273,3 +273,49 @@ def test_build_universe_uses_returns_to_select_high_performers_under_cap():
     ids = [it.instrument_id for it in with_returns]
     assert "270023" in ids
     assert len(ids) == 3
+
+
+def test_qdii_global_classification_for_funds_without_us_or_hk_markers():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="270023",
+        fund_name="广发全球精选股票(QDII)人民币A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "qdii_global"
+    assert out.tracked_index == "Global Equity"
+
+
+def test_qdii_with_us_marker_still_classified_as_us_etf():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="000055",
+        fund_name="广发纳斯达克100ETF联接美元(QDII)A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "us_etf"
+
+
+def test_qdii_with_hk_marker_still_classified_as_hk_etf():
+    from irc.discovery.cn_fund_universe import CatalogFund, classify_catalog_fund
+
+    fund = CatalogFund(
+        fund_code="000071",
+        fund_name="华夏恒生ETF联接(QDII)A",
+        fund_type="",
+    )
+
+    out = classify_catalog_fund(fund)
+
+    assert out is not None
+    assert out.asset_class == "hk_etf"
