@@ -6,7 +6,7 @@ import sys
 
 import yaml
 
-from irc.data.akshare_client import fetch_open_fund_catalog
+from irc.data.akshare_client import fetch_open_fund_catalog, fetch_open_fund_ranks
 from irc.discovery.cn_fund_universe import build_cn_fund_universe, serialize_universe
 from irc.io_utils import atomic_write_text
 from irc.schemas.universe import UniverseConfig
@@ -37,7 +37,17 @@ def run_build_cn_funds(repo_root: str) -> int:
     generated_path = root / "config" / "universe" / "cn_funds.generated.yaml"
     try:
         catalog = fetch_open_fund_catalog()
-        instruments = build_cn_fund_universe(catalog.to_dict("records"))
+        try:
+            ranks_df = fetch_open_fund_ranks()
+            returns = {
+                row["fund_code"]: float(row["return_1y"])
+                for row in ranks_df.to_dict("records")
+                if row.get("return_1y") == row.get("return_1y")  # NaN filter
+            }
+        except Exception as rank_exc:  # noqa: BLE001 - rank table is optional quality signal
+            print(f"WARN: fund-rank fetch failed ({rank_exc}); falling back to fund_code rank", file=sys.stderr)
+            returns = {}
+        instruments = build_cn_fund_universe(catalog.to_dict("records"), returns=returns)
         config = UniverseConfig.model_validate(serialize_universe(instruments))
         text = _yaml_text(config)
     except Exception as exc:  # noqa: BLE001 - command must preserve previous generated file on any failure
