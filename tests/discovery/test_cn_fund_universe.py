@@ -250,3 +250,26 @@ def test_candidate_rank_with_returns_preserves_feeder_penalty():
     returns = {"000001": 99.9, "000002": 1.0}
     ordered = sorted([feeder, direct], key=_candidate_rank_with_returns(returns))
     assert [it.catalog.fund_code for it in ordered] == ["000002", "000001"]
+
+
+def test_build_universe_uses_returns_to_select_high_performers_under_cap():
+    from irc.discovery.cn_fund_universe import build_cn_fund_universe, UniverseBuildOptions
+
+    rows = [
+        {"fund_code": f"00010{i}", "fund_name": f"老基金{i}股票A", "fund_type": "股票型"}
+        for i in range(5)
+    ] + [
+        {"fund_code": "270023", "fund_name": "广发新王者股票A", "fund_type": "股票型"},
+    ]
+    returns = {"270023": 50.0}  # everyone else has no return data
+    options = UniverseBuildOptions(active_broad_cap=3)
+
+    # Without returns: lowest 3 fund codes (000100, 000101, 000102) win.
+    without = build_cn_fund_universe(rows, options=options)
+    assert [it.instrument_id for it in without] == ["000100", "000101", "000102"]
+
+    # With returns: 270023 jumps to position 1 because it has the only positive return.
+    with_returns = build_cn_fund_universe(rows, options=options, returns=returns)
+    ids = [it.instrument_id for it in with_returns]
+    assert "270023" in ids
+    assert len(ids) == 3

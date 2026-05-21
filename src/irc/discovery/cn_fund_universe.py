@@ -285,13 +285,18 @@ def _candidate_rank_with_returns(
     return key
 
 
-def _apply_caps(classified: Iterable[ClassifiedFund], options: UniverseBuildOptions) -> tuple[ClassifiedFund, ...]:
+def _apply_caps(
+    classified: Iterable[ClassifiedFund],
+    options: UniverseBuildOptions,
+    returns: Mapping[str, float] | None = None,
+) -> tuple[ClassifiedFund, ...]:
     grouped: dict[tuple[str, str], list[ClassifiedFund]] = defaultdict(list)
     for item in classified:
         grouped[_cap_key(item)].append(item)
+    rank_key = _candidate_rank_with_returns(returns or {})
     selected: list[ClassifiedFund] = []
     for key in sorted(grouped):
-        items = sorted(grouped[key], key=_candidate_rank)
+        items = sorted(grouped[key], key=rank_key)
         selected.extend(items[: _cap_for(items[0], options)])
     return tuple(sorted(selected, key=lambda item: item.catalog.fund_code))
 
@@ -326,12 +331,13 @@ def _exclude_feeder_funds(classified: tuple[ClassifiedFund, ...]) -> tuple[Class
 def build_cn_fund_universe(
     rows: Iterable[Mapping[str, Any]],
     options: UniverseBuildOptions | None = None,
+    returns: Mapping[str, float] | None = None,
 ) -> tuple[Instrument, ...]:
     build_options = options or UniverseBuildOptions()
     funds = dedupe_share_classes(normalize_catalog_rows(rows))
     classified = tuple(item for fund in funds if (item := classify_catalog_fund(fund)) is not None)
     classified = _exclude_feeder_funds(classified)
-    capped = _apply_caps(classified, build_options)
+    capped = _apply_caps(classified, build_options, returns)
     return tuple(_to_instrument(item) for item in capped)
 
 
