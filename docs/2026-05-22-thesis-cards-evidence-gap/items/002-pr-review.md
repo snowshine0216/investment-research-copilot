@@ -62,3 +62,17 @@ All of the inline reviewer's nits (items 1–5) are confirmed; nits 1 and 4 are 
 
 ## Recommendation
 Fix loop recommended for latent bug 1 before merge, or explicitly document that `已尝试:` in the failure section will be empty until item 006/`OpportunityRow` gains `fetch_types_attempted`. All other items are nits. The core schema (hash preimage, `__post_init__` validation, `select_citations` invariants, `build_cited_map` detectors) is correct and well-tested.
+
+## Fix outcome
+
+**Commit:** `c38afb9`
+
+**Latent bug 1 (`fetch_types_attempted` schema gap) — RESOLVED.**
+
+- `fetch_types_attempted: tuple[str, ...] = ()` added to `OpportunityRow` in `src/irc/opportunity/types.py`.
+- `_row_to_dict` in `src/irc/opportunity/report.py` now serializes the field as `list(row.fetch_types_attempted)`.
+- `render_failure_sections` in `src/irc/memo/picks_table.py` now renders `已尝试: —` when the list is empty (rather than leaving a trailing blank).
+- `_discipline_row_from` in `src/irc/commands/opportunity_cmd.py` already used `getattr(row, "fetch_types_attempted", ())` — correct and no change needed.
+- 6 new TDD tests added (red then green): 2 in `tests/opportunity/test_types.py`, 2 in `tests/opportunity/test_report.py`, 2 in `tests/memo/test_pick_rows.py`.
+- `ruff check` clean on all touched files.
+- Only the 4 known pre-existing failures remain (`test_only_stage_runs_single`, `test_thesis_coverage_meets_threshold`, `test_no_all_evidence_insufficient_valuation`, `test_eval_single_stage_data`).

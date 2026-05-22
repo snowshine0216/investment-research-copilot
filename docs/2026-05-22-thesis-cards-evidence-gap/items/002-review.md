@@ -35,3 +35,11 @@ One gap: there is no test that exercises the `_evidence_from_dict` mismatch-dete
 
 ## Recommendation
 Merge as-is. Address latent-bug #1 (identity-vs-equality in `select_citations`) in item 003 when constituent evidence is wired; add `CitationMeta.asset_class` non-empty check as a follow-up nit.
+
+## Fix outcome
+
+**Latent bug #1 (`select_citations` identity-vs-equality) — REFUTED by PR reviewer, not fixed.**
+
+The PR reviewer (`items/002-pr-review.md`) demonstrated that `data_candidates` and `info_candidates` are mutually exclusive on `citation_kind` (a field included in `ThesisEvidence.__eq__`), so `data_pick` and `info_pick` are always `!=` by structural equality. The `is not` guard at line 63 is therefore logically equivalent to a `!=` guard in every reachable state. No code change was made for this item.
+
+**The real latent bug was the `fetch_types_attempted` schema gap** (flagged by the PR reviewer, not the inline reviewer): `OpportunityRow` lacked the field, so `_row_to_dict` never serialized it, and `render_failure_sections` always rendered `已尝试:` as blank. This was fixed in commit `c38afb9` — see `items/002-pr-review.md` Fix outcome section for details.
