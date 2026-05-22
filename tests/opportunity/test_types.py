@@ -247,6 +247,35 @@ def test_cited_map_type_alias_is_importable():
     assert ConstituentCitedMap is not None
 
 
+def test_discipline_row_has_new_evidence_fields_with_empty_defaults():
+    """DisciplineRow gains thesis_evidence, constituent_analyses, evidence_gaps,
+    fetch_types_attempted (all defaulted to empty tuples so existing test
+    constructors still work)."""
+    from irc.opportunity.types import DisciplineRow as _DR
+    r = _DR(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+    )
+    assert r.thesis_evidence == ()
+    assert r.constituent_analyses == ()
+    assert r.evidence_gaps == ()
+    assert r.fetch_types_attempted == ()
+
+
+def test_discipline_row_accepts_evidence_gaps_kwarg():
+    from irc.opportunity.types import DisciplineRow as _DR
+    r = _DR(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+        evidence_gaps=("holdings_fetch_failed",),
+        fetch_types_attempted=("filing", "broker", "news"),
+    )
+    assert r.evidence_gaps == ("holdings_fetch_failed",)
+    assert r.fetch_types_attempted == ("filing", "broker", "news")
+
+
 def test_citation_id_uses_summary_fallback_when_url_empty():
     """When url='', summary[:64] is mixed into the preimage so two empty-URL
     filings with different content but same source/date/instrument get distinct ids."""

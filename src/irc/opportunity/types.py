@@ -230,3 +230,11 @@ class DisciplineRow:
     dca_action: DcaAction
     risk_action: RiskAction
     note_cn: str
+    # Item 002: gap state and provenance carried through to renderers.
+    # `constituent_analyses` is typed `tuple[Any, ...]` until item 003 narrows
+    # to `tuple[ConstituentAnalysis, ...]`; default `()` round-trips through
+    # JSON as `[]`.
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    constituent_analyses: tuple[object, ...] = ()
+    evidence_gaps: tuple[str, ...] = ()
+    fetch_types_attempted: tuple[str, ...] = ()

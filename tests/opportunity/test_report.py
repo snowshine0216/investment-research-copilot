@@ -98,6 +98,7 @@ def test_thesis_cards_yaml_serializes_thesis_evidence():
     assert "type: filing" in payload
     assert "中信证券" in payload
     assert "https://example.com/filing/600519" in payload
+    assert "citation_id:" in payload  # Item 002: every evidence carries citation_id.
 
 
 def test_discipline_markdown_has_chinese_action_sections():
@@ -141,6 +142,8 @@ def test_slow_dca_routes_to_jianshu_bucket():
     assert "512760" not in jinkeri_section
 
 
+import json as _json
+
 from irc.opportunity.report import _row_to_dict
 
 
@@ -157,3 +160,34 @@ def test_row_to_dict_includes_expected_omissions():
     d = _row_to_dict(row)
     assert d["expected_omissions"] == ["constituent_not_applicable"]
     assert d["evidence_gaps"] == ["news_stage_skipped"]
+
+
+def test_row_to_dict_serializes_thesis_evidence_and_contributing_dimensions():
+    """JSON round-trip: thesis_evidence appears as a list of dicts with all
+    provenance fields including citation_id; contributing_dimensions appears
+    as a sorted list; constituent_analyses appears as an empty list (item 003
+    populates it later)."""
+    ev = ThesisEvidence(
+        type="filing", source="600519",
+        url="https://example.com/filing/600519",
+        date="2026-04-28", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key="600519",
+    )
+    row = _row(
+        thesis_evidence=(ev,),
+        contributing_dimensions=frozenset({"valuation", "heat"}),
+    )
+    d = _row_to_dict(row)
+    # Round-trip through JSON to confirm serializability.
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert "thesis_evidence" in loaded
+    assert len(loaded["thesis_evidence"]) == 1
+    assert loaded["thesis_evidence"][0]["citation_id"] == ev.citation_id
+    assert loaded["thesis_evidence"][0]["owner_instrument_id"] == "510300"
+    assert loaded["thesis_evidence"][0]["scope"] == "constituent"
+    # contributing_dimensions: sorted list (item 001's frozenset → sorted list)
+    assert loaded["contributing_dimensions"] == ["heat", "valuation"]
+    # constituent_analyses default-empty until item 003.
+    assert loaded["constituent_analyses"] == []

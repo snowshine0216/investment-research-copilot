@@ -160,6 +160,11 @@ def _discipline_row_from(
         dca_action=dca,
         risk_action=risk,
         note_cn=note,
+        # Item 002: propagate gap state and provenance.
+        thesis_evidence=row.thesis_evidence,
+        constituent_analyses=getattr(row, "constituent_analyses", ()),
+        evidence_gaps=row.evidence_gaps,
+        fetch_types_attempted=getattr(row, "fetch_types_attempted", ()),
     )
 
 
