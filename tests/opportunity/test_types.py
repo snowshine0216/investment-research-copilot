@@ -135,3 +135,90 @@ def test_opportunity_row_has_expected_omissions_default_empty():
 def test_opportunity_row_accepts_expected_omissions_kwarg():
     r = _row(expected_omissions=("constituent_not_applicable",))
     assert r.expected_omissions == ("constituent_not_applicable",)
+
+
+def _evidence_kwargs(**over):
+    """Helper: minimal valid kwargs for ThesisEvidence. Override per test."""
+    base = dict(
+        type="filing",
+        source="600519",
+        url="https://example.com/foo",
+        date="2026-04-28",
+        summary="x",
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    base.update(over)
+    return base
+
+
+def test_thesis_evidence_rejects_empty_owner_instrument_id():
+    with pytest.raises(ValueError, match="owner_instrument_id"):
+        ThesisEvidence(**_evidence_kwargs(owner_instrument_id=""))
+
+
+def test_thesis_evidence_rejects_invalid_citation_kind():
+    with pytest.raises(ValueError, match="citation_kind"):
+        ThesisEvidence(**_evidence_kwargs(citation_kind="both"))  # type: ignore[arg-type]
+
+
+def test_thesis_evidence_rejects_invalid_scope():
+    with pytest.raises(ValueError, match="scope"):
+        ThesisEvidence(**_evidence_kwargs(scope="random"))  # type: ignore[arg-type]
+
+
+def test_thesis_evidence_rejects_empty_type_source_date():
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(type=""))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(source=""))
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(date=""))
+
+
+def test_thesis_evidence_accepts_none_for_fund_level_optional_fields():
+    """parent_fund_id and constituent_key may be None for fund-level evidence."""
+    ev = ThesisEvidence(**_evidence_kwargs(parent_fund_id=None, constituent_key=None))
+    assert ev.parent_fund_id is None
+    assert ev.constituent_key is None
+
+
+def test_citation_id_is_deterministic_for_identical_preimage():
+    """Same inputs → same 16-hex citation_id. Content-addressed invariant."""
+    kwargs = _evidence_kwargs()
+    a = ThesisEvidence(**kwargs)
+    b = ThesisEvidence(**kwargs)
+    assert a.citation_id == b.citation_id
+    assert len(a.citation_id) == 16
+    assert all(c in "0123456789abcdef" for c in a.citation_id)
+
+
+def test_citation_id_differs_across_owner_instruments():
+    """Same type/source/date/url but different owner_instrument_id → different id."""
+    a = ThesisEvidence(**_evidence_kwargs(owner_instrument_id="510300"))
+    b = ThesisEvidence(**_evidence_kwargs(owner_instrument_id="163417"))
+    assert a.citation_id != b.citation_id
+
+
+def test_citation_id_differs_across_constituents_under_same_fund():
+    """Same type/source/date/url/owner_instrument_id but different constituent_key → different id."""
+    a = ThesisEvidence(**_evidence_kwargs(
+        scope="constituent", owner_instrument_id="005827",
+        parent_fund_id="005827", constituent_key="600519",
+    ))
+    b = ThesisEvidence(**_evidence_kwargs(
+        scope="constituent", owner_instrument_id="005827",
+        parent_fund_id="005827", constituent_key="000858",
+    ))
+    assert a.citation_id != b.citation_id
+
+
+def test_citation_id_uses_summary_fallback_when_url_empty():
+    """When url='', summary[:64] is mixed into the preimage so two empty-URL
+    filings with different content but same source/date/instrument get distinct ids."""
+    a = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q3 营收 +12%"))
+    b = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q4 营收 -5%"))
+    assert a.citation_id != b.citation_id
