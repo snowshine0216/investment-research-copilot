@@ -76,6 +76,9 @@ def test_thesis_evidence_is_frozen_dataclass():
         url="http://www.cninfo.com.cn/foo",
         date="2026-04-28",
         summary="中芯国际 2026Q1 营收同比 +18%。",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key=None,
     )
     assert ev.type == "filing"
     with pytest.raises(FrozenInstanceError):
@@ -85,7 +88,12 @@ def test_thesis_evidence_is_frozen_dataclass():
 def test_thesis_evidence_type_must_be_known_kind():
     """Allowed kinds: filing | broker | news | policy | snapshot."""
     for kind in ("filing", "broker", "news", "policy", "snapshot"):
-        ev = ThesisEvidence(type=kind, source="s", url="u", date="d", summary="x")
+        ev = ThesisEvidence(
+            type=kind, source="s", url="u", date="d", summary="x",
+            scope="instrument", citation_kind="data",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key=None,
+        )
         assert ev.type == kind
 
 
