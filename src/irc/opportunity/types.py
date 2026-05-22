@@ -130,6 +130,7 @@ class OpportunityRow:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    contributing_dimensions: frozenset[str] = field(default_factory=frozenset)
 
 
 @dataclass(frozen=True)
