@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from irc.memo.picks_table import PickRow, render_picks_table
+from irc.opportunity.types import ThesisEvidence
 
 
 def test_render_picks_table_dedupes_and_lists_action_and_rationale():
@@ -102,9 +103,6 @@ def test_render_picks_table_groups_zero_weight_as_observation_only():
     md = render_picks_table(rows)
     assert "仅观察" in md
     assert "0.0%" in md or "观察" in md
-
-
-from irc.opportunity.types import ThesisEvidence
 
 
 def _evidence(**over) -> ThesisEvidence:

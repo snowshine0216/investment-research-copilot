@@ -1,8 +1,12 @@
 from __future__ import annotations
+
+import json
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import json
+
 import yaml
+
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
@@ -14,9 +18,11 @@ from irc.memo.diagnostics import (
     compose_role_bucket_banner,
 )
 from irc.memo.evidence_pool import build_evidence_pool
-from irc.memo.picks_table import PickRow, render_picks_table, render_failure_sections
+from irc.memo.citation_selector import select_citations
+from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
+from irc.opportunity.types import ThesisEvidence
 
 
 _DEFAULT_TIMELINESS_NOTE = (
@@ -231,12 +237,6 @@ def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -
         f"机会面：core_dca={n_core}，small_watch={n_watch}，pause_wait={n_pause}。"
     )
     return tuple(lines)
-
-
-import re
-
-from irc.memo.citation_selector import select_citations
-from irc.opportunity.types import ThesisEvidence
 
 
 _VENUE_SUFFIX_RE = re.compile(r"\.[A-Z]{2,3}$")

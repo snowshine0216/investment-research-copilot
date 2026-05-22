@@ -14,7 +14,6 @@ from irc.opportunity.types import (
     OpportunityRow,
     OpportunityState,
     ProductQualityState,
-    ThesisEvidence,
     ThesisState,
     ValuationState,
 )

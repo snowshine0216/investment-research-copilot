@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json as _json
+
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import PositionContext
 from irc.opportunity.report import (
+    _row_to_dict,
+    compose_discipline_markdown,
     compose_opportunity_report,
     compose_thesis_cards_yaml,
-    compose_discipline_markdown,
 )
 from irc.opportunity.types import (
     DisciplineRow,
@@ -140,11 +143,6 @@ def test_slow_dca_routes_to_jianshu_bucket():
     assert "512760" in jianshu_section
     jinkeri_section = md.split("## 今日可定投")[1].split("##")[0]
     assert "512760" not in jinkeri_section
-
-
-import json as _json
-
-from irc.opportunity.report import _row_to_dict
 
 
 def test_row_to_dict_includes_expected_omissions():

@@ -4,11 +4,9 @@ from dataclasses import FrozenInstanceError
 
 from irc.opportunity.types import (
     LookthroughTarget,
-    OpportunityInput,
     OpportunityRow,
     ThesisCard,
     ThesisEvidence,
-    DisciplineRow,
     VALUATION_STATES,
     HEAT_STATES,
     THESIS_STATES,

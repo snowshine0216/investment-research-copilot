@@ -108,3 +108,41 @@ def test_build_pick_rows_missing_opportunity_falls_into_absent():
     assert pick_rows == []
     assert {a["target"] for a in absent} == {"510300", "159919"}
     assert gapped == []
+
+
+def test_render_failure_sections_produces_expected_markdown():
+    """Smoke test: absent + gapped buckets render the `###` h3 sub-blocks
+    and never emit conclusion fields (opportunity_state, dca_action, etc.)."""
+    from irc.memo.picks_table import render_failure_sections
+
+    absent = [{"target": "510300"}]
+    gapped = [{
+        "target": "005827",
+        "_matched_row": {
+            "instrument_id": "005827",
+            "name_cn": "易方达蓝筹精选",
+            "evidence_gaps": ["missing_constituent_snapshot", "news_search_empty"],
+            "fetch_types_attempted": ["filing", "broker", "news"],
+            # The following MUST NOT appear in the failure section markdown:
+            "opportunity_state": "core_dca",
+            "dca_action": "normal_dca",
+            "risk_action": "none",
+            "note_cn": "should-not-appear",
+        },
+    }]
+    md = render_failure_sections(absent, gapped, extra_names={"510300": "华泰柏瑞沪深300ETF"})
+    assert "### 未能纳入精选：机会数据缺失" in md
+    assert "### 未能纳入精选：证据不足" in md
+    assert "510300 华泰柏瑞沪深300ETF" in md
+    assert "005827 易方达蓝筹精选" in md
+    assert "missing_constituent_snapshot" in md
+    assert "filing, broker, news" in md
+    # Conclusion fields MUST NOT leak:
+    assert "core_dca" not in md
+    assert "normal_dca" not in md
+    assert "should-not-appear" not in md
+
+
+def test_render_failure_sections_empty_buckets_returns_empty_string():
+    from irc.memo.picks_table import render_failure_sections
+    assert render_failure_sections([], []) == ""
