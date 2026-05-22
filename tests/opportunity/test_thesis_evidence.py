@@ -109,7 +109,7 @@ def _theme_report(report_md: str = "Recent industry news.", *, citations: list[C
 # ---------------------------------------------------------------------------
 
 def test_evidence_insufficient_when_snapshot_and_theme_report_both_none():
-    state, _reason, evidence, gaps = derive_thesis_from_evidence(None, None)
+    state, _reason, evidence, gaps = derive_thesis_from_evidence(None, None, owner_instrument_id="510300")
     assert state == "evidence_insufficient"
     assert evidence == ()
     assert "missing_constituent_snapshot" in gaps
@@ -119,14 +119,14 @@ def test_evidence_insufficient_when_snapshot_and_theme_report_both_none():
 
 def test_evidence_insufficient_when_snapshot_has_no_filings():
     snap = _snapshot(filings=())
-    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None)
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None, owner_instrument_id="510300")
     assert state == "evidence_insufficient"
     assert "missing_constituent_snapshot" in gaps
 
 
 def test_evidence_insufficient_when_all_filings_lack_yoy():
     snap = _snapshot(filings=tuple(_filing(f"S{i}", None) for i in range(5)))
-    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None)
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, None, owner_instrument_id="510300")
     assert state == "evidence_insufficient"
     assert "missing_constituent_snapshot" in gaps
 
@@ -135,7 +135,7 @@ def test_evidence_insufficient_when_theme_report_failed():
     snap = _snapshot(filings=())
     tr = ThemeReport(theme="x", query="q", locale="zh", report_md="",
                      citations=[], failure_reason="all providers down")
-    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr, owner_instrument_id="510300")
     assert state == "evidence_insufficient"
     assert "news_llm_failed" in gaps
     assert "missing_recent_news" not in gaps
@@ -152,7 +152,7 @@ def test_intact_when_strong_majority_positive_yoy_and_neutral_brokers():
         + [_filing(f"N{i}", -0.05) for i in range(2)]
     )
     snap = _snapshot(filings=filings)
-    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert state == "intact"
     assert "missing_constituent_snapshot" not in gaps
 
@@ -161,7 +161,7 @@ def test_intact_when_majority_positive_and_buy_broker_consensus():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(7))
     brokers = tuple(_broker(f"S{i}", rating="买入") for i in range(5))
     snap = _snapshot(filings=filings, brokers=brokers)
-    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert state == "intact"
     assert "missing_broker_coverage" not in gaps
 
@@ -176,7 +176,7 @@ def test_under_pressure_when_30pct_negative_yoy():
         + [_filing(f"N{i}", -0.10) for i in range(3)]
     )
     snap = _snapshot(filings=filings)
-    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert state == "under_pressure"
 
 
@@ -185,7 +185,7 @@ def test_under_pressure_when_broker_consensus_negative():
     filings = tuple(_filing(f"S{i}", 0.08) for i in range(7))
     brokers = tuple(_broker(f"S{i}", rating="减持") for i in range(5))
     snap = _snapshot(filings=filings, brokers=brokers)
-    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert state == "under_pressure"
 
 
@@ -199,7 +199,7 @@ def test_falsified_when_majority_negative_yoy():
         + [_filing(f"P{i}", 0.05) for i in range(3)]
     )
     snap = _snapshot(filings=filings)
-    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    state, _reason, _ev, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert state == "falsified"
 
 
@@ -210,7 +210,7 @@ def test_falsified_when_majority_negative_yoy():
 def test_evidence_includes_filing_entries():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
     snap = _snapshot(filings=filings)
-    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert any(e.type == "filing" for e in evidence)
     filing_e = next(e for e in evidence if e.type == "filing")
     assert filing_e.url.startswith("https://example.com/filing/")
@@ -221,7 +221,7 @@ def test_evidence_includes_broker_entries():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(3))
     brokers = (_broker("S0", rating="买入"),)
     snap = _snapshot(filings=filings, brokers=brokers)
-    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert any(e.type == "broker" for e in evidence)
     broker_e = next(e for e in evidence if e.type == "broker")
     assert broker_e.source == "中信证券"
@@ -234,7 +234,7 @@ def test_evidence_includes_news_from_theme_report_citations():
         Citation(index=1, title="Policy news", url="https://x.example/news",
                  published_iso="2026-05-10"),
     ])
-    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, tr)
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, tr, owner_instrument_id="510300")
     assert any(e.type == "news" for e in evidence)
 
 
@@ -243,7 +243,7 @@ def test_evidence_capped_to_keep_card_readable():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(20))
     brokers = tuple(_broker(f"S{i}", rating="买入") for i in range(10))
     snap = _snapshot(filings=filings, brokers=brokers)
-    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report())
+    _state, _reason, evidence, _gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     n_filing = sum(1 for e in evidence if e.type == "filing")
     n_broker = sum(1 for e in evidence if e.type == "broker")
     assert n_filing <= 3
@@ -257,7 +257,7 @@ def test_evidence_capped_to_keep_card_readable():
 def test_missing_broker_coverage_gap_when_no_broker_reports():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
     snap = _snapshot(filings=filings, brokers=())
-    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report())
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, _theme_report(), owner_instrument_id="510300")
     assert "missing_broker_coverage" in gaps
 
 
@@ -285,7 +285,7 @@ def _research_theme_report(n_citations: int, *, failure: str = "") -> ThemeRepor
 
 
 def test_theme_report_with_3plus_citations_yields_intact_when_no_snapshot():
-    state, reason, evidence, gaps = derive_thesis_from_evidence(None, _research_theme_report(3))
+    state, reason, evidence, gaps = derive_thesis_from_evidence(None, _research_theme_report(3), owner_instrument_id="510300")
     assert state == "intact"
     assert "研究" in reason or "research" in reason or "citations" in reason
     assert any(e.type == "news" for e in evidence)
@@ -293,17 +293,17 @@ def test_theme_report_with_3plus_citations_yields_intact_when_no_snapshot():
 
 
 def test_theme_report_with_failure_falls_back_to_insufficient():
-    state, _, _, gaps = derive_thesis_from_evidence(None, _research_theme_report(5, failure="provider 429"))
+    state, _, _, gaps = derive_thesis_from_evidence(None, _research_theme_report(5, failure="provider 429"), owner_instrument_id="510300")
     assert state == "evidence_insufficient"
 
 
 def test_theme_report_with_too_few_citations_falls_back_to_insufficient():
-    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(1))
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(1), owner_instrument_id="510300")
     assert state == "evidence_insufficient"
 
 
 def test_theme_report_with_zero_citations_insufficient():
-    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(0))
+    state, _, _, _ = derive_thesis_from_evidence(None, _research_theme_report(0), owner_instrument_id="510300")
     assert state == "evidence_insufficient"
 
 
@@ -312,7 +312,7 @@ def test_empty_report_md_with_no_failure_reason_adds_news_search_empty_gap():
     filings = tuple(_filing(f"S{i}", 0.10) for i in range(5))
     snap = _snapshot(filings=filings)
     tr = _theme_report(report_md="")  # empty report, no failure_reason
-    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr)
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(snap, tr, owner_instrument_id="510300")
     assert "news_search_empty" in gaps
     assert "missing_recent_news" not in gaps
 
@@ -327,6 +327,7 @@ def test_refined_label_constituent_not_applicable_for_gold():
     alongside the legacy label."""
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         None, _theme_report(), asset_class="gold",
+        owner_instrument_id="510300",
     )
     assert "missing_constituent_snapshot" in gaps
     assert "constituent_not_applicable" in gaps
@@ -335,6 +336,7 @@ def test_refined_label_constituent_not_applicable_for_gold():
 def test_refined_label_constituent_not_applicable_for_bond():
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         None, _theme_report(), asset_class="cn_bond_fund",
+        owner_instrument_id="510300",
     )
     assert "constituent_not_applicable" in gaps
 
@@ -342,6 +344,7 @@ def test_refined_label_constituent_not_applicable_for_bond():
 def test_refined_label_constituent_not_applicable_for_active_fund():
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         None, _theme_report(), asset_class="cn_equity_fund",
+        owner_instrument_id="510300",
     )
     assert "constituent_not_applicable" in gaps
 
@@ -359,6 +362,7 @@ def test_refined_label_constituent_fetch_failed_when_snapshot_empty():
     )
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         snap, _theme_report(), asset_class="us_etf",
+        owner_instrument_id="510300",
     )
     assert "missing_constituent_snapshot" in gaps
     assert "constituent_fetch_failed" in gaps
@@ -368,6 +372,7 @@ def test_refined_label_constituent_missing_when_snapshot_none_for_indexable_clas
     """ETF whose lookthrough target is not yet registered → constituent_missing."""
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         None, _theme_report(), asset_class="cn_etf",
+        owner_instrument_id="510300",
     )
     assert "missing_constituent_snapshot" in gaps
     assert "constituent_missing" in gaps
@@ -378,6 +383,7 @@ def test_no_refined_label_when_snapshot_usable():
     snap = _snapshot(filings=filings)
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         snap, _theme_report(), asset_class="cn_etf",
+        owner_instrument_id="510300",
     )
     assert "missing_constituent_snapshot" not in gaps
     assert "constituent_not_applicable" not in gaps
@@ -387,7 +393,7 @@ def test_no_refined_label_when_snapshot_usable():
 
 def test_no_refined_label_when_asset_class_omitted():
     """Backward-compatible: without asset_class, only legacy label appears."""
-    _state, _reason, _ev, gaps = derive_thesis_from_evidence(None, _theme_report())
+    _state, _reason, _ev, gaps = derive_thesis_from_evidence(None, _theme_report(), owner_instrument_id="510300")
     assert "missing_constituent_snapshot" in gaps
     assert "constituent_not_applicable" not in gaps
     assert "constituent_fetch_failed" not in gaps
@@ -399,7 +405,7 @@ def test_no_refined_label_when_asset_class_omitted():
 # ---------------------------------------------------------------------------
 
 def test_news_stage_skipped_when_theme_report_is_none():
-    _, _, _, gaps = derive_thesis_from_evidence(None, None, asset_class="cn_etf")
+    _, _, _, gaps = derive_thesis_from_evidence(None, None, asset_class="cn_etf", owner_instrument_id="510300")
     assert "news_stage_skipped" in gaps
     assert "missing_recent_news" not in gaps
 
@@ -407,7 +413,7 @@ def test_news_stage_skipped_when_theme_report_is_none():
 def test_news_search_empty_when_no_sources():
     r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
                     failure_reason="no sources to synthesize from")
-    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf", owner_instrument_id="510300")
     assert "news_search_empty" in gaps
     assert "missing_recent_news" not in gaps
 
@@ -415,7 +421,7 @@ def test_news_search_empty_when_no_sources():
 def test_news_llm_failed_on_synth_exception():
     r = ThemeReport(theme="t", query="q", locale="en", report_md="", citations=[],
                     failure_reason="429 rate limit")
-    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf")
+    _, _, _, gaps = derive_thesis_from_evidence(None, r, asset_class="cn_etf", owner_instrument_id="510300")
     assert "news_llm_failed" in gaps
     assert "missing_recent_news" not in gaps
 

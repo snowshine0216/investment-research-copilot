@@ -86,12 +86,18 @@ def test_card_propagates_thesis_evidence():
             url="https://example.com/filing/600519",
             date="2026-04-28",
             summary="600519 营收同比 +12%",
+            scope="constituent", citation_kind="data",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
         ThesisEvidence(
             type="broker", source="中信证券",
             url="https://example.com/broker/600519",
             date="2026-05-02",
             summary="维持买入",
+            scope="constituent", citation_kind="information",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
     )
     row = _row(thesis_evidence=evidence)

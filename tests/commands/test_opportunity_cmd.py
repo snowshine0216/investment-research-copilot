@@ -330,3 +330,62 @@ def test_opportunity_cmd_passes_none_snapshot_when_no_cache(tmp_path: Path, monk
 
     assert rc == 0
     assert all(c["snapshot"] is None for c in captured_kwargs)
+
+
+def test_discipline_row_from_propagates_evidence_gaps_and_thesis_evidence():
+    """_discipline_row_from must carry the row's thesis_evidence,
+    evidence_gaps, fetch_types_attempted into the DisciplineRow so item 006
+    (H3) can render the failure section and item 007 can render evidence
+    bullets per row."""
+    from irc.commands.opportunity_cmd import _discipline_row_from
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.types import (
+        LookthroughTarget, OpportunityRow, ThesisEvidence,
+    )
+
+    ev = ThesisEvidence(
+        type="filing", source="600519",
+        url="https://example.com/600519", date="2026-04-28",
+        summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key="600519",
+    )
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x",
+        asset_class="cn_etf", theme="broad",
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=("holdings_fetch_failed",),
+        thesis_evidence=(ev,),
+    )
+    position = PositionContext(0.05, 0.0, 0.30, None, True)
+    drow = _discipline_row_from(row, position)
+    assert drow.thesis_evidence == (ev,)
+    assert drow.evidence_gaps == ("holdings_fetch_failed",)
+    # `fetch_types_attempted` is sourced from `getattr(row, "fetch_types_attempted", ())`
+    # — OpportunityRow doesn't carry it today, so default is ().
+    assert drow.fetch_types_attempted == ()
+
+
+def test_discipline_row_from_passes_through_constituent_analyses():
+    """Until item 003 lands, constituent_analyses is empty by default; the
+    propagator still threads it (default → default) so the field exists on
+    DisciplineRow for item 007's renderer."""
+    from irc.commands.opportunity_cmd import _discipline_row_from
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.types import LookthroughTarget, OpportunityRow
+
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x",
+        asset_class="cn_etf", theme="broad",
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=(),
+    )
+    drow = _discipline_row_from(row, PositionContext(0.05, 0.0, 0.30, None, True))
+    assert drow.constituent_analyses == ()

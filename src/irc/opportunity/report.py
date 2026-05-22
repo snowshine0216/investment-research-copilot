@@ -29,6 +29,13 @@ def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
         "opportunity_reason": row.opportunity_reason,
         "evidence_gaps": list(row.evidence_gaps),
         "expected_omissions": list(row.expected_omissions),
+        # New schema (item 002):
+        "thesis_evidence": [asdict(e) for e in row.thesis_evidence],
+        "contributing_dimensions": sorted(row.contributing_dimensions),
+        "constituent_analyses": [
+            asdict(c) for c in getattr(row, "constituent_analyses", ())
+        ],
+        "fetch_types_attempted": list(row.fetch_types_attempted),
     }
 
 
@@ -57,6 +64,13 @@ def _card_to_dict(card: ThesisCard) -> dict[str, Any]:
                 "do_not_sell_just_because", "evidence_gaps",
                 "expected_omissions"):
         d[key] = list(d.get(key, []))
+    # Every ThesisEvidence dict must carry its citation_id (computed in
+    # __post_init__; never empty after construction).
+    for ev_dict in d.get("thesis_evidence", []):
+        if not ev_dict.get("citation_id"):
+            raise RuntimeError(
+                f"thesis_evidence entry missing citation_id: {ev_dict}"
+            )
     return d
 
 

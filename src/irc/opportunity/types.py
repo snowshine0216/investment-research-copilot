@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -97,21 +98,82 @@ class OpportunityInput:
 
 
 ThesisEvidenceKind = Literal["filing", "broker", "news", "policy", "snapshot"]
+CitationKind = Literal["data", "information"]
+CitationScope = Literal["instrument", "constituent", "asset_class_macro", "policy"]
 
 
 @dataclass(frozen=True)
 class ThesisEvidence:
-    """Primary-source citation backing a `thesis_state`.
+    """Primary-source citation backing a `thesis_state`, with content-addressed
+    provenance.
 
-    `type` distinguishes the evidence shape: a filing digest, a broker report,
-    a news article, a policy statement, or a snapshot summary line. Renderers
-    can group by type; consumers should not infer state directly from `summary`.
+    `citation_id` is a 16-hex-char prefix of sha256 over the preimage
+    (owner_instrument_id : scope : constituent_key : type : canonical_id : date)
+    where canonical_id = url or f"{source}:{date}:{summary[:64]}". The id is
+    computed in `__post_init__` and overrides any caller-supplied value.
+
+    See `docs/adr/0001-citation-data-model.md` for the binding contract.
     """
     type: ThesisEvidenceKind
     source: str
     url: str
     date: str
     summary: str
+    # Required provenance fields (no defaults; callers MUST supply).
+    scope: CitationScope
+    citation_kind: CitationKind
+    owner_instrument_id: str
+    parent_fund_id: str | None
+    constituent_key: str | None
+    # Computed in __post_init__; never accept caller-supplied value.
+    citation_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.owner_instrument_id:
+            raise ValueError("ThesisEvidence.owner_instrument_id must be non-empty")
+        if self.citation_kind not in ("data", "information"):
+            raise ValueError(f"invalid citation_kind: {self.citation_kind!r}")
+        if self.scope not in ("instrument", "constituent",
+                              "asset_class_macro", "policy"):
+            raise ValueError(f"invalid scope: {self.scope!r}")
+        if not self.type or not self.source or not self.date:
+            raise ValueError(
+                "ThesisEvidence.type/source/date must be non-empty"
+            )
+        canonical_id = self.url or f"{self.source}:{self.date}:{self.summary[:64]}"
+        preimage = (
+            f"{self.owner_instrument_id}:{self.scope}:"
+            f"{self.constituent_key or ''}:{self.type}:"
+            f"{canonical_id}:{self.date}"
+        ).encode("utf-8")
+        object.__setattr__(
+            self, "citation_id", hashlib.sha256(preimage).hexdigest()[:16]
+        )
+
+
+@dataclass(frozen=True)
+class CitationMeta:
+    """Per-citation metadata indexed by `citation_id` in `CitedMap`.
+
+    `asset_class` is the asset class of the row whose `instrument_id ==
+    owner_instrument_id` at `build_cited_map` time. Required because the
+    portfolio-section audit (item 007/009) rejects scope-mismatched citations
+    from `CitationMeta.asset_class` alone, without alias lookup.
+    """
+    scope: CitationScope
+    citation_kind: CitationKind
+    owner_instrument_id: str
+    asset_class: str
+    parent_fund_id: str | None
+    constituent_key: str | None
+
+
+# Type aliases consumed by build_cited_map and downstream audit gates (item 009).
+CitedMap = dict[str, dict[str, CitationMeta]]
+"""instrument_id → {citation_id: CitationMeta}"""
+
+ConstituentCitedMap = dict[str, dict[str, dict[str, CitationMeta]]]
+"""instrument_id → constituent_key → {citation_id: CitationMeta}"""
 
 
 @dataclass(frozen=True)
@@ -131,6 +193,9 @@ class OpportunityRow:
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
     contributing_dimensions: frozenset[str] = field(default_factory=frozenset)
+    # Item 002: fetch pipeline diagnostics — mirrors DisciplineRow.fetch_types_attempted.
+    # Serialized by _row_to_dict so render_failure_sections can populate 已尝试:.
+    fetch_types_attempted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -168,3 +233,11 @@ class DisciplineRow:
     dca_action: DcaAction
     risk_action: RiskAction
     note_cn: str
+    # Item 002: gap state and provenance carried through to renderers.
+    # `constituent_analyses` is typed `tuple[Any, ...]` until item 003 narrows
+    # to `tuple[ConstituentAnalysis, ...]`; default `()` round-trips through
+    # JSON as `[]`.
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    constituent_analyses: tuple[object, ...] = ()
+    evidence_gaps: tuple[str, ...] = ()
+    fetch_types_attempted: tuple[str, ...] = ()

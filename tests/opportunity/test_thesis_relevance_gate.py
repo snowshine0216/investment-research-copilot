@@ -34,6 +34,7 @@ def test_intact_requires_one_trusted_citation() -> None:
     ]
     state, reason, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
+        owner_instrument_id="518880",
     )
     assert state == "intact"
     assert "一级来源" in reason
@@ -53,6 +54,7 @@ def test_all_republisher_citations_yields_evidence_insufficient() -> None:
     ]
     state, reason, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
+        owner_instrument_id="518880",
     )
     assert state == "evidence_insufficient"
     assert "次级转载源" in reason
@@ -65,6 +67,7 @@ def test_below_min_citations_is_evidence_insufficient() -> None:
     ]
     state, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
+        owner_instrument_id="518880",
     )
     assert state == "evidence_insufficient"
 
@@ -83,5 +86,6 @@ def test_unknown_tier_alone_is_evidence_insufficient() -> None:
     ]
     state, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
+        owner_instrument_id="518880",
     )
     assert state == "evidence_insufficient"

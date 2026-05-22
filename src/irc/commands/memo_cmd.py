@@ -1,8 +1,12 @@
 from __future__ import annotations
+
+import json
+import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import json
+
 import yaml
+
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
@@ -14,9 +18,11 @@ from irc.memo.diagnostics import (
     compose_role_bucket_banner,
 )
 from irc.memo.evidence_pool import build_evidence_pool
-from irc.memo.picks_table import PickRow, render_picks_table
+from irc.memo.citation_selector import select_citations
+from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
+from irc.opportunity.types import ThesisEvidence
 
 
 _DEFAULT_TIMELINESS_NOTE = (
@@ -233,38 +239,116 @@ def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -
     return tuple(lines)
 
 
+_VENUE_SUFFIX_RE = re.compile(r"\.[A-Z]{2,3}$")
+
+
+def _strip_venue_suffix(iid: str) -> str:
+    """Strip a trailing `.SH` / `.SZ` / `.OF` / `.HK` venue suffix if present,
+    and a single leading letter prefix (e.g. `A` in `A510300.SH` → `510300`).
+
+    Conservative: only strips suffixes matching `\\.[A-Z]{2,3}$` and a leading
+    single uppercase letter followed by digits. Canonical iids in
+    `config/universe/*.yaml` are 6-digit bare codes (e.g. `510300`, `005827`)
+    and venue proxies like `cmb_paper_gold` carry no dot — both pass through
+    unchanged.
+    """
+    stripped = _VENUE_SUFFIX_RE.sub("", iid)
+    # Strip leading single letter prefix (A-share proxy: A510300 → 510300).
+    if len(stripped) >= 2 and stripped[0].isalpha() and stripped[1:].isdigit():
+        return stripped[1:]
+    return stripped
+
+
+def _evidence_from_dict(d: dict) -> ThesisEvidence:
+    """Rebuild a `ThesisEvidence` from its JSON dict form.
+
+    Recomputes `citation_id` via `__post_init__`. If the JSON dict carries a
+    `citation_id` that doesn't match the recomputed value, raise — detects
+    drift/tampering of `opportunity_report.json` between stages.
+    """
+    expected_id = d.get("citation_id")
+    ev = ThesisEvidence(
+        type=d["type"],
+        source=d["source"],
+        url=d.get("url") or "",
+        date=d["date"],
+        summary=d.get("summary") or "",
+        scope=d["scope"],
+        citation_kind=d["citation_kind"],
+        owner_instrument_id=d["owner_instrument_id"],
+        parent_fund_id=d.get("parent_fund_id"),
+        constituent_key=d.get("constituent_key"),
+    )
+    if expected_id and expected_id != ev.citation_id:
+        raise ValueError(
+            f"citation_id mismatch: JSON has {expected_id!r} "
+            f"but recomputed to {ev.citation_id!r} "
+            f"(possible tampering of opportunity_report.json)"
+        )
+    return ev
+
+
 def _build_pick_rows(
     trades: list[dict],
     opportunity: dict,
     scoring: dict,
     extra_names: dict[str, str] | None = None,
-) -> list[PickRow]:
-    op_by_id = {r["instrument_id"]: r for r in (opportunity.get("rows") or [])}
+) -> tuple[list[PickRow], list[dict], list[dict]]:
+    """Classify each trade target into one of three buckets:
+
+    - `pick_rows`: trade target whose opportunity row has `evidence_gaps == ()`.
+    - `absent_targets`: trade target whose iid is NOT in `opportunity["rows"]`
+      after venue-proxy suffix strip. Memo renders an absence sub-block.
+    - `gapped_targets`: trade target whose op row has `evidence_gaps != ()`.
+      Memo renders a gap sub-block (no conclusions emitted).
+
+    Each `gapped_targets` entry is enriched with `_matched_row` so the renderer
+    can reach the op row's name and gap labels.
+    """
+    rows_list = opportunity.get("rows") or []
+    rows_by_id = {r["instrument_id"]: r for r in rows_list}
     score_by_id = {s["instrument_id"]: s for s in (scoring.get("scores") or [])}
     extra_names = extra_names or {}
-    rows: list[PickRow] = []
-    seen: set[str] = set()  # Canonical dedup; render_picks_table has a safety-net guard.
+
+    pick_rows: list[PickRow] = []
+    absent: list[dict] = []
+    gapped: list[dict] = []
+    seen: set[str] = set()
+
     for t in trades:
-        iid = t.get("target")
-        if not iid or iid in seen:
+        iid_raw = t.get("target")
+        if not iid_raw or iid_raw in seen:
             continue
-        seen.add(iid)
-        op = op_by_id.get(iid) or {}
-        sc = score_by_id.get(iid) or {}
-        # Sanitize: strip newlines before the string enters the LLM skeleton.
-        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace("\n", " ").strip()
+        seen.add(iid_raw)
+
+        # Resolution: direct hit, else venue-proxy suffix strip, else absent.
+        op = rows_by_id.get(iid_raw) or rows_by_id.get(_strip_venue_suffix(iid_raw))
+        if op is None:
+            absent.append(t)
+            continue
+        if op.get("evidence_gaps"):
+            gapped.append({**t, "_matched_row": op})
+            continue
+
+        # Eligible: build PickRow with citations.
+        raw_evidence = tuple(
+            _evidence_from_dict(d) for d in (op.get("thesis_evidence") or [])
+        )
+        citations = select_citations(raw_evidence, cap=3)
+
+        sc = score_by_id.get(iid_raw) or {}
+        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace(
+            "\n", " ").strip()
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
-               "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(opp_state, "slow_dca")
-        # Trade plan carries composite_score directly; prefer it so venue
-        # proxies (whose target id isn't in scoring.json) still show the
-        # underlying instrument's score instead of 0.0.
+               "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(
+                   opp_state, "slow_dca")
         score = t.get("composite_score")
         if score is None:
             score = sc.get("composite_score") or 0.0
-        name = op.get("name_cn") or extra_names.get(str(iid)) or iid
-        rows.append(PickRow(
-            instrument_id=iid,
+        name = op.get("name_cn") or extra_names.get(str(iid_raw)) or iid_raw
+        pick_rows.append(PickRow(
+            instrument_id=iid_raw,
             name_cn=name,
             asset_class=op.get("asset_class") or t.get("asset_class", ""),
             role=t.get("role") or "",
@@ -274,8 +358,10 @@ def _build_pick_rows(
             dca_action=dca,
             risk_action="none",
             one_line_reason=reason or "—",
+            citations=citations,
         ))
-    return rows
+
+    return pick_rows, absent, gapped
 
 
 def run_memo(repo_root: str) -> int:
@@ -313,8 +399,12 @@ def run_memo(repo_root: str) -> int:
         **_names_from_watchlist_csv(out_today),
         **_names_from_universes(bundle),
     }
-    pick_rows = _build_pick_rows(trades, opportunity, scoring, fallback_names)
-    picks_table_md = render_picks_table(pick_rows)
+    pick_rows, absent_targets, gapped_targets = _build_pick_rows(
+        trades, opportunity, scoring, fallback_names,
+    )
+    picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
+        absent_targets, gapped_targets, fallback_names,
+    )
 
     gold_regime = {
         "regime": gold.get("regime", "unknown"),

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import json as _json
+
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import PositionContext
 from irc.opportunity.report import (
+    _row_to_dict,
+    compose_discipline_markdown,
     compose_opportunity_report,
     compose_thesis_cards_yaml,
-    compose_discipline_markdown,
 )
 from irc.opportunity.types import (
     DisciplineRow,
@@ -76,12 +79,18 @@ def test_thesis_cards_yaml_serializes_thesis_evidence():
             url="https://example.com/filing/600519",
             date="2026-04-28",
             summary="600519 营收同比 +12%",
+            scope="constituent", citation_kind="data",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
         ThesisEvidence(
             type="broker", source="中信证券",
             url="https://example.com/broker/600519",
             date="2026-05-02",
             summary="维持买入",
+            scope="constituent", citation_kind="information",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
     )
     row = _row(thesis_evidence=evidence)
@@ -92,6 +101,7 @@ def test_thesis_cards_yaml_serializes_thesis_evidence():
     assert "type: filing" in payload
     assert "中信证券" in payload
     assert "https://example.com/filing/600519" in payload
+    assert "citation_id:" in payload  # Item 002: every evidence carries citation_id.
 
 
 def test_discipline_markdown_has_chinese_action_sections():
@@ -135,9 +145,6 @@ def test_slow_dca_routes_to_jianshu_bucket():
     assert "512760" not in jinkeri_section
 
 
-from irc.opportunity.report import _row_to_dict
-
-
 def test_row_to_dict_includes_expected_omissions():
     row = OpportunityRow(
         instrument_id="518880", name_cn="黄金ETF", asset_class="gold", theme=None,
@@ -151,3 +158,52 @@ def test_row_to_dict_includes_expected_omissions():
     d = _row_to_dict(row)
     assert d["expected_omissions"] == ["constituent_not_applicable"]
     assert d["evidence_gaps"] == ["news_stage_skipped"]
+
+
+def test_row_to_dict_serializes_thesis_evidence_and_contributing_dimensions():
+    """JSON round-trip: thesis_evidence appears as a list of dicts with all
+    provenance fields including citation_id; contributing_dimensions appears
+    as a sorted list; constituent_analyses appears as an empty list (item 003
+    populates it later)."""
+    ev = ThesisEvidence(
+        type="filing", source="600519",
+        url="https://example.com/filing/600519",
+        date="2026-04-28", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key="600519",
+    )
+    row = _row(
+        thesis_evidence=(ev,),
+        contributing_dimensions=frozenset({"valuation", "heat"}),
+    )
+    d = _row_to_dict(row)
+    # Round-trip through JSON to confirm serializability.
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert "thesis_evidence" in loaded
+    assert len(loaded["thesis_evidence"]) == 1
+    assert loaded["thesis_evidence"][0]["citation_id"] == ev.citation_id
+    assert loaded["thesis_evidence"][0]["owner_instrument_id"] == "510300"
+    assert loaded["thesis_evidence"][0]["scope"] == "constituent"
+    # contributing_dimensions: sorted list (item 001's frozenset → sorted list)
+    assert loaded["contributing_dimensions"] == ["heat", "valuation"]
+    # constituent_analyses default-empty until item 003.
+    assert loaded["constituent_analyses"] == []
+
+
+def test_row_to_dict_serializes_fetch_types_attempted():
+    """_row_to_dict must emit fetch_types_attempted so render_failure_sections
+    can populate 已尝试: in the gapped-target failure block."""
+    row = _row(fetch_types_attempted=("filing", "broker", "news"))
+    d = _row_to_dict(row)
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert "fetch_types_attempted" in loaded
+    assert loaded["fetch_types_attempted"] == ["filing", "broker", "news"]
+
+
+def test_row_to_dict_fetch_types_attempted_empty_default():
+    """When no fetch_types_attempted is set, _row_to_dict emits an empty list."""
+    row = _row()
+    d = _row_to_dict(row)
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert loaded["fetch_types_attempted"] == []

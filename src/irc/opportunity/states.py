@@ -14,7 +14,6 @@ from irc.opportunity.types import (
     OpportunityRow,
     OpportunityState,
     ProductQualityState,
-    ThesisEvidence,
     ThesisState,
     ValuationState,
 )
@@ -439,7 +438,9 @@ def build_opportunity_row(
     structural_gaps = _structural_evidence_gaps(inp)
     if snapshot is not None or theme_report is not None:
         thesis, thesis_reason, evidence, thesis_gaps = derive_thesis_from_evidence(
-            snapshot, theme_report, asset_class=inp.asset_class,
+            snapshot, theme_report,
+            asset_class=inp.asset_class,
+            owner_instrument_id=inp.instrument_id,
         )
     else:
         thesis, thesis_reason = classify_thesis(inp, theme_thesis)
