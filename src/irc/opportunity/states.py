@@ -343,6 +343,50 @@ def compose_opportunity_state(
     )
 
 
+def derive_contributing_dimensions(
+    valuation: ValuationState,
+    heat: HeatState,
+    thesis: ThesisState,
+    product: ProductQualityState,
+    opportunity_state: OpportunityState,
+) -> frozenset[str]:
+    """Return the subset of {valuation, heat, thesis, product_quality} that
+    drove `opportunity_state`. Pure; mirrors `compose_opportunity_state`'s
+    branches. Used by the per-driver citation gate (Slice D2a, item 009).
+
+    `small_watch` priority chain mirrors `_weak_link_label` but returns
+    dimension keys, not Chinese labels — calling `_weak_link_label` and
+    reverse-mapping would couple us to a display-string lookup table.
+    """
+    if opportunity_state == "exclude":
+        dims: set[str] = set()
+        if thesis == "falsified":
+            dims.add("thesis")
+        if product == "poor":
+            dims.add("product_quality")
+        return frozenset(dims)
+    if opportunity_state == "core_dca":
+        return frozenset({"valuation", "heat", "thesis", "product_quality"})
+    if opportunity_state == "pause_wait":
+        dims = set()
+        if valuation in ("expensive", "very_expensive"):
+            dims.add("valuation")
+        if heat in ("crowded", "overheated"):
+            dims.add("heat")
+        return frozenset(dims)
+    if opportunity_state == "small_watch":
+        if product == "weak":
+            return frozenset({"product_quality"})
+        if thesis == "evidence_insufficient":
+            return frozenset({"thesis"})
+        if valuation == "evidence_insufficient":
+            return frozenset({"valuation"})
+        if heat == "evidence_insufficient":
+            return frozenset({"heat"})
+        return frozenset()
+    return frozenset()
+
+
 def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
     """Gaps for the non-thesis classifier inputs, using the typed labels from
     the May-14 spec (`missing_valuation_data`, `missing_flow_or_return_data`,
