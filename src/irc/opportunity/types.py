@@ -152,6 +152,31 @@ class ThesisEvidence:
 
 
 @dataclass(frozen=True)
+class CitationMeta:
+    """Per-citation metadata indexed by `citation_id` in `CitedMap`.
+
+    `asset_class` is the asset class of the row whose `instrument_id ==
+    owner_instrument_id` at `build_cited_map` time. Required because the
+    portfolio-section audit (item 007/009) rejects scope-mismatched citations
+    from `CitationMeta.asset_class` alone, without alias lookup.
+    """
+    scope: CitationScope
+    citation_kind: CitationKind
+    owner_instrument_id: str
+    asset_class: str
+    parent_fund_id: str | None
+    constituent_key: str | None
+
+
+# Type aliases consumed by build_cited_map and downstream audit gates (item 009).
+CitedMap = dict[str, dict[str, CitationMeta]]
+"""instrument_id → {citation_id: CitationMeta}"""
+
+ConstituentCitedMap = dict[str, dict[str, dict[str, CitationMeta]]]
+"""instrument_id → constituent_key → {citation_id: CitationMeta}"""
+
+
+@dataclass(frozen=True)
 class OpportunityRow:
     instrument_id: str
     name_cn: str

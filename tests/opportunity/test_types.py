@@ -216,6 +216,29 @@ def test_citation_id_differs_across_constituents_under_same_fund():
     assert a.citation_id != b.citation_id
 
 
+from irc.opportunity.types import CitationMeta, CitedMap, ConstituentCitedMap  # noqa: E402
+
+
+def test_citation_meta_is_frozen_dataclass():
+    m = CitationMeta(
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id="510300",
+        asset_class="cn_etf",
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    assert m.asset_class == "cn_etf"
+    with pytest.raises(FrozenInstanceError):
+        m.asset_class = "x"  # type: ignore[misc]
+
+
+def test_cited_map_type_alias_is_importable():
+    """CitedMap / ConstituentCitedMap are type aliases — import smoke test."""
+    assert CitedMap is not None
+    assert ConstituentCitedMap is not None
+
+
 def test_citation_id_uses_summary_fallback_when_url_empty():
     """When url='', summary[:64] is mixed into the preimage so two empty-URL
     filings with different content but same source/date/instrument get distinct ids."""
