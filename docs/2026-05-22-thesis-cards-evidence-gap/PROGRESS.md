@@ -2,7 +2,7 @@
 
 | id  | title | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |-----|-------|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
-| 001 | contributing-dimensions | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | contributing-dimensions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ |
 | 002 | citation-data-model | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | active-fund-constituent-layer | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | live-verify-fund-announcement-em | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -26,6 +26,10 @@ Per `/ship`'s steps 8+9, the in-flow review verdict is captured inline by `/ship
 ## Outcome
 
 (populated at run close-out — feature branch left open for user to review/merge into `main`)
+
+## Per-item merge log
+
+- **001 contributing-dimensions** — PR [#55](https://github.com/snowshine0216/investment-research-copilot/pull/55) squash-merged 2026-05-22 as `4cb4b9b` on `autodev/thesis-cards-evidence-gap`. Inline review PASS-WITH-NITS, verify PASS (8/8 ACs), pr-review PASS-WITH-NITS. Fix loop skipped (zero blockers, zero latent bugs).
 
 ## Artifacts (populated as each item completes)
 
