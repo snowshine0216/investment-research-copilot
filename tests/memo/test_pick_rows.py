@@ -146,3 +146,38 @@ def test_render_failure_sections_produces_expected_markdown():
 def test_render_failure_sections_empty_buckets_returns_empty_string():
     from irc.memo.picks_table import render_failure_sections
     assert render_failure_sections([], []) == ""
+
+
+def test_render_failure_sections_already_tried_populated():
+    """When fetch_types_attempted is non-empty the rendered 已尝试: line shows
+    the comma-separated values (from the _matched_row dict, which comes from
+    _row_to_dict's fetch_types_attempted serialization)."""
+    from irc.memo.picks_table import render_failure_sections
+    gapped = [{
+        "target": "005827",
+        "_matched_row": {
+            "instrument_id": "005827",
+            "name_cn": "易方达蓝筹精选",
+            "evidence_gaps": ["missing_constituent_snapshot"],
+            "fetch_types_attempted": ["filing", "broker"],
+        },
+    }]
+    md = render_failure_sections([], gapped)
+    assert "已尝试: filing, broker" in md
+
+
+def test_render_failure_sections_already_tried_empty_renders_dash():
+    """When fetch_types_attempted is empty the rendered 已尝试: line shows —
+    (em-dash) so the field is not left as a trailing blank."""
+    from irc.memo.picks_table import render_failure_sections
+    gapped = [{
+        "target": "005827",
+        "_matched_row": {
+            "instrument_id": "005827",
+            "name_cn": "易方达蓝筹精选",
+            "evidence_gaps": ["missing_constituent_snapshot"],
+            "fetch_types_attempted": [],
+        },
+    }]
+    md = render_failure_sections([], gapped)
+    assert "已尝试: —" in md

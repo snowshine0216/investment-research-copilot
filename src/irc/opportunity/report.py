@@ -35,6 +35,7 @@ def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
         "constituent_analyses": [
             asdict(c) for c in getattr(row, "constituent_analyses", ())
         ],
+        "fetch_types_attempted": list(row.fetch_types_attempted),
     }
 
 

@@ -274,6 +274,36 @@ def test_discipline_row_accepts_evidence_gaps_kwarg():
     assert r.fetch_types_attempted == ("filing", "broker", "news")
 
 
+def test_opportunity_row_has_fetch_types_attempted_with_empty_default():
+    """OpportunityRow gains fetch_types_attempted (tuple[str, ...] = ()) so that
+    _row_to_dict can serialize it and render_failure_sections can render 已尝试:."""
+    from irc.opportunity.types import LookthroughTarget
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="reasonable_low", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=(),
+    )
+    assert row.fetch_types_attempted == ()
+
+
+def test_opportunity_row_accepts_fetch_types_attempted_kwarg():
+    """OpportunityRow.fetch_types_attempted can be set to a non-empty tuple."""
+    from irc.opportunity.types import LookthroughTarget
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="reasonable_low", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=(),
+        fetch_types_attempted=("filing", "broker"),
+    )
+    assert row.fetch_types_attempted == ("filing", "broker")
+
+
 def test_citation_id_uses_summary_fallback_when_url_empty():
     """When url='', summary[:64] is mixed into the preimage so two empty-URL
     filings with different content but same source/date/instrument get distinct ids."""

@@ -189,3 +189,21 @@ def test_row_to_dict_serializes_thesis_evidence_and_contributing_dimensions():
     assert loaded["contributing_dimensions"] == ["heat", "valuation"]
     # constituent_analyses default-empty until item 003.
     assert loaded["constituent_analyses"] == []
+
+
+def test_row_to_dict_serializes_fetch_types_attempted():
+    """_row_to_dict must emit fetch_types_attempted so render_failure_sections
+    can populate 已尝试: in the gapped-target failure block."""
+    row = _row(fetch_types_attempted=("filing", "broker", "news"))
+    d = _row_to_dict(row)
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert "fetch_types_attempted" in loaded
+    assert loaded["fetch_types_attempted"] == ["filing", "broker", "news"]
+
+
+def test_row_to_dict_fetch_types_attempted_empty_default():
+    """When no fetch_types_attempted is set, _row_to_dict emits an empty list."""
+    row = _row()
+    d = _row_to_dict(row)
+    loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
+    assert loaded["fetch_types_attempted"] == []

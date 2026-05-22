@@ -193,6 +193,9 @@ class OpportunityRow:
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
     contributing_dimensions: frozenset[str] = field(default_factory=frozenset)
+    # Item 002: fetch pipeline diagnostics — mirrors DisciplineRow.fetch_types_attempted.
+    # Serialized by _row_to_dict so render_failure_sections can populate 已尝试:.
+    fetch_types_attempted: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

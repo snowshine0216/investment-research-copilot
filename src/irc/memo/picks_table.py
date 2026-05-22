@@ -133,7 +133,8 @@ def render_failure_sections(
             iid = str(t.get("target") or "")
             name = op.get("name_cn") or extra_names.get(iid, "?")
             gaps = ", ".join(op.get("evidence_gaps") or ())
-            attempted = ", ".join(op.get("fetch_types_attempted") or ())
+            _raw_attempted = op.get("fetch_types_attempted") or ()
+            attempted = ", ".join(_raw_attempted) if _raw_attempted else "—"
             parts.append(
                 f"- {iid} {name} | 原因: {gaps} | 已尝试: {attempted}"
             )
