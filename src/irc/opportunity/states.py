@@ -453,6 +453,7 @@ def build_opportunity_row(
     state, state_reason = compose_opportunity_state(
         valuation, heat, thesis, product, inp.venue_compatible,
     )
+    dimensions = derive_contributing_dimensions(valuation, heat, thesis, product, state)
     target = map_lookthrough(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
     combined_gaps = tuple(structural_gaps) + tuple(thesis_gaps)
@@ -472,4 +473,5 @@ def build_opportunity_row(
         evidence_gaps=evidence_gaps_filtered,
         expected_omissions=expected_omissions,
         thesis_evidence=evidence,
+        contributing_dimensions=dimensions,
     )

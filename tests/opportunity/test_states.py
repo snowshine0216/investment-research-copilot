@@ -532,3 +532,15 @@ def test_derive_contributing_dimensions_returns_frozenset_not_set():
         "cheap", "normal", "intact", "strong", "core_dca",
     )
     assert isinstance(result, frozenset)
+
+
+def test_build_opportunity_row_populates_contributing_dimensions_for_core_dca():
+    """AC #5: end-to-end propagation through build_opportunity_row. A clean
+    core_dca input must surface all four dimensions."""
+    inp = _make_full_input(valuation_percentile_self=0.15)  # cheap → core_dca
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert row.opportunity_state == "core_dca"
+    assert row.contributing_dimensions == frozenset(
+        {"valuation", "heat", "thesis", "product_quality"},
+    )
+    assert isinstance(row.contributing_dimensions, frozenset)
