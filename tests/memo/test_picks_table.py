@@ -102,3 +102,63 @@ def test_render_picks_table_groups_zero_weight_as_observation_only():
     md = render_picks_table(rows)
     assert "仅观察" in md
     assert "0.0%" in md or "观察" in md
+
+
+from irc.opportunity.types import ThesisEvidence
+
+
+def _evidence(**over) -> ThesisEvidence:
+    base = dict(
+        type="filing", source="600519",
+        url="https://example.com/600519", date="2026-04-28",
+        summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key="600519",
+    )
+    base.update(over)
+    return ThesisEvidence(**base)
+
+
+def test_render_picks_table_emits_citation_markers_in_evidence_column():
+    """证据 column renders `[ref:{citation_id}] {type}·{source}·{date}` per citation;
+    multiple citations on one row joined by `<br>` so the markdown cell stays
+    single-row."""
+    ev_a = _evidence(url="https://example.com/a", date="2026-04-28")
+    ev_b = _evidence(url="https://example.com/b", date="2026-05-02",
+                     type="broker", source="中信证券", citation_kind="information")
+    row = PickRow(
+        instrument_id="510300", name_cn="华泰柏瑞沪深300ETF",
+        asset_class="cn_etf", role="core_cn_equity",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="r",
+        citations=(ev_a, ev_b),
+    )
+    md = render_picks_table([row])
+    # Header includes 证据 column.
+    assert "证据" in md
+    # Each citation renders its citation_id marker.
+    assert f"[ref:{ev_a.citation_id}]" in md
+    assert f"[ref:{ev_b.citation_id}]" in md
+    # Joined by <br> in a single cell.
+    assert "<br>" in md
+    # Render format includes type·source·date.
+    assert "filing·600519·2026-04-28" in md
+    assert "broker·中信证券·2026-05-02" in md
+
+
+def test_render_picks_table_empty_citations_renders_dash():
+    """When PickRow.citations is empty, the 证据 cell renders `—`."""
+    row = PickRow(
+        instrument_id="518880", name_cn="华安黄金ETF", asset_class="gold",
+        role="core_gold_hedge", target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="r",
+    )
+    md = render_picks_table([row])
+    # Find the data row for 518880 and confirm the dash appears as a cell.
+    rows_lines = [line for line in md.split("\n")
+                  if "518880" in line and "|" in line]
+    assert rows_lines, "no data row found for 518880"
+    assert "| — |" in rows_lines[0]
