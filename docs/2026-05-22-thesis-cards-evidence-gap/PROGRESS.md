@@ -3,7 +3,7 @@
 | id  | title | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |-----|-------|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
 | 001 | contributing-dimensions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ |
-| 002 | citation-data-model | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | citation-data-model | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 003 | active-fund-constituent-layer | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | live-verify-fund-announcement-em | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | per-asset-class-citation-coverage | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -30,6 +30,7 @@ Per `/ship`'s steps 8+9, the in-flow review verdict is captured inline by `/ship
 ## Per-item merge log
 
 - **001 contributing-dimensions** — PR [#55](https://github.com/snowshine0216/investment-research-copilot/pull/55) squash-merged 2026-05-22 as `4cb4b9b` on `autodev/thesis-cards-evidence-gap`. Inline review PASS-WITH-NITS, verify PASS (8/8 ACs), pr-review PASS-WITH-NITS. Fix loop skipped (zero blockers, zero latent bugs).
+- **002 citation-data-model** — PR [#56](https://github.com/snowshine0216/investment-research-copilot/pull/56) squash-merged 2026-05-22 as `5bc4b95`. 18-task plan; 7 impl commits + 1 fix commit. Drift PASS-WITH-NOTES (27/27 ACs verified), inline review PASS-WITH-NITS, verify PASS-WITH-NOTES (26/27 ACs — AC21 documented as ⚠️), pr-review PASS-WITH-NITS. Fix loop ran once: closed real latent bug (`fetch_types_attempted` schema gap on `OpportunityRow`); inline reviewer's `select_citations` identity-vs-equality flag was refuted by pr-review (mutually-exclusive data/info candidate sets). Includes new ADR `docs/adr/0001-citation-data-model.md`.
 
 ## Artifacts (populated as each item completes)
 
