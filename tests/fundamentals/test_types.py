@@ -13,6 +13,58 @@ from irc.fundamentals.types import (
 )
 
 
+# ── Item 003 new dataclass tests ──────────────────────────────────────────────
+
+def test_news_item_construction() -> None:
+    from irc.fundamentals.types import NewsItem
+    n = NewsItem(
+        symbol="600519",
+        title="贵州茅台 24Q1 营收高于预期",
+        url="https://example.com/news/1",
+        published_iso="2024-04-15",
+        summary="",
+        source="stock_news_em",
+    )
+    assert n.symbol == "600519"
+    assert n.source == "stock_news_em"
+
+
+def test_fund_holding_percent_units() -> None:
+    from irc.fundamentals.types import FundHolding
+    h = FundHolding(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=3.46,
+        exchange="SH",
+        provider_symbol="600519",
+    )
+    assert h.weight_pct == 3.46
+    assert h.exchange == "SH"
+
+
+def test_holdings_result_carries_quarter_metadata() -> None:
+    from irc.fundamentals.types import HoldingsResult
+    res = HoldingsResult(
+        constituents=(),
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+    )
+    assert res.source_report_quarter == "2024Q1"
+
+
+def test_active_fund_snapshot_defaults() -> None:
+    from irc.fundamentals.types import ActiveFundSnapshot
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+    )
+    assert snap.fund_level_failure_reasons == ()
+
+
 def test_constituent_construction_and_immutability() -> None:
     c = Constituent(symbol="600519.SH", name="贵州茅台", weight=0.07, market="cn")
     assert c.symbol == "600519.SH"

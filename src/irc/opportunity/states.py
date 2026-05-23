@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from irc.fundamentals.types import ConstituentSnapshot
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentSnapshot
 from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.thesis_evidence import (
     NON_INDEXABLE_ASSET_CLASSES,
@@ -419,7 +419,7 @@ def build_opportunity_row(
     inp: OpportunityInput,
     theme_thesis: dict[str, str] | None,
     *,
-    snapshot: ConstituentSnapshot | None = None,
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | None = None,
     theme_report: ThemeReport | None = None,
 ) -> OpportunityRow:
     """Compose a full OpportunityRow for a single instrument. Pure function.
@@ -436,11 +436,14 @@ def build_opportunity_row(
     product, product_reason = classify_product_quality(inp)
 
     structural_gaps = _structural_evidence_gaps(inp)
+    constituent_analyses: tuple = ()
     if snapshot is not None or theme_report is not None:
-        thesis, thesis_reason, evidence, thesis_gaps = derive_thesis_from_evidence(
-            snapshot, theme_report,
-            asset_class=inp.asset_class,
-            owner_instrument_id=inp.instrument_id,
+        thesis, thesis_reason, evidence, thesis_gaps, constituent_analyses = (
+            derive_thesis_from_evidence(
+                snapshot, theme_report,
+                asset_class=inp.asset_class,
+                owner_instrument_id=inp.instrument_id,
+            )
         )
     else:
         thesis, thesis_reason = classify_thesis(inp, theme_thesis)
@@ -475,4 +478,5 @@ def build_opportunity_row(
         expected_omissions=expected_omissions,
         thesis_evidence=evidence,
         contributing_dimensions=dimensions,
+        constituent_analyses=constituent_analyses,
     )

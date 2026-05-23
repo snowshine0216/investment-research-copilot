@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from datetime import date, datetime, timedelta, timezone
+import os
+import sys
+import time
+from dataclasses import dataclass, replace
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 
+from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+from irc.fundamentals.snapshot import build_snapshot
+from irc.fundamentals.snapshot_cache import (
+    load_active_fund_cache,
+    write_active_fund_cache,
+)
+from irc.fundamentals.types import ActiveFundSnapshot
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
@@ -37,6 +49,258 @@ from irc.research.persistence import load_theme_reports
 from irc.research.theme_research import ThemeReport
 from irc.schemas.universe import Instrument, UniverseConfig
 
+
+# ── Item 003: constants + primitives ─────────────────────────────────────────
+
+TOP_N_DEFAULT = 10
+IRC_FETCH_BUDGET_DEFAULT = 2000
+IRC_CACHE_FRESHNESS_DAYS_DEFAULT = 7
+
+
+@dataclass(frozen=True)
+class FetchPlan:
+    active_fund_misses: int
+    active_fund_stale: int
+    passive_misses: int
+    passive_stale: int
+    top_n: int
+
+    def total_calls(self) -> int:
+        per_active = 1 + self.top_n * 3
+        return (
+            (self.active_fund_misses + self.active_fund_stale) * per_active
+            + self.passive_misses * 2
+            + self.passive_stale * 2
+        )
+
+
+class FetchBudgetExceeded(RuntimeError):
+    def __init__(self, plan: FetchPlan, total: int, budget: int) -> None:
+        super().__init__(
+            f"FetchBudgetExceeded: "
+            f"active_fund_misses={plan.active_fund_misses} "
+            f"active_fund_stale={plan.active_fund_stale} "
+            f"passive_misses={plan.passive_misses} "
+            f"passive_stale={plan.passive_stale} "
+            f"cost={total} budget={budget}"
+        )
+        self.plan = plan
+        self.total = total
+        self.budget = budget
+
+
+def compute_plan_hash(output_date: str, instrument_ids: list[str], top_n: int) -> str:
+    payload = f"{output_date}:{','.join(sorted(instrument_ids))}:{top_n}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+# ── Item 003: fcntl.flock + state file ───────────────────────────────────────
+
+try:
+    import fcntl  # type: ignore[import-not-found]
+    _HAS_FCNTL = True
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+    _HAS_FCNTL = False
+    sys.stderr.write(
+        "WARNING: fcntl unavailable on this platform — "
+        "concurrent-run lock disabled.\n"
+    )
+
+
+class FetchLockBusy(RuntimeError):
+    """Raised when another process holds the fetch lock."""
+
+
+def _fetch_state_path(root_fundamentals: Path, plan_hash: str) -> Path:
+    return root_fundamentals / f".fetch_state_{plan_hash}.json"
+
+
+def load_fetch_state(root_fundamentals: Path, plan_hash: str) -> dict | None:
+    """Load state file if plan_hash matches; else None (caller starts fresh)."""
+    path = _fetch_state_path(root_fundamentals, plan_hash)
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    if body.get("plan_hash") != plan_hash:
+        return None
+    return body
+
+
+def write_fetch_state(state: dict, root_fundamentals: Path, plan_hash: str) -> Path:
+    path = _fetch_state_path(root_fundamentals, plan_hash)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # P1-g: PID-qualified tmp to prevent concurrent-writer collisions.
+    tmp = path.with_suffix(f".json.tmp.{os.getpid()}")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def acquire_fetch_lock(path: Path) -> int:
+    """Acquire an advisory exclusive lock; retry once after 100ms.
+
+    Returns the OS file descriptor on success. Raises `FetchLockBusy` after
+    second failure. Windows fallback: returns a sentinel fd, no real lock.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
+    if not _HAS_FCNTL:
+        return fd  # Windows fallback: no lock.
+    for attempt in (0, 1):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if attempt == 0:
+                time.sleep(0.1)
+                continue
+            os.close(fd)
+            raise FetchLockBusy(
+                "concurrent run detected — set IRC_OPPORTUNITY_AUTOBUILD=0 "
+                "or wait for the other run"
+            )
+    return fd
+
+
+# ── Item 003: autobuild env var + freshness probe ─────────────────────────────
+
+def _is_active_fund_target_autobuild_on() -> bool:
+    return os.environ.get("IRC_OPPORTUNITY_AUTOBUILD", "1") != "0"
+
+
+def _freshness_days() -> int:
+    try:
+        return int(os.environ.get("IRC_CACHE_FRESHNESS_DAYS", IRC_CACHE_FRESHNESS_DAYS_DEFAULT))
+    except ValueError:
+        return IRC_CACHE_FRESHNESS_DAYS_DEFAULT
+
+
+def _fetch_budget() -> int:
+    try:
+        return int(os.environ.get("IRC_FETCH_BUDGET", IRC_FETCH_BUDGET_DEFAULT))
+    except ValueError:
+        return IRC_FETCH_BUDGET_DEFAULT
+
+
+def _is_stale(snap: ActiveFundSnapshot, *, today: date_cls, threshold_days: int) -> bool:
+    if not snap.cache_probed_at:
+        return True
+    try:
+        probed = date_cls.fromisoformat(snap.cache_probed_at)
+    except ValueError:
+        return True
+    days = (today - probed).days
+    # P1-h: clamp negative days (future cache_probed_at = clock skew) → treat as stale.
+    if days < 0:
+        return True
+    return days > threshold_days
+
+
+def _maybe_freshness_probe(
+    snap: ActiveFundSnapshot,
+    *,
+    today: date_cls,
+    root: Path,
+) -> tuple[ActiveFundSnapshot, bool]:
+    """Probe and return (possibly-updated snapshot, schedule_full_refetch).
+
+    Fail-closed: any probe failure or empty result → schedule_full_refetch=True.
+    """
+    if not _is_stale(snap, today=today, threshold_days=_freshness_days()):
+        return snap, False
+    try:
+        probe = fetch_cn_etf_holdings(snap.fund_id, top_n=1)
+    except Exception:
+        return snap, True
+    if not probe.source_report_quarter:
+        # Can't determine quarter → fail-closed.
+        return snap, True
+    if probe.source_report_quarter != snap.source_report_quarter:
+        return snap, True
+    updated = replace(snap, cache_probed_at=today.isoformat())
+    # P1-d: wrap cache write; disk errors are environmental — degrade gracefully.
+    try:
+        write_active_fund_cache(updated, root)
+    except Exception as cache_exc:
+        sys.stderr.write(
+            f"cache_write_failed:{snap.fund_id}:{type(cache_exc).__name__}\n"
+        )
+        # Return stale data (not fail-closed — disk error is environmental).
+        return snap, False
+    return updated, False
+
+
+def _load_latest_active_fund_cached(
+    fund_id: str, root: Path,
+) -> ActiveFundSnapshot | None:
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/active_fund/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_active_fund_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
+
+
+# ── Item 003: validate_cli_args ───────────────────────────────────────────────
+
+def validate_cli_args(
+    *,
+    output_dir: str | None,
+    limit: int | None,
+    rebuild_fundamentals: bool,
+    today: str,
+    root: Path | None = None,
+) -> Path | None:
+    """Reject `--limit` on canonical `outputs/<today>/` paths (exit code 2).
+
+    P0-4 fixes:
+    - When output_dir is None, resolve to `outputs/<today>/` (canonical) and
+      apply the same rejection rule for --limit.
+    - Call Path.resolve() BEFORE the suffix check to close the symlink bypass.
+    - Return the resolved path so callers don't re-default downstream.
+    """
+    if limit is None:
+        # No limit → nothing to reject; return resolved path for callers.
+        if output_dir is None:
+            return None
+        return Path(output_dir).resolve()
+    # limit is set — check whether the (resolved) path is canonical.
+    if output_dir is None:
+        # Default canonical path: outputs/<today>/.
+        resolved = (root / "outputs" / today).resolve() if root is not None else None
+        _reject_limit_on_canonical(resolved, today)
+    else:
+        resolved = Path(output_dir).resolve()
+        _reject_limit_on_canonical(resolved, today)
+    return resolved
+
+
+def _reject_limit_on_canonical(resolved: Path | None, today: str) -> None:
+    """Raise SystemExit(2) if the resolved path is the canonical outputs/<today>/."""
+    canonical_suffix = f"outputs/{today}"
+    # When output_dir was None and root was not provided, we conservatively reject
+    # (the caller in run_opportunity always provides root, so resolved is not None there).
+    if resolved is None:
+        print("--limit is rejected on canonical output paths", file=sys.stderr)
+        raise SystemExit(2)
+    # Use the resolved absolute path string for the suffix check.
+    resolved_str = str(resolved).rstrip("/")
+    if resolved_str.endswith(canonical_suffix):
+        print("--limit is rejected on canonical output paths", file=sys.stderr)
+        raise SystemExit(2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
@@ -117,10 +381,10 @@ def _build_input(
         target_band_high=target_band[1] if target_band else None,
         venue_compatible=venue_ok,
     )
-    entry_date: date | None = None
+    entry_date: date_cls | None = None
     if holding is not None and holding.hold_since:
         try:
-            entry_date = date.fromisoformat(holding.hold_since)
+            entry_date = date_cls.fromisoformat(holding.hold_since)
         except ValueError:
             pass  # Malformed date string; drawdown_since_entry will remain None
     return populate_inputs(con, skeleton, holding_entry_date=entry_date)
@@ -189,6 +453,48 @@ def _resolve_research_theme(
     return None
 
 
+def _classify_active_fund_scores(
+    scores: list[dict],
+    root: Path,
+    *,
+    today: date_cls,
+    threshold_days: int,
+    rebuild_fundamentals: bool,
+    completed_ids: set[str] | None = None,
+) -> tuple[int, int]:
+    """Count (misses, stale) among cn_equity_fund rows — for preflight budget.
+
+    A miss  = no cache file on disk.
+    A stale = cache exists but probe is overdue.
+    rebuild_fundamentals = True → every fund counts as a miss (full re-fetch forced).
+    completed_ids: funds already finished in the current resume state are excluded
+        from both miss and stale counts (resume credit, spec AC item 4 hardening).
+    """
+    _completed = completed_ids or set()
+    misses = 0
+    stale = 0
+    seen: set[str] = set()
+    for score in scores:
+        if score.get("asset_class") != "cn_equity_fund":
+            continue
+        iid = score.get("instrument_id", "")
+        if not iid or iid in seen:
+            continue
+        seen.add(iid)
+        # Credit already-completed funds — no fetch cost on a resumed run.
+        if iid in _completed:
+            continue
+        if rebuild_fundamentals:
+            misses += 1
+            continue
+        cached = _load_latest_active_fund_cached(iid, root)
+        if cached is None:
+            misses += 1
+        elif _is_stale(cached, today=today, threshold_days=threshold_days):
+            stale += 1
+    return misses, stale
+
+
 def _build_rows(
     scores: list[dict],
     instr_index: dict[str, Instrument],
@@ -200,51 +506,243 @@ def _build_rows(
     root: Path,
     asset_class_targets: dict,
     con: duckdb.DuckDBPyConnection,
+    *,
+    output_date: str,
+    limit: int | None = None,
+    rebuild_fundamentals: bool = False,
 ) -> tuple[list[OpportunityRow], dict, dict, dict]:
     """Build opportunity rows for each score entry; return (rows, positions, qualities, roles)."""
+    # ── Step 1: Apply --limit BEFORE any fetch cost computation ─────────────────
+    if limit is not None:
+        active_fund_scores = sorted(
+            [s for s in scores if s.get("asset_class") == "cn_equity_fund"],
+            key=lambda s: s.get("instrument_id", ""),
+        )
+        capped_active_ids = {s["instrument_id"] for s in active_fund_scores[:limit]}
+        scores = [
+            s for s in scores
+            if s.get("asset_class") != "cn_equity_fund"
+            or s.get("instrument_id") in capped_active_ids
+        ]
+
+    autobuild_on = _is_active_fund_target_autobuild_on()
+    today = date_cls.today()
+
+    if autobuild_on:
+        # ── Step 2a: Compute plan_hash + load existing fetch state (P0-3) ────────
+        # Must happen BEFORE the budget gate so completed_ids can be credited.
+        active_fund_ids = sorted({
+            s.get("instrument_id", "")
+            for s in scores
+            if s.get("asset_class") == "cn_equity_fund" and s.get("instrument_id")
+        })
+        plan_hash = compute_plan_hash(output_date, active_fund_ids, TOP_N_DEFAULT)
+        fundamentals_dir = root / "data" / "fundamentals"
+        state_path = _fetch_state_path(fundamentals_dir, plan_hash)
+
+        existing_state = load_fetch_state(fundamentals_dir, plan_hash)
+        if existing_state is None:
+            # Stale state file (different plan_hash) is silently discarded — spec AC 20.
+            fetch_state: dict = {
+                "plan_hash": plan_hash,
+                "started_at": datetime.now(timezone.utc).isoformat(),
+                "items": [],
+            }
+        else:
+            fetch_state = existing_state
+
+        completed_ids: set[str] = {
+            item["fund_id"]
+            for item in fetch_state.get("items", [])
+            if item.get("status") == "complete"
+        }
+
+        # ── Step 2b: Preflight budget gate (P0-1) ────────────────────────────────
+        # completed_ids are excluded from the cost count (resume credit).
+        misses, stale = _classify_active_fund_scores(
+            scores, root / "data",
+            today=today, threshold_days=_freshness_days(),
+            rebuild_fundamentals=rebuild_fundamentals,
+            completed_ids=completed_ids,
+        )
+        plan = FetchPlan(
+            active_fund_misses=misses,
+            active_fund_stale=stale,
+            passive_misses=0,   # placeholder — item 005
+            passive_stale=0,    # placeholder — item 005
+            top_n=TOP_N_DEFAULT,
+        )
+        total = plan.total_calls()
+        budget = _fetch_budget()
+        if total > budget:
+            raise FetchBudgetExceeded(plan, total, budget)
+
+        # ── Step 3: Acquire advisory lock keyed on plan_hash (P0-2) ─────────────
+        lock_path = fundamentals_dir / f".fetch_lock_{plan_hash}.lock"
+        lock_fd = acquire_fetch_lock(lock_path)
+    else:
+        plan_hash = ""
+        fundamentals_dir = root / "data" / "fundamentals"
+        fetch_state = {}
+        completed_ids = set()
+        lock_fd = -1
+
     rows: list[OpportunityRow] = []
     positions: dict[str, PositionContext] = {}
     qualities: dict[str, SelectionQuality] = {}
     roles: dict[str, str] = {}
     snapshot_cache: dict[str, object] = {}
-    for score in scores:
-        iid = score.get("instrument_id", "")
-        if not iid:
-            print(f"WARNING: skipping score row with missing instrument_id: {score}")
-            continue
-        instr = instr_index.get(iid)
-        holding = holdings.get(iid)
-        target_band: tuple[float, float] | None = None
-        if instr is not None:
-            tgt = asset_class_targets.get(instr.asset_class)
-            if tgt is not None:
-                target_band = (tgt.band[0], tgt.band[1])
-        inp = _build_input(
-            score, instr, holding,
-            target_band,
-            portfolio_total_cny, available_venues,
-            con,
-        )
-        target_name = map_lookthrough(inp).display_cn
-        if target_name not in snapshot_cache:
-            snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
-        row = build_opportunity_row(
-            inp,
-            theme_thesis or None,
-            snapshot=snapshot_cache[target_name],
-            theme_report=_resolve_research_theme(inp, theme_reports),
-        )
-        rows.append(row)
-        positions[iid] = PositionContext(
-            portfolio_weight=inp.portfolio_weight,
-            target_band_low=inp.target_band_low,
-            target_band_high=inp.target_band_high,
-            drawdown_since_entry=inp.drawdown_since_entry,
-            is_holding=inp.is_holding,
-        )
-        qualities[iid] = _selection_quality_from(inp)
-        roles[iid] = inp.role or (instr.theme if instr else "") or ""
+
+    try:
+        for score in scores:
+            iid = score.get("instrument_id", "")
+            if not iid:
+                print(f"WARNING: skipping score row with missing instrument_id: {score}")
+                continue
+            instr = instr_index.get(iid)
+            holding = holdings.get(iid)
+            target_band: tuple[float, float] | None = None
+            if instr is not None:
+                tgt = asset_class_targets.get(instr.asset_class)
+                if tgt is not None:
+                    target_band = (tgt.band[0], tgt.band[1])
+            inp = _build_input(
+                score, instr, holding,
+                target_band,
+                portfolio_total_cny, available_venues,
+                con,
+            )
+            target = map_lookthrough(inp)
+            snap_obj: object | None = None
+            if target.kind == "active_fund" and autobuild_on:
+                if target.key in snapshot_cache:
+                    snap_obj = snapshot_cache[target.key]
+                else:
+                    fund_id = target.provider_symbol
+                    # P0-3: skip if already complete in resume state.
+                    if fund_id in completed_ids:
+                        snap_obj = _load_latest_active_fund_cached(fund_id, root / "data")
+                    elif rebuild_fundamentals:
+                        # --rebuild-fundamentals: skip cache-read, skip freshness
+                        # probe, force full re-fetch and force-write cache after build.
+                        snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                        if isinstance(snap_obj, ActiveFundSnapshot):
+                            snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
+                            # P0-5: skip cache write when quarter is empty.
+                            if snap_to_cache.source_report_quarter:
+                                try:
+                                    write_active_fund_cache(snap_to_cache, root / "data")
+                                except Exception as cache_exc:
+                                    reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                    sys.stderr.write(reason + "\n")
+                                    snap_obj = replace(
+                                        snap_obj,
+                                        fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
+                                    )
+                        _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
+                    else:
+                        # 1. Try disk cache for the latest known quarter.
+                        cached = _load_latest_active_fund_cached(fund_id, root / "data")
+                        if cached is None:
+                            snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                            if isinstance(snap_obj, ActiveFundSnapshot):
+                                snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
+                                # P0-5: skip cache write when quarter is empty.
+                                if snap_to_cache.source_report_quarter:
+                                    try:
+                                        write_active_fund_cache(snap_to_cache, root / "data")
+                                    except Exception as cache_exc:
+                                        reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                        sys.stderr.write(reason + "\n")
+                                        snap_obj = replace(
+                                            snap_obj,
+                                            fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
+                                        )
+                            _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
+                        else:
+                            probed, refresh = _maybe_freshness_probe(
+                                cached, today=today, root=root / "data",
+                            )
+                            if refresh:
+                                snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                                if isinstance(snap_obj, ActiveFundSnapshot):
+                                    snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
+                                    # P0-5: skip cache write when quarter is empty.
+                                    if snap_to_cache.source_report_quarter:
+                                        try:
+                                            write_active_fund_cache(snap_to_cache, root / "data")
+                                        except Exception as cache_exc:
+                                            reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                            sys.stderr.write(reason + "\n")
+                                            snap_obj = replace(
+                                                snap_obj,
+                                                fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
+                                            )
+                                _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
+                            else:
+                                snap_obj = probed
+                                _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
+                    snapshot_cache[target.key] = snap_obj
+            else:
+                target_name = target.display_cn
+                if target_name not in snapshot_cache:
+                    snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
+                snap_obj = snapshot_cache[target_name]
+            row = build_opportunity_row(
+                inp,
+                theme_thesis or None,
+                snapshot=snap_obj,
+                theme_report=_resolve_research_theme(inp, theme_reports),
+            )
+            rows.append(row)
+            positions[iid] = PositionContext(
+                portfolio_weight=inp.portfolio_weight,
+                target_band_low=inp.target_band_low,
+                target_band_high=inp.target_band_high,
+                drawdown_since_entry=inp.drawdown_since_entry,
+                is_holding=inp.is_holding,
+            )
+            qualities[iid] = _selection_quality_from(inp)
+            roles[iid] = inp.role or (instr.theme if instr else "") or ""
+
+        # P0-3: clean up state file on successful full loop.
+        if autobuild_on and plan_hash:
+            state_path.unlink(missing_ok=True)
+
+    finally:
+        # P0-2: release advisory lock (kernel reclaims on FD close; explicit is cleaner).
+        if lock_fd >= 0:
+            try:
+                os.close(lock_fd)
+            except OSError:
+                pass
+
     return rows, positions, qualities, roles
+
+
+def _write_state_complete(
+    state: dict,
+    fund_id: str,
+    snap_obj: object | None,
+    fundamentals_dir: Path,
+    plan_hash: str,
+) -> None:
+    """Atomically append a 'complete' entry to the fetch state file."""
+    if not plan_hash:
+        return
+    quarter = ""
+    if isinstance(snap_obj, ActiveFundSnapshot):
+        quarter = snap_obj.source_report_quarter
+    # Remove any existing entry for this fund_id, then append the new one.
+    items = [i for i in state.get("items", []) if i.get("fund_id") != fund_id]
+    items.append({
+        "fund_id": fund_id,
+        "status": "complete",
+        "source_report_quarter": quarter,
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
+    })
+    state["items"] = items
+    write_fetch_state(state, fundamentals_dir, plan_hash)
 
 
 def _print_quality_warnings(rows: list[OpportunityRow]) -> None:
@@ -336,14 +834,28 @@ def _write_opportunity_outputs(
     )
 
 
-def run_opportunity(repo_root: str) -> int:
+def run_opportunity(
+    repo_root: str,
+    *,
+    output_dir: str | None = None,
+    limit: int | None = None,
+    rebuild_fundamentals: bool = False,
+) -> int:
     root = Path(repo_root)
+    today = _today()
+    # Validate CLI args before touching any I/O (exits with code 2 if invalid).
+    validate_cli_args(
+        output_dir=output_dir,
+        limit=limit,
+        rebuild_fundamentals=rebuild_fundamentals,
+        today=today,
+        root=root,
+    )
     if not require_fresh_ingest(root, stage="opportunity"):
         print("ERROR: opportunity stage halted — ingest is stale. "
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
         return 1
     bundle = load_repo_configs(root)
-    today = _today()
     available_venues: set[str] = {
         v for acc in bundle.account.accounts for v in acc.available_venues
     }
@@ -370,17 +882,32 @@ def run_opportunity(repo_root: str) -> int:
     theme_reports = load_theme_reports(root)
     con = connect(root / "data" / "local.duckdb")
     ensure_schema(con)
+    out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
     try:
         rows, positions, qualities, roles = _build_rows(
             scores, instr_index, holdings, portfolio_total_cny,
             available_venues, theme_thesis, theme_reports, root,
             bundle.preferences.asset_class_targets,
             con,
+            output_date=today,
+            limit=limit,
+            rebuild_fundamentals=rebuild_fundamentals,
         )
         if rows:
             _print_quality_warnings(rows)
         kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
-        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, root / "outputs" / today, today)
-    finally:
+        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, out_dir, today)
+    except FetchBudgetExceeded as exc:
+        sys.stderr.write(str(exc) + "\n")
         con.close()
+        raise SystemExit(3)
+    except FetchLockBusy as exc:
+        sys.stderr.write(str(exc) + "\n")
+        con.close()
+        raise SystemExit(4)
+    finally:
+        try:
+            con.close()
+        except Exception:
+            pass
     return 0

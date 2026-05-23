@@ -1,4 +1,4 @@
-"""On-disk JSON cache for ConstituentSnapshot.
+"""On-disk JSON cache for ConstituentSnapshot and ActiveFundSnapshot.
 
 Keeps the orchestration logic in snapshot.py thin by separating all I/O
 (path resolution, quarter inference, serialize/deserialise) here.
@@ -8,14 +8,18 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date
 import json
+import os
 from pathlib import Path
 from typing import Any
 
 from irc.fundamentals.types import (
+    ActiveFundSnapshot,
     BrokerReport,
     Constituent,
+    ConstituentAnalysis,
     ConstituentSnapshot,
     FilingDigest,
+    ThesisEvidence,
 )
 
 
@@ -117,3 +121,118 @@ def load_latest_cached_snapshot(
         if loaded is not None:
             return loaded
     return None
+
+
+# ── Item 003: Active-fund cache I/O ──────────────────────────────────────────
+
+
+def active_fund_cache_path(fund_id: str, quarter: str, root: Path) -> Path:
+    return root / "fundamentals" / quarter / "active_fund" / f"fund_{fund_id}.json"
+
+
+def _evidence_to_dict(e: ThesisEvidence) -> dict[str, Any]:
+    return {
+        "type": e.type, "source": e.source, "url": e.url, "date": e.date,
+        "summary": e.summary, "scope": e.scope, "citation_kind": e.citation_kind,
+        "owner_instrument_id": e.owner_instrument_id,
+        "parent_fund_id": e.parent_fund_id,
+        "constituent_key": e.constituent_key,
+        "citation_id": e.citation_id,
+        "holding_weight_pct": e.holding_weight_pct,
+    }
+
+
+def _evidence_from_dict(d: dict[str, Any]) -> ThesisEvidence:
+    return ThesisEvidence(
+        type=d["type"], source=d["source"], url=d["url"], date=d["date"],
+        summary=d["summary"], scope=d["scope"], citation_kind=d["citation_kind"],
+        owner_instrument_id=d["owner_instrument_id"],
+        parent_fund_id=d.get("parent_fund_id"),
+        constituent_key=d.get("constituent_key"),
+        holding_weight_pct=d.get("holding_weight_pct"),
+    )
+
+
+def _constituent_to_dict(c: ConstituentAnalysis) -> dict[str, Any]:
+    return {
+        "symbol": c.symbol, "name_cn": c.name_cn, "weight_pct": c.weight_pct,
+        "evidence": [_evidence_to_dict(e) for e in c.evidence],
+        "failure_reasons": list(c.failure_reasons),
+        "one_line_view": c.one_line_view,
+    }
+
+
+def _constituent_from_dict(d: dict[str, Any]) -> ConstituentAnalysis:
+    return ConstituentAnalysis(
+        symbol=d["symbol"], name_cn=d["name_cn"], weight_pct=float(d["weight_pct"]),
+        evidence=tuple(_evidence_from_dict(e) for e in d.get("evidence", [])),
+        failure_reasons=tuple(d.get("failure_reasons", ())),
+        one_line_view=d.get("one_line_view", ""),
+    )
+
+
+def _active_fund_to_dict(snap: ActiveFundSnapshot) -> dict[str, Any]:
+    return {
+        "fund_id": snap.fund_id,
+        "source_report_date": snap.source_report_date,
+        "source_report_quarter": snap.source_report_quarter,
+        "cache_probed_at": snap.cache_probed_at,
+        "constituent_analyses": [
+            _constituent_to_dict(c) for c in snap.constituent_analyses
+        ],
+        "failure_reasons_by_symbol": {
+            k: list(v) for k, v in snap.failure_reasons_by_symbol.items()
+        },
+        "fund_level_failure_reasons": list(snap.fund_level_failure_reasons),
+    }
+
+
+def _active_fund_from_dict(body: dict[str, Any]) -> ActiveFundSnapshot | None:
+    needed = {"fund_id", "source_report_quarter", "constituent_analyses"}
+    if not needed.issubset(body):
+        return None
+    try:
+        analyses = tuple(
+            _constituent_from_dict(c) for c in body["constituent_analyses"]
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return ActiveFundSnapshot(
+        fund_id=str(body["fund_id"]),
+        source_report_date=str(body.get("source_report_date", "")),
+        source_report_quarter=str(body["source_report_quarter"]),
+        cache_probed_at=str(body.get("cache_probed_at", "")),
+        constituent_analyses=analyses,
+        failure_reasons_by_symbol={
+            k: tuple(v) for k, v in body.get("failure_reasons_by_symbol", {}).items()
+        },
+        fund_level_failure_reasons=tuple(body.get("fund_level_failure_reasons", ())),
+    )
+
+
+def write_active_fund_cache(snap: ActiveFundSnapshot, root: Path) -> Path:
+    path = active_fund_cache_path(snap.fund_id, snap.source_report_quarter, root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # P1-g: PID-qualified tmp suffix to avoid collisions between concurrent writers.
+    tmp = path.with_suffix(f".json.tmp.{os.getpid()}")
+    tmp.write_text(
+        json.dumps(_active_fund_to_dict(snap), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+    return path
+
+
+def load_active_fund_cache(
+    fund_id: str, quarter: str, root: Path,
+) -> ActiveFundSnapshot | None:
+    path = active_fund_cache_path(fund_id, quarter, root)
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    return _active_fund_from_dict(body)

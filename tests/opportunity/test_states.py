@@ -467,6 +467,36 @@ def test_real_gaps_stay_in_evidence_gaps_for_indexable_asset_class():
     assert "constituent_not_applicable" not in row.evidence_gaps
 
 
+# ── Item 003: build_opportunity_row with ActiveFundSnapshot ───────────────────
+
+def test_build_opportunity_row_populates_constituent_analyses_for_active_fund() -> None:
+    from irc.fundamentals.types import ActiveFundSnapshot
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import (
+        ConstituentAnalysis, OpportunityInput, ThesisEvidence,
+    )
+    ev = ThesisEvidence(
+        type="filing", source="600519", url="https://x/a",
+        date="2024-04-15", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519", holding_weight_pct=6.2,
+    )
+    c = ConstituentAnalysis("600519", "贵州茅台", 6.2, (ev,), (), "")
+    snap = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="", source_report_quarter="2024Q1",
+        cache_probed_at="", constituent_analyses=(c,),
+        failure_reasons_by_symbol={},
+    )
+    inp = OpportunityInput(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    assert row.constituent_analyses == (c,)
+    assert row.thesis_evidence == (ev,)
+
+
 def test_expected_omission_codes_constant_documented():
     assert "constituent_not_applicable" in EXPECTED_OMISSION_CODES
 

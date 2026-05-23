@@ -19,7 +19,7 @@ from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
 )
-from irc.fundamentals.types import BrokerReport, Constituent, FilingDigest
+from irc.fundamentals.types import Constituent
 
 
 # ---------- fetch_cn_index_constituents ----------
@@ -174,11 +174,15 @@ def test_fetch_cn_etf_holdings_happy_path_filters_latest_quarter() -> None:
         out = fetch_cn_etf_holdings("000001", as_of="2024", top_n=10)
     assert mocked.call_args[0][0] == "fund_portfolio_hold_em"
     assert mocked.call_args[1] == {"symbol": "000001", "date": "2024"}
-    # Latest quarter is 2季度 — should only return those two rows
-    assert len(out) == 2
-    assert out[0].name == "美的集团"
-    assert out[0].weight == 0.091
-    assert out[0].symbol == "000333.SZ"
+    # Latest quarter is 2季度 — two rows.
+    assert out.source_report_quarter == "2024Q2"
+    assert out.source_report_date == "2024-06-30"
+    assert len(out.constituents) == 2
+    assert out.constituents[0].name_cn == "美的集团"
+    assert out.constituents[0].weight_pct == 9.10
+    assert out.constituents[0].symbol == "000333"
+    assert out.constituents[0].exchange == "SZ"
+    assert out.constituents[0].provider_symbol == "000333"
 
 
 def test_fetch_cn_etf_holdings_default_as_of_uses_current_year() -> None:
@@ -186,7 +190,6 @@ def test_fetch_cn_etf_holdings_default_as_of_uses_current_year() -> None:
         mocked.return_value = _HOLDINGS_FRAME
         fetch_cn_etf_holdings("000001")
     kwargs = mocked.call_args[1]
-    # default should be a 4-digit year string, not empty
     assert kwargs["symbol"] == "000001"
     assert kwargs["date"].isdigit() and len(kwargs["date"]) == 4
 
@@ -195,15 +198,87 @@ def test_fetch_cn_etf_holdings_truncates_to_top_n() -> None:
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.return_value = _HOLDINGS_FRAME
         out = fetch_cn_etf_holdings("000001", as_of="2024", top_n=1)
-    assert len(out) == 1
-    assert out[0].name == "美的集团"
+    assert len(out.constituents) == 1
+    assert out.constituents[0].name_cn == "美的集团"
 
 
 def test_fetch_cn_etf_holdings_returns_empty_on_failure() -> None:
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.side_effect = ValueError("eastmoney 502")
         out = fetch_cn_etf_holdings("000001", as_of="2024")
+    assert out.constituents == ()
+    assert out.source_report_quarter == ""
+    assert out.source_report_date == ""
+
+
+_HK_HOLDINGS_FRAME = pd.DataFrame({
+    "股票代码": ["00700", "0700", "09988", "600519", "AAPL", "830839"],
+    "股票名称": ["腾讯控股", "腾讯控股", "阿里巴巴", "贵州茅台", "苹果", "晶赛科技"],
+    "占净值比例": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0],
+    "季度": ["2024年1季度股票投资明细"] * 6,
+})
+
+
+# ── Item 003: fetch_cn_stock_news ─────────────────────────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import fetch_cn_stock_news  # noqa: E402
+
+
+_CN_NEWS_FRAME = pd.DataFrame({
+    "关键词": ["茅台"] * 5,
+    "新闻标题": ["新品发布", "增持公告", "Q1业绩", "调研纪要", "回购"],
+    "新闻内容": ["a", "b", "c", "d", "e"],
+    "发布时间": [
+        "2024-04-15 09:00:00",
+        "2024-04-14 09:00:00",
+        "2024-04-13 09:00:00",
+        "2024-04-12 09:00:00",
+        "2024-04-11 09:00:00",
+    ],
+    "新闻链接": [f"https://example.com/{i}" for i in range(5)],
+    "文章来源": ["东财"] * 5,
+})
+
+
+def test_fetch_cn_stock_news_top_3_by_date_desc() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = _CN_NEWS_FRAME
+        out = fetch_cn_stock_news("600519", top_k=3)
+    assert mocked.call_args[0][0] == "stock_news_em"
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert len(out) == 3
+    assert out[0].published_iso == "2024-04-15"
+    assert out[0].title == "新品发布"
+    assert out[0].symbol == "600519"
+    assert out[0].source == "stock_news_em"
+    assert out[1].published_iso == "2024-04-14"
+    assert out[2].published_iso == "2024-04-13"
+
+
+def test_fetch_cn_stock_news_raises_on_adapter_exception() -> None:
+    """P1-c: fetch_cn_stock_news re-raises adapter exceptions so callers can
+    classify them as news_fetch_failed (not news_empty)."""
+    import pytest
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = ConnectionError("dfcfw 502")
+        with pytest.raises(ConnectionError):
+            fetch_cn_stock_news("600519")
+
+
+def test_fetch_cn_stock_news_empty_on_empty_frame() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = pd.DataFrame()
+        out = fetch_cn_stock_news("600519")
     assert out == ()
+
+
+def test_fetch_cn_etf_holdings_hk_and_bj_routing_without_market_column() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = _HK_HOLDINGS_FRAME
+        out = fetch_cn_etf_holdings("501025", as_of="2024", top_n=6)
+    assert out.source_report_quarter == "2024Q1"
+    exchanges = [c.exchange for c in out.constituents]
+    assert exchanges == ["HK", "HK", "HK", "SH", "US", "BJ"]
 
 
 # ---------- fetch_cn_broker_reports ----------
@@ -413,9 +488,163 @@ def test_fetch_hk_index_constituents_happy_path() -> None:
 
 def test_fetch_hk_index_constituents_returns_empty_on_failure() -> None:
     from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
-    
+
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.side_effect = RuntimeError("akshare network error")
         out = fetch_hk_index_constituents("HSI", top_n=10)
-    
+
     assert out == ()
+
+
+# ── Item 003: _parse_exchange + _parse_quarter_column ─────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import (  # noqa: E402
+    _parse_exchange,
+    _parse_quarter_column,
+)
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("600519", "SH"),
+        ("000333", "SZ"),
+        ("300750", "SZ"),
+        ("00700", "HK"),
+        ("0700", "HK"),
+        ("09988", "HK"),
+        ("AAPL", "US"),
+        ("830839", "BJ"),
+        ("430139", "BJ"),
+    ],
+)
+def test_parse_exchange_ticker_prefix_fallback(code, expected) -> None:
+    row = pd.Series({"股票代码": code})
+    assert _parse_exchange(row) == expected
+
+
+def test_parse_exchange_market_column_priority_hk() -> None:
+    row = pd.Series({"股票代码": "600519", "股票市场": "港交所"})
+    assert _parse_exchange(row) == "HK"
+
+
+def test_parse_exchange_market_column_priority_sz() -> None:
+    row = pd.Series({"股票代码": "00700", "股票市场": "深交所"})
+    assert _parse_exchange(row) == "SZ"
+
+
+def test_parse_exchange_market_column_star_board_sh() -> None:
+    row = pd.Series({"股票代码": "688981", "股票市场": "科创板"})
+    assert _parse_exchange(row) == "SH"
+
+
+def test_parse_exchange_market_column_unknown_falls_through() -> None:
+    # Unknown 股票市场 value falls through to ticker-prefix.
+    row = pd.Series({"股票代码": "600519", "股票市场": "新疆板块"})
+    assert _parse_exchange(row) == "SH"
+
+
+def test_parse_exchange_unknown() -> None:
+    row = pd.Series({"股票代码": "X1!"})
+    assert _parse_exchange(row) == "UNKNOWN"
+
+
+def test_parse_exchange_strips_sz_sh_prefix() -> None:
+    row = pd.Series({"股票代码": "sz000333"})
+    assert _parse_exchange(row) == "SZ"
+
+
+def test_parse_quarter_column_happy() -> None:
+    row = pd.Series({"季度": "2024年1季度股票投资明细"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2024Q1"
+    assert iso == "2024-03-31"
+
+
+def test_parse_quarter_column_q4() -> None:
+    row = pd.Series({"季度": "2023年4季度股票投资明细"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2023Q4"
+    assert iso == "2023-12-31"
+
+
+def test_parse_quarter_column_baogao_qi_fallback() -> None:
+    row = pd.Series({"报告期": "2024年2季度"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2024Q2"
+    assert iso == "2024-06-30"
+
+
+def test_parse_quarter_column_unparseable() -> None:
+    row = pd.Series({"季度": "2024年半年度"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == ""
+    assert iso == ""
+
+
+# ── PR-review round-4 regression tests (item 003) ─────────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import (  # noqa: E402
+    _parse_exchange_from_market_column,
+    _parse_exchange_from_ticker,
+)
+
+
+def test_parse_quarter_column_all_nan_季度_returns_empty_tuple() -> None:
+    """Finding 1: 季度 column present but all NaN must not raise IndexError.
+
+    Regression: fetch_cn_etf_holdings with an all-NaN quarter column called
+    latest.iloc[0] on a row whose 季度 value was NaN, which previously caused
+    _parse_quarter_column to misbehave; now it must return ("", "").
+    """
+    row = pd.Series({"季度": float("nan"), "股票代码": "600519"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == ""
+    assert iso == ""
+
+
+def test_fetch_cn_etf_holdings_all_nan_quarter_column_does_not_raise() -> None:
+    """Finding 1 (integration): DataFrame with 季度 column present but all NaN
+    must degrade gracefully — no IndexError or other exception."""
+    all_nan_frame = pd.DataFrame({
+        "序号": [1, 2],
+        "股票代码": ["600519", "000333"],
+        "股票名称": ["贵州茅台", "美的集团"],
+        "占净值比例": [5.0, 4.0],
+        "季度": [float("nan"), float("nan")],
+    })
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = all_nan_frame
+        result = fetch_cn_etf_holdings("999999", as_of="2024", top_n=10)
+    # Must not raise; quarter metadata degrades to empty strings.
+    assert result.source_report_quarter == ""
+    assert result.source_report_date == ""
+
+
+def test_bj_tokens_do_not_match_nanjing() -> None:
+    """Finding 2: single-char '京' in _BJ_TOKENS falsely matches '南京'.
+
+    Regression: market column containing '南京' must NOT route to BJ exchange.
+    """
+    result = _parse_exchange_from_market_column("南京证券交易市场")
+    assert result != "BJ", f"Expected not BJ but got {result!r}"
+
+
+def test_bj_tokens_match_beijiao_so() -> None:
+    """Finding 2: multi-char '北交所' must still route to BJ."""
+    result = _parse_exchange_from_market_column("北交所")
+    assert result == "BJ"
+
+
+def test_bj_tokens_no_false_positive_for_京_in_非bj_text() -> None:
+    """Finding 2: '深市A股' containing no BJ tokens must not route to BJ."""
+    result = _parse_exchange_from_market_column("深市A股")
+    assert result != "BJ"
+
+
+def test_parse_exchange_from_ticker_5xxx_routes_to_sh() -> None:
+    """Finding 3: 5-prefix codes (e.g. 512000 CSI-500 ETF) must route to SH,
+    consistent with _suffix_for_code which maps '5' and '6' to SH."""
+    assert _parse_exchange_from_ticker("512000") == "SH"
+    assert _parse_exchange_from_ticker("510300") == "SH"
+    assert _parse_exchange_from_ticker("588000") == "SH"

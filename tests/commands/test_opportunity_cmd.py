@@ -389,3 +389,320 @@ def test_discipline_row_from_passes_through_constituent_analyses():
     )
     drow = _discipline_row_from(row, PositionContext(0.05, 0.0, 0.30, None, True))
     assert drow.constituent_analyses == ()
+
+
+# ── Item 003: FetchPlan / FetchBudgetExceeded / compute_plan_hash ─────────────
+
+def test_fetch_plan_total_calls_active_fund_only() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=5, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+    )
+    # 5 × (1 + 10*3) = 5 × 31 = 155
+    assert plan.total_calls() == 155
+
+
+def test_fetch_plan_total_calls_with_stale_and_passive() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=2, active_fund_stale=3,
+        passive_misses=4, passive_stale=1, top_n=10,
+    )
+    # (2 + 3) × 31 + 4×2 + 1×2 = 155 + 8 + 2 = 165
+    assert plan.total_calls() == 165
+
+
+def test_fetch_budget_exceeded_carries_breakdown() -> None:
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+    plan = FetchPlan(5, 0, 0, 0, 10)
+    exc = FetchBudgetExceeded(plan=plan, total=155, budget=10)
+    msg = str(exc)
+    assert "active_fund_misses=5" in msg
+    assert "cost=155" in msg
+    assert "budget=10" in msg
+
+
+def test_plan_hash_deterministic() -> None:
+    from irc.commands.opportunity_cmd import compute_plan_hash
+    h1 = compute_plan_hash("2026-05-22", ["005827", "501025"], 10)
+    h2 = compute_plan_hash("2026-05-22", ["501025", "005827"], 10)
+    assert h1 == h2  # sorted internally
+    assert len(h1) == 12
+    h3 = compute_plan_hash("2026-05-23", ["005827", "501025"], 10)
+    assert h3 != h1
+
+
+def test_plan_hash_includes_top_n() -> None:
+    from irc.commands.opportunity_cmd import compute_plan_hash
+    h1 = compute_plan_hash("2026-05-22", ["005827"], 10)
+    h2 = compute_plan_hash("2026-05-22", ["005827"], 15)
+    assert h1 != h2
+
+
+# ── Item 003: resumable state I/O + lock ──────────────────────────────────────
+
+def test_fetch_state_atomic_write_and_load(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state, write_fetch_state
+    state = {
+        "plan_hash": "abc123def456",
+        "started_at": "2026-05-22T10:00:00",
+        "items": [
+            {"fund_id": "005827", "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-22T10:05:00"},
+        ],
+    }
+    write_fetch_state(state, tmp_path / "data" / "fundamentals", "abc123def456")
+    loaded = load_fetch_state(tmp_path / "data" / "fundamentals", "abc123def456")
+    assert loaded == state
+
+
+def test_fetch_state_load_returns_none_when_missing(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state
+    assert load_fetch_state(tmp_path / "data" / "fundamentals", "x") is None
+
+
+def test_fetch_state_load_returns_none_on_hash_mismatch(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state, write_fetch_state
+    state = {"plan_hash": "old123", "items": []}
+    write_fetch_state(state, tmp_path / "data" / "fundamentals", "old123")
+    # New run with different hash.
+    assert load_fetch_state(tmp_path / "data" / "fundamentals", "new456") is None
+
+
+def test_acquire_fetch_lock_second_call_raises(tmp_path, monkeypatch) -> None:
+    import pytest
+    from irc.commands.opportunity_cmd import acquire_fetch_lock, FetchLockBusy
+    path = tmp_path / "lock.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd1 = acquire_fetch_lock(path)
+    # Simulate a concurrent process by patching fcntl.flock to raise.
+    import fcntl as fcntl_mod
+    def raising(*a, **kw):
+        raise BlockingIOError("locked")
+    monkeypatch.setattr(fcntl_mod, "flock", raising)
+    with pytest.raises(FetchLockBusy):
+        acquire_fetch_lock(path)
+    import os
+    os.close(fd1)
+
+
+# ── Item 003: autobuild env + freshness probe ──────────────────────────────────
+
+def test_build_rows_autobuild_off_skips_active_fund_fetch(monkeypatch, tmp_path) -> None:
+    """IRC_OPPORTUNITY_AUTOBUILD=0 → no AkShare calls; snapshot=None."""
+    from irc.commands.opportunity_cmd import _is_active_fund_target_autobuild_on
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "0")
+    assert _is_active_fund_target_autobuild_on() is False
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    assert _is_active_fund_target_autobuild_on() is True
+    monkeypatch.delenv("IRC_OPPORTUNITY_AUTOBUILD", raising=False)
+    assert _is_active_fund_target_autobuild_on() is True  # default on
+
+
+def test_freshness_probe_same_quarter_reuses_cache(monkeypatch, tmp_path) -> None:
+    """Probe returns same quarter → cache_probed_at advances, no full refetch."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import ActiveFundSnapshot, HoldingsResult
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(cached, tmp_path)
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings",
+        lambda sym, top_n=1: HoldingsResult((), "2024-03-31", "2024Q1"),
+    )
+    fresh, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is False
+    assert fresh.cache_probed_at == "2026-05-22"
+
+
+def test_freshness_probe_new_quarter_schedules_refetch(monkeypatch, tmp_path) -> None:
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.types import ActiveFundSnapshot, HoldingsResult
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings",
+        lambda sym, top_n=1: HoldingsResult((), "2024-06-30", "2024Q2"),
+    )
+    _, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is True
+
+
+def test_freshness_probe_failure_is_fail_closed(monkeypatch, tmp_path) -> None:
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.types import ActiveFundSnapshot
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    def boom(*a, **kw):
+        raise ConnectionError("akshare 502")
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings", boom,
+    )
+    _, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is True  # fail-closed
+
+
+# ── Item 003: validate_cli_args (--limit canonical rejection) ─────────────────
+
+def test_validate_output_dir_canonical_rejects_limit(tmp_path) -> None:
+    import pytest
+    from irc.commands.opportunity_cmd import validate_cli_args
+    with pytest.raises(SystemExit) as exc:
+        validate_cli_args(
+            output_dir=str(tmp_path / "outputs" / "2026-05-22"),
+            limit=3, rebuild_fundamentals=False,
+            today="2026-05-22",
+        )
+    assert exc.value.code == 2
+
+
+def test_validate_output_dir_non_canonical_accepts_limit(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import validate_cli_args
+    # Should not raise.
+    validate_cli_args(
+        output_dir="/tmp/scratch/", limit=3,
+        rebuild_fundamentals=False, today="2026-05-22",
+    )
+
+
+def test_validate_output_dir_canonical_accepts_no_limit(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import validate_cli_args
+    validate_cli_args(
+        output_dir=str(tmp_path / "outputs" / "2026-05-22"),
+        limit=None, rebuild_fundamentals=False, today="2026-05-22",
+    )
+
+
+# ── P0-4: validate_cli_args default (output_dir=None) covers canonical ─────────
+
+def test_validate_none_output_dir_with_limit_rejects(tmp_path) -> None:
+    """P0-4: output_dir=None + limit → treated as canonical path, exit 2."""
+    import pytest
+    from irc.commands.opportunity_cmd import validate_cli_args
+    with pytest.raises(SystemExit) as exc:
+        validate_cli_args(
+            output_dir=None, limit=3,
+            rebuild_fundamentals=False, today="2026-05-22",
+        )
+    assert exc.value.code == 2
+
+
+def test_validate_none_output_dir_no_limit_passes() -> None:
+    """P0-4: output_dir=None + no limit → fine."""
+    from irc.commands.opportunity_cmd import validate_cli_args
+    # Should not raise.
+    validate_cli_args(
+        output_dir=None, limit=None,
+        rebuild_fundamentals=False, today="2026-05-22",
+    )
+
+
+# ── P1-a: double-append prevention ────────────────────────────────────────────
+
+def test_evidence_routing_exception_no_double_append() -> None:
+    """P1-a: when adapter raises, only *_fetch_failed appended, NOT *_fetch_failed + *_empty."""
+    from unittest.mock import patch
+    from irc.fundamentals.snapshot import _evidence_for_constituent
+    from irc.fundamentals.types import FundHolding
+
+    holding = FundHolding(
+        symbol="600519", name_cn="贵州茅台",
+        weight_pct=6.2, exchange="SH", provider_symbol="600519",
+    )
+
+    def raise_exc(*a, **kw):
+        raise ConnectionError("network down")
+
+    with (
+        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", side_effect=raise_exc),
+        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", side_effect=raise_exc),
+        patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=raise_exc),
+    ):
+        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+
+    failure_codes = set(failures)
+    # Must have fetch_failed codes.
+    assert any("filing_fetch_failed" in f for f in failure_codes)
+    assert any("broker_fetch_failed" in f for f in failure_codes)
+    assert any("news_fetch_failed" in f for f in failure_codes)
+    # Must NOT have _empty codes when exceptions fired.
+    assert not any("filing_empty" in f for f in failure_codes), (
+        f"double-append: filing_empty should not appear when exception fired: {failure_codes}"
+    )
+    assert not any("broker_empty" in f for f in failure_codes), (
+        f"double-append: broker_empty should not appear when exception fired: {failure_codes}"
+    )
+    assert not any("news_empty" in f for f in failure_codes), (
+        f"double-append: news_empty should not appear when exception fired: {failure_codes}"
+    )
+
+
+# ── P1-c: news adapter re-raise ───────────────────────────────────────────────
+
+def test_cn_news_exception_propagates_to_caller() -> None:
+    """P1-c: fetch_cn_stock_news re-raises; caller catches it as news_fetch_failed."""
+    from unittest.mock import patch
+    from irc.fundamentals.snapshot import _evidence_for_constituent
+    from irc.fundamentals.types import FundHolding
+
+    holding = FundHolding(
+        symbol="600519", name_cn="贵州茅台",
+        weight_pct=6.2, exchange="SH", provider_symbol="600519",
+    )
+
+    with (
+        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", return_value=None),
+        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", return_value=()),
+        patch(
+            "irc.fundamentals.snapshot.fetch_cn_stock_news",
+            side_effect=ConnectionError("network"),
+        ),
+    ):
+        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+
+    assert any("news_fetch_failed:600519:ConnectionError" in f for f in failures), (
+        f"expected news_fetch_failed:600519:ConnectionError in failures: {failures}"
+    )
+    assert not any("news_empty:600519" in f for f in failures), (
+        f"news_empty should not appear when ConnectionError fired (P1-c regression): {failures}"
+    )
+
+
+# ── P1-h: clock-skew clamp in _is_stale ──────────────────────────────────────
+
+def test_is_stale_future_cache_probed_at_treated_as_stale() -> None:
+    """P1-h: if cache_probed_at is in the future (clock skew), treat as stale."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _is_stale
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="2099-01-01",  # far future
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+    )
+    result = _is_stale(snap, today=date(2026, 5, 22), threshold_days=7)
+    assert result is True, "future cache_probed_at (clock skew) should be treated as stale"

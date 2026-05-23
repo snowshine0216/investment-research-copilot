@@ -71,6 +71,13 @@ def _card_to_dict(card: ThesisCard) -> dict[str, Any]:
             raise RuntimeError(
                 f"thesis_evidence entry missing citation_id: {ev_dict}"
             )
+    # Item 003: also check nested constituent evidence.
+    for analysis in d.get("constituent_analyses", []):
+        for ev_dict in analysis.get("evidence", []):
+            if not ev_dict.get("citation_id"):
+                raise RuntimeError(
+                    f"constituent evidence entry missing citation_id: {ev_dict}"
+                )
     return d
 
 

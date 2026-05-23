@@ -124,7 +124,7 @@ def test_thesis_card_defaults_immutable_collections():
 def _row(**over):
     base = dict(
         instrument_id="X", name_cn="X", asset_class="gold", theme=None,
-        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        lookthrough_target=LookthroughTarget(kind="gold", key="gold", display_cn="GOLD"),
         valuation_state="neutral", heat_state="neutral", thesis_state="evidence_insufficient",
         product_quality_state="ok", opportunity_state="small_watch", opportunity_reason="r",
         evidence_gaps=(),
@@ -310,3 +310,140 @@ def test_citation_id_uses_summary_fallback_when_url_empty():
     a = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q3 营收 +12%"))
     b = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q4 营收 -5%"))
     assert a.citation_id != b.citation_id
+
+
+# ── Item 003: LookthroughTarget.provider_symbol tests ────────────────────────
+
+# ── Item 003: ThesisCard.constituent_analyses + DisciplineRow narrowing ───────
+
+def test_thesis_card_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import ThesisCard
+    card = ThesisCard(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None, role="watchlist",
+        lookthrough_target="易方达蓝筹精选", entry_reason="",
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        dca_action="pause_dca", risk_action="none",
+        falsification_triggers=(), trim_triggers=(),
+        do_not_sell_just_because=(), review_cadence="weekly",
+        evidence_gaps=(),
+    )
+    assert card.constituent_analyses == ()
+
+
+def test_discipline_row_constituent_analyses_typed() -> None:
+    from irc.opportunity.types import ConstituentAnalysis, DisciplineRow
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=6.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+    row = DisciplineRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+        constituent_analyses=(c,),
+    )
+    assert row.constituent_analyses[0].symbol == "600519"
+
+
+def test_lookthrough_target_provider_symbol_default_empty() -> None:
+    t = LookthroughTarget("broad_index", "csi300", "沪深300")
+    assert t.provider_symbol == ""
+
+
+def test_lookthrough_target_provider_symbol_explicit() -> None:
+    t = LookthroughTarget(
+        kind="active_fund", key="fund_005827",
+        display_cn="易方达蓝筹精选", provider_symbol="005827",
+    )
+    assert t.provider_symbol == "005827"
+
+
+# ── Item 003: ConstituentAnalysis + OpportunityRow.constituent_analyses ───────
+
+def test_constituent_analysis_construction() -> None:
+    from irc.opportunity.types import ConstituentAnalysis
+    c = ConstituentAnalysis(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=6.2,
+        evidence=(),
+        failure_reasons=("filing_empty:600519",),
+        one_line_view="证据获取失败",
+    )
+    assert c.symbol == "600519"
+    assert c.weight_pct == 6.2
+
+
+def test_constituent_analysis_rejects_negative_weight() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="600519", name_cn="贵州茅台", weight_pct=-1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+def test_constituent_analysis_rejects_empty_symbol() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="", name_cn="x", weight_pct=1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+# ── Item 003: ThesisEvidence.holding_weight_pct ───────────────────────────────
+
+def test_thesis_evidence_holding_weight_pct_default_none() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    e = ThesisEvidence(
+        type="filing", source="600519", url="", date="2024-04-15",
+        summary="x", scope="instrument", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id=None, constituent_key=None,
+    )
+    assert e.holding_weight_pct is None
+
+
+def test_thesis_evidence_holding_weight_pct_not_in_citation_id_preimage() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    common = dict(
+        type="filing", source="600519", url="https://example.com/a",
+        date="2024-04-15", summary="贵州茅台 24Q1 营收 +18%",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519",
+    )
+    e1 = ThesisEvidence(**common, holding_weight_pct=None)
+    e2 = ThesisEvidence(**common, holding_weight_pct=3.46)
+    e3 = ThesisEvidence(**common, holding_weight_pct=99.0)
+    # holding_weight_pct excluded from preimage => same citation_id.
+    assert e1.citation_id == e2.citation_id == e3.citation_id
+    assert e2.holding_weight_pct == 3.46
+
+
+def test_opportunity_row_has_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import (
+        LookthroughTarget, OpportunityRow,
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", "fund_005827", "易方达蓝筹精选", "005827",
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="", evidence_gaps=(),
+    )
+    assert row.constituent_analyses == ()

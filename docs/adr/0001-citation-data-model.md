@@ -81,3 +81,7 @@ These gates run immediately before `atomic_write_text` of `opportunity_report.js
 
 - **`ThesisEvidence.from_dict` classmethod.** Item 002 puts the JSON→dataclass rebuilder in `memo_cmd.py` as `_evidence_from_dict`. If item 009 audit gates also need it, promote to a `@classmethod` on `ThesisEvidence`.
 - **`provider_id` field.** Reserved for a future slice if empty-URL citation disambiguation outgrows the `summary[:64]` fallback in the hash preimage.
+
+## Related ADRs
+
+- [ADR 0002 — Active-fund fetch engine](0002-active-fund-fetch-engine.md): the runtime engine that emits `ThesisEvidence` with `scope="constituent"` for active-fund holdings. Adds the optional `holding_weight_pct` field (NOT part of the citation_id hash preimage; the contract in §2 of this ADR is unchanged).

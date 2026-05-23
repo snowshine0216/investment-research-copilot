@@ -7,6 +7,7 @@ from irc.fundamentals.snapshot import (
     registered_snapshot_targets,
     write_snapshot,
 )
+from irc.opportunity.types import LookthroughTarget
 
 
 def _expand_targets(targets: tuple[str, ...]) -> tuple[str, ...]:
@@ -39,7 +40,10 @@ def run_snapshot_rebuild(
 
     root = Path(repo_root)
     for target in expanded_targets:
-        snapshot = build_snapshot(target, top_n=top_n)
+        lt = LookthroughTarget(
+            kind="broad_index", key=target, display_cn=target,
+        )
+        snapshot = build_snapshot(lt, top_n=top_n)
         path = write_snapshot(snapshot, root / "data")
         if snapshot.failure_reasons:
             joined = "; ".join(snapshot.failure_reasons)

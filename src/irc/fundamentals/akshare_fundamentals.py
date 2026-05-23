@@ -1,19 +1,21 @@
 """CN constituent data via AkShare.
 
-Public functions: `fetch_cn_index_constituents`, `fetch_cn_etf_holdings`.
-Filing and broker-report fetchers live in `akshare_filing` (re-exported here).
+Public functions: `fetch_cn_index_constituents`, `fetch_cn_etf_holdings`,
+`fetch_cn_stock_news`. Filing and broker-report fetchers live in `akshare_filing`
+(re-exported here).
 
 All public functions degrade failures to empty / None — never raise — so the
 snapshot orchestrator can record per-source diagnostics without crashing.
 """
 from __future__ import annotations
 
+import re
 from datetime import date
 from typing import Any
 
 import pandas as pd
 
-from irc.fundamentals.types import Constituent
+from irc.fundamentals.types import Constituent, FundHolding, HoldingsResult, NewsItem
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -38,6 +40,118 @@ def _to_qualified_symbol(code: str) -> str:
     if len(code) > 2 and code[:2] in ("SZ", "SH"):
         code = code[2:]
     return f"{code}.{_suffix_for_code(code)}"
+
+
+# ── Item 003: Exchange parser + quarter column parser ─────────────────────────
+
+_HK_TOKENS: tuple[str, ...] = ("港",)
+_US_TOKENS: tuple[str, ...] = ("纽", "纳斯达克", "美")
+_SH_TOKENS: tuple[str, ...] = ("沪", "上交所", "上证", "科创板")
+_SZ_TOKENS: tuple[str, ...] = ("深", "创业板", "中小板")
+_BJ_TOKENS: tuple[str, ...] = ("北交所", "北证", "京交所")
+_QUARTER_END: dict[str, str] = {
+    "1": "03-31", "2": "06-30", "3": "09-30", "4": "12-31",
+}
+_QUARTER_RE = re.compile(r"(\d{4})年(\d)季度")
+
+
+def _normalize_ticker(raw: str) -> str:
+    """Strip `.SH/.SZ/.HK/.US` suffix and leading `sz/sh/bj` (case-insensitive)."""
+    code = str(raw).strip()
+    code = re.sub(r"\.(SH|SZ|HK|US|BJ)$", "", code, flags=re.IGNORECASE)
+    lower = code.lower()
+    for prefix in ("sz", "sh", "bj"):
+        if lower.startswith(prefix):
+            return code[len(prefix):]
+    return code
+
+
+def _parse_exchange_from_market_column(market_value: str) -> str | None:
+    """Strategy 1: priority-ordered substring match. None = strategy-1 miss."""
+    if not market_value:
+        return None
+    # Priority: HK / US first to avoid 主板 false-hits.
+    for token in _HK_TOKENS:
+        if token in market_value:
+            return "HK"
+    for token in _US_TOKENS:
+        if token in market_value:
+            return "US"
+    # 科创板 must come before generic 沪 because 科创板 trades on Shanghai.
+    if "科创板" in market_value:
+        return "SH"
+    for token in _SH_TOKENS:
+        if token in market_value:
+            return "SH"
+    for token in _SZ_TOKENS:
+        if token in market_value:
+            return "SZ"
+    for token in _BJ_TOKENS:
+        if token in market_value:
+            return "BJ"
+    return None
+
+
+def _parse_exchange_from_ticker(raw_code: str) -> str:
+    """Strategy 2: ticker-prefix routing."""
+    upper = str(raw_code).strip().upper()
+    if upper.endswith(".HK"):
+        return "HK"
+    code = _normalize_ticker(raw_code)
+    if not code:
+        return "UNKNOWN"
+    if code.isdigit() and len(code) in (4, 5):
+        return "HK"
+    if code.isdigit() and len(code) == 6:
+        head = code[0]
+        if head in ("5", "6"):
+            return "SH"
+        if head in ("0", "3"):
+            return "SZ"
+        if head in ("4", "8"):
+            return "BJ"
+    if code.isalpha():
+        return "US"
+    return "UNKNOWN"
+
+
+def _parse_exchange(row: pd.Series) -> str:
+    """Map a holdings row to an exchange code.
+
+    Strategy 1: prefer `股票市场` substring containment (HK/US first).
+    Strategy 2: ticker-prefix fallback.
+    """
+    market = ""
+    if "股票市场" in row.index:
+        market = str(row["股票市场"] or "").strip()
+    if market:
+        mapped = _parse_exchange_from_market_column(market)
+        if mapped is not None:
+            return mapped
+    raw = ""
+    if "股票代码" in row.index:
+        raw = str(row["股票代码"] or "").strip()
+    return _parse_exchange_from_ticker(raw)
+
+
+def _parse_quarter_column(row: pd.Series) -> tuple[str, str]:
+    """Return (`source_report_quarter`, `source_report_date`).
+
+    Accepts `季度` or `报告期`. Empty/unparseable → `("", "")`.
+    """
+    text = ""
+    for col in ("季度", "报告期"):
+        if col in row.index:
+            text = str(row[col] or "")
+            if text:
+                break
+    m = _QUARTER_RE.search(text)
+    if m is None:
+        return "", ""
+    year, q = m.group(1), m.group(2)
+    if q not in _QUARTER_END:
+        return "", ""
+    return f"{year}Q{q}", f"{year}-{_QUARTER_END[q]}"
 
 
 def _sina_index_symbol(index_code: str) -> str | None:
@@ -131,33 +245,104 @@ def fetch_cn_index_constituents(
 
 
 def fetch_cn_etf_holdings(
-    symbol: str,
+    provider_symbol: str,
     *,
     as_of: str = "",
     top_n: int = 10,
-) -> tuple[Constituent, ...]:
-    """Latest disclosed holdings for a CN ETF."""
+) -> HoldingsResult:
+    """Latest disclosed holdings for a CN fund.
+
+    Returns `HoldingsResult` with normalized `FundHolding` rows. Never raises.
+    Empty/failed → `HoldingsResult((), "", "")`.
+    """
     year = as_of or _current_year()
     try:
-        df = _ak_call("fund_portfolio_hold_em", symbol=symbol, date=year)
+        df = _ak_call("fund_portfolio_hold_em", symbol=provider_symbol, date=year)
     except Exception:
-        return ()
+        return HoldingsResult((), "", "")
     if not isinstance(df, pd.DataFrame) or df.empty:
-        return ()
-    needed = {"股票代码", "股票名称", "占净值比例", "季度"}
+        return HoldingsResult((), "", "")
+    needed = {"股票代码", "股票名称", "占净值比例"}
     if not needed.issubset(df.columns):
-        return ()
-    latest_quarter = sorted(df["季度"].astype(str).unique())[-1]
-    latest = df[df["季度"].astype(str) == latest_quarter]
-    ranked = latest.sort_values("占净值比例", ascending=False).head(top_n)
-    return tuple(
-        Constituent(
-            symbol=_to_qualified_symbol(str(row["股票代码"])),
-            name=str(row["股票名称"]),
-            weight=float(row["占净值比例"]) / 100,
-            market="cn",
+        return HoldingsResult((), "", "")
+    # Pick latest quarter via column lex-sort.
+    quarter_col = "季度" if "季度" in df.columns else ("报告期" if "报告期" in df.columns else None)
+    if quarter_col is None:
+        # Quarter column absent: still emit constituents so the snapshot builder
+        # can stamp holdings_quarter_parse_failed rather than holdings_fetch_failed.
+        ranked = df.sort_values("占净值比例", ascending=False).head(top_n)
+        holdings_no_quarter: list[FundHolding] = []
+        for _, row in ranked.iterrows():
+            raw_code = str(row["股票代码"]).strip()
+            normalized = _normalize_ticker(raw_code)
+            exchange = _parse_exchange(row)
+            try:
+                weight_pct = float(row["占净值比例"])
+            except (TypeError, ValueError):
+                weight_pct = 0.0
+            holdings_no_quarter.append(FundHolding(
+                symbol=normalized,
+                name_cn=str(row["股票名称"]),
+                weight_pct=weight_pct,
+                exchange=exchange,
+                provider_symbol=raw_code,
+            ))
+        return HoldingsResult(
+            constituents=tuple(holdings_no_quarter),
+            source_report_date="",
+            source_report_quarter="",
         )
-        for _, row in ranked.iterrows()
+    non_null = df[quarter_col].dropna()
+    if non_null.empty:
+        # Quarter column present but all-NaN: emit constituents without quarter metadata.
+        ranked_all = df.sort_values("占净值比例", ascending=False).head(top_n)
+        holdings_no_q: list[FundHolding] = []
+        for _, row in ranked_all.iterrows():
+            raw_code = str(row["股票代码"]).strip()
+            normalized = _normalize_ticker(raw_code)
+            exchange = _parse_exchange(row)
+            try:
+                weight_pct = float(row["占净值比例"])
+            except (TypeError, ValueError):
+                weight_pct = 0.0
+            holdings_no_q.append(FundHolding(
+                symbol=normalized,
+                name_cn=str(row["股票名称"]),
+                weight_pct=weight_pct,
+                exchange=exchange,
+                provider_symbol=raw_code,
+            ))
+        return HoldingsResult(
+            constituents=tuple(holdings_no_q),
+            source_report_date="",
+            source_report_quarter="",
+        )
+    latest_quarter = sorted(df[quarter_col].dropna().astype(str).unique())[-1]
+    latest = df[df[quarter_col].astype(str) == latest_quarter]
+    ranked = latest.sort_values("占净值比例", ascending=False).head(top_n)
+    holdings: list[FundHolding] = []
+    for _, row in ranked.iterrows():
+        raw_code = str(row["股票代码"]).strip()
+        normalized = _normalize_ticker(raw_code)
+        exchange = _parse_exchange(row)
+        try:
+            weight_pct = float(row["占净值比例"])
+        except (TypeError, ValueError):
+            weight_pct = 0.0
+        holdings.append(FundHolding(
+            symbol=normalized,
+            name_cn=str(row["股票名称"]),
+            weight_pct=weight_pct,
+            exchange=exchange,
+            provider_symbol=raw_code,
+        ))
+    # Quarter metadata from any latest-quarter row (they share the same text).
+    sample = latest.iloc[0]
+    quarter_str, date_iso = _parse_quarter_column(sample)
+    return HoldingsResult(
+        constituents=tuple(holdings),
+        source_report_date=date_iso,
+        source_report_quarter=quarter_str,
     )
 
 
@@ -221,6 +406,38 @@ def fetch_hk_index_constituents(
     if not isinstance(df, pd.DataFrame) or df.empty:
         return ()
     return _parse_hk_index_frame(df, top_n)
+
+
+def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
+    """Top-K most recent stock news items from EastMoney.
+
+    P1-c: exceptions propagate to the caller (snapshot.py catches them as
+    news_fetch_failed). Returns () only on empty/malformed DataFrame.
+    """
+    df = _ak_call("stock_news_em", symbol=stock)
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return ()
+    title_col = "新闻标题" if "新闻标题" in df.columns else None
+    date_col = "发布时间" if "发布时间" in df.columns else None
+    url_col = "新闻链接" if "新闻链接" in df.columns else None
+    summary_col = "新闻内容" if "新闻内容" in df.columns else None
+    if not (title_col and date_col):
+        return ()
+    sorted_df = df.sort_values(date_col, ascending=False).head(top_k)
+    out: list[NewsItem] = []
+    for _, row in sorted_df.iterrows():
+        raw_date = str(row[date_col])
+        # "2024-04-15 09:00:00" → "2024-04-15"
+        published = raw_date.split(" ")[0]
+        out.append(NewsItem(
+            symbol=stock,
+            title=str(row[title_col]),
+            url=str(row[url_col]) if url_col else "",
+            published_iso=published,
+            summary=str(row[summary_col]) if summary_col else "",
+            source="stock_news_em",
+        ))
+    return tuple(out)
 
 
 # Re-exports removed — import fetch_cn_broker_reports / fetch_cn_filing_digest

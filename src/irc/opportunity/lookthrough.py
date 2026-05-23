@@ -80,10 +80,19 @@ def _display_for(key: str, table: dict[str, str], fallback: str) -> str:
 def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
     """Map an instrument to its underlying-exposure target.
 
-    Order of precedence: tracked_index → theme → asset_class fallback.
-    Missing or unknown values fall back deterministically; this function
-    never raises on unrecognised input.
+    Active funds always route to `active_fund` regardless of theme/tracked_index.
+    Other asset classes preserve the legacy ordering.
     """
+    # Item 003: cn_equity_fund always routes to active_fund FIRST — before
+    # tracked_index or theme checks so themed active funds don't mis-route.
+    if inp.asset_class == "cn_equity_fund":
+        return LookthroughTarget(
+            kind="active_fund",
+            key=f"fund_{inp.instrument_id}",
+            display_cn=inp.name_cn,
+            provider_symbol=inp.instrument_id,
+        )
+
     if inp.asset_class == "gold":
         return LookthroughTarget("gold", "gold", "黄金")
 
@@ -123,8 +132,5 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
 
     if theme is not None and theme in _SECTOR_THEME_DISPLAY and theme not in ("broad",):
         return LookthroughTarget("sector_theme", theme, _SECTOR_THEME_DISPLAY[theme])
-
-    if inp.asset_class == "cn_equity_fund":
-        return LookthroughTarget("active_fund", "active_cn_equity", "主动权益")
 
     return LookthroughTarget("broad_index", "unknown", "未知底层")
