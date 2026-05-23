@@ -45,6 +45,7 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
     FundHolding,
+    FundLevelSnapshot,
     LookthroughTarget,
     ThesisEvidence,
 )
@@ -143,21 +144,62 @@ def _today_iso() -> str:
     return date.today().isoformat()
 
 
+def _build_qdii_sentinel_snapshot(target: LookthroughTarget) -> FundLevelSnapshot:
+    """In-process sentinel for QDII V1 exclusion. ZERO AkShare calls.
+
+    NOT cached on disk (grill Q5). Item 006's H3 universal-gap invariant
+    reads `evidence_gaps=("qdii_information_unavailable",)` and routes the row
+    to the discipline failure section. See ADR 0002 §5 F4.
+    """
+    fund_id = target.provider_symbol or target.key
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        fund_level_failure_reasons=(),
+        evidence_gaps=("qdii_information_unavailable",),
+    )
+
+
+def _build_fund_level_snapshot(target: LookthroughTarget) -> FundLevelSnapshot:
+    """Compose NAV (data leg) + announcements (information leg) for non-active
+    V1 asset classes. Implemented in Task 9."""
+    raise NotImplementedError("_build_fund_level_snapshot not yet implemented")
+
+
+_FUND_LEVEL_KINDS: frozenset[str] = frozenset({
+    "gold", "bond", "broad_index", "sector_theme",
+})
+
+
 def build_snapshot(
     target: LookthroughTarget,
     *,
     top_n: int = 10,
     as_of_iso: str = "",
-) -> ActiveFundSnapshot | ConstituentSnapshot:
+) -> ActiveFundSnapshot | ConstituentSnapshot | FundLevelSnapshot:
     """Compose snapshot for a typed `LookthroughTarget`.
 
-    `kind == "active_fund"` → ActiveFundSnapshot via _build_active_fund_snapshot.
-    All other kinds → legacy ConstituentSnapshot via the existing
-    `display_cn`-keyed `_TARGET_REGISTRY`.
+    Dispatch keys off `target.kind` only (ADR 0002 §5):
+
+    | kind                                | Branch                                    |
+    |-------------------------------------|-------------------------------------------|
+    | active_fund                         | _build_active_fund_snapshot (item 003)    |
+    | qdii_us / qdii_hk / qdii_global     | _build_qdii_sentinel_snapshot (F4)        |
+    | gold / bond / broad_index /         | _build_fund_level_snapshot (F3)           |
+    |  sector_theme — w/ provider_symbol  |                                           |
+    | (else / empty provider_symbol)      | _build_legacy_snapshot (display-only)     |
     """
     timestamp = as_of_iso or _today_iso()
     if target.kind == "active_fund":
         return _build_active_fund_snapshot(target, top_n=top_n)
+    if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
+        return _build_qdii_sentinel_snapshot(target)
+    if target.kind in _FUND_LEVEL_KINDS and target.provider_symbol:
+        return _build_fund_level_snapshot(target)
     return _build_legacy_snapshot(target.display_cn, top_n=top_n, as_of_iso=timestamp)
 
 
