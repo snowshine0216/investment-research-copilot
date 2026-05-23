@@ -319,7 +319,11 @@ def _resolve_fund_level_snapshot(
         return cached
 
     snap = build_snapshot(target)
-    assert isinstance(snap, FundLevelSnapshot)  # narrow for type-checkers
+    if not isinstance(snap, FundLevelSnapshot):
+        raise RuntimeError(
+            f"build_snapshot returned {type(snap).__name__} for fund-level dispatch "
+            f"(target.kind={target.kind!r}, provider_symbol={target.provider_symbol!r})"
+        )
     # Skip cache write for QDII sentinel (handled in write_nav_cache).
     if "qdii_information_unavailable" not in snap.evidence_gaps and snap.source_report_quarter:
         try:

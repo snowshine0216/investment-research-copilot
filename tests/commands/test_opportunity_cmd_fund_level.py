@@ -293,3 +293,37 @@ def test_classify_fund_level_scores_counts_non_qdii_cn_etf(tmp_path: Path) -> No
     )
     assert misses == 1, f"domestic cn_etf with no cache should be a miss; got {misses}"
     assert stale == 0
+
+
+# ── F-FIX-3: _resolve_fund_level_snapshot must raise RuntimeError (not AssertionError) ──
+
+
+def test_resolve_fund_level_snapshot_raises_runtime_error_on_wrong_type(tmp_path: Path) -> None:
+    """If build_snapshot returns the wrong type (dispatch bug), _resolve_fund_level_snapshot
+    must raise RuntimeError, not AssertionError (which is silently swallowed under python -O)."""
+    import pytest
+    from datetime import date
+    from unittest.mock import patch
+    from irc.commands.opportunity_cmd import _resolve_fund_level_snapshot
+    from irc.fundamentals.types import LookthroughTarget, ConstituentSnapshot
+
+    # A gold target should normally return FundLevelSnapshot, but we force a
+    # wrong return to simulate a dispatch bug.
+    wrong_snap = ConstituentSnapshot(
+        lookthrough_target="wrong",
+        as_of_iso="2026-05-23",
+        constituents=(),
+        filings=(),
+        broker_reports=(),
+    )
+    target = LookthroughTarget(
+        kind="gold", key="gold", display_cn="黄金",
+        provider_symbol="518880",
+    )
+    with patch("irc.commands.opportunity_cmd.build_snapshot", return_value=wrong_snap):
+        with pytest.raises(RuntimeError, match="build_snapshot returned"):
+            _resolve_fund_level_snapshot(
+                target, tmp_path,
+                rebuild=False,
+                today=date(2026, 5, 23),
+            )
