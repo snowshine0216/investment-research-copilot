@@ -19,7 +19,37 @@ def _row(
     opportunity_state="exclude",
     opportunity_reason="",
 ):
+    """Build a minimal OpportunityRow.
+
+    Item 009 fix: publishable rows (evidence_gaps==()) carry dual-leg thesis
+    evidence so the citation gate does not route them to gapped. Gapped rows
+    carry no evidence because the gate never inspects them (they are already
+    partitioned out before the citation check).
+    """
+    from irc.fundamentals.types import ThesisEvidence
     from irc.opportunity.types import LookthroughTarget, OpportunityRow
+    # Dual-leg evidence only for publishable rows; gapped rows are irrelevant.
+    if not evidence_gaps:
+        thesis_evidence = (
+            ThesisEvidence(
+                type="filing", source="src",
+                url=f"https://x/{instrument_id}/d", date="2024-04-15",
+                summary="x", scope="instrument", citation_kind="data",
+                owner_instrument_id=instrument_id,
+                parent_fund_id=None, constituent_key=None,
+                holding_weight_pct=None,
+            ),
+            ThesisEvidence(
+                type="filing", source="src",
+                url=f"https://x/{instrument_id}/i", date="2024-04-16",
+                summary="x", scope="instrument", citation_kind="information",
+                owner_instrument_id=instrument_id,
+                parent_fund_id=None, constituent_key=None,
+                holding_weight_pct=None,
+            ),
+        )
+    else:
+        thesis_evidence = ()
     return OpportunityRow(
         instrument_id=instrument_id, name_cn=name_cn, asset_class=asset_class,
         theme=None,
@@ -34,6 +64,7 @@ def _row(
         opportunity_reason=opportunity_reason,
         evidence_gaps=evidence_gaps,
         fetch_types_attempted=fetch_types_attempted,
+        thesis_evidence=thesis_evidence,
     )
 
 

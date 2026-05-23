@@ -1151,6 +1151,105 @@ def _write_opportunity_outputs(
     publishable_rows = [r for r in kept_rows if not r.evidence_gaps]
     gapped_rows = [r for r in kept_rows if r.evidence_gaps]
 
+    # ── Item 009 Step 2a — opportunity-row citation gate ─────────────────────
+    from irc.opportunity.auditor import (
+        find_incomplete_constituent_analyses,
+        find_uncited_opportunity_rows,
+    )
+    from irc.opportunity.citation_map import build_cited_map
+    cited_map = build_cited_map(tuple(publishable_rows))
+    op_findings = find_uncited_opportunity_rows(publishable_rows, cited_map)
+    blocked_iids = {f.instrument_id for f in op_findings}
+    if blocked_iids:
+        kept_publishable: list[OpportunityRow] = []
+        for r in publishable_rows:
+            if r.instrument_id in blocked_iids:
+                gapped_rows.append(
+                    replace(r, evidence_gaps=("citation_gate_blocked",))
+                )
+            else:
+                kept_publishable.append(r)
+        publishable_rows = kept_publishable
+
+    # ── Item 009 Step 2b — pure-failure constituent gate (unconditional) ─────
+    constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
+
+    # ── Item 009 Step 2c — discipline-row citation gate ──────────────────────
+    from irc.memo.numeric_audit import find_uncited_discipline_rows
+    discipline_rows = [
+        _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
+    ]
+    discipline_findings = find_uncited_discipline_rows(discipline_rows, cited_map)
+
+    # ── Item 009 — resolve mode + write shadow log BEFORE any potential raise ─
+    out_dir.mkdir(parents=True, exist_ok=True)
+    enforce_mode = _resolve_enforce_mode(out_dir, today)
+    blocking_findings = bool(op_findings) or bool(discipline_findings)
+    shadow_payload: dict = {
+        "run_date": today,
+        "enforce_mode": enforce_mode,
+        "canonical_path": _is_canonical_out_dir(out_dir),
+        "out_dir": str(out_dir.resolve()),
+        "opportunity_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in op_findings
+        ],
+        "constituent_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in constituent_findings
+        ],
+        "discipline_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in discipline_findings
+        ],
+        "memo_findings": [],
+        "summary": {
+            "total": (
+                len(op_findings) + len(constituent_findings) + len(discipline_findings)
+            ),
+            "blocking": (
+                bool(constituent_findings)
+                or (enforce_mode == "block" and blocking_findings)
+            ),
+        },
+    }
+    _write_citation_audit_shadow_log(out_dir, shadow_payload)
+
+    # Step 2b raise: pure-failure constituent is unconditional fatal.
+    if constituent_findings:
+        raise RuntimeError(
+            "constituent_failure_in_publishable_row: "
+            + "; ".join(f.prose_excerpt for f in constituent_findings)
+        )
+
+    # Step 2a/2c dispatch by enforce mode.
+    if blocking_findings:
+        msg_parts = [
+            f"{f.instrument_id}:{f.kind}"
+            for f in (op_findings + discipline_findings)
+        ]
+        msg = "citation_gate_blocked: " + "; ".join(msg_parts)
+        if enforce_mode == "block":
+            raise RuntimeError(msg)
+        if enforce_mode == "warn":
+            print(f"WARN citation-audit: {msg}", file=sys.stderr)
+        # off: silent
+
     # Step 3 — emit thesis_cards.yaml + opportunity_report.json from publishable only.
     cards = [
         build_thesis_card(
@@ -1162,10 +1261,6 @@ def _write_opportunity_outputs(
         for r in publishable_rows
         if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
     ]
-    discipline_rows = [
-        _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
-    ]
-    out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
         out_dir / "opportunity_report.json",
         json.dumps(
