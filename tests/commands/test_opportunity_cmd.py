@@ -889,3 +889,123 @@ def test_run_opportunity_threads_plan_hash_and_snapshot_cache_to_rejections(
         f"fund_level_failure_reasons was {gapped_entries[0]['fund_level_failure_reasons']!r} "
         "— run_opportunity did not pass snapshot_cache_by_instrument through"
     )
+
+
+# ── Item 007 OQ2 — _stamp_audit_errors_from_verdict helper ───────────────────
+
+
+def test_build_rows_stamps_audit_errors_from_publishable_verdict_coverage(monkeypatch) -> None:
+    """OQ2 — when Policy B returns a publishable verdict (no gap_codes) whose
+    constituent_coverage carries non-empty audit_errors on any entry, the
+    audit_errors MUST be stamped onto OpportunityRow.constituent_analyses[*]
+    via dataclasses.replace. Locked because item 007's renderer reads
+    OpportunityRow.constituent_analyses[*].audit_errors directly."""
+    import irc.commands.opportunity_cmd as oc
+    from irc.fundamentals.types import (
+        ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence,
+    )
+    from irc.opportunity.policy_b import (
+        ConstituentCoverageEntry, PolicyBVerdict,
+    )
+
+    # Synthesise a publishable verdict whose coverage carries an audit_error
+    # on one symbol (a future-state defence-in-depth case).
+    fake_verdict = PolicyBVerdict(
+        gap_codes=(),  # ← publishable
+        audit_errors=(),
+        decision_rule="synthetic publishable with audit-error",
+        material_symbols=("600519",),
+        constituent_coverage=(
+            ConstituentCoverageEntry(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                weight_rank=1, in_material_top_half=True, exchange="SH",
+                has_data_leg=True, has_info_leg=True,
+                data_kind_count=1, information_kind_count=1,
+                failure_reasons=(),
+                audit_errors=("missing_constituent_record:600519",),  # ← stamp source
+            ),
+        ),
+    )
+
+    def fake_evaluate(snapshot, *, top_n):
+        return fake_verdict
+
+    monkeypatch.setattr(oc, "evaluate_policy_b", fake_evaluate)
+    # The function-level test cannot run _build_rows end-to-end without all
+    # config inputs. Instead, assert the post-Policy-B stamping helper
+    # exists and behaves correctly on a constructed input.
+    assert hasattr(oc, "_stamp_audit_errors_from_verdict"), \
+        "_stamp_audit_errors_from_verdict helper must exist (OQ2 wiring)"
+
+    # Build a row whose constituent_analyses includes 600519.
+    from irc.opportunity.types import OpportunityRow
+    from irc.fundamentals.types import LookthroughTarget
+    c1 = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="x",
+        audit_errors=(),  # initially empty
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827", display_cn="易方达",
+            provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+        constituent_analyses=(c1,),
+    )
+    patched = oc._stamp_audit_errors_from_verdict(row, fake_verdict)
+    assert patched.constituent_analyses[0].audit_errors == \
+        ("missing_constituent_record:600519",)
+    # Other fields unchanged.
+    assert patched.instrument_id == "005827"
+    assert patched.constituent_analyses[0].symbol == "600519"
+
+
+def test_stamp_audit_errors_no_op_when_coverage_empty() -> None:
+    """No-op when verdict.constituent_coverage carries no audit_errors."""
+    import irc.commands.opportunity_cmd as oc
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.policy_b import (
+        ConstituentCoverageEntry, PolicyBVerdict,
+    )
+    from irc.opportunity.types import OpportunityRow
+
+    fake_verdict = PolicyBVerdict(
+        gap_codes=(), audit_errors=(),
+        decision_rule="publishable, no errors",
+        material_symbols=("600519",),
+        constituent_coverage=(
+            ConstituentCoverageEntry(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                weight_rank=1, in_material_top_half=True, exchange="SH",
+                has_data_leg=True, has_info_leg=True,
+                data_kind_count=1, information_kind_count=1,
+                failure_reasons=(),
+                audit_errors=(),  # ← empty
+            ),
+        ),
+    )
+    c1 = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+        audit_errors=(),
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827", display_cn="易方达",
+            provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+        constituent_analyses=(c1,),
+    )
+    patched = oc._stamp_audit_errors_from_verdict(row, fake_verdict)
+    # Identical content (no audit_errors added).
+    assert patched.constituent_analyses[0].audit_errors == ()
