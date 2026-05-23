@@ -363,6 +363,35 @@ def test_constituent_analysis_rejects_empty_symbol() -> None:
         )
 
 
+# ── Item 003: ThesisEvidence.holding_weight_pct ───────────────────────────────
+
+def test_thesis_evidence_holding_weight_pct_default_none() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    e = ThesisEvidence(
+        type="filing", source="600519", url="", date="2024-04-15",
+        summary="x", scope="instrument", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id=None, constituent_key=None,
+    )
+    assert e.holding_weight_pct is None
+
+
+def test_thesis_evidence_holding_weight_pct_not_in_citation_id_preimage() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    common = dict(
+        type="filing", source="600519", url="https://example.com/a",
+        date="2024-04-15", summary="贵州茅台 24Q1 营收 +18%",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519",
+    )
+    e1 = ThesisEvidence(**common, holding_weight_pct=None)
+    e2 = ThesisEvidence(**common, holding_weight_pct=3.46)
+    e3 = ThesisEvidence(**common, holding_weight_pct=99.0)
+    # holding_weight_pct excluded from preimage => same citation_id.
+    assert e1.citation_id == e2.citation_id == e3.citation_id
+    assert e2.holding_weight_pct == 3.46
+
+
 def test_opportunity_row_has_constituent_analyses_default_empty() -> None:
     from irc.opportunity.types import (
         LookthroughTarget, OpportunityRow,

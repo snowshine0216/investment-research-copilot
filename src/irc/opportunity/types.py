@@ -128,6 +128,9 @@ class ThesisEvidence:
     constituent_key: str | None
     # Computed in __post_init__; never accept caller-supplied value.
     citation_id: str = ""
+    # Item 003: weight of holding in the parent fund (percent, 0.0–100.0).
+    # Appended AFTER citation_id; NOT part of the hash preimage (ADR 0001 §2).
+    holding_weight_pct: float | None = None
 
     def __post_init__(self) -> None:
         if not self.owner_instrument_id:
