@@ -145,6 +145,37 @@ def find_prose_data_contradictions(
     return findings
 
 
+# ── Item 007 D1c — find_uncited_conclusions stub ─────────────────────────────
+# The full body lands in item 009 (paragraph-level instrument/constituent
+# reference detection + multi-owner disambiguation + per-mention strict gate).
+# Item 007's irreducible contribution is the empty-map RuntimeError raise —
+# it closes the most likely failure mode where build_alias_maps did not run
+# and every prose mention silently looks like "no instrument referenced".
+
+
+def find_uncited_conclusions(
+    prose: str,
+    cited_map: dict,
+    instrument_aliases: dict,
+    constituent_aliases: dict,
+    constituent_cited_map: dict,
+) -> list[NumericFinding]:
+    """Detect prose conclusions that reference an instrument/constituent
+    without a corresponding citation. Stub in item 007; body in item 009.
+
+    The empty-map check is item 007's load-bearing contribution: an upstream
+    bug returning `{}` would cause every memo paragraph to silently look
+    like "no instrument referenced", silent-no-op'ing the entire audit gate.
+    Raise loud-fast-deterministic at the entry boundary.
+    """
+    if not instrument_aliases:
+        raise RuntimeError(
+            "empty instrument_aliases — D1c build_alias_maps did not run "
+            "or returned an empty map; refusing to silent-no-op the audit"
+        )
+    return []
+
+
 def render_findings_block(findings: list[NumericFinding]) -> str:
     """Render a markdown block to prepend to the auditor output. Returns the
     empty string when there are no findings (don't pollute the audit log).

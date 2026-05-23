@@ -70,3 +70,40 @@ def test_render_findings_block_includes_kind_and_excerpt():
     assert "自动数值审核" in rendered
     assert "000105" in rendered
     assert "cheap_claim_vs_state" in rendered
+
+
+# ── Item 007 D1c — find_uncited_conclusions stub ──────────────────────────────
+
+
+def test_find_uncited_conclusions_empty_instrument_aliases_raises() -> None:
+    """Item 007 D1c — empty alias map indicates build_alias_maps did not
+    run; the function refuses to silent-no-op the audit."""
+    import pytest
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    with pytest.raises(RuntimeError) as exc:
+        find_uncited_conclusions(
+            prose="some prose mentioning 005827",
+            cited_map={},
+            instrument_aliases={},
+            constituent_aliases={},
+            constituent_cited_map={},
+        )
+    msg = str(exc.value)
+    assert "empty instrument_aliases" in msg
+    assert "D1c" in msg
+
+
+def test_find_uncited_conclusions_non_empty_aliases_does_not_raise() -> None:
+    """Non-empty instrument_aliases must pass the guard. Empty
+    constituent_aliases is permitted (a publishable run may have zero
+    active funds)."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    result = find_uncited_conclusions(
+        prose="some prose",
+        cited_map={},
+        instrument_aliases={"005827": "005827"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    # Item 007 ships the stub; the body is item 009's territory.
+    assert result == []
