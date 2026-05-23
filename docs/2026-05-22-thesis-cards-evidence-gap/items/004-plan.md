@@ -65,6 +65,8 @@ Sub-branch: `autodev/thesis-evidence-004-live-verify-fund-announcement-em` cut f
 
 **Per-task test count:** Task 1 = 2 verification commands (no pytest tests). Task 2 = 1 directory check. Task 3 = 1 pytest test (`test_fund_announcement_em_adapter_exists`). Task 4 = 3 pytest tests (per-symbol). Task 5 = 1 pytest test (aggregate gate). Task 6 = 5 pytest tests (failure modes). Task 7 = doc only. Task 8 = live-run verification of all 5 live tests + the 5 failure-mode tests together. Total new pytest tests: **10** (5 live + 5 mocked).
 
+**Drift note (recorded by 004-drift.md, 2026-05-23):** Impl commit `5fb2332` (labeled task 3) shipped the full live file including task 4 + task 5 content in one shot. Commits `c50ad57` (task 4) and `f2e8cd1` (task 5) are empty bookmark commits carrying no file changes — the plan's one-commit-per-task cadence was not followed but the implementation content is fully present and correct.
+
 ---
 
 ## Task 1: Register pytest markers + `--strict-markers` in `pyproject.toml`
@@ -750,6 +752,8 @@ git commit -m "test(fundamentals): add mocked failure-modes companion locking Q4
 
 ## Task 7: Write run-discipline doc
 
+**Drift note (recorded by 004-drift.md, 2026-05-23):** The README was written for the original spec (pre-pivot) and retains stale references: endpoint name `ak.fund_announcement_em`, test count "5 tests pass", and fixture names `fund_announcement_em_{518880,000001,005827}.json`. These are cosmetic inaccuracies; the run command, dual-gate discipline, and failure-meaning sections remain correct. A follow-up update (11 tests, 9 pivot fixture names, 3 topic-specific endpoints) is recommended before item 005 ships.
+
 **Files:**
 - Create: `tests/fundamentals/README-live-tests.md`
 
@@ -897,6 +901,8 @@ git add tests/fixtures/akshare/fund_announcement_em_518880.json \
 git commit -m "test(fundamentals): capture initial fund_announcement_em fixtures from live AkShare"
 ```
 
+**Drift note (recorded by 004-drift.md, 2026-05-23):** This step was superseded by the Q4 FAIL verdict. The original `fund_announcement_em` live gate FAILed (endpoint missing in AkShare 1.18.63). Commit `b44a7ca` is labeled "task 8 capture fixtures" but its actual diff is a one-line import cleanup in the failure-modes companion (`_resolve_column` removed from import). No `fund_announcement_em_*.json` files were committed here. The Q4 FAIL verdict was recorded in `cdcf531`; the pivot fixture capture happened under task P5 (`f2bdf2a`).
+
 - [ ] **Step 8: STOP if FAIL**
 
 If ANY test in Step 3 failed:
@@ -968,6 +974,8 @@ Row counts: dividend_em (518880: 4, 000001: 15, 005827: 1), report_em (518880: 9
 
 - [x] Update `COLUMN_EQUIVALENCE` in `test_fund_announcement_em_live.py` to use per-endpoint maps reflecting the actual `['基金代码', '公告标题', '基金名称', '公告日期', '报告ID']` schema (no `url` column; `报告ID` is the reference identifier).
 - [x] Commit: `test(fundamentals): update COLUMN_EQUIVALENCE for 3 topic-specific endpoints`
+
+**Drift note (recorded by 004-drift.md, 2026-05-23):** The separate P2 commit was not created. The `COLUMN_EQUIVALENCE` per-endpoint rewrite was combined with the full live test rewrite in commit `2c24edd` (P3). Implementation content is correct at `test_fund_announcement_em_live.py:62-81`.
 
 ### Task P3: Rewrite live tests file with 11 tests
 
