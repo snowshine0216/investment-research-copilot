@@ -86,16 +86,37 @@ def test_render_failure_section_sorts_by_asset_class_then_id() -> None:
 
 
 def test_render_failure_section_format_regex() -> None:
-    """Criterion 18: each line matches the locked regex."""
+    """Criterion 18: each line matches the locked regex.
+
+    Pattern uses `.+?` for name_cn so names containing spaces (e.g. '华夏 蓝筹')
+    are accepted — the canonical format is `{instrument_id} {name_cn}` where
+    name_cn may contain internal spaces.
+    """
     from irc.opportunity.failure_renderer import render_failure_section
     rows = (_row(),)
     out = render_failure_section(rows)
     pattern = re.compile(
-        r"^- \*\*\S+ \S+\*\* ｜ 原因: .+ ｜ 已尝试: .+$"
+        r"^- \*\*\S+ .+?\*\* ｜ 原因: .+ ｜ 已尝试: .+$"
     )
     for line in out.split("\n"):
         if line.strip():
             assert pattern.match(line), f"line does not match locked format: {line!r}"
+
+
+def test_render_failure_section_format_regex_name_cn_with_spaces() -> None:
+    """Nit-2 regression: name_cn containing an internal space must still match
+    the criterion-18 locked format regex."""
+    from irc.opportunity.failure_renderer import render_failure_section
+    rows = (_row(name_cn="华夏 蓝筹"),)
+    out = render_failure_section(rows)
+    pattern = re.compile(
+        r"^- \*\*\S+ .+?\*\* ｜ 原因: .+ ｜ 已尝试: .+$"
+    )
+    for line in out.split("\n"):
+        if line.strip():
+            assert pattern.match(line), (
+                f"spaced name_cn causes criterion-18 format mismatch: {line!r}"
+            )
 
 
 def test_render_v1_systematic_exclusion_summary_zero_count() -> None:
