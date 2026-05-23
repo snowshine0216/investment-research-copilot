@@ -45,3 +45,33 @@ None.
 - broad `except Exception` in `fetch_fund_nav_report`
 - `snapshot_cache` dict namespace mixing (active-fund `fund_<id>` vs bare `<id>` for fund-level)
 - `inf` NAV cache-write failure path
+
+---
+
+## Fix round (2026-05-23, autodev orchestrator)
+
+Closed via this branch:
+- F-FIX-1: 3b1301d — cn_etf + QDII budget over-count (concrete production bug from /code-review)
+- F-FIX-2: e4d29d1 — _FUND_LEVEL_KINDS deduped via import (single source of truth)
+- F-FIX-3: ae219a6 — assert isinstance → RuntimeError (-O safety)
+- F-FIX-4: 50b737e — derive_thesis_from_evidence QDII sentinel conditional inverted
+
+Deferred to future hygiene pass:
+- _ann_from_dict topic Literal validation
+- _ISO_DATE_RE impossible-date strictness
+- fetch_fund_nav_report broad except narrowing
+- snapshot_cache dict namespace prefix
+- math.isfinite NaN/inf NAV filter
+
+Post-fix regression: pytest --ignore=tests/news --ignore=tests/scoring/test_sanity_check.py -q tests/fundamentals tests/opportunity tests/commands → 637 PASS / 1 FAIL.
+- The 1 failure (tests/commands/test_run_cmd.py::test_only_stage_runs_single) is pre-existing on base branch (verified by stash+rerun).
+
+New tests added:
+- F-FIX-1: test_classify_fund_level_scores_excludes_qdii_bound_cn_etf, test_classify_fund_level_scores_counts_non_qdii_cn_etf (in test_opportunity_cmd_fund_level.py)
+- F-FIX-2: test_fund_level_kinds_cmd_equals_snapshot_canonical (in test_fund_level_snapshot.py) — drift guard
+- F-FIX-3: test_resolve_fund_level_snapshot_raises_runtime_error_on_wrong_type (in test_opportunity_cmd_fund_level.py)
+- F-FIX-4: test_qdii_sentinel_fund_level_snapshot_reason_is_non_empty, test_no_gaps_fund_level_snapshot_reason_is_fallback (in test_thesis_evidence.py)
+
+Verdict update:
+- review (inline): PASS-WITH-NITS → PASS-WITH-NITS (2 latents closed; deferred nits documented)
+- pr-review: PASS-WITH-NITS → PASS (likely bugs closed; deferred items noted in this section)
