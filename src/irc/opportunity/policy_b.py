@@ -270,12 +270,29 @@ def evaluate_policy_b(
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
 
-    # Rule 5 + publishable fall-through land in task 7. Placeholder for now.
+    # Rule 5: mixed evidence + failure_reasons (some constituents have only
+    # failure_reasons, no evidence at all). In V1 this rule is structurally
+    # subordinate to rule 3 (which catches "any holding lacks data leg"); it
+    # remains as the leftover diagnostic for future relaxations and for
+    # defence-in-depth in item 009.
+    only_failure = tuple(c for c in ranked if not c.evidence and c.failure_reasons)
+    if only_failure:
+        return PolicyBVerdict(
+            gap_codes=("incomplete_constituent_coverage",),
+            audit_errors=(),
+            decision_rule=f"holdings with no evidence: {len(only_failure)} of {top_n}",
+            material_symbols=tuple(c.symbol for c in material),
+            constituent_coverage=_build_coverage_entries(ranked, top_n),
+        )
+
+    # Publishable.
     return PolicyBVerdict(
         gap_codes=(),
         audit_errors=(),
-        decision_rule=f"info-leg quorum {len(material)} of {top_n}; "
-                      f"placeholder (rule 5 lands in task 7)",
+        decision_rule=(
+            f"info-leg quorum {len(material)} of {top_n}; "
+            f"{len(info_satisfied)} satisfied (publishable)"
+        ),
         material_symbols=tuple(c.symbol for c in material),
         constituent_coverage=_build_coverage_entries(ranked, top_n),
     )
