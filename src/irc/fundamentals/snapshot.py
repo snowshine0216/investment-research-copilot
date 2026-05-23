@@ -1,8 +1,8 @@
 """Constituent snapshot orchestration.
 
-`build_snapshot(lookthrough_target)` composes constituents → filings → broker
-reports for one theme by dispatching to the right per-market adapter. Per-symbol
-failures get recorded in `failure_reasons`, never raised.
+`build_snapshot(target: LookthroughTarget)` composes constituents → filings →
+broker reports for one theme by dispatching to the right per-market adapter.
+Per-symbol failures get recorded in `failure_reasons`, never raised.
 
 On-disk cache helpers live in `snapshot_cache`; this module re-exports them
 for backward compatibility so callers can import from either location.
@@ -14,7 +14,9 @@ from datetime import date
 from pathlib import Path
 
 from irc.fundamentals.akshare_fundamentals import (
+    fetch_cn_etf_holdings,
     fetch_cn_index_constituents,
+    fetch_cn_stock_news,
     fetch_hk_index_constituents,
 )
 from irc.fundamentals.akshare_filing import (
@@ -25,7 +27,11 @@ from irc.fundamentals.edgar_client import (
     fetch_us_filing_digest,           # kept for any external import
     fetch_us_filing_digest_diag,
 )
-from irc.fundamentals.hkex_client import fetch_hk_filing_digest
+from irc.fundamentals.hkex_client import (
+    fetch_hk_filing_digest,
+    fetch_hk_stock_news,
+    hk_news_adapter_available,
+)
 from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
     cache_path,
     infer_quarter as _infer_quarter,
@@ -34,9 +40,18 @@ from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
     write_snapshot,
 )
 from irc.fundamentals.types import (
+    ActiveFundSnapshot,
     Constituent,
     ConstituentSnapshot,
     FilingDigest,
+    FundHolding,
+    HoldingsResult,
+    NewsItem,
+)
+from irc.opportunity.types import (
+    ConstituentAnalysis,
+    LookthroughTarget,
+    ThesisEvidence,
 )
 
 
@@ -134,39 +149,210 @@ def _today_iso() -> str:
 
 
 def build_snapshot(
-    lookthrough_target: str,
+    target: LookthroughTarget,
     *,
     top_n: int = 10,
     as_of_iso: str = "",
-) -> ConstituentSnapshot:
-    """Compose constituent-level evidence for `lookthrough_target`.
+) -> ActiveFundSnapshot | ConstituentSnapshot:
+    """Compose snapshot for a typed `LookthroughTarget`.
 
-    Unknown targets return an empty snapshot with a failure_reason; per-symbol
-    fetch failures are recorded the same way. Never raises."""
-    spec = _TARGET_REGISTRY.get(lookthrough_target)
+    `kind == "active_fund"` → ActiveFundSnapshot via _build_active_fund_snapshot.
+    All other kinds → legacy ConstituentSnapshot via the existing
+    `display_cn`-keyed `_TARGET_REGISTRY`.
+    """
     timestamp = as_of_iso or _today_iso()
+    if target.kind == "active_fund":
+        return _build_active_fund_snapshot(target, top_n=top_n)
+    return _build_legacy_snapshot(target.display_cn, top_n=top_n, as_of_iso=timestamp)
+
+
+def _build_legacy_snapshot(
+    lookthrough_target: str, *, top_n: int, as_of_iso: str,
+) -> ConstituentSnapshot:
+    """Original `build_snapshot(string)` body, unchanged."""
+    spec = _TARGET_REGISTRY.get(lookthrough_target)
     if spec is None:
         return ConstituentSnapshot(
             lookthrough_target=lookthrough_target,
-            as_of_iso=timestamp,
-            constituents=(),
-            filings=(),
-            broker_reports=(),
+            as_of_iso=as_of_iso,
+            constituents=(), filings=(), broker_reports=(),
             failure_reasons=(f"unknown lookthrough_target: {lookthrough_target}",),
         )
     if spec.kind == "cn_index":
-        return _build_cn_snapshot(lookthrough_target, spec, top_n, timestamp)
+        return _build_cn_snapshot(lookthrough_target, spec, top_n, as_of_iso)
     if spec.kind == "us_symbols":
-        return _build_us_snapshot(lookthrough_target, spec, timestamp)
+        return _build_us_snapshot(lookthrough_target, spec, as_of_iso)
     if spec.kind == "hk_symbols":
-        return _build_hk_snapshot(lookthrough_target, spec, timestamp)
+        return _build_hk_snapshot(lookthrough_target, spec, as_of_iso)
     if spec.kind == "hk_index":
-        return _build_hk_index_snapshot(lookthrough_target, spec, top_n, timestamp)
+        return _build_hk_index_snapshot(lookthrough_target, spec, top_n, as_of_iso)
     return ConstituentSnapshot(
         lookthrough_target=lookthrough_target,
-        as_of_iso=timestamp,
+        as_of_iso=as_of_iso,
         constituents=(), filings=(), broker_reports=(),
         failure_reasons=(f"unsupported spec kind: {spec.kind}",),
+    )
+
+
+def _evidence_for_constituent(
+    holding: FundHolding,
+    *,
+    fund_id: str,
+) -> tuple[tuple[ThesisEvidence, ...], list[str]]:
+    """Fetch market-routed evidence for one holding.
+
+    Returns (evidence_tuple, failure_reasons_list).
+    """
+    failures: list[str] = []
+    evidence: list[ThesisEvidence] = []
+    common = dict(
+        scope="constituent",
+        owner_instrument_id=fund_id,
+        parent_fund_id=fund_id,
+        constituent_key=holding.symbol,
+        holding_weight_pct=holding.weight_pct,
+    )
+    if holding.exchange in ("SH", "SZ", "BJ"):
+        try:
+            digest = fetch_cn_filing_digest(holding.symbol)
+        except Exception as exc:
+            failures.append(f"filing_fetch_failed:{holding.symbol}:{type(exc).__name__}")
+            digest = None
+        if digest is None:
+            failures.append(f"filing_empty:{holding.symbol}")
+        else:
+            evidence.append(ThesisEvidence(
+                type="filing", source=digest.symbol,
+                url=digest.source_url, date=digest.filed_at_iso,
+                summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                citation_kind="data", **common,
+            ))
+        try:
+            brokers = fetch_cn_broker_reports(holding.symbol)
+        except Exception as exc:
+            failures.append(f"broker_fetch_failed:{holding.symbol}:{type(exc).__name__}")
+            brokers = ()
+        if not brokers:
+            failures.append(f"broker_empty:{holding.symbol}")
+        for r in brokers[:2]:
+            evidence.append(ThesisEvidence(
+                type="broker", source=r.broker, url=r.source_url,
+                date=r.published_iso, summary=f"{r.broker} {r.rating}: {r.title}".strip(),
+                citation_kind="information", **common,
+            ))
+        try:
+            news = fetch_cn_stock_news(holding.symbol, top_k=3)
+        except Exception as exc:
+            failures.append(f"news_fetch_failed:{holding.symbol}:{type(exc).__name__}")
+            news = ()
+        if not news:
+            failures.append(f"news_empty:{holding.symbol}")
+        for n in news:
+            evidence.append(ThesisEvidence(
+                type="news", source=n.source, url=n.url,
+                date=n.published_iso, summary=(n.title or n.summary[:120]),
+                citation_kind="information", **common,
+            ))
+    elif holding.exchange == "HK":
+        try:
+            digest = fetch_hk_filing_digest(holding.symbol)
+        except Exception as exc:
+            failures.append(f"filing_fetch_failed:{holding.symbol}:{type(exc).__name__}")
+            digest = None
+        if digest is None:
+            failures.append(f"filing_empty:{holding.symbol}")
+        else:
+            evidence.append(ThesisEvidence(
+                type="filing", source=digest.symbol,
+                url=digest.source_url, date=digest.filed_at_iso,
+                summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                citation_kind="data", **common,
+            ))
+        # No HK broker adapter in V1.
+        if not hk_news_adapter_available():
+            failures.append(f"hk_news_unsupported_adapter:{holding.symbol}")
+            news = ()
+        else:
+            try:
+                news = fetch_hk_stock_news(holding.symbol, top_k=3)
+            except Exception as exc:
+                failures.append(f"hk_news_fetch_failed:{holding.symbol}:{type(exc).__name__}")
+                news = ()
+            if not news:
+                failures.append(f"hk_news_empty:{holding.symbol}")
+        for n in news:
+            evidence.append(ThesisEvidence(
+                type="news", source=n.source, url=n.url,
+                date=n.published_iso, summary=(n.title or n.summary[:120]),
+                citation_kind="information", **common,
+            ))
+    elif holding.exchange == "US":
+        failures.append(f"us_evidence_unsupported:{holding.symbol}")
+    else:  # UNKNOWN
+        failures.append(f"exchange_unknown:{holding.symbol}")
+    return tuple(evidence), failures
+
+
+def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -> str:
+    """≤60-char deterministic label. Empty evidence → '证据获取失败'."""
+    if not evidence:
+        return "证据获取失败"
+    fragments: list[str] = []
+    by_type: dict[str, ThesisEvidence | None] = {"filing": None, "broker": None, "news": None}
+    for e in evidence:
+        if e.type in by_type and by_type[e.type] is None:
+            by_type[e.type] = e
+    if by_type["filing"] is not None:
+        fragments.append(by_type["filing"].summary[:24])
+    if by_type["broker"] is not None:
+        fragments.append(by_type["broker"].summary[:18])
+    if by_type["news"] is not None:
+        fragments.append(by_type["news"].summary[:24])
+    if not fragments:
+        return "证据获取失败"
+    return " · ".join(fragments)[:60]
+
+
+def _build_active_fund_snapshot(
+    target: LookthroughTarget, *, top_n: int,
+) -> ActiveFundSnapshot:
+    """Fetch holdings then per-constituent evidence per exchange routing."""
+    fund_id = target.provider_symbol
+    holdings = fetch_cn_etf_holdings(target.provider_symbol, top_n=top_n)
+    if not holdings.constituents:
+        return ActiveFundSnapshot(
+            fund_id=fund_id,
+            source_report_date=holdings.source_report_date,
+            source_report_quarter=holdings.source_report_quarter,
+            cache_probed_at="",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+            fund_level_failure_reasons=(
+                f"holdings_fetch_failed:{fund_id}:empty",
+            ),
+        )
+    analyses: list[ConstituentAnalysis] = []
+    fail_by_symbol: dict[str, tuple[str, ...]] = {}
+    for h in holdings.constituents:
+        evidence, failures = _evidence_for_constituent(h, fund_id=fund_id)
+        if failures:
+            fail_by_symbol[h.symbol] = tuple(sorted(failures))
+        analyses.append(ConstituentAnalysis(
+            symbol=h.symbol,
+            name_cn=h.name_cn,
+            weight_pct=h.weight_pct,
+            evidence=evidence,
+            failure_reasons=tuple(sorted(failures)),
+            one_line_view=_one_line_view(h, evidence),
+        ))
+    return ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date=holdings.source_report_date,
+        source_report_quarter=holdings.source_report_quarter,
+        cache_probed_at="",
+        constituent_analyses=tuple(analyses),
+        failure_reasons_by_symbol=fail_by_symbol,
+        fund_level_failure_reasons=(),
     )
 
 
