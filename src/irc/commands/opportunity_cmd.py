@@ -66,11 +66,15 @@ class FetchPlan:
     passive_misses: int
     passive_stale: int
     top_n: int
+    fund_level_misses: int = 0  # Item 005: gold/bond/cn_etf rows w/ provider_symbol
+    fund_level_stale: int = 0   # Item 005
 
     def total_calls(self) -> int:
         per_active = 1 + self.top_n * 3
+        per_fund_level = 4  # 1 NAV + 3 announcement endpoints (ADR 0002 §5)
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
+            + (self.fund_level_misses + self.fund_level_stale) * per_fund_level
             + self.passive_misses * 2
             + self.passive_stale * 2
         )
@@ -82,6 +86,8 @@ class FetchBudgetExceeded(RuntimeError):
             f"FetchBudgetExceeded: "
             f"active_fund_misses={plan.active_fund_misses} "
             f"active_fund_stale={plan.active_fund_stale} "
+            f"fund_level_misses={plan.fund_level_misses} "
+            f"fund_level_stale={plan.fund_level_stale} "
             f"passive_misses={plan.passive_misses} "
             f"passive_stale={plan.passive_stale} "
             f"cost={total} budget={budget}"
@@ -578,6 +584,40 @@ def _classify_active_fund_scores(
     return misses, stale
 
 
+def _classify_fund_level_scores(
+    scores: list[dict],
+    root: Path,
+    *,
+    today: date_cls,
+    threshold_days: int,
+    rebuild_fundamentals: bool,
+) -> tuple[int, int]:
+    """Count (misses, stale) among fund-level rows (gold/cn_bond_fund/cn_etf).
+
+    QDII rows are NOT counted — they fire zero AkShare calls (sentinel).
+    """
+    misses = 0
+    stale = 0
+    seen: set[str] = set()
+    for score in scores:
+        cls = score.get("asset_class")
+        if cls not in ("gold", "cn_bond_fund", "cn_etf"):
+            continue
+        iid = score.get("instrument_id", "")
+        if not iid or iid in seen:
+            continue
+        seen.add(iid)
+        if rebuild_fundamentals:
+            misses += 1
+            continue
+        cached = _load_latest_nav_cached(iid, root)
+        if cached is None:
+            misses += 1
+        elif _is_nav_stale(cached, today=today, threshold_days=threshold_days):
+            stale += 1
+    return misses, stale
+
+
 def _build_rows(
     scores: list[dict],
     instr_index: dict[str, Instrument],
@@ -648,12 +688,19 @@ def _build_rows(
             rebuild_fundamentals=rebuild_fundamentals,
             completed_ids=completed_ids,
         )
+        fl_misses, fl_stale = _classify_fund_level_scores(
+            scores, root / "data",
+            today=today, threshold_days=_freshness_days(),
+            rebuild_fundamentals=rebuild_fundamentals,
+        )
         plan = FetchPlan(
             active_fund_misses=misses,
             active_fund_stale=stale,
-            passive_misses=0,   # placeholder — item 005
-            passive_stale=0,    # placeholder — item 005
+            passive_misses=0,
+            passive_stale=0,
             top_n=TOP_N_DEFAULT,
+            fund_level_misses=fl_misses,
+            fund_level_stale=fl_stale,
         )
         total = plan.total_calls()
         budget = _fetch_budget()

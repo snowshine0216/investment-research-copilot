@@ -185,3 +185,48 @@ def test_build_rows_qdii_row_carries_sentinel_gap(tmp_path: Path) -> None:
     assert "qdii_information_unavailable" in r.evidence_gaps
     # No AkShare call for QDII rows.
     assert mocked.call_count == 0
+
+
+def test_fetch_plan_includes_fund_level_costs(tmp_path: Path) -> None:
+    """FetchPlan now counts fund-level rows: 4 calls per cold/stale fund."""
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=0,
+        active_fund_stale=0,
+        passive_misses=0,
+        passive_stale=0,
+        top_n=10,
+        fund_level_misses=3,  # 3 fund-level rows × 4 calls = 12
+        fund_level_stale=0,
+    )
+    assert plan.total_calls() == 3 * 4
+
+
+def test_fetch_plan_combines_active_and_fund_level_costs() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=2,   # 2 × (1+10×3) = 62
+        active_fund_stale=0,
+        passive_misses=0,
+        passive_stale=0,
+        top_n=10,
+        fund_level_misses=5,    # 5 × 4 = 20
+        fund_level_stale=0,
+    )
+    assert plan.total_calls() == 62 + 20
+
+
+def test_preflight_does_not_exceed_budget_for_v1_universe() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    # V1: ~5 active funds + ~20 fund-level rows
+    plan = FetchPlan(
+        active_fund_misses=52,
+        active_fund_stale=0,
+        passive_misses=0,
+        passive_stale=0,
+        top_n=10,
+        fund_level_misses=20,
+        fund_level_stale=0,
+    )
+    total = plan.total_calls()
+    assert total < 2000, f"total={total} would exceed default budget"
