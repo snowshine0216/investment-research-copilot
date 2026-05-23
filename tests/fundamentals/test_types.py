@@ -492,3 +492,51 @@ def test_thesis_evidence_from_dict_citation_id_mismatch_raises() -> None:
     }
     with pytest.raises(ValueError, match="citation_id mismatch"):
         ThesisEvidence.from_dict(d)
+
+
+def test_thesis_evidence_from_dict_empty_string_citation_id_raises() -> None:
+    """Regression — pre-merge silent-failure review surfaced that the
+    `if expected_id` guard would silently skip the mismatch check for an
+    explicit `citation_id == ""` (truthiness, not `is not None`). An older
+    pipeline version that wrote `citation_id=""` would bypass the integrity
+    check and silently reconstruct with the recomputed id. Lock the
+    `is not None` contract so explicit-empty raises loudly."""
+    import pytest
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "filing",
+        "source": "akshare:filing:600519",
+        "url": "https://example.com/600519",
+        "date": "2024-04-15",
+        "summary": "600519",
+        "scope": "constituent",
+        "citation_kind": "data",
+        "owner_instrument_id": "005827",
+        "parent_fund_id": "005827",
+        "constituent_key": "600519",
+        "citation_id": "",  # explicit empty — must raise on the mismatch
+    }
+    with pytest.raises(ValueError, match="citation_id mismatch"):
+        ThesisEvidence.from_dict(d)
+
+
+def test_thesis_evidence_from_dict_no_citation_id_key_does_not_raise() -> None:
+    """Complement to the above — when the JSON key is absent entirely,
+    `expected_id` is None and the mismatch check is intentionally skipped
+    (the dataclass simply rebuilds, recomputes citation_id, and returns)."""
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "filing",
+        "source": "akshare:filing:600519",
+        "url": "https://example.com/600519",
+        "date": "2024-04-15",
+        "summary": "600519",
+        "scope": "constituent",
+        "citation_kind": "data",
+        "owner_instrument_id": "005827",
+        "parent_fund_id": "005827",
+        "constituent_key": "600519",
+        # no "citation_id" key
+    }
+    ev = ThesisEvidence.from_dict(d)
+    assert len(ev.citation_id) == 16

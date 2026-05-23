@@ -226,8 +226,16 @@ _DRAWDOWN_NOTE_CN = (
 
 # Item 007 D3b §17 — locked appendix line regex contract. Item 009's
 # find_uncited_discipline_rows parses appendix bullets against this.
+#
+# `nm` uses `[^\n]+?` (non-greedy, non-newline only) — NOT `[^()\n]+?` as
+# the plan's "Locked appendix line regex contract" originally specified.
+# Real CN fund names routinely embed parentheses (`大成纳斯达克100ETF联接(QDII)A`,
+# `易方达标普信息科技指数(QDII-LOF)A`, etc.); the original `[^()\n]+?` pattern
+# silently dropped every such row from item 009's coverage report. The
+# trailing literal ` \(权重 ` anchors the non-greedy match unambiguously
+# (fund names do not contain the substring `(权重`).
 _APPENDIX_LINE_RE = re.compile(
-    r"^- (?P<sym>[0-9A-Z]{4,6}) (?P<nm>[^()\n]+?) "
+    r"^- (?P<sym>[0-9A-Z]{4,6}) (?P<nm>[^\n]+?) "
     r"\(权重 (?P<wpct>\d+(?:\.\d+)?)%\): "
     r"(?:"
     # Shape 1: evidence + failures

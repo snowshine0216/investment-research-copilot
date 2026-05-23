@@ -1051,7 +1051,11 @@ def _load_pick_order_iids(out_dir: Path) -> tuple[str, ...]:
         return ()
     try:
         doc = _yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
-    except (OSError, Exception):
+    except (OSError, _yaml.YAMLError):
+        # Backward-compat per Q10: tolerate missing/unreadable/malformed
+        # trade_plan.yaml. NEVER swallow non-IO exceptions (used to be
+        # `except (OSError, Exception)`, which masked KeyError/TypeError
+        # bugs in the comprehension below).
         return ()
     return tuple(
         str(t["target"])

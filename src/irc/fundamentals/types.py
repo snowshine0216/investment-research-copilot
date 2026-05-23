@@ -126,7 +126,7 @@ class ThesisEvidence:
             constituent_key=d.get("constituent_key"),
             holding_weight_pct=d.get("holding_weight_pct"),
         )
-        if expected_id and expected_id != ev.citation_id:
+        if expected_id is not None and expected_id != ev.citation_id:
             raise ValueError(
                 f"citation_id mismatch: JSON has {expected_id!r} "
                 f"but recomputed to {ev.citation_id!r} "

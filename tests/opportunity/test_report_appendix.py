@@ -393,3 +393,21 @@ def test_compose_discipline_markdown_backward_compat_no_publishable_kwargs() -> 
     # The appendix still appears (with （无） body since publishable_rows defaulted to ()).
     assert "## 持仓明细" in out
     # No crash.
+
+
+def test_appendix_line_re_accepts_parens_in_cn_fund_names() -> None:
+    """Regression — pre-merge adversarial review surfaced that the original
+    `[^()\\n]+?` `nm` group silently rejected every real QDII/LOF fund name
+    (`大成纳斯达克100ETF联接(QDII)A`, `易方达标普信息科技指数(QDII-LOF)A`, …).
+    Item 009's `find_uncited_discipline_rows` would have dropped every such
+    constituent from coverage. Lock the relaxed `[^\\n]+?` contract."""
+    from irc.opportunity import report
+    samples = [
+        "- 000001 大成纳斯达克100ETF联接(QDII)A (权重 3.5%): 持有 [ref:a1b2c3d4e5f60718]",
+        "- ABCDEF 易方达标普信息科技指数(QDII-LOF)A (权重 8.2%): 长期 [ref:0011223344556677]",
+        "- 600519 广发道琼斯石油指数(QDII-LOF)人民币E (权重 1.0%): ❌ qdii_information_unavailable",
+        "- 300750 宁德时代 (权重 6.0%): ⚠️ audit_error: missing_constituent_record",
+    ]
+    for s in samples:
+        m = report._APPENDIX_LINE_RE.match(s)
+        assert m is not None, f"regex must accept paren-bearing CN name; rejected: {s!r}"

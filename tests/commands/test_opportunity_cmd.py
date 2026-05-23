@@ -1065,3 +1065,30 @@ def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> 
     pos_a = discipline.index("### 005827")
     assert pos_b < pos_a, \
         f"appendix not ordered by pick-row; got:\n{discipline}"
+
+
+def test_load_pick_order_iids_propagates_non_yaml_exceptions(tmp_path) -> None:
+    """Regression — pre-merge silent-failure review surfaced that
+    `except (OSError, Exception)` silently swallowed every error
+    (including TypeErrors inside the comprehension over `doc.get("trades")`).
+    The narrowed `except (OSError, yaml.YAMLError)` must propagate other
+    exceptions. Lock by constructing a `trade_plan.yaml` whose `trades`
+    contains a non-mapping entry — the generator's `.get` call raises
+    AttributeError, which must NOT be swallowed."""
+    import pytest
+    from irc.commands.opportunity_cmd import _load_pick_order_iids
+    # Valid YAML, but `trades` contains a string instead of a dict.
+    plan_path = tmp_path / "trade_plan.yaml"
+    plan_path.write_text("trades:\n  - just_a_string\n", encoding="utf-8")
+    with pytest.raises(AttributeError):
+        _load_pick_order_iids(tmp_path)
+
+
+def test_load_pick_order_iids_tolerates_malformed_yaml(tmp_path) -> None:
+    """Negative complement — a true YAML parse error returns `()` per Q10
+    backward-compat (the appendix then renders in instrument_id-ascending
+    order, no crash)."""
+    from irc.commands.opportunity_cmd import _load_pick_order_iids
+    plan_path = tmp_path / "trade_plan.yaml"
+    plan_path.write_text(": ::: malformed ::: :\n", encoding="utf-8")
+    assert _load_pick_order_iids(tmp_path) == ()
