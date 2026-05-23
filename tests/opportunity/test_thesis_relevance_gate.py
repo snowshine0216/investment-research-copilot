@@ -32,7 +32,7 @@ def test_intact_requires_one_trusted_citation() -> None:
         Citation(index=3, title="some blog",
                  url="https://news.mysteel.com/x", published_iso="2026-05-19"),
     ]
-    state, reason, _, _ = derive_thesis_from_evidence(
+    state, reason, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
         owner_instrument_id="518880",
     )
@@ -52,7 +52,7 @@ def test_all_republisher_citations_yields_evidence_insufficient() -> None:
                  url="https://m.163.com/dy/article/abc",
                  published_iso="2026-05-18"),
     ]
-    state, reason, _, _ = derive_thesis_from_evidence(
+    state, reason, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
         owner_instrument_id="518880",
     )
@@ -65,7 +65,7 @@ def test_below_min_citations_is_evidence_insufficient() -> None:
         Citation(index=1, title="Reuters article",
                  url="https://www.reuters.com/x", published_iso="2026-05-19"),
     ]
-    state, _, _, _ = derive_thesis_from_evidence(
+    state, _, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
         owner_instrument_id="518880",
     )
@@ -84,7 +84,7 @@ def test_unknown_tier_alone_is_evidence_insufficient() -> None:
                  url="https://third.example.net/post3",
                  published_iso="2026-05-19"),
     ]
-    state, _, _, _ = derive_thesis_from_evidence(
+    state, _, _, _, _ = derive_thesis_from_evidence(
         snapshot=None, theme_report=_report(citations), asset_class="gold",
         owner_instrument_id="518880",
     )
