@@ -48,7 +48,7 @@ _HK_TOKENS: tuple[str, ...] = ("港",)
 _US_TOKENS: tuple[str, ...] = ("纽", "纳斯达克", "美")
 _SH_TOKENS: tuple[str, ...] = ("沪", "上交所", "上证", "科创板")
 _SZ_TOKENS: tuple[str, ...] = ("深", "创业板", "中小板")
-_BJ_TOKENS: tuple[str, ...] = ("北", "京")
+_BJ_TOKENS: tuple[str, ...] = ("北交所", "北证", "京交所")
 _QUARTER_END: dict[str, str] = {
     "1": "03-31", "2": "06-30", "3": "09-30", "4": "12-31",
 }
@@ -104,7 +104,7 @@ def _parse_exchange_from_ticker(raw_code: str) -> str:
         return "HK"
     if code.isdigit() and len(code) == 6:
         head = code[0]
-        if head == "6":
+        if head in ("5", "6"):
             return "SH"
         if head in ("0", "3"):
             return "SZ"
@@ -292,7 +292,32 @@ def fetch_cn_etf_holdings(
             source_report_date="",
             source_report_quarter="",
         )
-    latest_quarter = sorted(df[quarter_col].astype(str).unique())[-1]
+    non_null = df[quarter_col].dropna()
+    if non_null.empty:
+        # Quarter column present but all-NaN: emit constituents without quarter metadata.
+        ranked_all = df.sort_values("占净值比例", ascending=False).head(top_n)
+        holdings_no_q: list[FundHolding] = []
+        for _, row in ranked_all.iterrows():
+            raw_code = str(row["股票代码"]).strip()
+            normalized = _normalize_ticker(raw_code)
+            exchange = _parse_exchange(row)
+            try:
+                weight_pct = float(row["占净值比例"])
+            except (TypeError, ValueError):
+                weight_pct = 0.0
+            holdings_no_q.append(FundHolding(
+                symbol=normalized,
+                name_cn=str(row["股票名称"]),
+                weight_pct=weight_pct,
+                exchange=exchange,
+                provider_symbol=raw_code,
+            ))
+        return HoldingsResult(
+            constituents=tuple(holdings_no_q),
+            source_report_date="",
+            source_report_quarter="",
+        )
+    latest_quarter = sorted(df[quarter_col].dropna().astype(str).unique())[-1]
     latest = df[df[quarter_col].astype(str) == latest_quarter]
     ranked = latest.sort_values("占净值比例", ascending=False).head(top_n)
     holdings: list[FundHolding] = []

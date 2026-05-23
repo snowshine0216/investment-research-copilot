@@ -580,3 +580,71 @@ def test_parse_quarter_column_unparseable() -> None:
     quarter, iso = _parse_quarter_column(row)
     assert quarter == ""
     assert iso == ""
+
+
+# ── PR-review round-4 regression tests (item 003) ─────────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import (  # noqa: E402
+    _parse_exchange_from_market_column,
+    _parse_exchange_from_ticker,
+)
+
+
+def test_parse_quarter_column_all_nan_季度_returns_empty_tuple() -> None:
+    """Finding 1: 季度 column present but all NaN must not raise IndexError.
+
+    Regression: fetch_cn_etf_holdings with an all-NaN quarter column called
+    latest.iloc[0] on a row whose 季度 value was NaN, which previously caused
+    _parse_quarter_column to misbehave; now it must return ("", "").
+    """
+    row = pd.Series({"季度": float("nan"), "股票代码": "600519"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == ""
+    assert iso == ""
+
+
+def test_fetch_cn_etf_holdings_all_nan_quarter_column_does_not_raise() -> None:
+    """Finding 1 (integration): DataFrame with 季度 column present but all NaN
+    must degrade gracefully — no IndexError or other exception."""
+    all_nan_frame = pd.DataFrame({
+        "序号": [1, 2],
+        "股票代码": ["600519", "000333"],
+        "股票名称": ["贵州茅台", "美的集团"],
+        "占净值比例": [5.0, 4.0],
+        "季度": [float("nan"), float("nan")],
+    })
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = all_nan_frame
+        result = fetch_cn_etf_holdings("999999", as_of="2024", top_n=10)
+    # Must not raise; quarter metadata degrades to empty strings.
+    assert result.source_report_quarter == ""
+    assert result.source_report_date == ""
+
+
+def test_bj_tokens_do_not_match_nanjing() -> None:
+    """Finding 2: single-char '京' in _BJ_TOKENS falsely matches '南京'.
+
+    Regression: market column containing '南京' must NOT route to BJ exchange.
+    """
+    result = _parse_exchange_from_market_column("南京证券交易市场")
+    assert result != "BJ", f"Expected not BJ but got {result!r}"
+
+
+def test_bj_tokens_match_beijiao_so() -> None:
+    """Finding 2: multi-char '北交所' must still route to BJ."""
+    result = _parse_exchange_from_market_column("北交所")
+    assert result == "BJ"
+
+
+def test_bj_tokens_no_false_positive_for_京_in_非bj_text() -> None:
+    """Finding 2: '深市A股' containing no BJ tokens must not route to BJ."""
+    result = _parse_exchange_from_market_column("深市A股")
+    assert result != "BJ"
+
+
+def test_parse_exchange_from_ticker_5xxx_routes_to_sh() -> None:
+    """Finding 3: 5-prefix codes (e.g. 512000 CSI-500 ETF) must route to SH,
+    consistent with _suffix_for_code which maps '5' and '6' to SH."""
+    assert _parse_exchange_from_ticker("512000") == "SH"
+    assert _parse_exchange_from_ticker("510300") == "SH"
+    assert _parse_exchange_from_ticker("588000") == "SH"
