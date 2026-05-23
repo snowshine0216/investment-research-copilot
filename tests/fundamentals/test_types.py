@@ -10,6 +10,10 @@ from irc.fundamentals.types import (
     Constituent,
     ConstituentSnapshot,
     FilingDigest,
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
+    ThesisEvidence,
 )
 
 
@@ -159,3 +163,211 @@ def test_constituent_snapshot_records_per_source_failures() -> None:
         failure_reasons=("edgar 503", "akshare timeout"),
     )
     assert snap.failure_reasons == ("edgar 503", "akshare timeout")
+
+
+# ── Task 1: FundNavReport tests ───────────────────────────────────────────────
+
+
+def test_fund_nav_report_construction_happy() -> None:
+    r = FundNavReport(
+        fund_id="518880",
+        fund_name="华安黄金易ETF",
+        latest_nav=4.5678,
+        latest_nav_date="2026-03-15",
+        nav_history=(("2026-03-14", 4.5500), ("2026-03-15", 4.5678)),
+        source_report_quarter="2026Q1",
+    )
+    assert r.fund_id == "518880"
+    assert r.latest_nav == 4.5678
+    assert r.source_report_quarter == "2026Q1"
+
+
+def test_fund_nav_report_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 1.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_non_positive_nav() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=0.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 0.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_malformed_date() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026/03/15",  # wrong separator
+            nav_history=(("2026/03/15", 1.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_empty_history() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_history_mismatch_with_latest() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-14", 0.99),),  # last date != latest_nav_date
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_malformed_quarter() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 1.0),),
+            source_report_quarter="2026-Q1",  # extra hyphen
+        )
+
+
+# ── Task 2: FundAnnouncement tests ────────────────────────────────────────────
+
+
+def test_fund_announcement_construction_happy() -> None:
+    a = FundAnnouncement(
+        fund_id="518880",
+        title="关于华安易富黄金交易型开放式证券投资基金基金份额折算日的公告",
+        topic="dividend",
+        date="2013-07-24",
+        report_id="AN201307240003689710",
+    )
+    assert a.fund_id == "518880"
+    assert a.topic == "dividend"
+    assert a.report_id.startswith("AN")
+
+
+def test_fund_announcement_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="", title="x", topic="dividend",
+            date="2024-01-01", report_id="AN1",
+        )
+
+
+def test_fund_announcement_rejects_empty_title() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="", topic="dividend",
+            date="2024-01-01", report_id="AN1",
+        )
+
+
+def test_fund_announcement_rejects_empty_report_id() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="x", topic="dividend",
+            date="2024-01-01", report_id="",
+        )
+
+
+def test_fund_announcement_rejects_malformed_date() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="x", topic="dividend",
+            date="20240101", report_id="AN1",  # missing hyphens
+        )
+
+
+# ── Task 3: FundLevelSnapshot tests ──────────────────────────────────────────
+
+
+def test_fund_level_snapshot_construction_minimal() -> None:
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+    )
+    assert snap.fund_id == "518880"
+    assert snap.fund_level_failure_reasons == ()
+    assert snap.evidence_gaps == ()
+
+
+def test_fund_level_snapshot_qdii_sentinel_shape() -> None:
+    snap = FundLevelSnapshot(
+        fund_id="qdii_us:sp500",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        evidence_gaps=("qdii_information_unavailable",),
+    )
+    assert snap.evidence_gaps == ("qdii_information_unavailable",)
+    assert snap.nav_report is None
+
+
+def test_fund_level_snapshot_carries_evidence_tuple() -> None:
+    e = ThesisEvidence(
+        type="snapshot", source="518880", url="",
+        date="2026-03-15",
+        summary="NAV=4.5678 @ 2026-03-15",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id="518880",
+        parent_fund_id=None, constituent_key=None,
+    )
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(e,),
+        source_report_quarter="2026Q1",
+        cache_probed_at="2026-05-23",
+    )
+    assert len(snap.evidence) == 1
+    assert snap.evidence[0].citation_kind == "data"
+
+
+def test_fund_level_snapshot_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundLevelSnapshot(
+            fund_id="",
+            nav_report=None,
+            announcements=(),
+            evidence=(),
+            source_report_quarter="",
+            cache_probed_at="",
+        )
+
+
+def test_fund_level_snapshot_in_all() -> None:
+    from irc.fundamentals import types as _t
+    assert "FundLevelSnapshot" in _t.__all__
+    assert "FundNavReport" in _t.__all__
+    assert "FundAnnouncement" in _t.__all__

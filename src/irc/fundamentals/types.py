@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import re as _re
 from dataclasses import dataclass
 from typing import Literal
+
+
+_ISO_DATE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_QUARTER_RE_FNR = _re.compile(r"^\d{4}Q[1-4]$")
 
 
 __all__ = [
@@ -14,7 +19,10 @@ __all__ = [
     "ConstituentAnalysis",
     "ConstituentSnapshot",
     "FilingDigest",
+    "FundAnnouncement",
     "FundHolding",
+    "FundLevelSnapshot",
+    "FundNavReport",
     "HoldingsResult",
     "LookthroughKind",
     "LookthroughTarget",
@@ -190,3 +198,97 @@ class ActiveFundSnapshot:
     constituent_analyses: tuple[ConstituentAnalysis, ...]
     failure_reasons_by_symbol: dict[str, tuple[str, ...]]
     fund_level_failure_reasons: tuple[str, ...] = ()
+
+
+# ── Item 005: Fund-level types ────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class FundNavReport:
+    """Fund-level NAV snapshot. `latest_nav_date` is ISO 8601 `str` — adapter
+    converts AkShare's `datetime.date` via `.isoformat()`."""
+    fund_id: str
+    fund_name: str
+    latest_nav: float
+    latest_nav_date: str
+    nav_history: tuple[tuple[str, float], ...]
+    source_report_quarter: str
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundNavReport.fund_id must be non-empty")
+        if self.latest_nav <= 0:
+            raise ValueError(
+                f"FundNavReport.latest_nav must be > 0; got {self.latest_nav}"
+            )
+        if not _ISO_DATE_RE.match(self.latest_nav_date):
+            raise ValueError(
+                f"FundNavReport.latest_nav_date must be ISO YYYY-MM-DD; "
+                f"got {self.latest_nav_date!r}"
+            )
+        if not self.nav_history:
+            raise ValueError("FundNavReport.nav_history must be non-empty")
+        last_date, last_nav = self.nav_history[-1]
+        if last_date != self.latest_nav_date:
+            raise ValueError(
+                f"FundNavReport.nav_history[-1][0]={last_date!r} must equal "
+                f"latest_nav_date={self.latest_nav_date!r}"
+            )
+        if round(last_nav, 6) != round(self.latest_nav, 6):
+            raise ValueError(
+                f"FundNavReport.nav_history[-1][1]={last_nav} must equal "
+                f"latest_nav={self.latest_nav} (to 6dp)"
+            )
+        if not _QUARTER_RE_FNR.match(self.source_report_quarter):
+            raise ValueError(
+                f"FundNavReport.source_report_quarter must match YYYYQ[1-4]; "
+                f"got {self.source_report_quarter!r}"
+            )
+
+
+@dataclass(frozen=True)
+class FundAnnouncement:
+    """One fund-specific announcement. `date` is ISO 8601 `str` — adapter
+    normalises AkShare's `datetime.date` via `.isoformat()`. `report_id` is
+    the opaque `报告ID` provider reference (no URL column in AkShare 1.18.63's
+    topic-specific announcement endpoints)."""
+    fund_id: str
+    title: str
+    topic: Literal["dividend", "report", "personnel"]
+    date: str
+    report_id: str
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundAnnouncement.fund_id must be non-empty")
+        if not self.title:
+            raise ValueError("FundAnnouncement.title must be non-empty")
+        if not self.report_id:
+            raise ValueError("FundAnnouncement.report_id must be non-empty")
+        if not _ISO_DATE_RE.match(self.date):
+            raise ValueError(
+                f"FundAnnouncement.date must be ISO YYYY-MM-DD; got {self.date!r}"
+            )
+
+
+@dataclass(frozen=True)
+class FundLevelSnapshot:
+    """Full per-fund result for non-active V1 asset classes (gold, cn_bond_fund,
+    cn_etf, tracked CN ETFs). Distinct from `ActiveFundSnapshot` (per-constituent
+    analyses) and `ConstituentSnapshot` (legacy display-only). The QDII sentinel
+    case sets `nav_report=None, announcements=(), evidence=(), evidence_gaps=
+    ("qdii_information_unavailable",)` and is NOT cached on disk (grill Q5).
+
+    See ADR 0002 §5 (Fund-level engine).
+    """
+    fund_id: str
+    nav_report: FundNavReport | None
+    announcements: tuple[FundAnnouncement, ...]
+    evidence: tuple[ThesisEvidence, ...]
+    source_report_quarter: str
+    cache_probed_at: str
+    fund_level_failure_reasons: tuple[str, ...] = ()
+    evidence_gaps: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundLevelSnapshot.fund_id must be non-empty")

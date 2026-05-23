@@ -94,10 +94,14 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
         )
 
     if inp.asset_class == "gold":
-        return LookthroughTarget("gold", "gold", "黄金")
+        return LookthroughTarget(
+            "gold", "gold", "黄金", provider_symbol=inp.instrument_id,
+        )
 
     if inp.asset_class == "cn_bond_fund":
-        return LookthroughTarget("bond", "cn_bond", "中国债券")
+        return LookthroughTarget(
+            "bond", "cn_bond", "中国债券", provider_symbol=inp.instrument_id,
+        )
 
     tracked = (inp.tracked_index or "").strip().lower() or None
     theme = (inp.theme or "").strip().lower() or None
@@ -122,15 +126,24 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
 
     if tracked is not None:
         if tracked in _BROAD_INDEX_KEYS:
-            return LookthroughTarget("broad_index", tracked, _BROAD_INDEX_DISPLAY[tracked])
+            return LookthroughTarget(
+                "broad_index", tracked, _BROAD_INDEX_DISPLAY[tracked],
+                provider_symbol=inp.instrument_id,
+            )
         if tracked in _QDII_US_KEYS:
+            # QDII rows do NOT dispatch to fund-level; provider_symbol stays empty.
             return LookthroughTarget("qdii_us", tracked, _QDII_US_DISPLAY[tracked])
         if tracked in _QDII_HK_KEYS:
             return LookthroughTarget("qdii_hk", tracked, _QDII_HK_DISPLAY[tracked])
-        # Unknown index: classify as broad_index but keep the raw key
-        return LookthroughTarget("broad_index", tracked, tracked)
+        # Unknown index: classify as broad_index but keep the raw key + provider_symbol.
+        return LookthroughTarget(
+            "broad_index", tracked, tracked, provider_symbol=inp.instrument_id,
+        )
 
     if theme is not None and theme in _SECTOR_THEME_DISPLAY and theme not in ("broad",):
-        return LookthroughTarget("sector_theme", theme, _SECTOR_THEME_DISPLAY[theme])
+        return LookthroughTarget(
+            "sector_theme", theme, _SECTOR_THEME_DISPLAY[theme],
+            provider_symbol=inp.instrument_id,
+        )
 
     return LookthroughTarget("broad_index", "unknown", "未知底层")

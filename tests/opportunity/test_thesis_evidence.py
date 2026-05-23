@@ -519,3 +519,56 @@ def test_news_llm_failed_on_synth_exception():
     assert "news_llm_failed" in gaps
     assert "missing_recent_news" not in gaps
 
+
+# ── F-FIX-4: FundLevelSnapshot QDII sentinel branch — reason must be non-empty ──
+
+
+def _qdii_sentinel_snapshot(fund_id: str = "513100") -> "FundLevelSnapshot":
+    from irc.fundamentals.types import FundLevelSnapshot
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        fund_level_failure_reasons=(),
+        evidence_gaps=("qdii_information_unavailable",),
+    )
+
+
+def test_qdii_sentinel_fund_level_snapshot_reason_is_non_empty() -> None:
+    """When evidence=() and gaps=('qdii_information_unavailable',), the reason
+    must be non-empty. The inverted conditional produced '' when gaps was truthy,
+    which caused a double-separator in OpportunityRow.opportunity_reason."""
+    state, reason, evidence, gaps, _ = derive_thesis_from_evidence(
+        _qdii_sentinel_snapshot(), None, owner_instrument_id="513100",
+    )
+    assert state == "evidence_insufficient"
+    assert reason, f"reason must be non-empty for QDII sentinel; got {reason!r}"
+    assert evidence == ()
+    assert "qdii_information_unavailable" in gaps
+
+
+def test_no_gaps_fund_level_snapshot_reason_is_fallback() -> None:
+    """When evidence=() and gaps=() (no explanation available), the reason
+    should be the fallback '基金层级证据未能加载。' (not empty string)."""
+    from irc.fundamentals.types import FundLevelSnapshot
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        fund_level_failure_reasons=(),
+        evidence_gaps=(),  # no specific gap label — plain fallback
+    )
+    state, reason, evidence, gaps, _ = derive_thesis_from_evidence(
+        snap, None, owner_instrument_id="518880",
+    )
+    assert state == "evidence_insufficient"
+    assert reason == "基金层级证据未能加载。"
+    assert evidence == ()
+    assert gaps == ()
+

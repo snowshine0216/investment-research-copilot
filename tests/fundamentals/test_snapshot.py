@@ -95,7 +95,8 @@ def test_build_snapshot_us_symbols_dispatches_to_edgar(monkeypatch):
         snapshot, "fetch_us_filing_digest_diag",
         lambda sym: (aapl_digest, None) if sym == "AAPL" else (None, "network"),
     )
-    snap = build_snapshot(LookthroughTarget("qdii_us", "x", "Mag7"), as_of_iso="2026-05-15")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "Mag7"), as_of_iso="2026-05-15")
     assert snap.constituents == (
         Constituent(symbol="AAPL", name="AAPL", weight=0.0, market="us"),
         Constituent(symbol="MSFT", name="MSFT", weight=0.0, market="us"),
@@ -119,7 +120,8 @@ def test_build_snapshot_hk_symbols_dispatches_to_hkex(monkeypatch):
         snapshot, "fetch_hk_filing_digest",
         lambda sym: tencent_digest if sym == "0700.HK" else None,
     )
-    snap = build_snapshot(LookthroughTarget("qdii_hk", "x", "HK-Tech"), as_of_iso="2026-05-15")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_hk now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "HK-Tech"), as_of_iso="2026-05-15")
     assert snap.filings == (tencent_digest,)
     assert snap.broker_reports == ()
 
@@ -147,7 +149,8 @@ def test_build_snapshot_hk_index_dispatches_to_hk_constituents(monkeypatch):
         lambda sym: digest if sym == "00700.HK" else None,
     )
 
-    snap = build_snapshot(LookthroughTarget("qdii_hk", "x", "HSI-test"), top_n=2, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_hk now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "HSI-test"), top_n=2, as_of_iso="2026-05-16")
 
     assert snap.lookthrough_target == "HSI-test"
     assert snap.constituents == constituents
@@ -264,7 +267,8 @@ def test_build_us_snapshot_tags_each_failure_with_error_code(monkeypatch) -> Non
         snapshot, "fetch_us_filing_digest_diag",
         lambda sym: (None, "missing_email"),
     )
-    snap = build_snapshot(LookthroughTarget("qdii_us", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert snap.lookthrough_target == "纳斯达克100"
     assert snap.filings == ()
     per_symbol = [r for r in snap.failure_reasons if r.startswith("missing filing digest:")]
@@ -286,7 +290,8 @@ def test_build_us_snapshot_mixed_failures_omit_summary(monkeypatch) -> None:
             return None, "http_4xx"
         return None, "missing_email"
     monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
-    snap = build_snapshot(LookthroughTarget("qdii_us", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert any("(http_4xx)" in r for r in snap.failure_reasons)
     assert any("(missing_email)" in r for r in snap.failure_reasons)
     assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)
@@ -308,7 +313,8 @@ def test_build_us_snapshot_partial_success(monkeypatch) -> None:
             return good, None
         return None, "http_4xx"
     monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
-    snap = build_snapshot(LookthroughTarget("qdii_us", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert snap.filings == (good,)
     assert any(r == "missing filing digest: MSFT (http_4xx)" for r in snap.failure_reasons)
     assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)

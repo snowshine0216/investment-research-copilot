@@ -19,6 +19,9 @@ from irc.fundamentals.types import (
     ConstituentAnalysis,
     ConstituentSnapshot,
     FilingDigest,
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
     ThesisEvidence,
 )
 
@@ -236,3 +239,134 @@ def load_active_fund_cache(
     if not isinstance(body, dict):
         return None
     return _active_fund_from_dict(body)
+
+
+# ── Item 005: NAV cache I/O ───────────────────────────────────────────────────
+
+
+def nav_cache_path(fund_id: str, quarter: str, root: Path) -> Path:
+    return root / "fundamentals" / quarter / "nav" / f"fund_{fund_id}.json"
+
+
+def _nav_report_to_dict(r: FundNavReport) -> dict[str, Any]:
+    return {
+        "fund_id": r.fund_id,
+        "fund_name": r.fund_name,
+        "latest_nav": r.latest_nav,
+        "latest_nav_date": r.latest_nav_date,
+        "nav_history": [list(t) for t in r.nav_history],
+        "source_report_quarter": r.source_report_quarter,
+    }
+
+
+def _nav_report_from_dict(d: dict[str, Any]) -> FundNavReport:
+    return FundNavReport(
+        fund_id=str(d["fund_id"]),
+        fund_name=str(d.get("fund_name", "")),
+        latest_nav=float(d["latest_nav"]),
+        latest_nav_date=str(d["latest_nav_date"]),
+        nav_history=tuple(
+            (str(item[0]), float(item[1]))
+            for item in d.get("nav_history", [])
+        ),
+        source_report_quarter=str(d["source_report_quarter"]),
+    )
+
+
+def _ann_to_dict(a: FundAnnouncement) -> dict[str, Any]:
+    return {
+        "fund_id": a.fund_id,
+        "title": a.title,
+        "topic": a.topic,
+        "date": a.date,
+        "report_id": a.report_id,
+    }
+
+
+def _ann_from_dict(d: dict[str, Any]) -> FundAnnouncement:
+    return FundAnnouncement(
+        fund_id=str(d["fund_id"]),
+        title=str(d["title"]),
+        topic=str(d["topic"]),  # type: ignore[arg-type]
+        date=str(d["date"]),
+        report_id=str(d["report_id"]),
+    )
+
+
+def _fund_level_to_dict(snap: FundLevelSnapshot) -> dict[str, Any]:
+    return {
+        "fund_id": snap.fund_id,
+        "nav_report": (
+            _nav_report_to_dict(snap.nav_report)
+            if snap.nav_report is not None else None
+        ),
+        "announcements": [_ann_to_dict(a) for a in snap.announcements],
+        "evidence": [_evidence_to_dict(e) for e in snap.evidence],
+        "source_report_quarter": snap.source_report_quarter,
+        "cache_probed_at": snap.cache_probed_at,
+        "fund_level_failure_reasons": list(snap.fund_level_failure_reasons),
+        "evidence_gaps": list(snap.evidence_gaps),
+    }
+
+
+def _fund_level_from_dict(body: dict[str, Any]) -> FundLevelSnapshot | None:
+    needed = {"fund_id", "source_report_quarter", "evidence"}
+    if not needed.issubset(body):
+        return None
+    try:
+        nav_report = (
+            _nav_report_from_dict(body["nav_report"])
+            if body.get("nav_report") is not None else None
+        )
+        announcements = tuple(
+            _ann_from_dict(a) for a in body.get("announcements", [])
+        )
+        evidence = tuple(
+            _evidence_from_dict(e) for e in body.get("evidence", [])
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
+    return FundLevelSnapshot(
+        fund_id=str(body["fund_id"]),
+        nav_report=nav_report,
+        announcements=announcements,
+        evidence=evidence,
+        source_report_quarter=str(body["source_report_quarter"]),
+        cache_probed_at=str(body.get("cache_probed_at", "")),
+        fund_level_failure_reasons=tuple(
+            body.get("fund_level_failure_reasons", ())
+        ),
+        evidence_gaps=tuple(body.get("evidence_gaps", ())),
+    )
+
+
+def write_nav_cache(snap: FundLevelSnapshot, root: Path) -> Path:
+    """Atomic write of `FundLevelSnapshot` to NAV cache. Skips QDII sentinel
+    (grill Q5: gap-only rows have nothing to cache)."""
+    # Sentinel detection: QDII rows have this gap and nothing fetched.
+    if "qdii_information_unavailable" in snap.evidence_gaps:
+        return root / "fundamentals" / "qdii_sentinel_skipped.placeholder"
+    path = nav_cache_path(snap.fund_id, snap.source_report_quarter, root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f".json.tmp.{os.getpid()}")
+    tmp.write_text(
+        json.dumps(_fund_level_to_dict(snap), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    tmp.replace(path)
+    return path
+
+
+def load_nav_cache(
+    fund_id: str, quarter: str, root: Path,
+) -> FundLevelSnapshot | None:
+    path = nav_cache_path(fund_id, quarter, root)
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    return _fund_level_from_dict(body)

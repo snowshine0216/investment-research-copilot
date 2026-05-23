@@ -12,12 +12,14 @@ from pathlib import Path
 import duckdb
 
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
-from irc.fundamentals.snapshot import build_snapshot
+from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
+    load_nav_cache,
     write_active_fund_cache,
+    write_nav_cache,
 )
-from irc.fundamentals.types import ActiveFundSnapshot
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot, LookthroughTarget
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
@@ -36,7 +38,7 @@ from irc.opportunity.report import (
 )
 from irc.commands.theme_thesis import load_theme_thesis
 from irc.fundamentals.snapshot import load_latest_cached_snapshot
-from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.lookthrough import map_lookthrough, _QDII_US_KEYS, _QDII_HK_KEYS
 from irc.opportunity.selection import SelectionQuality, demote_unstable_active, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import (
@@ -64,11 +66,15 @@ class FetchPlan:
     passive_misses: int
     passive_stale: int
     top_n: int
+    fund_level_misses: int = 0  # Item 005: gold/bond/cn_etf rows w/ provider_symbol
+    fund_level_stale: int = 0   # Item 005
 
     def total_calls(self) -> int:
         per_active = 1 + self.top_n * 3
+        per_fund_level = 4  # 1 NAV + 3 announcement endpoints (ADR 0002 §5)
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
+            + (self.fund_level_misses + self.fund_level_stale) * per_fund_level
             + self.passive_misses * 2
             + self.passive_stale * 2
         )
@@ -80,6 +86,8 @@ class FetchBudgetExceeded(RuntimeError):
             f"FetchBudgetExceeded: "
             f"active_fund_misses={plan.active_fund_misses} "
             f"active_fund_stale={plan.active_fund_stale} "
+            f"fund_level_misses={plan.fund_level_misses} "
+            f"fund_level_stale={plan.fund_level_stale} "
             f"passive_misses={plan.passive_misses} "
             f"passive_stale={plan.passive_stale} "
             f"cost={total} budget={budget}"
@@ -249,6 +257,85 @@ def _load_latest_active_fund_cached(
         if loaded is not None:
             return loaded
     return None
+
+
+# ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
+# _FUND_LEVEL_KINDS is imported from irc.fundamentals.snapshot (single source of truth).
+
+
+def _load_latest_nav_cached(
+    fund_id: str, root: Path,
+) -> FundLevelSnapshot | None:
+    """Scan `root/fundamentals/*/nav/fund_{fund_id}.json`; return most-recent quarter."""
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/nav/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_nav_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
+
+
+def _is_nav_stale(
+    snap: FundLevelSnapshot, *, today: date_cls, threshold_days: int,
+) -> bool:
+    if not snap.cache_probed_at:
+        return True
+    try:
+        probed = date_cls.fromisoformat(snap.cache_probed_at)
+    except ValueError:
+        return True
+    days = (today - probed).days
+    if days < 0:
+        return True
+    return days > threshold_days
+
+
+def _resolve_fund_level_snapshot(
+    target: LookthroughTarget,
+    root: Path,
+    *,
+    rebuild: bool,
+    today: date_cls,
+) -> FundLevelSnapshot:
+    """Item 005 fund-level + QDII dispatch with cache reuse.
+
+    - QDII kinds: returns the in-process sentinel (never cached).
+    - Other fund-level kinds: load latest cached snapshot; if missing,
+      stale (per `IRC_CACHE_FRESHNESS_DAYS`), or `--rebuild-fundamentals`,
+      do a full refetch (no cheap probe per grill Q3) and write the cache.
+    """
+    if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
+        return build_snapshot(target)  # type: ignore[return-value]
+
+    fund_id = target.provider_symbol
+    cached = None if rebuild else _load_latest_nav_cached(fund_id, root)
+    if cached is not None and not _is_nav_stale(
+        cached, today=today, threshold_days=_freshness_days(),
+    ):
+        return cached
+
+    snap = build_snapshot(target)
+    if not isinstance(snap, FundLevelSnapshot):
+        raise RuntimeError(
+            f"build_snapshot returned {type(snap).__name__} for fund-level dispatch "
+            f"(target.kind={target.kind!r}, provider_symbol={target.provider_symbol!r})"
+        )
+    # Skip cache write for QDII sentinel (handled in write_nav_cache).
+    if "qdii_information_unavailable" not in snap.evidence_gaps and snap.source_report_quarter:
+        try:
+            write_nav_cache(replace(snap, cache_probed_at=today.isoformat()), root)
+        except Exception as cache_exc:
+            reason = f"nav_cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+            sys.stderr.write(reason + "\n")
+            snap = replace(
+                snap,
+                fund_level_failure_reasons=snap.fund_level_failure_reasons + (reason,),
+            )
+    return snap
 
 
 # ── Item 003: validate_cli_args ───────────────────────────────────────────────
@@ -495,6 +582,61 @@ def _classify_active_fund_scores(
     return misses, stale
 
 
+def _is_qdii_bound_cn_etf(iid: str, instr_index: dict) -> bool:
+    """Return True if a cn_etf row routes to the zero-cost QDII sentinel.
+
+    A cn_etf whose tracked_index is in the QDII US or HK key sets dispatches
+    to `_build_qdii_sentinel_snapshot` (zero AkShare calls) rather than the
+    fund-level NAV+announcement engine. Counting such rows inflates the budget
+    estimate and can trigger spurious FetchBudgetExceeded.
+    """
+    instr = instr_index.get(iid)
+    if instr is None:
+        return False
+    tracked = (instr.tracked_index or "").strip().lower()
+    return bool(tracked) and (tracked in _QDII_US_KEYS or tracked in _QDII_HK_KEYS)
+
+
+def _classify_fund_level_scores(
+    scores: list[dict],
+    root: Path,
+    *,
+    instr_index: dict | None = None,
+    today: date_cls,
+    threshold_days: int,
+    rebuild_fundamentals: bool,
+) -> tuple[int, int]:
+    """Count (misses, stale) among fund-level rows (gold/cn_bond_fund/cn_etf).
+
+    QDII rows are NOT counted — they fire zero AkShare calls (sentinel).
+    cn_etf rows whose tracked_index routes to a QDII key are excluded.
+    """
+    misses = 0
+    stale = 0
+    seen: set[str] = set()
+    _instr_index: dict = instr_index or {}
+    for score in scores:
+        cls = score.get("asset_class")
+        if cls not in ("gold", "cn_bond_fund", "cn_etf"):
+            continue
+        iid = score.get("instrument_id", "")
+        if not iid or iid in seen:
+            continue
+        # cn_etf rows that map to a QDII kind cost zero AkShare calls — skip.
+        if cls == "cn_etf" and _is_qdii_bound_cn_etf(iid, _instr_index):
+            continue
+        seen.add(iid)
+        if rebuild_fundamentals:
+            misses += 1
+            continue
+        cached = _load_latest_nav_cached(iid, root)
+        if cached is None:
+            misses += 1
+        elif _is_nav_stale(cached, today=today, threshold_days=threshold_days):
+            stale += 1
+    return misses, stale
+
+
 def _build_rows(
     scores: list[dict],
     instr_index: dict[str, Instrument],
@@ -565,12 +707,20 @@ def _build_rows(
             rebuild_fundamentals=rebuild_fundamentals,
             completed_ids=completed_ids,
         )
+        fl_misses, fl_stale = _classify_fund_level_scores(
+            scores, root / "data",
+            instr_index=instr_index,
+            today=today, threshold_days=_freshness_days(),
+            rebuild_fundamentals=rebuild_fundamentals,
+        )
         plan = FetchPlan(
             active_fund_misses=misses,
             active_fund_stale=stale,
-            passive_misses=0,   # placeholder — item 005
-            passive_stale=0,    # placeholder — item 005
+            passive_misses=0,
+            passive_stale=0,
             top_n=TOP_N_DEFAULT,
+            fund_level_misses=fl_misses,
+            fund_level_stale=fl_stale,
         )
         total = plan.total_calls()
         budget = _fetch_budget()
@@ -683,6 +833,21 @@ def _build_rows(
                                 snap_obj = probed
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                     snapshot_cache[target.key] = snap_obj
+            elif autobuild_on and (
+                target.kind in ("qdii_us", "qdii_hk", "qdii_global")
+                or (target.kind in _FUND_LEVEL_KINDS and target.provider_symbol)
+            ):
+                # ── Item 005: fund-level + QDII sentinel dispatch ──
+                cache_key = target.provider_symbol or target.key
+                if cache_key in snapshot_cache:
+                    snap_obj = snapshot_cache[cache_key]
+                else:
+                    snap_obj = _resolve_fund_level_snapshot(
+                        target, root / "data",
+                        rebuild=rebuild_fundamentals,
+                        today=today,
+                    )
+                    snapshot_cache[cache_key] = snap_obj
             else:
                 target_name = target.display_cn
                 if target_name not in snapshot_cache:

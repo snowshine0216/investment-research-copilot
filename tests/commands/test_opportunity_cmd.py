@@ -310,11 +310,19 @@ def test_opportunity_cmd_passes_snapshot_when_available(tmp_path: Path, monkeypa
 
 
 def test_opportunity_cmd_passes_none_snapshot_when_no_cache(tmp_path: Path, monkeypatch) -> None:
-    """When no snapshot exists, snapshot=None is passed (degrade-not-halt)."""
+    """When no snapshot exists and autobuild is off, snapshot=None is passed (degrade-not-halt).
+
+    Item 005: autobuild=0 forces the legacy cache-only path, which returns None
+    when no snapshot file is present on disk. This preserves the pre-005 contract.
+    Fund-level autobuild behaviour when ON is covered in
+    test_opportunity_cmd_fund_level.py.
+    """
     from irc.commands.opportunity_cmd import run_opportunity
 
     _seed_minimal_repo(tmp_path)
     monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+    # Disable autobuild so the legacy cache-only path is exercised.
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "0")
 
     captured_kwargs: list[dict] = []
     import irc.commands.opportunity_cmd as opp_mod

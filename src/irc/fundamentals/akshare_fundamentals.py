@@ -15,7 +15,14 @@ from typing import Any
 
 import pandas as pd
 
-from irc.fundamentals.types import Constituent, FundHolding, HoldingsResult, NewsItem
+from irc.fundamentals.types import (
+    Constituent,
+    FundAnnouncement,
+    FundHolding,
+    FundNavReport,
+    HoldingsResult,
+    NewsItem,
+)
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -442,3 +449,162 @@ def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
 
 # Re-exports removed — import fetch_cn_broker_reports / fetch_cn_filing_digest
 # from irc.fundamentals.akshare_filing directly.
+
+
+# ── Item 005: Fund-level adapters ─────────────────────────────────────────────
+
+
+def _normalize_nav_date(value: Any) -> str:
+    """Convert AkShare's 净值日期 (datetime.date | str) to ISO YYYY-MM-DD."""
+    if hasattr(value, "isoformat"):
+        # datetime.date / datetime.datetime — emit ISO date.
+        iso = value.isoformat()
+        return iso[:10]
+    s = str(value).strip()
+    return s[:10] if len(s) >= 10 else s
+
+
+def _infer_quarter_from_date(iso_date: str) -> str:
+    """Calendar-quarter for NAV (per ADR 0002 §5 — NAV is a daily series,
+    not a provider-declared disclosure quarter)."""
+    try:
+        y, m, _d = iso_date.split("-")
+        year = int(y)
+        month = int(m)
+    except (ValueError, AttributeError):
+        return ""
+    if not (1 <= month <= 12):
+        return ""
+    q = (month - 1) // 3 + 1
+    return f"{year}Q{q}"
+
+
+def fetch_fund_nav_report(fund_id: str) -> FundNavReport | None:
+    """Fund-level NAV time series via `ak.fund_open_fund_info_em`.
+
+    Returns `FundNavReport` on success; `None` on empty / adapter failure
+    (matches `fetch_cn_filing_digest`'s degrade-to-None contract).
+
+    F5 invariant: this adapter consults ONLY `indicator="单位净值走势"`.
+    The static-profile indicator is NEVER consulted (would emit static
+    metadata that must not satisfy the information leg — see ADR 0002 §5).
+    """
+    try:
+        df = _ak_call(
+            "fund_open_fund_info_em",
+            symbol=fund_id,
+            indicator="单位净值走势",
+        )
+    except Exception:
+        return None
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    needed = {"净值日期", "单位净值"}
+    if not needed.issubset(df.columns):
+        return None
+    history: list[tuple[str, float]] = []
+    for _, row in df.iterrows():
+        try:
+            iso_date = _normalize_nav_date(row["净值日期"])
+            nav = float(row["单位净值"])
+        except (TypeError, ValueError):
+            continue
+        if not iso_date or nav <= 0:
+            continue
+        history.append((iso_date, nav))
+    if not history:
+        return None
+    history.sort(key=lambda t: t[0])
+    last_date, last_nav = history[-1]
+    quarter = _infer_quarter_from_date(last_date)
+    if not quarter:
+        return None
+    try:
+        return FundNavReport(
+            fund_id=fund_id,
+            fund_name=fund_id,  # NAV走势 indicator does not carry fund_name.
+            latest_nav=last_nav,
+            latest_nav_date=last_date,
+            nav_history=tuple(history),
+            source_report_quarter=quarter,
+        )
+    except ValueError:
+        return None
+
+
+_FUND_ANN_TOPIC_FNS: tuple[tuple[str, str], ...] = (
+    ("fund_announcement_dividend_em", "dividend"),
+    ("fund_announcement_report_em", "report"),
+    ("fund_announcement_personnel_em", "personnel"),
+)
+
+
+def _normalize_ann_date(value: Any) -> str:
+    """Convert AkShare's 公告日期 (datetime.date | str) to ISO YYYY-MM-DD."""
+    if hasattr(value, "isoformat"):
+        iso = value.isoformat()
+        return iso[:10]
+    s = str(value).strip()
+    return s[:10] if len(s) >= 10 else s
+
+
+def _parse_announcements_frame(
+    df: object, fund_id: str, topic: str,
+) -> list[FundAnnouncement]:
+    """Parse one endpoint's DataFrame to a list of FundAnnouncement.
+
+    Per-row parse failures are skipped silently (degrade-to-empty contract).
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return []
+    needed = {"公告标题", "公告日期", "报告ID"}
+    if not needed.issubset(df.columns):
+        return []
+    out: list[FundAnnouncement] = []
+    for _, row in df.iterrows():
+        try:
+            title = str(row["公告标题"]).strip()
+            iso_date = _normalize_ann_date(row["公告日期"])
+            report_id = str(row["报告ID"]).strip()
+            if not title or not iso_date or not report_id:
+                continue
+            out.append(FundAnnouncement(
+                fund_id=fund_id,
+                title=title,
+                topic=topic,  # type: ignore[arg-type]
+                date=iso_date,
+                report_id=report_id,
+            ))
+        except (ValueError, TypeError):
+            continue
+    return out
+
+
+def fetch_fund_announcements(fund_id: str) -> tuple[FundAnnouncement, ...]:
+    """Topic-unioned fund announcements via 3 AkShare endpoints.
+
+    Calls `fund_announcement_dividend_em`, `fund_announcement_report_em`,
+    `fund_announcement_personnel_em` serially. Per-endpoint exceptions
+    degrade to empty for that endpoint (remaining endpoints still called).
+
+    Dedup key: `(fund_id, report_id)`; first-observed `topic` wins
+    (call order: dividend → report → personnel — deterministic).
+
+    Returns tuple sorted by `date desc, report_id asc`.
+
+    Never raises. Empty union → caller stamps `fund_announcements_unavailable`.
+    """
+    seen: dict[str, FundAnnouncement] = {}
+    for fn_name, topic in _FUND_ANN_TOPIC_FNS:
+        try:
+            df = _ak_call(fn_name, symbol=fund_id)
+        except Exception:
+            continue
+        for ann in _parse_announcements_frame(df, fund_id, topic):
+            # Dedup by report_id; first observed (per call order) wins.
+            if ann.report_id not in seen:
+                seen[ann.report_id] = ann
+    items = list(seen.values())
+    items.sort(key=lambda a: a.report_id)        # tie-break asc
+    items.sort(key=lambda a: a.date, reverse=True)  # primary: date desc
+    return tuple(items)

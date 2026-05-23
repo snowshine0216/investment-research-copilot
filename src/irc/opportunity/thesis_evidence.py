@@ -20,6 +20,7 @@ from irc.fundamentals.types import (
     BrokerReport,
     ConstituentSnapshot,
     FilingDigest,
+    FundLevelSnapshot,
 )
 from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence, ThesisState
 from irc.research.theme_research import ThemeReport
@@ -326,7 +327,7 @@ def _classify_constituent_gap(
 
 
 def derive_thesis_from_evidence(
-    snapshot: ConstituentSnapshot | ActiveFundSnapshot | None,
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | FundLevelSnapshot | None,
     theme_report: ThemeReport | None,
     *,
     asset_class: str | None = None,
@@ -343,6 +344,33 @@ def derive_thesis_from_evidence(
     stamped on every emitted `ThesisEvidence` so `build_cited_map` can verify
     `e.owner_instrument_id == row.instrument_id`.
     """
+    if isinstance(snapshot, FundLevelSnapshot):
+        # Item 005: fund-level evidence is already composed by
+        # _build_fund_level_snapshot (or zero-fetch QDII sentinel).
+        evidence = snapshot.evidence
+        gaps = snapshot.evidence_gaps
+        if not evidence:
+            return (
+                "evidence_insufficient",
+                "QDII: 境外数据不可用。" if gaps else "基金层级证据未能加载。",
+                evidence, gaps, (),
+            )
+        # Heuristic: if both legs present, thesis stays intact (downstream
+        # gate validates per-driver coverage).
+        has_data = any(e.citation_kind == "data" for e in evidence)
+        has_info = any(e.citation_kind == "information" for e in evidence)
+        if has_data and has_info:
+            return (
+                "intact",
+                "基金层级 NAV 与公告证据完整。",
+                evidence, gaps, (),
+            )
+        return (
+            "evidence_insufficient",
+            "基金层级仅获取到部分证据。",
+            evidence, gaps, (),
+        )
+
     if isinstance(snapshot, ActiveFundSnapshot):
         analyses = snapshot.constituent_analyses
         flattened = _flatten_analyses(analyses)

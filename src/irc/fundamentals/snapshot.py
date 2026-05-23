@@ -16,6 +16,8 @@ from irc.fundamentals.akshare_fundamentals import (
     fetch_cn_etf_holdings,
     fetch_cn_index_constituents,
     fetch_cn_stock_news,
+    fetch_fund_announcements,
+    fetch_fund_nav_report,
     fetch_hk_index_constituents,
 )
 from irc.fundamentals.akshare_filing import (
@@ -45,6 +47,7 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
     FundHolding,
+    FundLevelSnapshot,
     LookthroughTarget,
     ThesisEvidence,
 )
@@ -143,21 +146,126 @@ def _today_iso() -> str:
     return date.today().isoformat()
 
 
+def _build_qdii_sentinel_snapshot(target: LookthroughTarget) -> FundLevelSnapshot:
+    """In-process sentinel for QDII V1 exclusion. ZERO AkShare calls.
+
+    NOT cached on disk (grill Q5). Item 006's H3 universal-gap invariant
+    reads `evidence_gaps=("qdii_information_unavailable",)` and routes the row
+    to the discipline failure section. See ADR 0002 §5 F4.
+    """
+    fund_id = target.provider_symbol or target.key
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        fund_level_failure_reasons=(),
+        evidence_gaps=("qdii_information_unavailable",),
+    )
+
+
+_FUND_LEVEL_INFO_CAP = 3
+
+
+def _build_fund_level_snapshot(target: LookthroughTarget) -> FundLevelSnapshot:
+    """Compose NAV (data leg) + announcements (information leg) for non-active
+    V1 asset classes (gold, bond, broad_index, sector_theme — when the row IS
+    itself a tradeable fund).
+
+    See ADR 0002 §5 (Fund-level engine).
+    """
+    fund_id = target.provider_symbol
+    nav = fetch_fund_nav_report(fund_id)
+    anns = fetch_fund_announcements(fund_id)
+
+    evidence: list[ThesisEvidence] = []
+    gaps: list[str] = []
+    failures: list[str] = []
+
+    # Data leg: ONE evidence record per NAV (re-use existing "snapshot" literal
+    # per grill Q4).
+    if nav is not None:
+        evidence.append(ThesisEvidence(
+            type="snapshot",
+            source=fund_id,
+            url="",
+            date=nav.latest_nav_date,
+            summary=f"NAV={nav.latest_nav:.4f} @ {nav.latest_nav_date}",
+            scope="instrument",
+            citation_kind="data",
+            owner_instrument_id=fund_id,
+            parent_fund_id=None,
+            constituent_key=None,
+        ))
+    else:
+        gaps.append("fund_nav_unavailable")
+        failures.append(f"fund_nav_fetch_failed:{fund_id}")
+
+    # Information leg: up to N announcements (already date-desc / report_id-asc
+    # from the adapter; capped at _FUND_LEVEL_INFO_CAP).
+    if anns:
+        for a in anns[:_FUND_LEVEL_INFO_CAP]:
+            evidence.append(ThesisEvidence(
+                type="news",
+                source=f"fund_announcement_{a.topic}_em",
+                url="",
+                date=a.date,
+                summary=f"[{a.report_id}] {a.title}",
+                scope="instrument",
+                citation_kind="information",
+                owner_instrument_id=fund_id,
+                parent_fund_id=None,
+                constituent_key=None,
+            ))
+    else:
+        gaps.append("fund_announcements_unavailable")
+        failures.append(f"fund_announcements_fetch_failed:{fund_id}")
+
+    quarter = nav.source_report_quarter if nav is not None else ""
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=nav,
+        announcements=anns,
+        evidence=tuple(evidence),
+        source_report_quarter=quarter,
+        cache_probed_at=_today_iso(),
+        fund_level_failure_reasons=tuple(failures),
+        evidence_gaps=tuple(gaps),
+    )
+
+
+_FUND_LEVEL_KINDS: frozenset[str] = frozenset({
+    "gold", "bond", "broad_index", "sector_theme",
+})
+
+
 def build_snapshot(
     target: LookthroughTarget,
     *,
     top_n: int = 10,
     as_of_iso: str = "",
-) -> ActiveFundSnapshot | ConstituentSnapshot:
+) -> ActiveFundSnapshot | ConstituentSnapshot | FundLevelSnapshot:
     """Compose snapshot for a typed `LookthroughTarget`.
 
-    `kind == "active_fund"` → ActiveFundSnapshot via _build_active_fund_snapshot.
-    All other kinds → legacy ConstituentSnapshot via the existing
-    `display_cn`-keyed `_TARGET_REGISTRY`.
+    Dispatch keys off `target.kind` only (ADR 0002 §5):
+
+    | kind                                | Branch                                    |
+    |-------------------------------------|-------------------------------------------|
+    | active_fund                         | _build_active_fund_snapshot (item 003)    |
+    | qdii_us / qdii_hk / qdii_global     | _build_qdii_sentinel_snapshot (F4)        |
+    | gold / bond / broad_index /         | _build_fund_level_snapshot (F3)           |
+    |  sector_theme — w/ provider_symbol  |                                           |
+    | (else / empty provider_symbol)      | _build_legacy_snapshot (display-only)     |
     """
     timestamp = as_of_iso or _today_iso()
     if target.kind == "active_fund":
         return _build_active_fund_snapshot(target, top_n=top_n)
+    if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
+        return _build_qdii_sentinel_snapshot(target)
+    if target.kind in _FUND_LEVEL_KINDS and target.provider_symbol:
+        return _build_fund_level_snapshot(target)
     return _build_legacy_snapshot(target.display_cn, top_n=top_n, as_of_iso=timestamp)
 
 
