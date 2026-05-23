@@ -252,14 +252,30 @@ def evaluate_policy_b(
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
 
-    # Rules 4 + 5 + publishable fall-through land in tasks 6 + 7. For now,
-    # placeholder publishable.
+    # Rule 4: per-holding info leg required for the material top-half.
     material = _material_set_with_ties(ranked, top_n=top_n)
+    info_satisfied = tuple(
+        c for c in material
+        if any(e.citation_kind == "information" for e in c.evidence)
+    )
+    if len(info_satisfied) < len(material):
+        return PolicyBVerdict(
+            gap_codes=("insufficient_info_coverage_top_half",),
+            audit_errors=(),
+            decision_rule=(
+                f"info-leg quorum {len(material)} of {top_n}; "
+                f"{len(info_satisfied)} of material top-half satisfied"
+            ),
+            material_symbols=tuple(c.symbol for c in material),
+            constituent_coverage=_build_coverage_entries(ranked, top_n),
+        )
+
+    # Rule 5 + publishable fall-through land in task 7. Placeholder for now.
     return PolicyBVerdict(
         gap_codes=(),
         audit_errors=(),
         decision_rule=f"info-leg quorum {len(material)} of {top_n}; "
-                      f"placeholder (rules 4–5 land in tasks 6–7)",
+                      f"placeholder (rule 5 lands in task 7)",
         material_symbols=tuple(c.symbol for c in material),
         constituent_coverage=_build_coverage_entries(ranked, top_n),
     )

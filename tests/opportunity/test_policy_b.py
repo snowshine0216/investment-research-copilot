@@ -363,3 +363,58 @@ def test_evaluate_policy_b_rule_3_all_holdings_failure_reasons_only() -> None:
     v = evaluate_policy_b(snap, top_n=10)
     assert v.gap_codes == ("incomplete_constituent_data",)
     assert "10 of 10" in v.decision_rule
+
+
+def test_evaluate_policy_b_rule_4_info_quorum_partial() -> None:
+    """Criterion 10: 3 of material top-5 info-satisfied → insufficient_info_coverage_top_half."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # All 10 holdings have data leg. Material top-5: S00..S04 (weights 10..6).
+    # S00, S01, S02 have info leg; S03, S04 lack info; tail (S05..S09) data-only.
+    analyses = tuple(
+        _ca(
+            f"S{i:02d}", 10.0 - i,
+            evidence=(
+                (_evidence_data(f"S{i:02d}"), _evidence_info(f"S{i:02d}"))
+                if i < 3
+                else (_evidence_data(f"S{i:02d}"),)
+            ),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("insufficient_info_coverage_top_half",)
+    assert v.decision_rule == "info-leg quorum 5 of 10; 3 of material top-half satisfied"
+
+
+def test_evaluate_policy_b_rule_4_tail_data_only_passes_when_top_half_full() -> None:
+    """Criterion 9: 5/5 top-5 info-satisfied, tail data-only → publishable."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(
+            f"S{i:02d}", 10.0 - i,
+            evidence=(
+                (_evidence_data(f"S{i:02d}"), _evidence_info(f"S{i:02d}"))
+                if i < 5
+                else (_evidence_data(f"S{i:02d}"),)
+            ),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ()
+
+
+def test_evaluate_policy_b_rule_4_material_symbols_in_weight_rank_order() -> None:
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(
+            f"S{i:02d}", 10.0 - i,
+            evidence=(_evidence_data(f"S{i:02d}"),),  # data-only → triggers rule 4
+        )
+        for i in range(10)
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.material_symbols == ("S00", "S01", "S02", "S03", "S04")
