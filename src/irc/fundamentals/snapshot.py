@@ -16,6 +16,8 @@ from irc.fundamentals.akshare_fundamentals import (
     fetch_cn_etf_holdings,
     fetch_cn_index_constituents,
     fetch_cn_stock_news,
+    fetch_fund_announcements,
+    fetch_fund_nav_report,
     fetch_hk_index_constituents,
 )
 from irc.fundamentals.akshare_filing import (
@@ -164,10 +166,74 @@ def _build_qdii_sentinel_snapshot(target: LookthroughTarget) -> FundLevelSnapsho
     )
 
 
+_FUND_LEVEL_INFO_CAP = 3
+
+
 def _build_fund_level_snapshot(target: LookthroughTarget) -> FundLevelSnapshot:
     """Compose NAV (data leg) + announcements (information leg) for non-active
-    V1 asset classes. Implemented in Task 9."""
-    raise NotImplementedError("_build_fund_level_snapshot not yet implemented")
+    V1 asset classes (gold, bond, broad_index, sector_theme — when the row IS
+    itself a tradeable fund).
+
+    See ADR 0002 §5 (Fund-level engine).
+    """
+    fund_id = target.provider_symbol
+    nav = fetch_fund_nav_report(fund_id)
+    anns = fetch_fund_announcements(fund_id)
+
+    evidence: list[ThesisEvidence] = []
+    gaps: list[str] = []
+    failures: list[str] = []
+
+    # Data leg: ONE evidence record per NAV (re-use existing "snapshot" literal
+    # per grill Q4).
+    if nav is not None:
+        evidence.append(ThesisEvidence(
+            type="snapshot",
+            source=fund_id,
+            url="",
+            date=nav.latest_nav_date,
+            summary=f"NAV={nav.latest_nav:.4f} @ {nav.latest_nav_date}",
+            scope="instrument",
+            citation_kind="data",
+            owner_instrument_id=fund_id,
+            parent_fund_id=None,
+            constituent_key=None,
+        ))
+    else:
+        gaps.append("fund_nav_unavailable")
+        failures.append(f"fund_nav_fetch_failed:{fund_id}")
+
+    # Information leg: up to N announcements (already date-desc / report_id-asc
+    # from the adapter; capped at _FUND_LEVEL_INFO_CAP).
+    if anns:
+        for a in anns[:_FUND_LEVEL_INFO_CAP]:
+            evidence.append(ThesisEvidence(
+                type="news",
+                source=f"fund_announcement_{a.topic}_em",
+                url="",
+                date=a.date,
+                summary=f"[{a.report_id}] {a.title}",
+                scope="instrument",
+                citation_kind="information",
+                owner_instrument_id=fund_id,
+                parent_fund_id=None,
+                constituent_key=None,
+            ))
+    else:
+        gaps.append("fund_announcements_unavailable")
+        failures.append(f"fund_announcements_fetch_failed:{fund_id}")
+
+    quarter = nav.source_report_quarter if nav is not None else ""
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=nav,
+        announcements=anns,
+        evidence=tuple(evidence),
+        source_report_quarter=quarter,
+        cache_probed_at=_today_iso(),
+        fund_level_failure_reasons=tuple(failures),
+        evidence_gaps=tuple(gaps),
+    )
 
 
 _FUND_LEVEL_KINDS: frozenset[str] = frozenset({
