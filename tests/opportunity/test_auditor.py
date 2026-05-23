@@ -167,3 +167,81 @@ def test_find_uncited_opportunity_rows_returns_numeric_finding_type() -> None:
     cited = build_cited_map((row,))
     findings = find_uncited_opportunity_rows((row,), cited)
     assert all(isinstance(f, NumericFinding) for f in findings)
+
+
+# ── Task 4: find_incomplete_constituent_analyses ──────────────────────────────
+
+def _constituent(symbol, *, evidence=(), failure_reasons=()):
+    from irc.fundamentals.types import ConstituentAnalysis
+    return ConstituentAnalysis(
+        symbol=symbol,
+        name_cn=symbol,
+        weight_pct=5.0,
+        evidence=evidence,
+        failure_reasons=failure_reasons,
+        one_line_view="",
+    )
+
+
+def test_find_incomplete_constituent_analyses_pure_failure_flagged() -> None:
+    """AC5 + AC7 — evidence == () AND failure_reasons != () is fatal."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    bad = _constituent("600519", evidence=(), failure_reasons=("timeout",))
+    row = _row(
+        thesis_evidence=(_ev(citation_kind="data"), _ev(citation_kind="information", date="2024-04-17")),
+        contributing_dimensions=frozenset({"thesis"}),
+        constituent_analyses=(bad,),
+    )
+    findings = find_incomplete_constituent_analyses((row,))
+    assert len(findings) == 1
+    f = findings[0]
+    assert f.kind == "constituent_pure_failure"
+    assert f.instrument_id == "005827"
+    assert "symbol=600519" in f.prose_excerpt
+    assert "evidence=()" in f.evidence_excerpt
+    assert "timeout" in f.evidence_excerpt
+
+
+def test_find_incomplete_constituent_analyses_partial_success_not_flagged() -> None:
+    """AC7 — partial-success (both fields non-empty) is NOT a violation.
+
+    Policy B's per-holding data leg + top-half info quorum is the correct
+    disposition; the auditor does not second-guess it."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    partial = _constituent(
+        "600519",
+        evidence=(_ev(citation_kind="data", constituent_key="600519",
+                      scope="constituent", parent="005827"),),
+        failure_reasons=("broker_report_missing",),
+    )
+    row = _row(constituent_analyses=(partial,))
+    findings = find_incomplete_constituent_analyses((row,))
+    assert findings == []
+
+
+def test_find_incomplete_constituent_analyses_intact_not_flagged() -> None:
+    """Intact constituent (failure_reasons == ()) does not appear."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    intact = _constituent(
+        "600519",
+        evidence=(_ev(citation_kind="data", constituent_key="600519",
+                      scope="constituent", parent="005827"),),
+        failure_reasons=(),
+    )
+    row = _row(constituent_analyses=(intact,))
+    assert find_incomplete_constituent_analyses((row,)) == []
+
+
+def test_find_incomplete_constituent_analyses_returns_one_per_failing_constituent() -> None:
+    """AC7 — one finding per pure-failure constituent, across multiple rows."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    bad1 = _constituent("600519", failure_reasons=("e1",))
+    bad2 = _constituent("300750", failure_reasons=("e2",))
+    intact = _constituent("601318",
+                          evidence=(_ev(constituent_key="601318",
+                                        scope="constituent", parent="005827"),),
+                          failure_reasons=())
+    row = _row(constituent_analyses=(bad1, bad2, intact))
+    findings = find_incomplete_constituent_analyses((row,))
+    symbols = sorted(f.prose_excerpt for f in findings)
+    assert symbols == ["symbol=300750", "symbol=600519"]
