@@ -6,17 +6,18 @@ Falsify — against the **real** AkShare package installed in this repo — the 
 
 ## In scope
 
-1. **Pytest marker registration.** Add a `[tool.pytest.ini_options]` `markers` entry (and `--strict-markers` in `addopts`) to `pyproject.toml`:
+1. **Pytest marker registration.** Add a `[tool.pytest.ini_options]` `markers` entry (and `--strict-markers` in `addopts`) to `pyproject.toml`. `[tool.pytest.ini_options]` already exists with `testpaths` + `pythonpath` — extend, do not replace:
    ```toml
    [tool.pytest.ini_options]
    testpaths = ["tests"]
    pythonpath = ["src", "."]
    addopts = ["--strict-markers"]
    markers = [
-       "live_akshare: hits the real AkShare network. Run via `pytest -m live_akshare`. Excluded from default `pytest` runs.",
+       "live_akshare: hits the real AkShare network. Run via `pytest -m live_akshare` with IRC_RUN_LIVE_AKSHARE=1. Excluded from default `pytest` runs.",
+       "integration: integration test exercising multiple modules end-to-end (no external network). Currently used by tests/integration/test_thesis_coverage.py.",
    ]
    ```
-   Without `markers = [...]` the marker emits `PytestUnknownMarkWarning`, AND without `--strict-markers` a typo (`live_akshre`) would silently skip the test entirely.
+   Without `markers = [...]` the marker emits `PytestUnknownMarkWarning`, AND without `--strict-markers` a typo (`live_akshre`) would silently skip the test entirely. **`integration` MUST also be registered:** grep across `tests/` confirms `@pytest.mark.integration` is the only other custom marker in the suite (two usages in `tests/integration/test_thesis_coverage.py`). Omitting it would make every default `pytest` run abort with `'integration' not found in markers` once `--strict-markers` is active — a regression of item 003's coverage gate.
 2. **Default exclusion.** Default `pytest` invocations (no `-m` flag) MUST skip every `live_akshare` test. Achieved via the pattern already used by `tests/integration/test_live_endpoints.py`: a module-level `pytestmark` combining `pytest.mark.live_akshare` with a `pytest.mark.skipif` on an env flag (`IRC_RUN_LIVE_AKSHARE=1`) **OR** by adding a default `-m "not live_akshare"` to `addopts`. **Decision: dual gate** — both the marker (`pytest -m live_akshare`) AND the env flag (`IRC_RUN_LIVE_AKSHARE=1`) must be active. This matches the existing live-test idiom (`RUN_LIVE_INGEST_TESTS=1`, `RUN_LIVE_LLM_TESTS=1`) and prevents accidental network calls in CI where someone might `pytest -m live_akshare tests/` and expect a dry-run.
 3. **New test file.** Create `tests/fundamentals/test_fund_announcement_em_live.py` carrying the live-call tests. Located in `tests/fundamentals/` (not `tests/integration/`) because (a) item 003 has already established `tests/fundamentals/` as the home for AkShare-adapter tests; (b) item 005's eventual `fetch_fund_announcement_em` adapter wrapper will live in `src/irc/fundamentals/akshare_fundamentals.py` and its mocked unit test will sit next to this live test — keeping live + mocked side-by-side makes the fixture-driven contract obvious.
 4. **Module-level gating preamble.**
@@ -63,6 +64,7 @@ Falsify — against the **real** AkShare package installed in this repo — the 
     - *First-run-only (rejected):* a frozen fixture diverges from upstream AkShare over time. The whole point of E13 is to re-falsify on each AkShare upgrade — a frozen fixture defeats that purpose.
     - *Always-overwrite (chosen):* fixture is treated as a captured shadow of the latest live response. Re-running the test refreshes it. Determinism note: the JSON content varies day-to-day (new announcements), so the fixture file itself is checked in but the test does NOT assert content equality against the fixture — only column shape + non-empty. The diff-noise on commit is expected and benign (signals that announcements were added upstream, which is the desired behaviour).
 11. **AkShare-already-installed precondition.** The test does NOT install AkShare. The repo's `pyproject.toml` already pins `akshare>=1.13`. If a developer runs the live test against a stale env, the `_ak_call` lazy-import will raise `ModuleNotFoundError` — that's an environment defect, not a test failure to fix. Add a one-line pytest fixture or module-load assert that surfaces `ModuleNotFoundError` with the message `"akshare not installed in this venv. Install with: uv sync --extra dev (or check pyproject.toml dependencies)"` so the failure mode is clear.
+12. **Mocked failure-mode companion test file.** Create `tests/fundamentals/test_fund_announcement_em_failure_modes.py` — NOT live, runs in default `pytest` invocations, ~30 LoC. Uses `pytest-mock` (already in dev extras) to patch `irc.fundamentals.akshare_fundamentals._ak_call` and assert the *helper functions* produce the right structured `Q4 PREREQUISITE FAILURE` messages for: (a) missing function (`hasattr` returns False), (b) empty DataFrame return, (c) DataFrame missing `公告链接` column, (d) `None` return, (e) exception during call. The helpers under test are `_resolve_column` and the message-template builders extracted from the live test file (lifted into a small `_failure_messages` module in the test file or imported from the live test file). Rationale: the live tests can only assert "real AkShare passes today"; they cannot assert "the failure trace tone is correct" because that path is never exercised when AkShare is healthy. The mocked companion file locks the failure-trace contract so future regressions in the message templates surface immediately. **Permanent** addition to the default suite (NOT hand-verified-only like criteria 11–14 of acceptance below). Cost: ~30 LoC; benefit: protects the autodev orchestrator's stdout-reading gate logic from silent template drift.
 
 ## Out of scope
 
@@ -72,6 +74,7 @@ Falsify — against the **real** AkShare package installed in this repo — the 
 - **Q4 fall-back path implementation.** Options (b) "reuse theme reports with promoted scope" and (c) "exclude gold + cn_bond_fund from V1" are documented in the diagnosis. Their *implementation* is the orchestrator's decision after this test fails — out of scope for the test itself.
 - **`fund_open_fund_info_em(symbol, indicator="基金概况")` exclusion test.** The diagnosis (§F2) says `基金概况` static profile text must NOT satisfy the `citation_kind="information"` gate. That gate assertion belongs in item 005's unit tests, not here.
 - **Pyproject AkShare version pin tightening.** Current pin `akshare>=1.13` is a floor, not a lock. Tightening to `akshare>=1.13,<1.x.y+1` is a separate maintenance decision out of scope here.
+- **Renaming `RUN_LIVE_INGEST_TESTS` / `RUN_LIVE_LLM_TESTS` to the `IRC_*` prefix.** Out of scope — item 004 introduces ONE new `IRC_RUN_LIVE_AKSHARE` env var consistent with the modern `IRC_*` convention; unifying the older names is a separate follow-up cleanup. Both naming families coexist after item 004 (documented in CONTEXT.md "Live test gate").
 
 ## Column-name discovery
 
@@ -200,12 +203,13 @@ The aggregate gate test (`test_fund_announcement_em_q4_gate`) collects per-symbo
 
 | File | Action |
 |---|---|
-| `pyproject.toml` | Add `markers` entry under `[tool.pytest.ini_options]`; add `addopts = ["--strict-markers"]`. |
+| `pyproject.toml` | Add `markers` entry under `[tool.pytest.ini_options]` (BOTH `live_akshare` AND `integration`); add `addopts = ["--strict-markers"]`. |
 | `tests/fundamentals/test_fund_announcement_em_live.py` (new) | The 5 tests (preflight + 3 per-symbol + aggregate gate) + `COLUMN_EQUIVALENCE` map + `_resolve_column` + `_capture_fixture` helpers + `pytestmark` gating preamble. |
+| `tests/fundamentals/test_fund_announcement_em_failure_modes.py` (new) | Mocked companion: ~30 LoC, runs by default, locks the failure-trace tone. Patches `_ak_call` to cover function-missing / empty / `None` / missing-column / exception paths. |
 | `tests/fixtures/akshare/fund_announcement_em_518880.json` (new) | Captured live response. Written on first successful run; overwritten on every subsequent successful run. |
 | `tests/fixtures/akshare/` (new directory) | Created if missing. |
 
-No `src/` changes. No new dependencies. No new ADR (this slice's decisions are entirely test-infrastructure — they don't survive past the gate event).
+No `src/` changes. No new dependencies. No new ADR (this slice's decisions are entirely test-infrastructure — they don't survive past the gate event; CONTEXT.md captures the four new vocabulary entries instead).
 
 ## Dependencies on other items
 
@@ -221,4 +225,49 @@ No `src/` changes. No new dependencies. No new ADR (this slice's decisions are e
 After item 004 ships and verifies:
 
 - **PASS** (all 5 tests green against pinned AkShare) → autodev proceeds to item 005 (Slice F). The fixture is now available for item 005's mock tests.
-- **FAIL** (any of the 5 tests red) → autodev STOPS. The run-level `PROGRESS.md` records the failure. The orchestrator escalates to the user with the structured Q4-prerequisite-failure message, the names of the failing symbols, and a recommendation between Q4 option (b) and option (c). Item 005 does NOT enter the implementation order until a re-decision is documented.
+- **FAIL** (any of the 5 tests red) → autodev STOPS. Operational definition of **STOP** for the autodev orchestrator:
+  1. Do NOT start item 005 implementation. Do NOT start items 006–010 (every downstream item depends on item 005's evidence emission).
+  2. Mark item 004 with a `FAIL` verdict in the run-level `PROGRESS.md`. Mark items 005–010 with `BLOCKED-BY-004` (not `PENDING`).
+  3. Return control to the user with a structured message: the failing test name(s), the captured stdout containing the `Q4 PREREQUISITE FAILURE: ...` lines, the symbol(s) that failed, and the verbatim three Q4 fall-back options from `docs/diagnosis-thesis-cards-evidence-gap.md` §5: (a) re-pin AkShare to a version with the function; (b) reuse theme reports with promoted scope (treat asset-class macro citations as information-leg for gold + cn_bond_fund); (c) exclude gold + cn_bond_fund from V1.
+  4. Do NOT auto-select a fall-back option. The choice between (a)/(b)/(c) is a product-scope decision that the autodev orchestrator MUST escalate to the user rather than guess.
+  5. Resume only after the user re-decides Q4 and records the decision in a new item (e.g. item 004b) or amends item 005's spec to reflect the chosen fall-back.
+
+  Item 005 does NOT enter the implementation order until that re-decision is documented in the run-level `PROGRESS.md`.
+
+## Resolved decisions
+
+Grilling pass on 2026-05-23. Six questions raised against the spec; auto-accepted recommendations applied inline above. Original spec content preserved; corrected lines are called out below for provenance.
+
+**Strike-through provenance (corrected lines):**
+- §"In scope" #1 originally said only `"live_akshare"` needs registration. ~~`markers = ["live_akshare: ..."]`~~ — corrected by grill: `@pytest.mark.integration` is already used in `tests/integration/test_thesis_coverage.py` (lines 14, 33) and would fail under `--strict-markers` unless ALSO registered. The corrected `markers = [...]` list now contains both entries.
+- §"Files touched" — `pyproject.toml` row originally said "Add `markers` entry". Corrected to clarify that BOTH `live_akshare` AND `integration` markers must be added together, not separately.
+
+### Resolved Q&A
+
+**Q-1. Does `[tool.pytest.ini_options]` already exist in `pyproject.toml`, and does enabling `--strict-markers` break other tests?**
+A: YES it exists (lines 46–48 of `pyproject.toml`) with `testpaths` and `pythonpath` keys, but NO `markers` or `addopts`. Adding `--strict-markers` will break `tests/integration/test_thesis_coverage.py` (uses unregistered `@pytest.mark.integration` at lines 14 and 33). The spec MUST register `integration` alongside `live_akshare`. Rationale: a coverage gate (item 003) regressing because of a marker-strictness setting introduced by item 004 would be a cross-item defect. Doc impact: CONTEXT.md "Live test gate" term + spec §"In scope" #1 corrected.
+
+**Q-2. Is `005827` (易方达蓝筹精选) still active and disclosing announcements?**
+A: Defer to impl-time verification. The fund was active at the diagnosis date (2026-05-21) per the source diagnosis doc. The spec already has the right fallback (Q-I): "If `005827` is delisted or renamed, swap to another active fund (e.g. `001071` `华安媒体互联网`) — but defer that to whoever encounters the failure, since it's a fixture-input choice, not a structural change." No further grill action — the spec's hand-off to impl is acceptable. If the live test fails specifically on `005827` while the other two pass, the impl-stage author swaps the symbol and re-records; this is NOT a Q4 hard-stop. Doc impact: none (already captured in spec Q-I).
+
+**Q-3. AkShare canonical column names for `fund_announcement_em` — are `公告标题 / 公告类型 / 公告日期 / 公告链接` still current, or has the schema drifted?**
+A: The spec is robust to drift by design — the `COLUMN_EQUIVALENCE` map accepts alternates (`标题`, `公告时间`, `链接`, etc.) and the `_resolve_column` helper raises a structured `Q4 PREREQUISITE FAILURE` listing what was expected vs. what was observed. No further grill action — drift detection is the feature, not a bug. The fixture itself (always-overwritten) captures whatever AkShare currently emits, so the fixture is self-correcting across AkShare upgrades. Doc impact: CONTEXT.md "Column equivalence map" term added.
+
+**Q-4. New `IRC_RUN_LIVE_AKSHARE` env var vs. reusing `RUN_LIVE_INGEST_TESTS`?**
+A: Confirmed: introduce `IRC_RUN_LIVE_AKSHARE`. Rationale: (a) the modern project convention is `IRC_*` prefix (`IRC_FETCH_BUDGET`, `IRC_OPPORTUNITY_AUTOBUILD`, `IRC_CITATION_ENFORCE_MODE`, `IRC_CACHE_FRESHNESS_DAYS`, etc. — verified via `grep -roE "IRC_[A-Z_]+" src/`); (b) reusing `RUN_LIVE_INGEST_TESTS` would conflate two different scopes (general ingest live tests vs. the specific Q4 gate); (c) renaming the older `RUN_LIVE_*` vars is a separate cleanup, explicitly out of scope. Both naming families coexist after item 004; the precedent of introducing new vars under the modern convention is the right one. Doc impact: CONTEXT.md "Live test gate" term explicitly notes the two coexisting families.
+
+**Q-5. Mocked failure-mode companion test — add it, or hand-verify only?**
+A: ADD it. Recommendation: create `tests/fundamentals/test_fund_announcement_em_failure_modes.py` (~30 LoC, runs by default, uses `pytest-mock` already in dev extras) covering the five failure paths the live test cannot exercise: missing function, empty DataFrame, missing column, `None` return, exception. Rationale: live tests can only assert "AkShare passes today"; they cannot lock the failure-trace tone (the path is unreachable when AkShare is healthy). The autodev orchestrator reads structured `Q4 PREREQUISITE FAILURE: ...` lines from stdout to decide STOP; silent template drift in those messages would break the gate. ~30 LoC is cheap insurance. Acceptance criteria 11–14 in the original spec all said "hand-verified only" — the grill keeps those as hand-verified for the *live* file but adds permanent mocked equivalents in the new companion file. Doc impact: spec §"In scope" gains item #12; §"Files touched" gains a new row.
+
+**Q-6. What does "STOP and re-decide Q4" mean operationally for the autodev orchestrator?**
+A: Spelled out in five operational steps in §"Stop / proceed contract": (1) do NOT start items 005–010; (2) mark item 004 FAIL and items 005–010 `BLOCKED-BY-004` in PROGRESS.md; (3) escalate to user with structured failure message + three verbatim fall-back options; (4) do NOT auto-select a fall-back (product-scope decision); (5) resume only after the user records a re-decision. Rationale: the spec previously said "STOP" without defining what the orchestrator does — leaving "STOP" as a vibe is dangerous when the orchestrator runs unattended. Auto-selecting a fall-back would silently commit the project to a smaller V1 scope, which is precisely the decision the user must own. Doc impact: spec §"Stop / proceed contract" expanded. No CONTEXT.md change (orchestrator semantics, not domain vocabulary).
+
+### Three-of-three ADR check
+
+The grill considered whether a new ADR is warranted for the live-test gate convention. Verdict: **NO ADR**.
+
+- **Hard-to-reverse?** Partial. Renaming `IRC_RUN_LIVE_AKSHARE` later is a single-test refactor (~5 minutes). Adding a marker is similarly cheap. NOT hard to reverse.
+- **Surprising without context?** No. The pattern mirrors the existing `RUN_LIVE_INGEST_TESTS` / `RUN_LIVE_LLM_TESTS` idiom already familiar to anyone working in `tests/`.
+- **Real trade-off with alternatives?** Mild. Single-gate (marker OR env var) vs. dual-gate (marker AND env var) was the real choice. Resolved in §"In scope" #2; dual gate prevents accidental network calls. Trade-off is real but narrow.
+
+Two of three are weak → skip ADR. The four new CONTEXT.md glossary entries (Live test gate, Q4 prerequisite, AkShare fixture, Column equivalence map) capture the vocabulary; no architectural lock-in deserves an ADR.
