@@ -250,3 +250,88 @@ def test_card_to_dict_raises_on_missing_nested_citation_id(monkeypatch) -> None:
         mocked_asdict.return_value = bad
         with pytest.raises(RuntimeError, match="citation_id"):
             _card_to_dict(card)
+
+
+# ── Item 007 D3a — _render_section nested thesis_evidence bullets ─────────────
+
+import re
+
+
+def _evidence(
+    *, type_="filing", source="x", url="https://x", date="2024-04-15",
+    summary="x", scope="constituent", citation_kind="data",
+    owner="005827", parent="005827", constituent_key="600519",
+    weight=8.2,
+):
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type=type_, source=source, url=url, date=date, summary=summary,
+        scope=scope, citation_kind=citation_kind, owner_instrument_id=owner,
+        parent_fund_id=parent, constituent_key=constituent_key,
+        holding_weight_pct=weight,
+    )
+
+
+def _discipline_row(
+    *, iid="005827", thesis_evidence=(), constituent_analyses=(),
+    dca_action="normal_dca", risk_action="none",
+    opportunity_state="core_dca",
+):
+    from irc.opportunity.types import DisciplineRow
+    return DisciplineRow(
+        instrument_id=iid,
+        name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund",
+        theme=None,
+        opportunity_state=opportunity_state,
+        dca_action=dca_action,
+        risk_action=risk_action,
+        note_cn="",
+        thesis_evidence=thesis_evidence,
+        constituent_analyses=constituent_analyses,
+    )
+
+
+def test_render_section_emits_top_3_nested_bullets() -> None:
+    """AC12 — 5 evidence entries → exactly 3 nested bullets via select_citations."""
+    from irc.opportunity.report import _render_section
+    evs = tuple(
+        _evidence(date=f"2024-04-{d:02d}", url=f"https://x/{d}",
+                  citation_kind="data" if d % 2 == 0 else "information",
+                  scope="constituent",
+                  constituent_key=f"60051{d}")
+        for d in range(1, 6)
+    )
+    row = _discipline_row(thesis_evidence=evs)
+    out = _render_section("今日可定投", [row])
+    # Three nested `  - [ref:...]` bullets.
+    nested = re.findall(r"^  - \[ref:[0-9a-f]{16}\] ", out, re.MULTILINE)
+    assert len(nested) == 3
+
+
+def test_render_section_empty_thesis_evidence_no_bullets() -> None:
+    """AC14 — empty thesis_evidence → no nested bullets, no `（无）` placeholder."""
+    from irc.opportunity.report import _render_section
+    row = _discipline_row(thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    # No `  - [ref:` lines.
+    assert "  - [ref:" not in out
+    # No `（无）` line either (that's the empty-section placeholder, not empty-bullets).
+    parent_line = next((l for l in out.split("\n") if l.startswith("- **005827")), "")
+    assert parent_line  # parent line still rendered
+    # Body has no bullet lines beyond the parent.
+    bullets_under = [l for l in out.split("\n")
+                     if l.startswith("  - ")]
+    assert bullets_under == []
+
+
+def test_render_section_nested_bullet_format() -> None:
+    """Locked format: `  - [ref:{cid}] {type} · {source} · {date}` (no summary, no url)."""
+    from irc.opportunity.report import _render_section
+    ev = _evidence(type_="filing", source="akshare:filing:600519",
+                   date="2024-04-15")
+    row = _discipline_row(thesis_evidence=(ev,))
+    out = _render_section("今日可定投", [row])
+    nested = re.search(r"^  - \[ref:[0-9a-f]{16}\] filing · akshare:filing:600519 · 2024-04-15$",
+                       out, re.MULTILINE)
+    assert nested is not None, f"locked format missed; got:\n{out}"

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from dataclasses import asdict
 from typing import Any
 
 import yaml
 
+from irc.memo.citation_selector import select_citations
 from irc.opportunity.types import (
     DisciplineRow,
     OpportunityRow,
@@ -120,6 +122,25 @@ def _bucket_rows(rows: list[DisciplineRow] | tuple[DisciplineRow, ...]) -> dict[
     return buckets
 
 
+def _render_thesis_evidence_bullets(thesis_evidence: tuple) -> list[str]:
+    """Render top-3 nested thesis_evidence bullets for a discipline row.
+
+    Format: `  - [ref:{citation_id}] {type} · {source} · {date}`. Two-space
+    indentation (markdown nested list). Empty evidence → empty list (no
+    `（无）` placeholder — caller renders the parent line only).
+
+    Same selector as picks-table + evidence-pool — the SAME-3 invariant
+    locked by ADR 0004 §3.
+    """
+    if not thesis_evidence:
+        return []
+    selected = select_citations(thesis_evidence, cap=3)
+    return [
+        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+        for ev in selected
+    ]
+
+
 def _render_section(title: str, rows: list[DisciplineRow]) -> str:
     if not rows:
         return f"## {title}\n\n（无）\n"
@@ -130,6 +151,8 @@ def _render_section(title: str, rows: list[DisciplineRow]) -> str:
             f"｜ {r.opportunity_state} ｜ dca={r.dca_action} ｜ risk={r.risk_action} "
             f"｜ {r.note_cn}"
         )
+        # Item 007 D3a: nested thesis_evidence bullets (top-3 via select_citations).
+        lines.extend(_render_thesis_evidence_bullets(r.thesis_evidence))
     lines.append("")
     return "\n".join(lines)
 
