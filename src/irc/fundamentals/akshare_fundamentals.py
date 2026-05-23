@@ -245,33 +245,56 @@ def fetch_cn_index_constituents(
 
 
 def fetch_cn_etf_holdings(
-    symbol: str,
+    provider_symbol: str,
     *,
     as_of: str = "",
     top_n: int = 10,
-) -> tuple[Constituent, ...]:
-    """Latest disclosed holdings for a CN ETF."""
+) -> HoldingsResult:
+    """Latest disclosed holdings for a CN fund.
+
+    Returns `HoldingsResult` with normalized `FundHolding` rows. Never raises.
+    Empty/failed → `HoldingsResult((), "", "")`.
+    """
     year = as_of or _current_year()
     try:
-        df = _ak_call("fund_portfolio_hold_em", symbol=symbol, date=year)
+        df = _ak_call("fund_portfolio_hold_em", symbol=provider_symbol, date=year)
     except Exception:
-        return ()
+        return HoldingsResult((), "", "")
     if not isinstance(df, pd.DataFrame) or df.empty:
-        return ()
-    needed = {"股票代码", "股票名称", "占净值比例", "季度"}
+        return HoldingsResult((), "", "")
+    needed = {"股票代码", "股票名称", "占净值比例"}
     if not needed.issubset(df.columns):
-        return ()
-    latest_quarter = sorted(df["季度"].astype(str).unique())[-1]
-    latest = df[df["季度"].astype(str) == latest_quarter]
+        return HoldingsResult((), "", "")
+    # Pick latest quarter via column lex-sort.
+    quarter_col = "季度" if "季度" in df.columns else ("报告期" if "报告期" in df.columns else None)
+    if quarter_col is None:
+        return HoldingsResult((), "", "")
+    latest_quarter = sorted(df[quarter_col].astype(str).unique())[-1]
+    latest = df[df[quarter_col].astype(str) == latest_quarter]
     ranked = latest.sort_values("占净值比例", ascending=False).head(top_n)
-    return tuple(
-        Constituent(
-            symbol=_to_qualified_symbol(str(row["股票代码"])),
-            name=str(row["股票名称"]),
-            weight=float(row["占净值比例"]) / 100,
-            market="cn",
-        )
-        for _, row in ranked.iterrows()
+    holdings: list[FundHolding] = []
+    for _, row in ranked.iterrows():
+        raw_code = str(row["股票代码"]).strip()
+        normalized = _normalize_ticker(raw_code)
+        exchange = _parse_exchange(row)
+        try:
+            weight_pct = float(row["占净值比例"])
+        except (TypeError, ValueError):
+            weight_pct = 0.0
+        holdings.append(FundHolding(
+            symbol=normalized,
+            name_cn=str(row["股票名称"]),
+            weight_pct=weight_pct,
+            exchange=exchange,
+            provider_symbol=raw_code,
+        ))
+    # Quarter metadata from any latest-quarter row (they share the same text).
+    sample = latest.iloc[0]
+    quarter_str, date_iso = _parse_quarter_column(sample)
+    return HoldingsResult(
+        constituents=tuple(holdings),
+        source_report_date=date_iso,
+        source_report_quarter=quarter_str,
     )
 
 

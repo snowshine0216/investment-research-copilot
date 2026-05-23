@@ -174,11 +174,15 @@ def test_fetch_cn_etf_holdings_happy_path_filters_latest_quarter() -> None:
         out = fetch_cn_etf_holdings("000001", as_of="2024", top_n=10)
     assert mocked.call_args[0][0] == "fund_portfolio_hold_em"
     assert mocked.call_args[1] == {"symbol": "000001", "date": "2024"}
-    # Latest quarter is 2季度 — should only return those two rows
-    assert len(out) == 2
-    assert out[0].name == "美的集团"
-    assert out[0].weight == 0.091
-    assert out[0].symbol == "000333.SZ"
+    # Latest quarter is 2季度 — two rows.
+    assert out.source_report_quarter == "2024Q2"
+    assert out.source_report_date == "2024-06-30"
+    assert len(out.constituents) == 2
+    assert out.constituents[0].name_cn == "美的集团"
+    assert out.constituents[0].weight_pct == 9.10
+    assert out.constituents[0].symbol == "000333"
+    assert out.constituents[0].exchange == "SZ"
+    assert out.constituents[0].provider_symbol == "000333"
 
 
 def test_fetch_cn_etf_holdings_default_as_of_uses_current_year() -> None:
@@ -186,7 +190,6 @@ def test_fetch_cn_etf_holdings_default_as_of_uses_current_year() -> None:
         mocked.return_value = _HOLDINGS_FRAME
         fetch_cn_etf_holdings("000001")
     kwargs = mocked.call_args[1]
-    # default should be a 4-digit year string, not empty
     assert kwargs["symbol"] == "000001"
     assert kwargs["date"].isdigit() and len(kwargs["date"]) == 4
 
@@ -195,15 +198,34 @@ def test_fetch_cn_etf_holdings_truncates_to_top_n() -> None:
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.return_value = _HOLDINGS_FRAME
         out = fetch_cn_etf_holdings("000001", as_of="2024", top_n=1)
-    assert len(out) == 1
-    assert out[0].name == "美的集团"
+    assert len(out.constituents) == 1
+    assert out.constituents[0].name_cn == "美的集团"
 
 
 def test_fetch_cn_etf_holdings_returns_empty_on_failure() -> None:
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.side_effect = ValueError("eastmoney 502")
         out = fetch_cn_etf_holdings("000001", as_of="2024")
-    assert out == ()
+    assert out.constituents == ()
+    assert out.source_report_quarter == ""
+    assert out.source_report_date == ""
+
+
+_HK_HOLDINGS_FRAME = pd.DataFrame({
+    "股票代码": ["00700", "0700", "09988", "600519", "AAPL", "830839"],
+    "股票名称": ["腾讯控股", "腾讯控股", "阿里巴巴", "贵州茅台", "苹果", "晶赛科技"],
+    "占净值比例": [9.0, 8.0, 7.0, 6.0, 5.0, 4.0],
+    "季度": ["2024年1季度股票投资明细"] * 6,
+})
+
+
+def test_fetch_cn_etf_holdings_hk_and_bj_routing_without_market_column() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = _HK_HOLDINGS_FRAME
+        out = fetch_cn_etf_holdings("501025", as_of="2024", top_n=6)
+    assert out.source_report_quarter == "2024Q1"
+    exchanges = [c.exchange for c in out.constituents]
+    assert exchanges == ["HK", "HK", "HK", "SH", "US", "BJ"]
 
 
 # ---------- fetch_cn_broker_reports ----------
