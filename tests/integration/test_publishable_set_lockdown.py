@@ -811,3 +811,195 @@ def test_chicang_appendix_omits_qdii(tmp_path, monkeypatch) -> None:
     for iid in _QDII_IIDS:
         assert f"### {iid}" not in appendix, \
             f"QDII {iid} leaked into 持仓明细 appendix"
+
+
+# ─── ACs 15–17: snapshot-cache freshness (E8 family) ─────────────────────────
+
+def _prewrite_active_fund_cache(
+    tmp_path: Path,
+    *,
+    fund_id: str,
+    cache_probed_at: str,
+    source_report_quarter: str = "2024Q4",
+) -> None:
+    """Pre-write an ActiveFundSnapshot cache file with a controlled
+    cache_probed_at field. Mirrors the on-disk shape produced by
+    `snapshot_cache.write_active_fund_cache`."""
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    snap = ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date="2024-01-15",
+        source_report_quarter=source_report_quarter,
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+        cache_probed_at=cache_probed_at,
+    )
+    write_active_fund_cache(snap, tmp_path / "data")
+
+
+def test_snapshot_cache_within_window_zero_akshare_calls(tmp_path, monkeypatch) -> None:
+    """AC15 — within IRC_CACHE_FRESHNESS_DAYS, cached snapshot is reused
+    and zero _ak_call invocations target the cached fund_id."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+        seed_date=today,
+    )
+    # Pre-write cache with cache_probed_at = today (within window).
+    _prewrite_active_fund_cache(
+        tmp_path, fund_id="005827", cache_probed_at=today,
+    )
+    counter = _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    run_opportunity(repo_root=str(tmp_path))
+
+    fund_calls = sum(
+        v for (fn, sym), v in counter.items() if sym == "005827"
+    )
+    assert fund_calls == 0, \
+        f"expected zero AkShare calls for cached fund 005827, got {fund_calls}: " \
+        f"{[k for k in counter if k[1] == '005827']}"
+
+
+def test_snapshot_cache_expired_probe_same_quarter_reuses(tmp_path, monkeypatch) -> None:
+    """AC16 — cache older than IRC_CACHE_FRESHNESS_DAYS triggers a probe
+    (one fund_portfolio_hold_em call with top_n=1); probe returns the same
+    source_report_quarter so the cache is reused (no full per-constituent
+    rebuild) and cache_probed_at is updated to today.
+
+    Production probe path: _maybe_freshness_probe → fetch_cn_etf_holdings(top_n=1)
+    → fund_portfolio_hold_em.  Same quarter → schedule_full_refetch=False →
+    snap_obj = probed (cached data, updated timestamp).
+
+    The holdings_frame must use the AkShare-native quarter format "2024年4季度"
+    (matched by _QUARTER_RE = r"(\\d{4})年(\\d)季度") so that
+    _parse_quarter_column returns "2024Q4" and the same-quarter check succeeds.
+    Frames using "2024Q4" (non-native) parse to ("", "") → probe fails closed.
+    """
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    expired = (
+        datetime.now(timezone(timedelta(hours=8))).date()
+        - timedelta(days=14)
+    ).isoformat()
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+        seed_date=today,
+    )
+    _prewrite_active_fund_cache(
+        tmp_path, fund_id="005827", cache_probed_at=expired,
+        source_report_quarter="2024Q4",
+    )
+    # Override the holdings frame for 005827 with AkShare-native quarter format
+    # so _parse_quarter_column returns ("2024Q4", ...) and the probe detects
+    # same-quarter → schedule_full_refetch=False.
+    import pandas as pd
+    probe_holdings_frame = pd.DataFrame({
+        "股票代码": ["600519"],
+        "股票名称": ["贵州茅台"],
+        "占净值比例": [8.2],
+        "季度": ["2024年4季度"],  # native format parseable by _QUARTER_RE
+    })
+    dispatch[("fund_portfolio_hold_em", "005827")] = probe_holdings_frame
+
+    counter = _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    # Probe fires exactly once (fund_portfolio_hold_em, top_n=1); same quarter
+    # detected → no full rebuild → no constituent evidence calls for 005827.
+    holdings_calls = counter[("fund_portfolio_hold_em", "005827")]
+    assert holdings_calls == 1, (
+        f"expected exactly 1 probe call (no full rebuild) for cached fund 005827, "
+        f"got {holdings_calls}"
+    )
+
+    # Constituent-level evidence rebuild should NOT have fired (cache reused).
+    # The prewritten cache has empty constituent_analyses, so no stock calls.
+    constituent_calls = sum(
+        v for (fn, sym), v in counter.items()
+        if fn in ("stock_financial_abstract", "stock_research_report_em", "stock_news_em")
+    )
+    assert constituent_calls == 0, (
+        f"probe-only path should not re-fetch constituent evidence, "
+        f"got {constituent_calls} constituent calls"
+    )
+
+    # cache_probed_at updated to today on disk.
+    from irc.fundamentals.snapshot_cache import load_active_fund_cache
+    snap = load_active_fund_cache("005827", "2024Q4", tmp_path / "data")
+    assert snap is not None
+    assert snap.cache_probed_at == today, (
+        f"expected cache_probed_at refreshed to {today}, got {snap.cache_probed_at}"
+    )
+
+
+def test_snapshot_cache_probe_failure_fail_closed_refetch(tmp_path, monkeypatch) -> None:
+    """AC17 — probe failure forces full re-fetch (fail-closed, never silent-reuse).
+
+    The probe uses fetch_cn_etf_holdings → fund_portfolio_hold_em.  When the
+    probe raises, _maybe_freshness_probe returns (snap, True) → the caller
+    calls build_snapshot (full rebuild) which calls fund_portfolio_hold_em again.
+    Total holdings calls ≥ 2: one probe attempt + ≥ 1 rebuild attempt.
+    """
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    expired = (
+        datetime.now(timezone(timedelta(hours=8))).date()
+        - timedelta(days=14)
+    ).isoformat()
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+        seed_date=today,
+    )
+    _prewrite_active_fund_cache(
+        tmp_path, fund_id="005827", cache_probed_at=expired,
+    )
+
+    # Make the first fund_portfolio_hold_em call (the probe, top_n=1) raise;
+    # subsequent calls (full rebuild, top_n=10) return valid data from dispatch.
+    import pandas as pd
+    holdings_frame = dispatch.get(("fund_portfolio_hold_em", "005827"))
+    call_seq: list[int] = []
+
+    def _fail_first_holdings(fn_name, *args, **kwargs):
+        sym = args[0] if args else kwargs.get("symbol", "")
+        if fn_name == "fund_portfolio_hold_em" and str(sym) == "005827":
+            call_seq.append(1)
+            if len(call_seq) == 1:
+                raise RuntimeError("probe network error (simulated)")
+            return holdings_frame if holdings_frame is not None else pd.DataFrame()
+        # Delegate all other fn_names to the dispatch dict.
+        key = (fn_name, str(sym))
+        frame = dispatch.get(key)
+        return frame if frame is not None else pd.DataFrame()
+
+    monkeypatch.setattr(
+        "irc.fundamentals.akshare_fundamentals._ak_call", _fail_first_holdings,
+    )
+    monkeypatch.setattr(
+        "irc.fundamentals.akshare_filing._ak_call", _fail_first_holdings,
+    )
+
+    # Probe failure → full rebuild fires; run_opportunity should complete.
+    try:
+        run_opportunity(repo_root=str(tmp_path))
+    except Exception:
+        pass  # AC17 tolerates downstream raise; key invariant: rebuild was attempted.
+
+    probe_attempts = len(call_seq)
+    assert probe_attempts >= 1, "probe was not even attempted"
+    assert probe_attempts >= 2, (
+        "probe failure did NOT trigger full re-fetch (silent-reuse leak): "
+        f"only {probe_attempts} holdings call(s) observed"
+    )
