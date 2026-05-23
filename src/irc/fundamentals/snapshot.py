@@ -41,12 +41,10 @@ from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
 from irc.fundamentals.types import (
     ActiveFundSnapshot,
     Constituent,
+    ConstituentAnalysis,
     ConstituentSnapshot,
     FilingDigest,
     FundHolding,
-)
-from irc.opportunity.types import (
-    ConstituentAnalysis,
     LookthroughTarget,
     ThesisEvidence,
 )

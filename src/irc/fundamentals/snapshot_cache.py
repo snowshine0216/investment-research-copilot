@@ -12,13 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from irc.fundamentals.types import (
+    ActiveFundSnapshot,
     BrokerReport,
     Constituent,
+    ConstituentAnalysis,
     ConstituentSnapshot,
     FilingDigest,
-    ActiveFundSnapshot,
+    ThesisEvidence,
 )
-from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence
 
 
 def cache_path(lookthrough_target: str, quarter: str, root: Path) -> Path:
