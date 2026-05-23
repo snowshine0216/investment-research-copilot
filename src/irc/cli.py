@@ -122,7 +122,12 @@ def decision(repo_root: str) -> None:
               help="Force full re-fetch of active-fund caches (skip freshness probe).")
 def opportunity(repo_root: str, output_dir: str | None, limit: int | None, rebuild_fundamentals: bool) -> None:
     from irc.commands.opportunity_cmd import run_opportunity
-    rc = run_opportunity(repo_root=repo_root)
+    rc = run_opportunity(
+        repo_root=repo_root,
+        output_dir=output_dir,
+        limit=limit,
+        rebuild_fundamentals=rebuild_fundamentals,
+    )
     raise SystemExit(rc)
 
 

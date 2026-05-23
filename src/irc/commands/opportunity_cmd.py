@@ -425,8 +425,25 @@ def _build_rows(
     root: Path,
     asset_class_targets: dict,
     con: duckdb.DuckDBPyConnection,
+    *,
+    limit: int | None = None,
+    rebuild_fundamentals: bool = False,
 ) -> tuple[list[OpportunityRow], dict, dict, dict]:
     """Build opportunity rows for each score entry; return (rows, positions, qualities, roles)."""
+    # Apply --limit cap: restrict cn_equity_fund rows to `limit` entries in
+    # sorted instrument_id order BEFORE computing any fetch costs.
+    if limit is not None:
+        active_fund_scores = sorted(
+            [s for s in scores if s.get("asset_class") == "cn_equity_fund"],
+            key=lambda s: s.get("instrument_id", ""),
+        )
+        capped_active_ids = {s["instrument_id"] for s in active_fund_scores[:limit]}
+        scores = [
+            s for s in scores
+            if s.get("asset_class") != "cn_equity_fund"
+            or s.get("instrument_id") in capped_active_ids
+        ]
+
     rows: list[OpportunityRow] = []
     positions: dict[str, PositionContext] = {}
     qualities: dict[str, SelectionQuality] = {}
@@ -456,9 +473,9 @@ def _build_rows(
             if target.key in snapshot_cache:
                 snap_obj = snapshot_cache[target.key]
             else:
-                # 1. Try disk cache for the latest known quarter.
-                cached = _load_latest_active_fund_cached(target.provider_symbol, root / "data")
-                if cached is None:
+                if rebuild_fundamentals:
+                    # --rebuild-fundamentals: skip cache-read, skip freshness
+                    # probe, force full re-fetch and force-write cache after build.
                     snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
                     if isinstance(snap_obj, ActiveFundSnapshot) and snap_obj.constituent_analyses:
                         write_active_fund_cache(
@@ -466,10 +483,9 @@ def _build_rows(
                             root / "data",
                         )
                 else:
-                    probed, refresh = _maybe_freshness_probe(
-                        cached, today=date_cls.today(), root=root / "data",
-                    )
-                    if refresh:
+                    # 1. Try disk cache for the latest known quarter.
+                    cached = _load_latest_active_fund_cached(target.provider_symbol, root / "data")
+                    if cached is None:
                         snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
                         if isinstance(snap_obj, ActiveFundSnapshot) and snap_obj.constituent_analyses:
                             write_active_fund_cache(
@@ -477,7 +493,18 @@ def _build_rows(
                                 root / "data",
                             )
                     else:
-                        snap_obj = probed
+                        probed, refresh = _maybe_freshness_probe(
+                            cached, today=date_cls.today(), root=root / "data",
+                        )
+                        if refresh:
+                            snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                            if isinstance(snap_obj, ActiveFundSnapshot) and snap_obj.constituent_analyses:
+                                write_active_fund_cache(
+                                    replace(snap_obj, cache_probed_at=date_cls.today().isoformat()),
+                                    root / "data",
+                                )
+                        else:
+                            snap_obj = probed
                 snapshot_cache[target.key] = snap_obj
         else:
             target_name = target.display_cn
@@ -592,14 +619,27 @@ def _write_opportunity_outputs(
     )
 
 
-def run_opportunity(repo_root: str) -> int:
+def run_opportunity(
+    repo_root: str,
+    *,
+    output_dir: str | None = None,
+    limit: int | None = None,
+    rebuild_fundamentals: bool = False,
+) -> int:
     root = Path(repo_root)
+    today = _today()
+    # Validate CLI args before touching any I/O (exits with code 2 if invalid).
+    validate_cli_args(
+        output_dir=output_dir,
+        limit=limit,
+        rebuild_fundamentals=rebuild_fundamentals,
+        today=today,
+    )
     if not require_fresh_ingest(root, stage="opportunity"):
         print("ERROR: opportunity stage halted — ingest is stale. "
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
         return 1
     bundle = load_repo_configs(root)
-    today = _today()
     available_venues: set[str] = {
         v for acc in bundle.account.accounts for v in acc.available_venues
     }
@@ -626,17 +666,20 @@ def run_opportunity(repo_root: str) -> int:
     theme_reports = load_theme_reports(root)
     con = connect(root / "data" / "local.duckdb")
     ensure_schema(con)
+    out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
     try:
         rows, positions, qualities, roles = _build_rows(
             scores, instr_index, holdings, portfolio_total_cny,
             available_venues, theme_thesis, theme_reports, root,
             bundle.preferences.asset_class_targets,
             con,
+            limit=limit,
+            rebuild_fundamentals=rebuild_fundamentals,
         )
         if rows:
             _print_quality_warnings(rows)
         kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
-        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, root / "outputs" / today, today)
+        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, out_dir, today)
     finally:
         con.close()
     return 0
