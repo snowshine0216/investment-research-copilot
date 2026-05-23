@@ -21,7 +21,6 @@ import pytest
 from tests.fundamentals.test_fund_announcement_em_live import (
     _assert_announcement_df,
     _call_fund_announcement_em,
-    _resolve_column,
 )
 
 
