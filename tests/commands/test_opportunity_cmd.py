@@ -438,3 +438,50 @@ def test_plan_hash_includes_top_n() -> None:
     h1 = compute_plan_hash("2026-05-22", ["005827"], 10)
     h2 = compute_plan_hash("2026-05-22", ["005827"], 15)
     assert h1 != h2
+
+
+# ── Item 003: resumable state I/O + lock ──────────────────────────────────────
+
+def test_fetch_state_atomic_write_and_load(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state, write_fetch_state
+    state = {
+        "plan_hash": "abc123def456",
+        "started_at": "2026-05-22T10:00:00",
+        "items": [
+            {"fund_id": "005827", "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-22T10:05:00"},
+        ],
+    }
+    write_fetch_state(state, tmp_path / "data" / "fundamentals", "abc123def456")
+    loaded = load_fetch_state(tmp_path / "data" / "fundamentals", "abc123def456")
+    assert loaded == state
+
+
+def test_fetch_state_load_returns_none_when_missing(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state
+    assert load_fetch_state(tmp_path / "data" / "fundamentals", "x") is None
+
+
+def test_fetch_state_load_returns_none_on_hash_mismatch(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import load_fetch_state, write_fetch_state
+    state = {"plan_hash": "old123", "items": []}
+    write_fetch_state(state, tmp_path / "data" / "fundamentals", "old123")
+    # New run with different hash.
+    assert load_fetch_state(tmp_path / "data" / "fundamentals", "new456") is None
+
+
+def test_acquire_fetch_lock_second_call_raises(tmp_path, monkeypatch) -> None:
+    import pytest
+    from irc.commands.opportunity_cmd import acquire_fetch_lock, FetchLockBusy
+    path = tmp_path / "lock.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd1 = acquire_fetch_lock(path)
+    # Simulate a concurrent process by patching fcntl.flock to raise.
+    import fcntl as fcntl_mod
+    def raising(*a, **kw):
+        raise BlockingIOError("locked")
+    monkeypatch.setattr(fcntl_mod, "flock", raising)
+    with pytest.raises(FetchLockBusy):
+        acquire_fetch_lock(path)
+    import os
+    os.close(fd1)
