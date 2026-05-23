@@ -3,9 +3,7 @@ from __future__ import annotations
 
 import json
 import yaml
-import pytest
 
-from pathlib import Path
 from unittest.mock import patch
 
 from irc.llm.http_client import ChatResponse
@@ -99,7 +97,7 @@ def test_run_memo_builds_alias_maps_over_publishable_rows(monkeypatch, tmp_path)
 
     with patch("irc.memo.synthesizer.call_chat", return_value=_resp("合成备忘录内容")), \
          patch("irc.memo.auditor.call_chat", return_value=_resp("审核通过")):
-        rc = mc.run_memo(str(tmp_path))
+        mc.run_memo(str(tmp_path))
 
     # If build_alias_maps was wired, captured should be non-empty.
     assert captured, \

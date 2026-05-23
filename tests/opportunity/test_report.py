@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+import re
 
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import PositionContext
@@ -254,8 +255,6 @@ def test_card_to_dict_raises_on_missing_nested_citation_id(monkeypatch) -> None:
 
 # ── Item 007 D3a — _render_section nested thesis_evidence bullets ─────────────
 
-import re
-
 
 def _evidence(
     *, type_="filing", source="x", url="https://x", date="2024-04-15",
@@ -317,11 +316,14 @@ def test_render_section_empty_thesis_evidence_no_bullets() -> None:
     # No `  - [ref:` lines.
     assert "  - [ref:" not in out
     # No `（无）` line either (that's the empty-section placeholder, not empty-bullets).
-    parent_line = next((l for l in out.split("\n") if l.startswith("- **005827")), "")
+    parent_line = next(
+        (line for line in out.split("\n") if line.startswith("- **005827")),
+        "",
+    )
     assert parent_line  # parent line still rendered
     # Body has no bullet lines beyond the parent.
-    bullets_under = [l for l in out.split("\n")
-                     if l.startswith("  - ")]
+    bullets_under = [line for line in out.split("\n")
+                     if line.startswith("  - ")]
     assert bullets_under == []
 
 

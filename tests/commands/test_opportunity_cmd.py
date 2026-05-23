@@ -901,9 +901,7 @@ def test_build_rows_stamps_audit_errors_from_publishable_verdict_coverage(monkey
     via dataclasses.replace. Locked because item 007's renderer reads
     OpportunityRow.constituent_analyses[*].audit_errors directly."""
     import irc.commands.opportunity_cmd as oc
-    from irc.fundamentals.types import (
-        ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence,
-    )
+    from irc.fundamentals.types import ConstituentAnalysis
     from irc.opportunity.policy_b import (
         ConstituentCoverageEntry, PolicyBVerdict,
     )
@@ -1017,7 +1015,6 @@ def test_stamp_audit_errors_no_op_when_coverage_empty() -> None:
 def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> None:
     """Q10 — _write_opportunity_outputs computes pick_order_iids from
     trade_plan.yaml so the appendix ordering matches the memo pick-table."""
-    import json
     import yaml
     from irc.commands.opportunity_cmd import _write_opportunity_outputs
     from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget

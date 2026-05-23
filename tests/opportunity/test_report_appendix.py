@@ -317,16 +317,13 @@ def test_appendix_shape_1_evidence_plus_failures_partial_success() -> None:
 
 
 def test_appendix_scope_publishable_only_gapped_excluded() -> None:
-    """AC23 — gapped rows do NOT appear in the appendix."""
+    """AC23 — gapped rows do NOT appear in the appendix.
+
+    The renderer is given an empty `publishable_rows` (the upstream
+    `_write_opportunity_outputs` partition excludes gapped rows before
+    they reach the renderer). Verify the appendix subsection is absent.
+    """
     from irc.opportunity.report import compose_discipline_markdown
-    c = _constituent(evidence=(_evidence(),))
-    gapped_row = _opportunity_row(
-        iid="005827", constituent_analyses=(c,),
-        evidence_gaps=("qdii_information_unavailable",),
-    )
-    # The publishable_rows argument is what the appendix iterates;
-    # gapped rows are partitioned out upstream by _write_opportunity_outputs.
-    # Here we pass them OUT to confirm the renderer behavior.
     out = compose_discipline_markdown(
         rows=(),
         date="2026-05-23",

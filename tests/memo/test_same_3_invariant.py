@@ -11,7 +11,7 @@ from __future__ import annotations
 import re
 
 from irc.commands.memo_cmd import _build_pick_rows
-from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget, ThesisEvidence
+from irc.fundamentals.types import ThesisEvidence
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.citation_selector import select_citations
 from irc.opportunity.report import _render_section

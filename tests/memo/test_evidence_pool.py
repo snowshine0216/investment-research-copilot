@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from irc.memo.evidence_pool import build_evidence_pool
 
 
@@ -86,8 +88,6 @@ def test_build_evidence_pool_dedupes_instruments():
 
 
 # ── Item 007 D1a — citation line emission ─────────────────────────────────────
-
-import re
 
 
 def _evidence(

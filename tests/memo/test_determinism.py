@@ -5,7 +5,6 @@ Locks the determinism contract from MASTER-SPEC AC9.
 from __future__ import annotations
 
 import hashlib
-import re
 
 
 def test_evidence_pool_byte_equal_across_runs() -> None:
