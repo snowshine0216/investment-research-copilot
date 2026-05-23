@@ -542,3 +542,63 @@ def test_qdii_appears_in_discipline_failure_section(tmp_path, monkeypatch) -> No
             f"QDII {iid} appears in a bucket section above '## 证据不足'"
         assert iid in below, \
             f"QDII {iid} missing from failure section below '## 证据不足'"
+
+
+# ─── AC10: H3 partition across four output surfaces ──────────────────────────
+
+def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None:
+    """AC10 — given one publishable + one Policy-B-gapped seed:
+      (a) only publishable iid in thesis_cards.yaml
+      (b) only publishable iid in opportunity_report.json rows
+      (c) only publishable iid in discipline_report.md bucket sections
+      (d) only gapped iid in rejections.json entries
+      (e) gapped iid in discipline_report.md failure section
+    """
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    # Seed only cn_equity_fund (one publishable iid) + force a synthetic
+    # gapped row via a second cn_equity_fund whose holdings _ak_call
+    # returns empty (triggers Policy B insufficient_info_coverage_top_half).
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    # Augment scoring.json with a second iid that gets the empty-holdings
+    # treatment via the dispatcher.
+    out_dir = tmp_path / "outputs" / _today_cn()
+    scoring = json.loads((out_dir / "scoring.json").read_text(encoding="utf-8"))
+    scoring["scores"].append({
+        "instrument_id": "163417", "name_cn": "兴全合润",
+        "asset_class": "cn_equity_fund", "composite_score": 65.0,
+    })
+    (out_dir / "scoring.json").write_text(
+        json.dumps(scoring, ensure_ascii=False), encoding="utf-8",
+    )
+    # Also need DuckDB data for 163417 so structural gaps don't fire first.
+    _preload_duckdb(tmp_path, ["163417"])
+
+    # 163417 gets empty AkShare holdings → Policy B failure.
+    import pandas as pd
+    dispatch[("fund_portfolio_hold_em", "163417")] = pd.DataFrame()
+
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    cards_doc = yaml.safe_load((out_dir / "thesis_cards.yaml").read_text(encoding="utf-8")) or {}
+    card_iids = {c["instrument_id"] for c in cards_doc.get("cards", [])}
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    row_iids = {r["instrument_id"] for r in opp.get("rows", [])}
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    rej_iids = {e["instrument_id"] for e in rej.get("entries", [])}
+    md = (out_dir / "discipline_report.md").read_text(encoding="utf-8")
+    failure_idx = md.find("## 证据不足")
+    above = md[:failure_idx]
+    below = md[failure_idx:]
+
+    assert "005827" in row_iids, "publishable iid missing from opportunity rows"
+    assert "163417" not in row_iids, "gapped iid leaked into opportunity rows"
+    assert "005827" in above, "publishable iid missing from discipline buckets"
+    assert "163417" not in above, "gapped iid leaked into discipline buckets"
+    assert "163417" in rej_iids, "gapped iid missing from rejections.json"
+    assert "005827" not in rej_iids, "publishable iid leaked into rejections.json"
+    assert "163417" in below, "gapped iid missing from discipline failure section"
