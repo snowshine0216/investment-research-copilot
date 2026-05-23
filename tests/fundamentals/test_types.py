@@ -159,3 +159,96 @@ def test_constituent_snapshot_records_per_source_failures() -> None:
         failure_reasons=("edgar 503", "akshare timeout"),
     )
     assert snap.failure_reasons == ("edgar 503", "akshare timeout")
+
+
+# ── Task 1: FundNavReport tests ───────────────────────────────────────────────
+
+import pytest
+
+from irc.fundamentals.types import FundNavReport
+
+
+def test_fund_nav_report_construction_happy() -> None:
+    r = FundNavReport(
+        fund_id="518880",
+        fund_name="华安黄金易ETF",
+        latest_nav=4.5678,
+        latest_nav_date="2026-03-15",
+        nav_history=(("2026-03-14", 4.5500), ("2026-03-15", 4.5678)),
+        source_report_quarter="2026Q1",
+    )
+    assert r.fund_id == "518880"
+    assert r.latest_nav == 4.5678
+    assert r.source_report_quarter == "2026Q1"
+
+
+def test_fund_nav_report_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 1.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_non_positive_nav() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=0.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 0.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_malformed_date() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026/03/15",  # wrong separator
+            nav_history=(("2026/03/15", 1.0),),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_empty_history() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(),
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_history_mismatch_with_latest() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-14", 0.99),),  # last date != latest_nav_date
+            source_report_quarter="2026Q1",
+        )
+
+
+def test_fund_nav_report_rejects_malformed_quarter() -> None:
+    with pytest.raises(ValueError):
+        FundNavReport(
+            fund_id="518880",
+            fund_name="X",
+            latest_nav=1.0,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 1.0),),
+            source_report_quarter="2026-Q1",  # extra hyphen
+        )

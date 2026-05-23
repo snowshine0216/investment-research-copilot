@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import hashlib
+import re as _re
 from dataclasses import dataclass
 from typing import Literal
+
+
+_ISO_DATE_RE = _re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_QUARTER_RE_FNR = _re.compile(r"^\d{4}Q[1-4]$")
 
 
 __all__ = [
@@ -190,3 +195,48 @@ class ActiveFundSnapshot:
     constituent_analyses: tuple[ConstituentAnalysis, ...]
     failure_reasons_by_symbol: dict[str, tuple[str, ...]]
     fund_level_failure_reasons: tuple[str, ...] = ()
+
+
+# ── Item 005: Fund-level types ────────────────────────────────────────────────
+
+@dataclass(frozen=True)
+class FundNavReport:
+    """Fund-level NAV snapshot. `latest_nav_date` is ISO 8601 `str` — adapter
+    converts AkShare's `datetime.date` via `.isoformat()`."""
+    fund_id: str
+    fund_name: str
+    latest_nav: float
+    latest_nav_date: str
+    nav_history: tuple[tuple[str, float], ...]
+    source_report_quarter: str
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundNavReport.fund_id must be non-empty")
+        if self.latest_nav <= 0:
+            raise ValueError(
+                f"FundNavReport.latest_nav must be > 0; got {self.latest_nav}"
+            )
+        if not _ISO_DATE_RE.match(self.latest_nav_date):
+            raise ValueError(
+                f"FundNavReport.latest_nav_date must be ISO YYYY-MM-DD; "
+                f"got {self.latest_nav_date!r}"
+            )
+        if not self.nav_history:
+            raise ValueError("FundNavReport.nav_history must be non-empty")
+        last_date, last_nav = self.nav_history[-1]
+        if last_date != self.latest_nav_date:
+            raise ValueError(
+                f"FundNavReport.nav_history[-1][0]={last_date!r} must equal "
+                f"latest_nav_date={self.latest_nav_date!r}"
+            )
+        if round(last_nav, 6) != round(self.latest_nav, 6):
+            raise ValueError(
+                f"FundNavReport.nav_history[-1][1]={last_nav} must equal "
+                f"latest_nav={self.latest_nav} (to 6dp)"
+            )
+        if not _QUARTER_RE_FNR.match(self.source_report_quarter):
+            raise ValueError(
+                f"FundNavReport.source_report_quarter must match YYYYQ[1-4]; "
+                f"got {self.source_report_quarter!r}"
+            )
