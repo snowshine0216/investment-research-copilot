@@ -1046,3 +1046,247 @@ def test_empty_holdings_propagate_to_rejections_holdings_fetch_failed(
     reason = entry.get("rejection_reason", "")
     assert "holdings_fetch_failed" in gaps or reason == "holdings_fetch_failed", \
         f"expected holdings_fetch_failed in gaps or reason; got gaps={gaps!r} reason={reason!r}"
+
+
+# ─── ACs 19–20: cross-stage SAME-3 / citation-id-subset ──────────────────────
+
+def _harvest_first_citation_ids(out_dir: Path, n: int = 3) -> list[str]:
+    """Return up to n citation_ids from opportunity_report.json — used to
+    build a deterministic memo synth body whose [ref:...] markers are a
+    known subset of the publishable universe."""
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    ids: list[str] = []
+    for row in opp.get("rows", []):
+        for ev in row.get("thesis_evidence", []):
+            cid = ev.get("citation_id")
+            if cid and cid not in ids:
+                ids.append(cid)
+            if len(ids) >= n:
+                return ids
+    return ids
+
+
+def test_memo_cites_only_publishable_citation_ids(tmp_path, monkeypatch) -> None:
+    """AC19 — every [ref:{id}] in memo.md is in the publishable universe
+    defined as opportunity_report.json ∪ gold_regime.json (rejections.json
+    EXCLUDED per Q5)."""
+    from irc.commands.memo_cmd import run_memo
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    cids = _harvest_first_citation_ids(out_dir, n=3)
+    if not cids:
+        pytest.skip("no citation_ids produced by run_opportunity in this seed")
+    synth_body = " ".join(f"[ref:{c}]" for c in cids) + " 备忘录正文"
+
+    with _patch_memo_routes(synth_body):
+        run_memo(str(tmp_path))
+
+    memo_md = (out_dir / "memo.md").read_text(encoding="utf-8")
+    universe = _collect_publishable_citation_universe(out_dir)
+    refs = re.findall(r"\[ref:([0-9a-f]{16})\]", memo_md)
+    assert refs, "memo.md has no [ref:...] markers despite synth body containing them"
+    leaked = [r for r in refs if r not in universe]
+    assert not leaked, \
+        f"memo.md cites {leaked!r} not in publishable universe (size {len(universe)})"
+
+
+def test_memo_picks_table_citation_set_matches_opportunity_row(
+    tmp_path, monkeypatch,
+) -> None:
+    """AC20 — for each cn_equity_fund pick, the set of citation_ids in
+    memo.md picks-table 证据 cell equals the set in opportunity_report.json
+    for that row's selected-top-3 (per select_citations(cap=3)).
+    SAME-3 invariant re-asserted post-disk-roundtrip."""
+    from irc.commands.memo_cmd import run_memo
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.memo.citation_selector import select_citations
+    from irc.fundamentals.types import ThesisEvidence
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    cids = _harvest_first_citation_ids(out_dir, n=3)
+    if not cids:
+        pytest.skip("no citation_ids produced in this seed")
+
+    with _patch_memo_routes(" 备忘录正文"):
+        run_memo(str(tmp_path))
+
+    memo_md = (out_dir / "memo.md").read_text(encoding="utf-8")
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+
+    for row in opp.get("rows", []):
+        if row["asset_class"] != "cn_equity_fund":
+            continue
+        # Reconstruct top-3 via select_citations and compare to picks-table cell.
+        evs = tuple(ThesisEvidence.from_dict(d) for d in row.get("thesis_evidence", []))
+        top3 = {ev.citation_id for ev in select_citations(evs, cap=3)}
+        # Locate the picks-table row for this iid; extract its 证据 cell.
+        pat = rf"\| *{re.escape(row['instrument_id'])} *\|.*?\|(.*?)\|"
+        m = re.search(pat, memo_md)
+        if not m:
+            pytest.skip(f"no picks-table row for {row['instrument_id']}")
+        cell = m.group(1)
+        cell_ids = set(re.findall(r"\[ref:([0-9a-f]{16})\]", cell))
+        assert cell_ids == top3, \
+            f"SAME-3 mismatch for {row['instrument_id']}: " \
+            f"picks-table={cell_ids!r} vs opportunity-top-3={top3!r}"
+
+
+# ─── AC21: multi-owner constituent on-disk provenance ────────────────────────
+
+def test_multi_owner_constituent_keeps_separate_owner_instrument_id(
+    tmp_path, monkeypatch,
+) -> None:
+    """AC21 — when 贵州茅台 (600519) appears as a constituent of BOTH fund A
+    (005827) and fund B (163417), each fund's thesis_evidence entry for
+    600519 has owner_instrument_id == that fund's iid. No leakage."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    import pandas as pd
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    # Add a second cn_equity_fund to scoring.json.
+    out_dir = tmp_path / "outputs" / _today_cn()
+    scoring = json.loads((out_dir / "scoring.json").read_text(encoding="utf-8"))
+    scoring["scores"].append({
+        "instrument_id": "163417", "name_cn": "兴全合润",
+        "asset_class": "cn_equity_fund", "composite_score": 72.0,
+    })
+    (out_dir / "scoring.json").write_text(
+        json.dumps(scoring, ensure_ascii=False), encoding="utf-8",
+    )
+    # Pre-load DuckDB for the second fund so structural evidence gaps are avoided.
+    _preload_duckdb(tmp_path, ["163417"])
+
+    # Both funds carry 600519 as a top holding.
+    same_holding_frame = pd.DataFrame({
+        "股票代码": ["600519"],
+        "股票名称": ["贵州茅台"],
+        "占净值比例": [8.2],
+    })
+    dispatch[("fund_portfolio_hold_em", "005827")] = same_holding_frame
+    dispatch[("fund_portfolio_hold_em", "163417")] = same_holding_frame
+    # Wire announcement data for 163417 (information leg).
+    ann_frame = pd.DataFrame({
+        "公告标题": ["2024年第4季度报告"],
+        "公告日期": ["2024-01-15"],
+        "报告ID": ["ANN002"],
+    })
+    dispatch[("fund_announcement_dividend_em", "163417")] = ann_frame
+    dispatch[("fund_announcement_report_em", "163417")] = ann_frame
+    dispatch[("fund_announcement_personnel_em", "163417")] = ann_frame
+
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    by_iid = {r["instrument_id"]: r for r in opp.get("rows", [])}
+    if "005827" not in by_iid or "163417" not in by_iid:
+        pytest.skip("seed did not produce both funds publishably")
+
+    a_owners = {
+        ev["owner_instrument_id"]
+        for ev in by_iid["005827"].get("thesis_evidence", [])
+        if ev.get("constituent_key") == "600519"
+    }
+    b_owners = {
+        ev["owner_instrument_id"]
+        for ev in by_iid["163417"].get("thesis_evidence", [])
+        if ev.get("constituent_key") == "600519"
+    }
+    assert a_owners == {"005827"}, \
+        f"fund A 600519 entries have wrong owner_instrument_id: {a_owners!r}"
+    assert b_owners == {"163417"}, \
+        f"fund B 600519 entries have wrong owner_instrument_id: {b_owners!r}"
+
+
+# ─── ACs 22–23: pipeline-level two-run byte equality ─────────────────────────
+
+def test_two_run_byte_equality_opportunity_artifacts(tmp_path, monkeypatch) -> None:
+    """AC22 — two consecutive run_opportunity invocations against identical
+    seeds in distinct tmp_paths produce byte-identical artifacts for:
+      - opportunity_report.json
+      - thesis_cards.yaml
+      - discipline_report.md
+      - rejections.json
+    Catches non-deterministic ordering (frozenset, glob, dict-hash, timestamps)
+    invisible to unit-level tests."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    a = tmp_path / "run_a"
+    b = tmp_path / "run_b"
+    a.mkdir()
+    b.mkdir()
+
+    today = _today_cn()
+    dispatch_a = _seed_publishable_set_repo(
+        a, monkeypatch=monkeypatch, seed_date=today,
+    )
+    _install_ak_call_dispatch(monkeypatch, dispatch_a)
+    run_opportunity(repo_root=str(a))
+
+    dispatch_b = _seed_publishable_set_repo(
+        b, monkeypatch=monkeypatch, seed_date=today,
+    )
+    _install_ak_call_dispatch(monkeypatch, dispatch_b)
+    run_opportunity(repo_root=str(b))
+
+    for name in (
+        "opportunity_report.json",
+        "thesis_cards.yaml",
+        "discipline_report.md",
+        "rejections.json",
+    ):
+        ha = _sha256_file(a / "outputs" / today / name)
+        hb = _sha256_file(b / "outputs" / today / name)
+        assert ha == hb, \
+            f"{name} differs across two runs: a={ha[:12]}… b={hb[:12]}… " \
+            "(non-determinism in the I/O stack — likely frozenset iter, " \
+            "glob/walk ordering, dict-hash, or datetime.now() injection)"
+
+
+def test_two_run_byte_equality_memo_after_run_memo(tmp_path, monkeypatch) -> None:
+    """AC23 — same shape as AC22 but for memo.md after run_opportunity → run_memo.
+    Patched synth body is a deterministic function of the just-written
+    opportunity_report.json so the synth output is itself a function of the
+    publishable-set citation universe."""
+    from irc.commands.memo_cmd import run_memo
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    a = tmp_path / "run_a"
+    b = tmp_path / "run_b"
+    a.mkdir()
+    b.mkdir()
+
+    def _full_run(repo: Path) -> Path:
+        dispatch = _seed_publishable_set_repo(
+            repo, monkeypatch=monkeypatch, seed_date=today,
+        )
+        _install_ak_call_dispatch(monkeypatch, dispatch)
+        run_opportunity(repo_root=str(repo))
+        out_dir = repo / "outputs" / today
+        cids = _harvest_first_citation_ids(out_dir, n=3)
+        synth_body = " ".join(f"[ref:{c}]" for c in cids) + " 备忘录正文"
+        with _patch_memo_routes(synth_body):
+            run_memo(str(repo))
+        return out_dir
+
+    out_a = _full_run(a)
+    out_b = _full_run(b)
+
+    ha = _sha256_file(out_a / "memo.md")
+    hb = _sha256_file(out_b / "memo.md")
+    assert ha == hb, \
+        f"memo.md differs across two runs: a={ha[:12]}… b={hb[:12]}… " \
+        "(non-determinism in the memo I/O stack)"
