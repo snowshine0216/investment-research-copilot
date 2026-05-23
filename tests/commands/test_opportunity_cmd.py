@@ -714,3 +714,86 @@ def test_is_stale_future_cache_probed_at_treated_as_stale() -> None:
     )
     result = _is_stale(snap, today=date(2026, 5, 22), threshold_days=7)
     assert result is True, "future cache_probed_at (clock skew) should be treated as stale"
+
+
+def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypatch):
+    """Verify that _build_rows runs evaluate_policy_b on ActiveFundSnapshot rows
+    and adds the verdict's gap_codes to the row's evidence_gaps.
+    """
+    from unittest.mock import patch
+
+    import duckdb
+
+    from irc.commands.opportunity_cmd import _build_rows
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+    from irc.schemas.universe import Instrument
+    from irc.schemas.inputs import AccountFile
+
+    # Build a single cn_equity_fund instrument.
+    instr = Instrument(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+        ticker="005827", currency="cny",
+        theme=None, tracked_index=None, venue_required=[],
+    )
+    instr_index = {"005827": instr}
+    scores = [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}]
+
+    # Snapshot with rule-1 trigger (empty constituent_analyses + fund_level failure).
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=("holdings_fetch_failed:005827:Timeout",),
+    )
+
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "5000")
+
+    con = duckdb.connect(":memory:")
+
+    with patch(
+        "irc.commands.opportunity_cmd.build_snapshot", return_value=snap,
+    ), patch(
+        "irc.commands.opportunity_cmd._load_latest_active_fund_cached",
+        return_value=None,
+    ), patch(
+        "irc.commands.opportunity_cmd._classify_active_fund_scores",
+        return_value=(0, 0),
+    ), patch(
+        "irc.commands.opportunity_cmd._classify_fund_level_scores",
+        return_value=(0, 0),
+    ), patch(
+        "irc.commands.opportunity_cmd.write_active_fund_cache", return_value=None,
+    ), patch(
+        "irc.commands.opportunity_cmd.populate_inputs", side_effect=lambda con, s, **kw: s,
+    ):
+        rows, _positions, _qualities, _roles, _pending_verdicts = _build_rows(
+            scores, instr_index, {}, 0.0,
+            available_venues=set(), theme_thesis=None, theme_reports={},
+            root=tmp_path, asset_class_targets={}, con=con,
+            output_date="2026-05-23",
+        )
+    assert len(rows) == 1
+    assert "holdings_fetch_failed" in rows[0].evidence_gaps
+
+
+def test_write_opportunity_outputs_accepts_pending_verdicts_kwarg(tmp_path):
+    """Smoke check: _write_opportunity_outputs now accepts pending_verdicts kwarg."""
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+
+    # Empty kept_rows; should write empty outputs without raising.
+    _write_opportunity_outputs(
+        kept_rows=[],
+        positions={},
+        qualities={},
+        roles={},
+        holdings={},
+        out_dir=tmp_path,
+        today="2026-05-23",
+        pending_verdicts={},
+    )
+    assert (tmp_path / "rejections.json").exists()

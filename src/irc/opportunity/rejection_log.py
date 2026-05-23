@@ -64,6 +64,11 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "insufficient_info_coverage_top_half":  "insufficient_info_coverage_top_half",
     "incomplete_constituent_coverage":      "incomplete_constituent_coverage",
     "fund_nav_unavailable":                 "fund_nav_unavailable",
+    # Non-Policy-B evidence gaps emitted by states.py for data-poor instruments
+    # (ETF/passive rows where constituent-level data is unavailable):
+    "missing_valuation_data":               "incomplete_constituent_data",
+    "missing_flow_or_return_data":          "incomplete_constituent_data",
+    "missing_product_metadata":             "incomplete_constituent_record",
 }
 
 
