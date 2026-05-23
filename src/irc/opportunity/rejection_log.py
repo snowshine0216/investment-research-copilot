@@ -82,6 +82,9 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "constituent_missing":                  "incomplete_constituent_record",
     # broker coverage absent for a constituent — data leg degraded.
     "missing_broker_coverage":              "incomplete_constituent_data",
+    # H4 systematic-exclusion forward-declaration: US-news adapter absent.
+    # Identity mapping — the gap code IS the rejection reason (closes L1 latent crash).
+    "missing_us_news_adapter":              "missing_us_news_adapter",
 }
 
 

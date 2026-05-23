@@ -387,6 +387,8 @@ def test_classify_rejection_reason_mixed_known_and_unknown_raises() -> None:
     ("missing_constituent_snapshot", "incomplete_constituent_record"),
     ("constituent_missing",       "incomplete_constituent_record"),
     ("missing_broker_coverage",   "incomplete_constituent_data"),
+    # L1 fix: forward-declared H4 systematic-exclusion code must resolve
+    ("missing_us_news_adapter",   "missing_us_news_adapter"),
 ])
 def test_classify_rejection_reason_handles_legacy_gap_codes(
     gap_code: str, expected_reason: str,
