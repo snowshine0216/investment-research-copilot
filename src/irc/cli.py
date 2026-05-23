@@ -114,7 +114,13 @@ def decision(repo_root: str) -> None:
 
 @main.command(help="Run opportunity/thesis/discipline layer; writes 3 outputs.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
-def opportunity(repo_root: str) -> None:
+@click.option("--output-dir", type=click.Path(file_okay=False), default=None,
+              help="Override the default outputs/<today>/ directory.")
+@click.option("--limit", type=int, default=None,
+              help="Cap cn_equity_fund autobuild rows (rejected on canonical paths).")
+@click.option("--rebuild-fundamentals", is_flag=True, default=False,
+              help="Force full re-fetch of active-fund caches (skip freshness probe).")
+def opportunity(repo_root: str, output_dir: str | None, limit: int | None, rebuild_fundamentals: bool) -> None:
     from irc.commands.opportunity_cmd import run_opportunity
     rc = run_opportunity(repo_root=repo_root)
     raise SystemExit(rc)

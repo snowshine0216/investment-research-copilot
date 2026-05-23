@@ -560,3 +560,34 @@ def test_freshness_probe_failure_is_fail_closed(monkeypatch, tmp_path) -> None:
         cached, today=date(2026, 5, 22), root=tmp_path,
     )
     assert refresh is True  # fail-closed
+
+
+# ── Item 003: validate_cli_args (--limit canonical rejection) ─────────────────
+
+def test_validate_output_dir_canonical_rejects_limit(tmp_path) -> None:
+    import pytest
+    from irc.commands.opportunity_cmd import validate_cli_args
+    with pytest.raises(SystemExit) as exc:
+        validate_cli_args(
+            output_dir=str(tmp_path / "outputs" / "2026-05-22"),
+            limit=3, rebuild_fundamentals=False,
+            today="2026-05-22",
+        )
+    assert exc.value.code == 2
+
+
+def test_validate_output_dir_non_canonical_accepts_limit(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import validate_cli_args
+    # Should not raise.
+    validate_cli_args(
+        output_dir="/tmp/scratch/", limit=3,
+        rebuild_fundamentals=False, today="2026-05-22",
+    )
+
+
+def test_validate_output_dir_canonical_accepts_no_limit(tmp_path) -> None:
+    from irc.commands.opportunity_cmd import validate_cli_args
+    validate_cli_args(
+        output_dir=str(tmp_path / "outputs" / "2026-05-22"),
+        limit=None, rebuild_fundamentals=False, today="2026-05-22",
+    )
