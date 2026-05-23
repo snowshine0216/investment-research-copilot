@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -42,3 +43,42 @@ class ConstituentSnapshot:
     filings: tuple[FilingDigest, ...]
     broker_reports: tuple[BrokerReport, ...]
     failure_reasons: tuple[str, ...] = ()
+
+
+# ── Item 003: new types for active-fund constituent layer ─────────────────────
+
+@dataclass(frozen=True)
+class NewsItem:
+    symbol: str
+    title: str
+    url: str
+    published_iso: str
+    summary: str
+    source: str
+
+
+@dataclass(frozen=True)
+class FundHolding:
+    symbol: str
+    name_cn: str
+    weight_pct: float
+    exchange: Literal["SH", "SZ", "BJ", "HK", "US", "UNKNOWN"]
+    provider_symbol: str
+
+
+@dataclass(frozen=True)
+class HoldingsResult:
+    constituents: tuple[FundHolding, ...]
+    source_report_date: str
+    source_report_quarter: str
+
+
+@dataclass(frozen=True)
+class ActiveFundSnapshot:
+    fund_id: str
+    source_report_date: str
+    source_report_quarter: str
+    cache_probed_at: str
+    constituent_analyses: tuple[object, ...]  # narrowed in Task 3 to tuple[ConstituentAnalysis, ...]
+    failure_reasons_by_symbol: dict[str, tuple[str, ...]]
+    fund_level_failure_reasons: tuple[str, ...] = ()
