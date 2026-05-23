@@ -1009,3 +1009,62 @@ def test_stamp_audit_errors_no_op_when_coverage_empty() -> None:
     patched = oc._stamp_audit_errors_from_verdict(row, fake_verdict)
     # Identical content (no audit_errors added).
     assert patched.constituent_analyses[0].audit_errors == ()
+
+
+# ── Item 007 Q10 — _write_opportunity_outputs loads trade_plan for pick order ─
+
+
+def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> None:
+    """Q10 — _write_opportunity_outputs computes pick_order_iids from
+    trade_plan.yaml so the appendix ordering matches the memo pick-table."""
+    import json
+    import yaml
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+
+    # Write a minimal trade_plan.yaml in tmp_path.
+    plan = {"trades": [
+        {"target": "163417", "target_weight": 0.1},
+        {"target": "005827", "target_weight": 0.05},
+    ]}
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "trade_plan.yaml").write_text(yaml.safe_dump(plan), encoding="utf-8")
+
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+
+    def _row(iid: str, name: str):
+        return OpportunityRow(
+            instrument_id=iid, name_cn=name, asset_class="cn_equity_fund",
+            theme=None,
+            lookthrough_target=LookthroughTarget(
+                kind="active_fund", key=iid, display_cn=name,
+                provider_symbol="",
+            ),
+            valuation_state="fair", heat_state="normal", thesis_state="intact",
+            product_quality_state="strong", opportunity_state="core_dca",
+            opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+            constituent_analyses=(c,),
+        )
+
+    rows = [_row("005827", "A基金"), _row("163417", "B基金")]
+    positions = {iid: type("P", (), {
+        "portfolio_weight": None, "target_band_low": None,
+        "target_band_high": None, "drawdown_since_entry": None,
+        "is_holding": False,
+    })() for iid in ("005827", "163417")}
+
+    _write_opportunity_outputs(
+        rows, positions, {}, {}, {}, tmp_path, "2026-05-23",
+        pending_verdicts={}, plan_hash="",
+        snapshot_cache_by_instrument={},
+    )
+    discipline = (tmp_path / "discipline_report.md").read_text(encoding="utf-8")
+    # 163417 (first in trade_plan) appears before 005827 in the appendix.
+    pos_b = discipline.index("### 163417")
+    pos_a = discipline.index("### 005827")
+    assert pos_b < pos_a, \
+        f"appendix not ordered by pick-row; got:\n{discipline}"

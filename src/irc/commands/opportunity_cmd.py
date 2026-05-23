@@ -1038,6 +1038,28 @@ def _apply_reduction(
     return list(kept_t)
 
 
+def _load_pick_order_iids(out_dir: Path) -> tuple[str, ...]:
+    """Read trade_plan.yaml from out_dir and return ordered list of pick iids.
+
+    Returns empty tuple when trade_plan.yaml does not exist (e.g. opportunity
+    runs before plan/build); the appendix then renders in instrument_id
+    ascending order (backward-compat per Q10).
+    """
+    import yaml as _yaml
+    plan_path = out_dir / "trade_plan.yaml"
+    if not plan_path.exists():
+        return ()
+    try:
+        doc = _yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
+    except (OSError, Exception):
+        return ()
+    return tuple(
+        str(t["target"])
+        for t in (doc.get("trades") or [])
+        if t.get("target")
+    )
+
+
 def _write_opportunity_outputs(
     kept_rows: list[OpportunityRow],
     positions: dict[str, PositionContext],
@@ -1120,7 +1142,13 @@ def _write_opportunity_outputs(
     write_rejections_json(rejection_doc, out_dir)
 
     # Step 5 — compose discipline_report.md: publishable buckets + V1 summary + failure section.
-    publishable_md = compose_discipline_markdown(discipline_rows, today)
+    # Q10 wiring: load trade_plan.yaml for appendix pick-row order.
+    pick_order_iids = _load_pick_order_iids(out_dir)
+    publishable_md = compose_discipline_markdown(
+        discipline_rows, today,
+        publishable_rows=tuple(publishable_rows),
+        pick_order_iids=pick_order_iids,
+    )
     v1_summary = render_v1_systematic_exclusion_summary(rejection_doc.entries)
     failure_section = render_failure_section(gapped_rows)
     discipline_md = (
