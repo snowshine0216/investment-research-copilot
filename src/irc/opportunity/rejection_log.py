@@ -28,6 +28,7 @@ RejectionReasonCode = Literal[
     "incomplete_constituent_coverage",
     "qdii_information_unavailable",
     "fund_nav_unavailable",
+    "fund_announcements_unavailable",
     "missing_us_news_adapter",
 ]
 
@@ -66,6 +67,9 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "insufficient_info_coverage_top_half":  "insufficient_info_coverage_top_half",
     "incomplete_constituent_coverage":      "incomplete_constituent_coverage",
     "fund_nav_unavailable":                 "fund_nav_unavailable",
+    # FundLevelSnapshot information-leg failure: no announcements fetched.
+    # Identity mapping — the gap code IS the rejection reason.
+    "fund_announcements_unavailable":       "fund_announcements_unavailable",
     # Non-Policy-B evidence gaps emitted by states.py for data-poor instruments
     # (ETF/passive rows where constituent-level data is unavailable):
     "missing_valuation_data":               "incomplete_constituent_data",
