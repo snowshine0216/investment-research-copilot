@@ -5,21 +5,15 @@
 | 001 | contributing-dimensions | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ |
 | 002 | citation-data-model | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 003 | active-fund-constituent-layer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 004 | live-verify-fund-announcement-em | ✅ | ✅ | ✅ | ✅ | ✅ | — | — | ⚠️ FAIL | — | — | — |
-| 005 | per-asset-class-citation-coverage | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| 006 | failure-mode-and-policy-b | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| 007 | memo-and-discipline-renderers | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| 008 | integration-test-sweep | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
-| 009 | citation-gate-block-mode | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ | ⚠️ |
+| 004 | live-verify-fund-announcement-em | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| 005 | per-asset-class-citation-coverage | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 006 | failure-mode-and-policy-b | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 007 | memo-and-discipline-renderers | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 008 | integration-test-sweep | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 009 | citation-gate-block-mode | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 010 | duckdb-fund-holdings-ingest | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
-Legend: ⏳ = pending, 🔄 = in progress, ✅ = done, ⏭️ = skipped (mode / not applicable), ⚠️ = blocked, ⚠️ FAIL = ran but failed gate, — = not applicable (skipped phase).
-
-## Run status: PAUSED (Q4 decision pending)
-
-Item 004 (Q4 gate) FAILED: `ak.fund_announcement_em` is missing from AkShare 1.18.63. Items 005, 006, 007, 008, 009 are blocked on the Q4 fallback decision; item 010 (DuckDB ingestor) is independent of Q4 and remains feasible.
-
-See `items/004-verify.md` for the 3 fallback options the user must choose between.
+Legend: ⏳ = pending, 🔄 = in progress, ✅ = done, ⏭️ = skipped (mode / not applicable), ⚠️ = blocked.
 
 ## Notes on the `verify` column
 
@@ -38,7 +32,7 @@ Per `/ship`'s steps 8+9, the in-flow review verdict is captured inline by `/ship
 - **001 contributing-dimensions** — PR [#55](https://github.com/snowshine0216/investment-research-copilot/pull/55) squash-merged 2026-05-22 as `4cb4b9b` on `autodev/thesis-cards-evidence-gap`. Inline review PASS-WITH-NITS, verify PASS (8/8 ACs), pr-review PASS-WITH-NITS. Fix loop skipped (zero blockers, zero latent bugs).
 - **002 citation-data-model** — PR [#56](https://github.com/snowshine0216/investment-research-copilot/pull/56) squash-merged 2026-05-22 as `5bc4b95`. 18-task plan; 7 impl commits + 1 fix commit. Drift PASS-WITH-NOTES (27/27 ACs verified), inline review PASS-WITH-NITS, verify PASS-WITH-NOTES (26/27 ACs — AC21 documented as ⚠️), pr-review PASS-WITH-NITS. Fix loop ran once: closed real latent bug (`fetch_types_attempted` schema gap on `OpportunityRow`); inline reviewer's `select_citations` identity-vs-equality flag was refuted by pr-review (mutually-exclusive data/info candidate sets). Includes new ADR `docs/adr/0001-citation-data-model.md`.
 - **003 active-fund-constituent-layer** — PR [#57](https://github.com/snowshine0216/investment-research-copilot/pull/57) squash-merged 2026-05-23 as `3fbf50c`. 24-task plan + 4 fix rounds. Drift PASS (after Task 22 wiring amendment). Inline review PASS-WITH-NITS, /verify PASS (31/31 ACs), /code-review PASS-WITH-NITS (after closing 3 latent bugs). New ADR `docs/adr/0002-active-fund-fetch-engine.md` locks the cache/probe/budget/forbidden-pair contracts. Fix rounds closed: (1) `fundamentals→opportunity` import cycle (relocated 4 types to `fundamentals/types.py` with re-exports); (2) `--limit`/`--rebuild-fundamentals` not threaded into `_build_rows`; (3) preflight budget gate + advisory lock + resumable state defined-but-not-called (drift checker missed; surfaced by adversarial review); (4) 3 latent parser bugs from /code-review (all-NaN quarter, `_BJ_TOKENS` `'京'` collision, 5xxx ETF codes routed to UNKNOWN). Spec deviation noted: spec located `LookthroughTarget`/`ConstituentAnalysis`/`ThesisEvidence` in `opportunity/types.py` — ran into an architecture cycle, relocated to `fundamentals/types.py` with re-export preserving documented import path.
-- **004 live-verify-fund-announcement-em** — Q4 gate FAIL. AkShare 1.18.63 does NOT expose `ak.fund_announcement_em`. Three topic-specific variants exist instead (`fund_announcement_dividend_em`, `fund_announcement_report_em`, `fund_announcement_personnel_em`). Sub-branch `autodev/thesis-evidence-004-live-verify-fund-announcement-em` pushed for user inspection (8 commits: pytest markers, 5 live tests, 5 mocked failure-mode tests, run-discipline README, Q4 verdict). NO PR opened — the live tests fail by design until Q4 is resolved. See `items/004-verify.md` for the 3 fallback options.
+- **004 live-verify-fund-announcement-em** — PR [#58](https://github.com/snowshine0216/investment-research-copilot/pull/58) squash-merged 2026-05-23 as `6369601`. **Q4 hard-stop gate** initially FAILED (`ak.fund_announcement_em` missing from AkShare 1.18.63); user authorized fallback option (a) (substitute 3 topic-specific endpoints: `fund_announcement_dividend_em` / `_report_em` / `_personnel_em`). Pivot applied in place. Post-pivot verify PASS (9/9 endpoint × symbol cells covered). Drift PASS-WITH-NOTES (13/13 tasks; 4 cosmetic incidentals; authorized pivot logged). Inline review PASS-WITH-NITS (3 docs nits resolved in commit `f76137f`). /code-review PASS after fixing 2 NaN/NaT latent assertion bugs in commit `6f59c49`. Test-only sub-PR (zero `src/` changes); registered `live_akshare` + `integration` markers with `--strict-markers`; 11 live tests + 7 mocked failure-mode tests + 10 fixture JSONs + run-discipline README. **Downstream impact:** item 005's information-leg design must compose the 3 endpoints; uses `报告ID` as opaque citation key (no URL column available in AkShare 1.18.63).
 
 ## Artifacts (populated as each item completes)
 
