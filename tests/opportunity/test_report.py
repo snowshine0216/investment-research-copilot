@@ -148,7 +148,7 @@ def test_slow_dca_routes_to_jianshu_bucket():
 def test_row_to_dict_includes_expected_omissions():
     row = OpportunityRow(
         instrument_id="518880", name_cn="黄金ETF", asset_class="gold", theme=None,
-        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        lookthrough_target=LookthroughTarget(kind="gold", key="gold", display_cn="GOLD"),
         valuation_state="neutral", heat_state="neutral",
         thesis_state="evidence_insufficient", product_quality_state="ok",
         opportunity_state="small_watch", opportunity_reason="r",

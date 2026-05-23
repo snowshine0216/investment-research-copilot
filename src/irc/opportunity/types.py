@@ -38,7 +38,7 @@ RiskAction = Literal["none", "review_required", "trim_review", "exit_review"]
 
 
 LookthroughKind = Literal[
-    "broad_index", "sector_theme", "qdii_us", "qdii_hk", "bond", "gold", "active_fund",
+    "broad_index", "sector_theme", "qdii_us", "qdii_hk", "bond", "gold", "active_fund", "qdii_global",
 ]
 
 
@@ -47,6 +47,7 @@ class LookthroughTarget:
     kind: LookthroughKind
     key: str
     display_cn: str
+    provider_symbol: str = ""
 
 
 @dataclass(frozen=True)

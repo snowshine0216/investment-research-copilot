@@ -124,7 +124,7 @@ def test_thesis_card_defaults_immutable_collections():
 def _row(**over):
     base = dict(
         instrument_id="X", name_cn="X", asset_class="gold", theme=None,
-        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        lookthrough_target=LookthroughTarget(kind="gold", key="gold", display_cn="GOLD"),
         valuation_state="neutral", heat_state="neutral", thesis_state="evidence_insufficient",
         product_quality_state="ok", opportunity_state="small_watch", opportunity_reason="r",
         evidence_gaps=(),
@@ -310,3 +310,18 @@ def test_citation_id_uses_summary_fallback_when_url_empty():
     a = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q3 营收 +12%"))
     b = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q4 营收 -5%"))
     assert a.citation_id != b.citation_id
+
+
+# ── Item 003: LookthroughTarget.provider_symbol tests ────────────────────────
+
+def test_lookthrough_target_provider_symbol_default_empty() -> None:
+    t = LookthroughTarget("broad_index", "csi300", "沪深300")
+    assert t.provider_symbol == ""
+
+
+def test_lookthrough_target_provider_symbol_explicit() -> None:
+    t = LookthroughTarget(
+        kind="active_fund", key="fund_005827",
+        display_cn="易方达蓝筹精选", provider_symbol="005827",
+    )
+    assert t.provider_symbol == "005827"

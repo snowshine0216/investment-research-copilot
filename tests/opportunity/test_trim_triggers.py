@@ -29,7 +29,7 @@ def _row(
         name_cn="X",
         asset_class="us_etf",
         theme=None,
-        lookthrough_target=LookthroughTarget(kind="index", key="sp500", display_cn="S&P 500"),
+        lookthrough_target=LookthroughTarget(kind="broad_index", key="sp500", display_cn="S&P 500"),
         valuation_state=valuation_state,
         heat_state=heat_state,
         thesis_state=thesis_state,
