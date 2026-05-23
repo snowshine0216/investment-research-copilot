@@ -485,3 +485,78 @@ def test_acquire_fetch_lock_second_call_raises(tmp_path, monkeypatch) -> None:
         acquire_fetch_lock(path)
     import os
     os.close(fd1)
+
+
+# ── Item 003: autobuild env + freshness probe ──────────────────────────────────
+
+def test_build_rows_autobuild_off_skips_active_fund_fetch(monkeypatch, tmp_path) -> None:
+    """IRC_OPPORTUNITY_AUTOBUILD=0 → no AkShare calls; snapshot=None."""
+    from irc.commands.opportunity_cmd import _is_active_fund_target_autobuild_on
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "0")
+    assert _is_active_fund_target_autobuild_on() is False
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    assert _is_active_fund_target_autobuild_on() is True
+    monkeypatch.delenv("IRC_OPPORTUNITY_AUTOBUILD", raising=False)
+    assert _is_active_fund_target_autobuild_on() is True  # default on
+
+
+def test_freshness_probe_same_quarter_reuses_cache(monkeypatch, tmp_path) -> None:
+    """Probe returns same quarter → cache_probed_at advances, no full refetch."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import ActiveFundSnapshot, HoldingsResult
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(cached, tmp_path)
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings",
+        lambda sym, top_n=1: HoldingsResult((), "2024-03-31", "2024Q1"),
+    )
+    fresh, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is False
+    assert fresh.cache_probed_at == "2026-05-22"
+
+
+def test_freshness_probe_new_quarter_schedules_refetch(monkeypatch, tmp_path) -> None:
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.types import ActiveFundSnapshot, HoldingsResult
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings",
+        lambda sym, top_n=1: HoldingsResult((), "2024-06-30", "2024Q2"),
+    )
+    _, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is True
+
+
+def test_freshness_probe_failure_is_fail_closed(monkeypatch, tmp_path) -> None:
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.types import ActiveFundSnapshot
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-01",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+    def boom(*a, **kw):
+        raise ConnectionError("akshare 502")
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.fetch_cn_etf_holdings", boom,
+    )
+    _, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+    assert refresh is True  # fail-closed

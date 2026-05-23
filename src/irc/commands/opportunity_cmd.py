@@ -213,7 +213,8 @@ def _maybe_freshness_probe(
         probe = fetch_cn_etf_holdings(snap.fund_id, top_n=1)
     except Exception:
         return snap, True
-    if not probe.source_report_quarter or not probe.constituents:
+    if not probe.source_report_quarter:
+        # Can't determine quarter → fail-closed.
         return snap, True
     if probe.source_report_quarter != snap.source_report_quarter:
         return snap, True
@@ -341,10 +342,10 @@ def _build_input(
         target_band_high=target_band[1] if target_band else None,
         venue_compatible=venue_ok,
     )
-    entry_date: date | None = None
+    entry_date: date_cls | None = None
     if holding is not None and holding.hold_since:
         try:
-            entry_date = date.fromisoformat(holding.hold_since)
+            entry_date = date_cls.fromisoformat(holding.hold_since)
         except ValueError:
             pass  # Malformed date string; drawdown_since_entry will remain None
     return populate_inputs(con, skeleton, holding_entry_date=entry_date)
@@ -449,13 +450,44 @@ def _build_rows(
             portfolio_total_cny, available_venues,
             con,
         )
-        target_name = map_lookthrough(inp).display_cn
-        if target_name not in snapshot_cache:
-            snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
+        target = map_lookthrough(inp)
+        snap_obj: object | None = None
+        if target.kind == "active_fund" and _is_active_fund_target_autobuild_on():
+            if target.key in snapshot_cache:
+                snap_obj = snapshot_cache[target.key]
+            else:
+                # 1. Try disk cache for the latest known quarter.
+                cached = _load_latest_active_fund_cached(target.provider_symbol, root / "data")
+                if cached is None:
+                    snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                    if isinstance(snap_obj, ActiveFundSnapshot) and snap_obj.constituent_analyses:
+                        write_active_fund_cache(
+                            replace(snap_obj, cache_probed_at=date_cls.today().isoformat()),
+                            root / "data",
+                        )
+                else:
+                    probed, refresh = _maybe_freshness_probe(
+                        cached, today=date_cls.today(), root=root / "data",
+                    )
+                    if refresh:
+                        snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                        if isinstance(snap_obj, ActiveFundSnapshot) and snap_obj.constituent_analyses:
+                            write_active_fund_cache(
+                                replace(snap_obj, cache_probed_at=date_cls.today().isoformat()),
+                                root / "data",
+                            )
+                    else:
+                        snap_obj = probed
+                snapshot_cache[target.key] = snap_obj
+        else:
+            target_name = target.display_cn
+            if target_name not in snapshot_cache:
+                snapshot_cache[target_name] = load_latest_cached_snapshot(target_name, root / "data")
+            snap_obj = snapshot_cache[target_name]
         row = build_opportunity_row(
             inp,
             theme_thesis or None,
-            snapshot=snapshot_cache[target_name],
+            snapshot=snap_obj,
             theme_report=_resolve_research_theme(inp, theme_reports),
         )
         rows.append(row)
