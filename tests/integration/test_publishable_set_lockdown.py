@@ -674,3 +674,71 @@ def test_policy_b_precedence_qdii_over_policy_b_code(tmp_path, monkeypatch) -> N
         f"Policy-B precedence broken: got {entry['rejection_reason']!r}, " \
         "expected 'qdii_information_unavailable' (qdii key precedes policy-b key " \
         "in _GAP_TO_REASON dict-iteration order per ADR 0003)"
+
+
+# ─── AC12: fetch_budget_exhausted is fatal at write time ─────────────────────
+
+def test_fetch_budget_exhausted_fatal_at_write_time_via_run_opportunity(
+    tmp_path, monkeypatch,
+) -> None:
+    """AC12 — _write_opportunity_outputs called with a row carrying
+    'fetch_budget_exhausted' in evidence_gaps raises RuntimeError before
+    any .tmp file becomes visible. Re-asserts via _write_opportunity_outputs
+    directly (the run_opportunity path raises SystemExit(3) for budget
+    exceeded, not RuntimeError)."""
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.selection import SelectionQuality
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    poisoned_row = OpportunityRow(
+        instrument_id="005827",
+        name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827",
+            display_cn="易方达蓝筹精选", provider_symbol="",
+        ),
+        valuation_state="fair",
+        heat_state="normal",
+        thesis_state="intact",
+        product_quality_state="strong",
+        opportunity_state="core_dca",
+        opportunity_reason="",
+        evidence_gaps=("fetch_budget_exhausted",),
+        thesis_evidence=(),
+        constituent_analyses=(),
+    )
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with pytest.raises(RuntimeError, match="fetch_budget_exhausted"):
+        _write_opportunity_outputs(
+            kept_rows=[poisoned_row],
+            positions={"005827": PositionContext(
+                portfolio_weight=None, target_band_low=None, target_band_high=None,
+                drawdown_since_entry=None, is_holding=False,
+            )},
+            qualities={"005827": SelectionQuality(
+                expense_ratio=None, aum_cny=None, tracking_error=None,
+                premium_discount_abs=None, history_days=None, data_completeness=0.5,
+            )},
+            roles={"005827": ""},
+            holdings={},
+            out_dir=out_dir,
+            today=_today_cn(),
+        )
+
+    # No artifacts may exist after the fatal raise.
+    assert not (out_dir / "opportunity_report.json").exists(), \
+        "fetch_budget_exhausted raise left a partial opportunity_report.json"
+    assert not any(out_dir.glob("*.tmp*")), \
+        "fetch_budget_exhausted raise left a .tmp file"
