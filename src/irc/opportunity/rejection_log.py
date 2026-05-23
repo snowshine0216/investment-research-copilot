@@ -204,7 +204,11 @@ def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
     the first-match.
     """
     gap_set = set(row.evidence_gaps)
-    unknown = [gap for gap in gap_set if gap not in _GAP_TO_REASON]
+    # Iterate the original tuple (not gap_set) so the unknown[0] reported
+    # below is deterministic; CPython set iteration is hash-randomized
+    # across processes, which made error messages flake under -O / different
+    # PYTHONHASHSEED values.
+    unknown = [gap for gap in row.evidence_gaps if gap not in _GAP_TO_REASON]
     if unknown:
         raise RuntimeError(
             f"unknown evidence_gap code: {unknown[0]!r} not in _GAP_TO_REASON "

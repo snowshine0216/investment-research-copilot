@@ -92,6 +92,13 @@ def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
     Patches both irc.fundamentals.akshare_fundamentals._ak_call (holdings,
     announcements, NAV, news) and irc.fundamentals.akshare_filing._ak_call
     (filings, broker reports) since each module defines its own indirection.
+
+    Unexpected keys (a `(fn_name, symbol)` pair not in `dispatch`) ALSO
+    increment the counter under a sentinel key `("__unexpected__", "<fn>:<sym>")`
+    so tests can `assert counter["__unexpected__:*"] == 0` and prove the
+    production code didn't silently dispatch to a function the seed doesn't
+    know about. Returns an empty DataFrame for those calls so tests don't
+    crash mid-arrange — but the unexpected counter is the actual signal.
     """
     counter: Counter = Counter()
 
@@ -101,6 +108,7 @@ def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
         counter[key] += 1
         frame = dispatch.get(key)
         if frame is None:
+            counter[("__unexpected__", f"{fn_name}:{symbol}")] += 1
             import pandas as pd
             return pd.DataFrame()
         return frame
@@ -114,13 +122,38 @@ def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
     return counter
 
 
-def _preload_duckdb(root: Path, instrument_ids: list[str]) -> None:
+def _unexpected_calls(counter: Counter) -> list[str]:
+    """Return human-readable list of unexpected dispatch keys recorded
+    by `_install_ak_call_dispatch`. Empty list means every call was
+    explicitly mapped in the seed's dispatch dict."""
+    return [
+        key[1] for key in counter
+        if isinstance(key, tuple) and key[0] == "__unexpected__"
+    ]
+
+
+_FIXED_INGESTED_AT = "2026-05-23T08:00:00+00:00"
+
+
+def _preload_duckdb(
+    root: Path,
+    instrument_ids: list[str],
+    *,
+    now_ts: str | None = None,
+) -> None:
     """Insert minimal DuckDB rows so populate_inputs returns non-None fields.
 
     Writes `instruments` metadata (expense_ratio, aum) and a 400-day
     synthetic NAV series — enough for self_history_percentile to return a
     value and remove the structural evidence gaps (missing_valuation_data,
     missing_flow_or_return_data, missing_product_metadata).
+
+    `now_ts` defaults to a fixed ISO timestamp so AC22's two-run byte-equality
+    test stays deterministic regardless of wall-clock skew between the two
+    `run_opportunity(repo_root=...)` invocations. Callers running tests OTHER
+    than byte-equality can leave the default; it doesn't affect any other
+    surface because `_ingested_at` is not projected into the four canonical
+    artifacts AC22 compares.
     """
     from irc.data.duckdb_helper import connect, ensure_schema
 
@@ -130,7 +163,8 @@ def _preload_duckdb(root: Path, instrument_ids: list[str]) -> None:
     ensure_schema(con)
     today = datetime.now(timezone(timedelta(hours=8))).date()
 
-    now_ts = datetime.now(timezone.utc).isoformat()
+    if now_ts is None:
+        now_ts = _FIXED_INGESTED_AT
     for iid in instrument_ids:
         # Insert instrument metadata.
         con.execute(
@@ -216,6 +250,19 @@ def _seed_publishable_set_repo(
         )
         qdii_us_path = tmp_path / "config" / "universe" / "qdii_us.yaml"
         qdii_hk_path = tmp_path / "config" / "universe" / "qdii_hk.yaml"
+        # Guard against silent "appended to non-existent file" — if run_init's
+        # template emission ever changes, `open("a")` would create a NEW file
+        # containing only this entry (no `instruments:` list header), so
+        # yaml.safe_load would parse as a string and the appended row would
+        # silently vanish from the universe.
+        assert qdii_us_path.exists(), (
+            f"expected {qdii_us_path} to exist after run_init; "
+            "appending to a missing file would create invalid YAML"
+        )
+        assert qdii_hk_path.exists(), (
+            f"expected {qdii_hk_path} to exist after run_init; "
+            "appending to a missing file would create invalid YAML"
+        )
         with qdii_us_path.open("a", encoding="utf-8") as f:
             f.write(_qdii_us_entry)
         with qdii_hk_path.open("a", encoding="utf-8") as f:
@@ -603,6 +650,18 @@ def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None
     assert "163417" in rej_iids, "gapped iid missing from rejections.json"
     assert "005827" not in rej_iids, "publishable iid leaked into rejections.json"
     assert "163417" in below, "gapped iid missing from discipline failure section"
+    # H3 completeness half — every scored iid lands in EXACTLY one of
+    # (row_iids, rej_iids); a row invisible to both surfaces is a partition
+    # break (e.g. silent drop by _apply_reduction with no rejection record).
+    scored_iids = {s["instrument_id"] for s in scoring["scores"]}
+    assert row_iids | rej_iids >= scored_iids, (
+        f"H3 completeness: rows missing from BOTH publishable and rejections "
+        f"= {scored_iids - (row_iids | rej_iids)}"
+    )
+    assert not (row_iids & rej_iids), (
+        f"H3 disjointness: iids in BOTH publishable AND rejections = "
+        f"{row_iids & rej_iids}"
+    )
 
 
 # ─── AC11: Policy-B precedence ───────────────────────────────────────────────
@@ -675,6 +734,76 @@ def test_policy_b_precedence_qdii_over_policy_b_code(tmp_path, monkeypatch) -> N
         f"Policy-B precedence broken: got {entry['rejection_reason']!r}, " \
         "expected 'qdii_information_unavailable' (qdii key precedes policy-b key " \
         "in _GAP_TO_REASON dict-iteration order per ADR 0003)"
+
+
+def test_policy_b_precedence_holds_when_qdii_gap_is_not_first_in_tuple(
+    tmp_path, monkeypatch,
+) -> None:
+    """AC11 adversarial variant — when `evidence_gaps` tuple lists a
+    structural gap BEFORE 'qdii_information_unavailable', the rejection_reason
+    classifier MUST still resolve to 'qdii_information_unavailable' (the
+    production-fix iterates `_GAP_TO_REASON` key-order, not the tuple-order).
+    This is the case the prior `_classify_rejection_reason` bug silently
+    failed: tuple-order iteration returned 'incomplete_constituent_data'."""
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.selection import SelectionQuality
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    qdii_row = OpportunityRow(
+        instrument_id="004243",
+        name_cn="易方达原油",
+        asset_class="us_etf",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="qdii_us", key="sp500",
+            display_cn="标普500", provider_symbol="",
+        ),
+        valuation_state="fair",
+        heat_state="normal",
+        thesis_state="evidence_insufficient",
+        product_quality_state="strong",
+        opportunity_state="exclude",
+        opportunity_reason="",
+        # Adversarial ordering — structural gap FIRST, QDII gap LAST.
+        evidence_gaps=(
+            "insufficient_info_coverage_top_half",
+            "qdii_information_unavailable",
+        ),
+        thesis_evidence=(),
+        constituent_analyses=(),
+    )
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_opportunity_outputs(
+        kept_rows=[qdii_row],
+        positions={"004243": PositionContext(
+            portfolio_weight=None, target_band_low=None, target_band_high=None,
+            drawdown_since_entry=None, is_holding=False,
+        )},
+        qualities={"004243": SelectionQuality(
+            expense_ratio=None, aum_cny=None, tracking_error=None,
+            premium_discount_abs=None, history_days=None, data_completeness=0.5,
+        )},
+        roles={"004243": ""},
+        holdings={},
+        out_dir=out_dir,
+        today=_today_cn(),
+    )
+
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    entry = next(e for e in rej["entries"] if e["instrument_id"] == "004243")
+    assert entry["rejection_reason"] == "qdii_information_unavailable", \
+        "QDII precedence MUST hold regardless of evidence_gaps tuple order " \
+        f"(got {entry['rejection_reason']!r})"
 
 
 # ─── AC12: fetch_budget_exhausted is fatal at write time ─────────────────────
@@ -992,11 +1121,15 @@ def test_snapshot_cache_probe_failure_fail_closed_refetch(tmp_path, monkeypatch)
         "irc.fundamentals.akshare_filing._ak_call", _fail_first_holdings,
     )
 
-    # Probe failure → full rebuild fires; run_opportunity should complete.
+    # Probe failure → full rebuild fires; run_opportunity may exit non-zero
+    # (system-exit) when the rebuild is the only path and itself raises, but
+    # MUST NOT swallow programming bugs. Narrow the catch to SystemExit so
+    # genuine crashes (NameError, import failures, KeyError) surface as test
+    # failures instead of being masked by a silent re-raise on the assertion.
     try:
         run_opportunity(repo_root=str(tmp_path))
-    except Exception:
-        pass  # AC17 tolerates downstream raise; key invariant: rebuild was attempted.
+    except SystemExit:
+        pass  # AC17 tolerates explicit non-zero exit from the rebuild path.
 
     probe_attempts = len(call_seq)
     assert probe_attempts >= 1, "probe was not even attempted"
@@ -1041,12 +1174,13 @@ def test_empty_holdings_propagate_to_rejections_holdings_fetch_failed(
     )
     assert entry is not None, \
         "fund with empty AkShare holdings missing from rejections.json"
-    # evidence_gaps either carries the canonical code OR is mapped to a
-    # rejection_reason that traces back to it. Check both surfaces.
+    # Canonical contract: empty AkShare holdings → row carries the exact
+    # `holdings_fetch_failed` code in `evidence_gaps`. The previous OR-form
+    # silently accepted any other gap code that happened to map to the same
+    # rejection_reason; tighten to the producer-side invariant.
     gaps = entry.get("evidence_gaps", [])
-    reason = entry.get("rejection_reason", "")
-    assert "holdings_fetch_failed" in gaps or reason == "holdings_fetch_failed", \
-        f"expected holdings_fetch_failed in gaps or reason; got gaps={gaps!r} reason={reason!r}"
+    assert "holdings_fetch_failed" in gaps, \
+        f"expected 'holdings_fetch_failed' in evidence_gaps; got {gaps!r}"
 
 
 # ─── ACs 19–20: cross-stage SAME-3 / citation-id-subset ──────────────────────
