@@ -5,7 +5,6 @@ from unittest.mock import patch
 
 from irc.commands.fundamentals_cmd import run_snapshot_rebuild
 from irc.fundamentals.types import ConstituentSnapshot
-from irc.opportunity.types import LookthroughTarget
 
 
 def _snapshot(target: str = "沪深300") -> ConstituentSnapshot:

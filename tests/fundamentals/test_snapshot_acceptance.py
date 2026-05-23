@@ -1,11 +1,6 @@
 """Spec §Acceptance criteria 6, 7, 8, 9, 10, 11, 29, 30, 31."""
 from __future__ import annotations
 
-from unittest.mock import patch
-
-import pandas as pd
-import pytest
-
 from irc.fundamentals import snapshot as snap_mod
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.types import (

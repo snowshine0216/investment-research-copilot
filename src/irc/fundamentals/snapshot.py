@@ -11,7 +11,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
-from pathlib import Path
 
 from irc.fundamentals.akshare_fundamentals import (
     fetch_cn_etf_holdings,
@@ -24,7 +23,7 @@ from irc.fundamentals.akshare_filing import (
     fetch_cn_filing_digest,
 )
 from irc.fundamentals.edgar_client import (
-    fetch_us_filing_digest,           # kept for any external import
+    fetch_us_filing_digest,  # noqa: F401 — re-exported for callers
     fetch_us_filing_digest_diag,
 )
 from irc.fundamentals.hkex_client import (
@@ -45,8 +44,6 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
     FundHolding,
-    HoldingsResult,
-    NewsItem,
 )
 from irc.opportunity.types import (
     ConstituentAnalysis,

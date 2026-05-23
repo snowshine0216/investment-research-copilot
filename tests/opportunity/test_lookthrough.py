@@ -1,5 +1,4 @@
 from __future__ import annotations
-import pytest
 
 from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.types import LookthroughTarget, OpportunityInput

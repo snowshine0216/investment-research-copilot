@@ -317,7 +317,7 @@ def test_build_us_snapshot_partial_success(monkeypatch) -> None:
 # ── Item 003: active-fund snapshot tests ──────────────────────────────────────
 
 from irc.fundamentals.types import (  # noqa: E402
-    ActiveFundSnapshot, BrokerReport as _BR, FilingDigest as _FD, FundHolding, HoldingsResult, NewsItem,
+    ActiveFundSnapshot, FundHolding, HoldingsResult,
 )
 
 

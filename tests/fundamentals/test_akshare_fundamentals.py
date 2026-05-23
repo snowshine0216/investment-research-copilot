@@ -19,7 +19,7 @@ from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
 )
-from irc.fundamentals.types import BrokerReport, Constituent, FilingDigest
+from irc.fundamentals.types import Constituent
 
 
 # ---------- fetch_cn_index_constituents ----------

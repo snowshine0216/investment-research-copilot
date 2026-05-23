@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
-
-import pytest
 
 from irc.fundamentals.snapshot_cache import (
     active_fund_cache_path,
