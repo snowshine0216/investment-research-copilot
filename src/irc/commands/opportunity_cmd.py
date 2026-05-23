@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -403,6 +404,57 @@ def _reject_limit_on_canonical(resolved: Path | None, today: str) -> None:
 
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+
+
+# ── Item 009: citation audit enforce-mode helpers ─────────────────────────────
+
+_CANONICAL_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_VALID_ENFORCE_MODES: tuple[str, ...] = ("off", "warn", "block")
+
+
+def _is_canonical_out_dir(out_dir: Path) -> bool:
+    """Per AC11 / Q2: canonical IFF parent is 'outputs' AND name matches YYYY-MM-DD."""
+    try:
+        resolved = out_dir.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if resolved.parent.name != "outputs":
+        return False
+    return bool(_CANONICAL_DATE_RE.fullmatch(resolved.name))
+
+
+def _resolve_enforce_mode(out_dir: Path, today: str) -> str:  # noqa: ARG001
+    """Resolve the IRC_CITATION_ENFORCE_MODE for the given output dir.
+
+    Per AC11 / Q2:
+      - Canonical path (outputs/YYYY-MM-DD) → 'block' (env var ignored).
+      - Non-canonical → honour env var, default 'block'.
+      - Unknown env value → 'block' with stderr warning.
+
+    `today` is unused for canonical-path detection (date is read from
+    `out_dir.name`) but accepted for forward-compat / call-site clarity.
+    """
+    if _is_canonical_out_dir(out_dir):
+        return "block"
+    raw = os.environ.get("IRC_CITATION_ENFORCE_MODE", "block")
+    if raw in _VALID_ENFORCE_MODES:
+        return raw
+    print(
+        f"WARN citation-audit: unknown IRC_CITATION_ENFORCE_MODE={raw!r}; "
+        f"falling back to 'block'",
+        file=sys.stderr,
+    )
+    return "block"
+
+
+def _write_citation_audit_shadow_log(out_dir: Path, payload: dict) -> None:
+    """Atomic write of the shared shadow log per AC13. Same atomicity as
+    every other artifact in this module."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(
+        out_dir / "citation_audit.json",
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    )
 
 
 def _locate_scoring(root: Path, today: str) -> Path | None:
