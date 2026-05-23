@@ -195,10 +195,10 @@ def _assert_non_empty_df(df: pd.DataFrame, endpoint: str, symbol: str) -> None:
     date_col = _resolve_column(df, "date", endpoint)
     first_title = df.iloc[0][title_col]
     first_date = df.iloc[0][date_col]
-    assert first_title is not None and str(first_title).strip() != "", (
+    assert pd.notna(first_title) and str(first_title).strip() != "", (
         f"Q4 PIVOT FAILURE: ak.{endpoint}(symbol={symbol!r}) row 0 '{title_col}' is null/empty."
     )
-    assert first_date is not None, (
+    assert pd.notna(first_date), (
         f"Q4 PIVOT FAILURE: ak.{endpoint}(symbol={symbol!r}) row 0 '{date_col}' is null."
     )
 

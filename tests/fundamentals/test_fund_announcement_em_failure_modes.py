@@ -106,3 +106,49 @@ def test_exception_during_call_raises_q4_unreachable_failure(mocker: Any) -> Non
     )
     with pytest.raises(AssertionError, match="Q4 PREREQUISITE FAILURE.*raised RuntimeError.*Information leg unreachable"):
         _call_fund_announcement_em("518880")
+
+
+# ── Regression: NaN/NaT schema-drift hardening (item 004 pr-review nits) ────
+
+def test_nan_title_raises_q4_pivot_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_assert_non_empty_df`` must FAIL when title cell is ``np.nan``.
+
+    Before the fix, ``str(np.nan).strip() != ""`` evaluated True (``'nan' != ''``),
+    causing a false-PASS that defeated the Q4 schema-drift gate.
+    ``pd.notna(np.nan)`` correctly returns False.
+    """
+    import numpy as np
+    from tests.fundamentals.test_fund_announcement_em_live import _assert_non_empty_df
+
+    endpoint = "fund_announcement_dividend_em"
+    symbol = "518880"
+    df = pd.DataFrame({
+        "公告标题": [np.nan],
+        "公告日期": ["2025-01-01"],
+        "基金代码": [symbol],
+        "基金名称": ["黄金ETF"],
+        "报告ID": ["R001"],
+    })
+    with pytest.raises(AssertionError, match="Q4 PIVOT FAILURE.*row 0.*is null/empty"):
+        _assert_non_empty_df(df, endpoint, symbol)
+
+
+def test_nat_date_raises_q4_pivot_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``_assert_non_empty_df`` must FAIL when date cell is ``pd.NaT``.
+
+    Before the fix, ``pd.NaT is not None`` was True, so a NaT date passed
+    silently. ``pd.notna(pd.NaT)`` correctly returns False.
+    """
+    from tests.fundamentals.test_fund_announcement_em_live import _assert_non_empty_df
+
+    endpoint = "fund_announcement_dividend_em"
+    symbol = "518880"
+    df = pd.DataFrame({
+        "公告标题": ["有效标题"],
+        "公告日期": [pd.NaT],
+        "基金代码": [symbol],
+        "基金名称": ["黄金ETF"],
+        "报告ID": ["R001"],
+    })
+    with pytest.raises(AssertionError, match="Q4 PIVOT FAILURE.*row 0.*is null"):
+        _assert_non_empty_df(df, endpoint, symbol)
