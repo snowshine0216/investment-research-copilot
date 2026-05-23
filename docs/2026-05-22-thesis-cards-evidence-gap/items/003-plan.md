@@ -3281,6 +3281,8 @@ git add src/irc/cli.py src/irc/commands/opportunity_cmd.py src/irc/commands/run_
 git commit -m "feat(cli): add --limit/--rebuild-fundamentals/--output-dir flags with canonical-path rejection"
 ```
 
+> **[DRIFT NOTE — 2026-05-23 autodev/003 drift review]** Implementer delivered `validate_cli_args` as a standalone function and declared the CLI flags in `cli.py`, but did NOT wire them through: `run_opportunity` was not extended with `output_dir`/`limit`/`rebuild_fundamentals` kwargs; `validate_cli_args` is not called from `run_opportunity`; `_build_rows` does not accept `limit`/`rebuild_fundamentals`; and `cli.py` drops the flags (calls `run_opportunity(repo_root=repo_root)` only). The unit-level behaviour of `validate_cli_args` is tested and correct; the end-to-end CLI plumbing is incomplete. This was recorded as a FAIL finding in `003-drift.md`; the next implementer must complete Step 3's threading work.
+
 ---
 
 ## Task 23: Acceptance-criteria tests (G6 trio + cache reuse + freshness trio + lock + thesis_cards.yaml)
