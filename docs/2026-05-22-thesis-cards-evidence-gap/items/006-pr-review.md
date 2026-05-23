@@ -1,4 +1,4 @@
-Verdict: PASS-WITH-NITS
+Verdict: PASS (post-fix)
 
 Subagent: claude-sonnet-4-6 (code-review skill, effort=max, 3-angle × verify)
 PR: https://github.com/snowshine0216/investment-research-copilot/pull/60
@@ -79,3 +79,14 @@ Only `("unknown_synthetic_gap", "holdings_fetch_failed")` (unknown first) is tes
 - `_classify_rejection_reason` misleading empty-gaps message (latent #2 in `006-review.md`)
 - 7-tuple return smell (nit #3 in `006-review.md`)
 - P0-1 / P0-2 / P1-1 blockers (all closed via fix commits)
+
+---
+
+## Fix round 2 (post-/code-review, pre-merge)
+
+Closed:
+- L1: df0d86d — _GAP_TO_REASON covers missing_us_news_adapter forward-declared code
+- Nit-1: d8f2e19 — parametrized mixed known/unknown ordering
+- Nit-2: 329026e — criterion-18 regex / fixture supports name_cn with spaces
+
+Final verdict: PASS (all findings closed).
