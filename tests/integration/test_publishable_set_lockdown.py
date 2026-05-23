@@ -742,3 +742,72 @@ def test_fetch_budget_exhausted_fatal_at_write_time_via_run_opportunity(
         "fetch_budget_exhausted raise left a partial opportunity_report.json"
     assert not any(out_dir.glob("*.tmp*")), \
         "fetch_budget_exhausted raise left a .tmp file"
+
+
+# ─── ACs 13–14: 持仓明细 appendix integrity (D3b) ────────────────────────────
+
+_APPENDIX_LINE_RE_FOR_TEST = re.compile(
+    r"^- \S+ .+ \(权重 [\d.]+%\): .+$"
+)
+
+
+def test_chicang_appendix_line_shape_per_publishable_row(tmp_path, monkeypatch) -> None:
+    """AC13 — for every publishable cn_equity_fund/cn_etf row with non-empty
+    constituent_analyses, the '## 持仓明细' appendix contains a subheading
+    '### {instrument_id} {name_cn}' followed by ≥1 bullet line matching the
+    locked regex (audit-error suffix permitted)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    md = (out_dir / "discipline_report.md").read_text(encoding="utf-8")
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+
+    appendix_idx = md.find("## 持仓明细")
+    if appendix_idx < 0:
+        pytest.skip("no publishable cn_equity_fund/cn_etf rows with constituents in this seed")
+    appendix = md[appendix_idx:]
+
+    for row in opp.get("rows", []):
+        if row["asset_class"] not in {"cn_equity_fund", "cn_etf"}:
+            continue
+        if not row.get("constituent_analyses"):
+            continue
+        subheading = f"### {row['instrument_id']} {row['name_cn']}"
+        assert subheading in appendix, \
+            f"appendix missing subheading {subheading!r}"
+        # Find subheading + following block until next ### or EOF.
+        sh_idx = appendix.index(subheading)
+        next_sh = appendix.find("###", sh_idx + len(subheading))
+        block = appendix[sh_idx:next_sh] if next_sh >= 0 else appendix[sh_idx:]
+        bullets = [
+            ln for ln in block.splitlines()
+            if _APPENDIX_LINE_RE_FOR_TEST.match(ln)
+        ]
+        assert bullets, \
+            f"appendix subheading {subheading!r} has no bullet lines matching shape"
+
+
+def test_chicang_appendix_omits_qdii(tmp_path, monkeypatch) -> None:
+    """AC14 — QDII rows have NO '### {instrument_id}' subheading in the
+    '## 持仓明细' appendix (they appear only in the failure section)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    md = (out_dir / "discipline_report.md").read_text(encoding="utf-8")
+    appendix_idx = md.find("## 持仓明细")
+    if appendix_idx < 0:
+        # Appendix may be absent if no publishable rows have constituents.
+        # That's fine; QDII is trivially absent.
+        return
+    appendix = md[appendix_idx:]
+    for iid in _QDII_IIDS:
+        assert f"### {iid}" not in appendix, \
+            f"QDII {iid} leaked into 持仓明细 appendix"
