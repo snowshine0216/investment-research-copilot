@@ -413,9 +413,95 @@ def test_fetch_hk_index_constituents_happy_path() -> None:
 
 def test_fetch_hk_index_constituents_returns_empty_on_failure() -> None:
     from irc.fundamentals.akshare_fundamentals import fetch_hk_index_constituents
-    
+
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.side_effect = RuntimeError("akshare network error")
         out = fetch_hk_index_constituents("HSI", top_n=10)
-    
+
     assert out == ()
+
+
+# ── Item 003: _parse_exchange + _parse_quarter_column ─────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import (  # noqa: E402
+    _parse_exchange,
+    _parse_quarter_column,
+)
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        ("600519", "SH"),
+        ("000333", "SZ"),
+        ("300750", "SZ"),
+        ("00700", "HK"),
+        ("0700", "HK"),
+        ("09988", "HK"),
+        ("AAPL", "US"),
+        ("830839", "BJ"),
+        ("430139", "BJ"),
+    ],
+)
+def test_parse_exchange_ticker_prefix_fallback(code, expected) -> None:
+    row = pd.Series({"股票代码": code})
+    assert _parse_exchange(row) == expected
+
+
+def test_parse_exchange_market_column_priority_hk() -> None:
+    row = pd.Series({"股票代码": "600519", "股票市场": "港交所"})
+    assert _parse_exchange(row) == "HK"
+
+
+def test_parse_exchange_market_column_priority_sz() -> None:
+    row = pd.Series({"股票代码": "00700", "股票市场": "深交所"})
+    assert _parse_exchange(row) == "SZ"
+
+
+def test_parse_exchange_market_column_star_board_sh() -> None:
+    row = pd.Series({"股票代码": "688981", "股票市场": "科创板"})
+    assert _parse_exchange(row) == "SH"
+
+
+def test_parse_exchange_market_column_unknown_falls_through() -> None:
+    # Unknown 股票市场 value falls through to ticker-prefix.
+    row = pd.Series({"股票代码": "600519", "股票市场": "新疆板块"})
+    assert _parse_exchange(row) == "SH"
+
+
+def test_parse_exchange_unknown() -> None:
+    row = pd.Series({"股票代码": "X1!"})
+    assert _parse_exchange(row) == "UNKNOWN"
+
+
+def test_parse_exchange_strips_sz_sh_prefix() -> None:
+    row = pd.Series({"股票代码": "sz000333"})
+    assert _parse_exchange(row) == "SZ"
+
+
+def test_parse_quarter_column_happy() -> None:
+    row = pd.Series({"季度": "2024年1季度股票投资明细"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2024Q1"
+    assert iso == "2024-03-31"
+
+
+def test_parse_quarter_column_q4() -> None:
+    row = pd.Series({"季度": "2023年4季度股票投资明细"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2023Q4"
+    assert iso == "2023-12-31"
+
+
+def test_parse_quarter_column_baogao_qi_fallback() -> None:
+    row = pd.Series({"报告期": "2024年2季度"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == "2024Q2"
+    assert iso == "2024-06-30"
+
+
+def test_parse_quarter_column_unparseable() -> None:
+    row = pd.Series({"季度": "2024年半年度"})
+    quarter, iso = _parse_quarter_column(row)
+    assert quarter == ""
+    assert iso == ""
