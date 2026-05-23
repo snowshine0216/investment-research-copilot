@@ -466,12 +466,24 @@ def run_memo(repo_root: str) -> int:
 
     # Item 007 D1c: build alias maps from publishable rows. Item 009's
     # find_uncited_conclusions consumes these via the audit-gate wiring;
-    # item 007 ships only the producer side. The empty-map RuntimeError in
-    # find_uncited_conclusions raises if this wiring ever fails to fire.
+    # item 007 ships only the producer side. Wrap the call so an
+    # `InstrumentAliasCollisionError` surfaces as a user-readable ERROR
+    # line (not a Python traceback) — production data has occasionally
+    # produced duplicate `name_cn` strings across share-class variants of
+    # the same parent fund family.
+    from irc.memo.aliases import InstrumentAliasCollisionError
     publishable_rows_for_aliases = _reconstruct_opportunity_rows(rebuilt_op_rows)
-    _instrument_aliases, _constituent_aliases = build_alias_maps(
-        publishable_rows_for_aliases,
-    )
+    try:
+        _instrument_aliases, _constituent_aliases = build_alias_maps(
+            publishable_rows_for_aliases,
+        )
+    except InstrumentAliasCollisionError as exc:
+        print(
+            f"ERROR: alias-builder collision while preparing memo: {exc}\n"
+            "Investigate opportunity_report.json for duplicate `name_cn` "
+            "or shared `lookthrough_target.key` across publishable rows."
+        )
+        return 1
 
     tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
 

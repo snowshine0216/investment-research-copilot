@@ -411,3 +411,44 @@ def test_appendix_line_re_accepts_parens_in_cn_fund_names() -> None:
     for s in samples:
         m = report._APPENDIX_LINE_RE.match(s)
         assert m is not None, f"regex must accept paren-bearing CN name; rejected: {s!r}"
+
+
+def test_appendix_line_re_accepts_dot_bearing_symbols() -> None:
+    """Regression — post-ship code-review surfaced that `sym=[0-9A-Z]{4,6}`
+    silently rejected dot-bearing tickers like `BRK.B` (S&P 500 top-10 in any
+    QDII US fund) and `BF.B`. Item 009's `find_uncited_discipline_rows` would
+    have under-counted any Berkshire-mentioning paragraph. Lock the
+    `[0-9A-Z.]{1,8}` relaxed `sym` pattern."""
+    from irc.opportunity import report
+    samples = [
+        "- BRK.B Berkshire Hathaway B (权重 5.0%): one_line [ref:a1b2c3d4e5f60718]",
+        "- BF.B Brown-Forman B (权重 0.5%): ❌ broker_fetch_failed",
+        "- 600519 贵州茅台 (权重 8.2%): plain_short [ref:0011223344556677]",
+        "- 00700 腾讯控股 (权重 3.0%): plain [ref:aabbccddeeff0011]",  # HK 5-digit
+    ]
+    for s in samples:
+        m = report._APPENDIX_LINE_RE.match(s)
+        assert m is not None, f"regex must accept dot-bearing or short symbol; rejected: {s!r}"
+
+
+def test_appendix_line_re_is_multiline_aware() -> None:
+    """Regression — post-ship code-review surfaced that `_APPENDIX_LINE_RE`
+    was compiled without `re.MULTILINE`. Item 009's `find_uncited_discipline_rows`
+    will almost certainly run `_APPENDIX_LINE_RE.findall(full_document)` or
+    `.search(full_document)` against the entire `discipline_report.md` text.
+    Without MULTILINE, `^` only matches position 0 of the entire string, so
+    every such bulk-document scan would return 0 matches — silent audit no-op.
+    Lock the MULTILINE flag so per-line matches work end-to-end."""
+    from irc.opportunity import report
+    doc = (
+        "## 持仓明细\n\n"
+        "### 005827 易方达蓝筹精选 (cn_equity_fund)\n\n"
+        "- 600519 贵州茅台 (权重 8.2%): 持有头部白酒 [ref:a1b2c3d4e5f60718]\n"
+        "- 300750 宁德时代 (权重 6.0%): 持有头部电池 [ref:0011223344556677]\n"
+        "- BRK.B Berkshire Hathaway B (权重 5.0%): one_line [ref:aabbccddeeff0011]\n"
+    )
+    matches = list(report._APPENDIX_LINE_RE.finditer(doc))
+    assert len(matches) == 3, \
+        f"expected 3 matches on the 3 bullet lines; got {len(matches)}"
+    syms = [m.group("sym") for m in matches]
+    assert syms == ["600519", "300750", "BRK.B"]

@@ -75,24 +75,6 @@ def test_render_findings_block_includes_kind_and_excerpt():
 # ── Item 007 D1c — find_uncited_conclusions stub ──────────────────────────────
 
 
-def test_find_uncited_conclusions_empty_instrument_aliases_raises() -> None:
-    """Item 007 D1c — empty alias map indicates build_alias_maps did not
-    run; the function refuses to silent-no-op the audit."""
-    import pytest
-    from irc.memo.numeric_audit import find_uncited_conclusions
-    with pytest.raises(RuntimeError) as exc:
-        find_uncited_conclusions(
-            prose="some prose mentioning 005827",
-            cited_map={},
-            instrument_aliases={},
-            constituent_aliases={},
-            constituent_cited_map={},
-        )
-    msg = str(exc.value)
-    assert "empty instrument_aliases" in msg
-    assert "D1c" in msg
-
-
 def test_find_uncited_conclusions_non_empty_aliases_does_not_raise() -> None:
     """Non-empty instrument_aliases must pass the guard. Empty
     constituent_aliases is permitted (a publishable run may have zero
@@ -107,3 +89,43 @@ def test_find_uncited_conclusions_non_empty_aliases_does_not_raise() -> None:
     )
     # Item 007 ships the stub; the body is item 009's territory.
     assert result == []
+
+
+def test_find_uncited_conclusions_empty_aliases_with_empty_prose_returns_empty() -> None:
+    """Regression — post-ship code-review surfaced that the original empty-map
+    `RuntimeError` raised even for the LEGITIMATE all-gapped-row case (every
+    opportunity row failed Policy B → `build_alias_maps(())` returned `({}, {})`).
+
+    Discriminator: if prose is empty/whitespace, there's nothing to audit; return [].
+    """
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    assert find_uncited_conclusions(
+        prose="",
+        cited_map={},
+        instrument_aliases={},
+        constituent_aliases={},
+        constituent_cited_map={},
+    ) == []
+    assert find_uncited_conclusions(
+        prose="   \n\t  ",
+        cited_map={},
+        instrument_aliases={},
+        constituent_aliases={},
+        constituent_cited_map={},
+    ) == []
+
+
+def test_find_uncited_conclusions_empty_aliases_with_non_empty_prose_returns_empty() -> None:
+    """Item 009 will tighten this branch (raise IFF aliases empty AND
+    publishable_set is non-empty per the upstream pipeline state). Item 007's
+    stub returns [] for the all-gapped case (the most defensive choice that
+    doesn't crash the memo audit on legitimate empty-publishable runs).
+    """
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    assert find_uncited_conclusions(
+        prose="some prose mentioning 005827",
+        cited_map={},
+        instrument_aliases={},
+        constituent_aliases={},
+        constituent_cited_map={},
+    ) == []

@@ -410,6 +410,48 @@ def test_render_section_no_inline_block_when_empty_constituents() -> None:
     assert "持仓 (Top 5)" not in out
 
 
+def test_inline_audit_errors_win_when_no_evidence_and_failure_reasons_present() -> None:
+    """Regression — post-ship code-review surfaced that the original inline
+    precedence dropped audit_errors when evidence==() AND failure_reasons!=().
+    Lock the audit-precedence behavior: in the no-evidence branch, audit_errors
+    must win over failure_reasons (audit signals data-integrity issues, which
+    are higher urgency than per-constituent fetch failures)."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(
+        symbol="600519", name_cn="贵州茅台", weight=6.5,
+        evidence=(),
+        failure_reasons=("broker_fetch_failed",),
+        audit_errors=("missing_constituent_record:600519",),
+        one_line_view="should not appear",
+    )
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "⚠️ audit_error: missing_constituent_record:600519" in out
+    # When the audit branch wins, the failure_reasons text is NOT silently
+    # rendered as a `❌ ...` line (the appendix would still surface it via
+    # its own first-match Shape 1/3 precedence; inline shows only the audit).
+    assert "❌ broker_fetch_failed" not in out
+    assert "should not appear" not in out
+
+
+def test_inline_partial_success_renders_evidence_plus_failure_reasons() -> None:
+    """Regression — post-ship code-review surfaced that the original inline
+    fell through to bare {one_line_view} when both evidence and
+    failure_reasons were present, silently dropping the failure signal.
+    Lock the partial-success rendering: one_line_view (⚠️ failure_reasons)."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(
+        symbol="600519", name_cn="贵州茅台", weight=6.5,
+        evidence=(_evidence(constituent_key="600519"),),
+        failure_reasons=("broker_report_unavailable",),
+        audit_errors=(),
+        one_line_view="持有头部白酒",
+    )
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持有头部白酒 (⚠️ broker_report_unavailable)" in out
+
+
 def test_render_section_inline_top_5_orders_by_weight_desc() -> None:
     """Constituents render by weight_pct descending (rank 1 first)."""
     from irc.opportunity.report import _render_section

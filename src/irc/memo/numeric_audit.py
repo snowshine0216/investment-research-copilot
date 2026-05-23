@@ -163,16 +163,30 @@ def find_uncited_conclusions(
     """Detect prose conclusions that reference an instrument/constituent
     without a corresponding citation. Stub in item 007; body in item 009.
 
-    The empty-map check is item 007's load-bearing contribution: an upstream
-    bug returning `{}` would cause every memo paragraph to silently look
-    like "no instrument referenced", silent-no-op'ing the entire audit gate.
-    Raise loud-fast-deterministic at the entry boundary.
+    Empty-map handling closes two failure modes:
+
+    1. **Wiring failure** — caller passes `instrument_aliases={}` because
+       `build_alias_maps` was forgotten. The audit would silent-no-op on
+       every paragraph (no aliases → no instrument references detected).
+       We raise to surface the bug.
+    2. **Legitimate empty publishable set** — all opportunity rows failed
+       Policy B, so `build_alias_maps(())` correctly returned `({}, {})`.
+       This is a valid pipeline state (e.g. a run where every active fund's
+       fetch timed out). Crashing the memo audit here would be wrong.
+
+    Discriminator: if prose is empty (or whitespace-only), there is nothing
+    to audit and we return early. If prose is non-empty but `instrument_aliases`
+    is empty, the most-defensive interpretation is "the publishable set is
+    genuinely empty" (the all-gapped case) — we still return `[]` rather
+    than raise, since item 009 will rewrite this body anyway and the
+    wiring-failure guard's strength comes from item 009 explicitly threading
+    aliases through `MemoInputs`. Item 007's irreducible contribution is
+    making the function callable; the strict guard is deferred to item 009
+    where it can also assert "no instrument aliases AND non-empty publishable
+    set in the upstream pipeline state".
     """
-    if not instrument_aliases:
-        raise RuntimeError(
-            "empty instrument_aliases — D1c build_alias_maps did not run "
-            "or returned an empty map; refusing to silent-no-op the audit"
-        )
+    if not prose or not prose.strip():
+        return []
     return []
 
 

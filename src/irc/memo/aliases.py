@@ -82,13 +82,23 @@ def _instrument_alias_keys(row: OpportunityRow) -> tuple[str, ...]:
     """Return the alias-string set for one OpportunityRow.
 
     Sources: (a) bare instrument_id, (b) canonical name_cn, (c) the
-    lookthrough_target.key when distinct from instrument_id (venue-suffixed
-    forms like `510300.SH`).
+    lookthrough_target.key WHEN it textually contains `instrument_id` and is
+    therefore guaranteed-unique (e.g. `fund_005827` for active funds, or
+    `510300.SH` for hypothetical venue-suffixed forms).
+
+    NEVER include `lookthrough_target.key` when it's a SHARED descriptor like
+    `"csi300"`, `"gold"`, `"cn_bond"`, `"qdii_us"`, or `"global_equity"` —
+    those collide with every other ETF tracking the same index, and the
+    `InstrumentAliasCollisionError` is raised on every normal production run
+    where more than one such ETF is publishable (per the post-ship review
+    finding that ANY two CSI 300 ETFs or two gold ETFs trigger the collision).
     """
     keys: list[str] = [row.instrument_id]
     if row.name_cn:
         keys.append(row.name_cn)
     lt_key = getattr(row.lookthrough_target, "key", "")
-    if lt_key and lt_key != row.instrument_id:
+    # Only include lt_key as an alias if it embeds the instrument_id (and
+    # is therefore unique). Shared cross-instrument keys are excluded.
+    if lt_key and lt_key != row.instrument_id and row.instrument_id in lt_key:
         keys.append(lt_key)
     return tuple(keys)

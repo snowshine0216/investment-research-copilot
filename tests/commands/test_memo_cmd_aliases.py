@@ -102,3 +102,76 @@ def test_run_memo_builds_alias_maps_over_publishable_rows(monkeypatch, tmp_path)
     # If build_alias_maps was wired, captured should be non-empty.
     assert captured, \
         "build_alias_maps was not invoked by run_memo — wiring missing"
+
+
+def test_run_memo_handles_alias_collision_with_clean_error(monkeypatch, tmp_path, capsys) -> None:
+    """Regression — post-ship code-review surfaced that an
+    `InstrumentAliasCollisionError` from `build_alias_maps` propagated as an
+    uncaught Python traceback through `run_memo`. The CLI now catches the
+    collision and prints a user-readable ERROR line with non-zero return code."""
+    import irc.commands.memo_cmd as mc
+    from irc.memo.aliases import InstrumentAliasCollisionError
+
+    # Monkey-patch build_alias_maps to always raise. The earliest run_memo
+    # work doesn't matter — we want the surface behavior on the collision
+    # branch. Use an early sentinel that triggers before deep pipeline work.
+    def _boom(rows):
+        raise InstrumentAliasCollisionError(
+            "alias '某基金' resolves to multiple instrument_ids: ['005827', '163417']"
+        )
+
+    monkeypatch.setattr(mc, "build_alias_maps", _boom)
+    # Set up the minimum file layout so run_memo reaches the alias-builder
+    # without an earlier crash.
+    from irc.commands.init_cmd import run_init
+    from irc.data.manifest import ManifestEntry, write_manifest
+    from datetime import datetime, timezone
+
+    run_init(str(tmp_path), force=False)
+    write_manifest(tmp_path / "data", ManifestEntry(
+        source="akshare", last_run_at=datetime.now(timezone.utc).isoformat(),
+        schema_version="v1", record_counts={"prices": 100},
+    ))
+
+    # Seed outputs for memo so the earlier `_load_*` steps don't bail first.
+    out_dir = tmp_path / "outputs" / "2026-05-23"
+    out_dir.mkdir(parents=True)
+    (out_dir / "gold_regime.json").write_text(
+        json.dumps({"regime": "range_bound", "zone": "pause", "tilt": "neutral_minus"}),
+        encoding="utf-8",
+    )
+    (out_dir / "scoring.json").write_text(
+        json.dumps({"scores": []}), encoding="utf-8",
+    )
+    (out_dir / "discovered_watchlist.csv").write_text(
+        "instrument_id,name_cn,asset_class\n", encoding="utf-8",
+    )
+    (out_dir / "gold_band.yaml").write_text(
+        yaml.dump({"floor_pct": 0.0, "ceiling_pct": 0.0, "ladder": []}),
+        encoding="utf-8",
+    )
+    (out_dir / "proposed_allocation.yaml").write_text(
+        yaml.dump({"allocations": []}), encoding="utf-8",
+    )
+    (out_dir / "trade_plan.yaml").write_text(
+        yaml.dump({"trades": []}), encoding="utf-8",
+    )
+    (out_dir / "opportunity_report.json").write_text(
+        json.dumps({"date": "2026-05-23", "rows": [
+            {"instrument_id": "005827", "name_cn": "X", "asset_class": "cn_equity_fund",
+             "valuation_state": "fair", "heat_state": "normal", "thesis_state": "intact",
+             "product_quality_state": "strong", "opportunity_state": "core_dca",
+             "opportunity_reason": "", "evidence_gaps": [], "thesis_evidence": [],
+             "constituent_analyses": []}
+        ]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(mc, "_today", lambda: "2026-05-23")
+
+    rc = mc.run_memo(str(tmp_path))
+    out = capsys.readouterr().out
+    assert rc == 1, f"alias-collision must exit with non-zero rc; got {rc}"
+    assert "ERROR" in out, f"expected user-readable ERROR line; got:\n{out}"
+    assert "alias-builder collision" in out
+    assert "005827" in out and "163417" in out, \
+        "error message must list the colliding iids"

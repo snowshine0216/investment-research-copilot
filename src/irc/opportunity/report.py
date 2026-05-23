@@ -140,19 +140,37 @@ def _rank_constituents_by_weight(
 def _format_inline_constituent_line(c) -> str:
     """Render one constituent line for the inline top-5 block.
 
-    Precedence (single-bullet shape — distinct from the appendix's 5-shape
-    contract per spec §17):
-    - `evidence == () AND failure_reasons != ()` → `❌ {failure_reasons_joined}` in place of one_line_view.
-    - `audit_errors != ()` → append ` ⚠️ {audit_errors_joined}` after one_line_view.
-    - `evidence != ()` (no failures) → bare `{one_line_view}`.
-    - all-empty (defensive) → ` ⚠️ audit_error: missing_constituent_record`.
+    Precedence — distinct from the appendix's 5-shape contract (spec §17)
+    in that inline still uses a single-bullet body that APPENDS audit_errors
+    + failure_reasons to one_line_view when evidence is present. The bug
+    closed in this revision: audit_errors used to be silently dropped when
+    `evidence == () AND failure_reasons != ()` (the failure-only branch
+    short-circuited before the audit append), AND failure_reasons were
+    dropped when `evidence != () AND failure_reasons != ()`.
+
+    Rules:
+    - `evidence == () AND audit_errors != ()` (irrespective of failure_reasons) →
+      `⚠️ audit_error: {audit_errors_joined}` (Shape 3-analog; highest precedence
+      for no-evidence rows so audit signals always win over failure-only).
+    - `evidence == () AND failure_reasons != ()` → `❌ {failure_reasons_joined}`.
+    - `evidence == () AND failure_reasons == () AND audit_errors == ()` →
+      `⚠️ audit_error: missing_constituent_record` (Shape 5-analog defensive).
+    - `evidence != ()` (the happy path) → `{one_line_view}`, with optional
+      `(⚠️ {failure_reasons_joined})` partial-failure suffix and optional
+      ` ⚠️ {audit_errors_joined}` audit suffix — both visible when both present.
     """
     head = f"    - {c.symbol} {c.name_cn} (权重 {c.weight_pct}%): "
-    if not c.evidence and c.failure_reasons:
-        return f"{head}❌ {'; '.join(c.failure_reasons)}"
-    if not c.evidence and not c.failure_reasons and not c.audit_errors:
+    # Branch A: no evidence. Audit > failure > defensive.
+    if not c.evidence:
+        if c.audit_errors:
+            return f"{head}⚠️ audit_error: {'; '.join(c.audit_errors)}"
+        if c.failure_reasons:
+            return f"{head}❌ {'; '.join(c.failure_reasons)}"
         return f"{head}⚠️ audit_error: missing_constituent_record"
+    # Branch B: evidence present. Render one_line_view + suffixes.
     body = c.one_line_view
+    if c.failure_reasons:
+        body = f"{body} (⚠️ {'; '.join(c.failure_reasons)})"
     if c.audit_errors:
         body = f"{body} ⚠️ {'; '.join(c.audit_errors)}"
     return f"{head}{body}"
@@ -227,15 +245,24 @@ _DRAWDOWN_NOTE_CN = (
 # Item 007 D3b §17 — locked appendix line regex contract. Item 009's
 # find_uncited_discipline_rows parses appendix bullets against this.
 #
-# `nm` uses `[^\n]+?` (non-greedy, non-newline only) — NOT `[^()\n]+?` as
-# the plan's "Locked appendix line regex contract" originally specified.
-# Real CN fund names routinely embed parentheses (`大成纳斯达克100ETF联接(QDII)A`,
-# `易方达标普信息科技指数(QDII-LOF)A`, etc.); the original `[^()\n]+?` pattern
-# silently dropped every such row from item 009's coverage report. The
-# trailing literal ` \(权重 ` anchors the non-greedy match unambiguously
-# (fund names do not contain the substring `(权重`).
+# Deviations from the plan's "Locked appendix line regex contract", surfaced
+# by the high-effort code-review on PR #61:
+#   - `nm` uses `[^\n]+?` (non-greedy, non-newline only) — NOT `[^()\n]+?`.
+#     Real CN fund names routinely embed parentheses
+#     (`大成纳斯达克100ETF联接(QDII)A`, `易方达标普信息科技指数(QDII-LOF)A`); the
+#     `[^()\n]+?` pattern silently rejected every such row.
+#   - `sym` uses `[0-9A-Z.]{1,8}` — NOT `[0-9A-Z]{4,6}`. Real symbols include
+#     dot-bearing tickers like `BRK.B` (S&P 500 top-10) and `BF.B`, and CN
+#     symbols can be 4-6 chars while HK symbols can be 5; widening to 1-8
+#     covers all real cases without admitting noise.
+#   - Compiled with `re.MULTILINE` so item 009 can call `.findall(text)` /
+#     `.search(text)` on the full discipline_report.md and have `^`/`$` match
+#     line boundaries (not just string boundaries — the prior compile-without-
+#     flag had item 009 silent-no-op on bulk-document scans).
+# All three relaxations are LOCKED by regression tests in
+# `tests/opportunity/test_report_appendix.py`.
 _APPENDIX_LINE_RE = re.compile(
-    r"^- (?P<sym>[0-9A-Z]{4,6}) (?P<nm>[^\n]+?) "
+    r"^- (?P<sym>[0-9A-Z.]{1,8}) (?P<nm>[^\n]+?) "
     r"\(权重 (?P<wpct>\d+(?:\.\d+)?)%\): "
     r"(?:"
     # Shape 1: evidence + failures
@@ -247,7 +274,8 @@ _APPENDIX_LINE_RE = re.compile(
     r"|⚠️ audit_error: (?P<audit_error>.+?)"
     # Shape 4: evidence only
     r"|(?P<oneline_only>.+?)(?P<refs_only>(?: \[ref:[0-9a-f]{16}\])+)"
-    r")$"
+    r")$",
+    re.MULTILINE,
 )
 
 

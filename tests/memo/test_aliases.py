@@ -162,3 +162,72 @@ def test_build_alias_maps_returns_dict_types() -> None:
         assert isinstance(v, frozenset)
         for tup in v:
             assert isinstance(tup, tuple) and len(tup) == 2
+
+
+def test_build_alias_maps_two_etfs_with_same_shared_lookthrough_key_do_not_collide() -> None:
+    """Regression — post-ship code-review surfaced that `_instrument_alias_keys`
+    appended `lookthrough_target.key` unconditionally when distinct from
+    `instrument_id`. For broad-index ETFs that key is a SHARED descriptor
+    (`csi300`, `gold`, `cn_bond`, `qdii_us`, …), causing every pair of
+    publishable ETFs tracking the same index to raise
+    `InstrumentAliasCollisionError`. Fix: only include the lookthrough key
+    when it textually contains the `instrument_id` (i.e. it's a unique
+    venue-suffixed or `fund_{iid}` form, not a shared descriptor)."""
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.memo.aliases import build_alias_maps
+    from irc.opportunity.types import OpportunityRow
+
+    def _bi_row(iid: str, name: str) -> OpportunityRow:
+        return OpportunityRow(
+            instrument_id=iid, name_cn=name, asset_class="cn_etf", theme=None,
+            lookthrough_target=LookthroughTarget(
+                kind="broad_index", key="csi300", display_cn="沪深300",
+                provider_symbol=iid,
+            ),
+            valuation_state="fair", heat_state="normal",
+            thesis_state="intact", product_quality_state="strong",
+            opportunity_state="core_dca", opportunity_reason="",
+            evidence_gaps=(), thesis_evidence=(),
+            constituent_analyses=(),
+        )
+
+    rows = (
+        _bi_row("510300", "华泰柏瑞沪深300ETF"),
+        _bi_row("159919", "嘉实沪深300ETF"),
+    )
+    # MUST NOT raise (used to raise InstrumentAliasCollisionError before the fix).
+    inst, _ = build_alias_maps(rows)
+    # The shared `csi300` key is NEVER an alias for either ETF.
+    assert "csi300" not in inst, \
+        "shared lookthrough_target.key must not appear as alias"
+    # The bare iid + name_cn aliases ARE present.
+    assert inst["510300"] == "510300"
+    assert inst["159919"] == "159919"
+    assert inst["华泰柏瑞沪深300ETF"] == "510300"
+    assert inst["嘉实沪深300ETF"] == "159919"
+
+
+def test_build_alias_maps_includes_lookthrough_key_when_it_embeds_iid() -> None:
+    """The `fund_{iid}` form (active_fund kind) MUST still alias because the
+    key uniquely identifies the row. Same for hypothetical `{iid}.SH` venue
+    forms."""
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.memo.aliases import build_alias_maps
+    from irc.opportunity.types import OpportunityRow
+
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="fund_005827", display_cn="易方达蓝筹精选",
+            provider_symbol="005827",
+        ),
+        valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="strong",
+        opportunity_state="core_dca", opportunity_reason="",
+        evidence_gaps=(), thesis_evidence=(),
+        constituent_analyses=(),
+    )
+    inst, _ = build_alias_maps((row,))
+    assert inst["fund_005827"] == "005827", \
+        "fund_{iid} embeds the iid → safe to alias"
