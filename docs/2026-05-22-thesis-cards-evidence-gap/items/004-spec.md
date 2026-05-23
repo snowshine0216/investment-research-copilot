@@ -234,6 +234,85 @@ After item 004 ships and verifies:
 
   Item 005 does NOT enter the implementation order until that re-decision is documented in the run-level `PROGRESS.md`.
 
+## Pivot — Q4 option (a)
+
+**User chose option (a) on 2026-05-23.**
+
+The single `fund_announcement_em` endpoint does not exist in AkShare 1.18.63. Per the Q4 FAIL verdict (`004-verify.md`), three topic-specific endpoints are present and workable. The pivot substitutes these three endpoints for the missing one.
+
+### Endpoints adopted
+
+| Endpoint | Topic | 518880 rows | 000001 rows | 005827 rows |
+|---|---|---|---|---|
+| `fund_announcement_dividend_em` | 分红配送 / dividend & distribution | 4 | 15 | 1 |
+| `fund_announcement_report_em` | 定期报告 / periodic reports | 94 | 100 | 50 |
+| `fund_announcement_personnel_em` | 人员变动 / personnel changes | 2 | 14 | 2 |
+
+### Actual column shapes (AkShare 1.18.63, explored 2026-05-23)
+
+All three endpoints return the **same** schema:
+
+```
+['基金代码', '公告标题', '基金名称', '公告日期', '报告ID']
+```
+
+- `基金代码` — fund symbol (e.g. `"518880"`)
+- `公告标题` — announcement title → logical `title`
+- `基金名称` — fund name (e.g. `"华安黄金易ETF"`)
+- `公告日期` — announcement date (Python `datetime.date`) → logical `date`
+- `报告ID` — report identifier (e.g. `"AN201307240003689710"`) → logical `id` / surrogate for `url`
+
+**Notable difference from original spec:** No `公告类型` (type) column and no `公告链接` (url) column. The `报告ID` serves as the canonical reference identifier. Item 005's information-leg normalizer must derive a URL from `报告ID` or treat it as an opaque ID.
+
+### Updated `COLUMN_EQUIVALENCE` (per-endpoint)
+
+All three endpoints have identical schemas, so a single map applies:
+
+```python
+COLUMN_EQUIVALENCE = {
+    "fund_announcement_dividend_em": {
+        "title": ("公告标题", "标题", "title"),
+        "date":  ("公告日期", "公告时间", "日期", "发布日期", "date"),
+        "id":    ("报告ID", "id"),
+        "fund":  ("基金代码", "code"),
+    },
+    "fund_announcement_report_em": {
+        "title": ("公告标题", "标题", "title"),
+        "date":  ("公告日期", "公告时间", "日期", "发布日期", "date"),
+        "id":    ("报告ID", "id"),
+        "fund":  ("基金代码", "code"),
+    },
+    "fund_announcement_personnel_em": {
+        "title": ("公告标题", "标题", "title"),
+        "date":  ("公告日期", "公告时间", "日期", "发布日期", "date"),
+        "id":    ("报告ID", "id"),
+        "fund":  ("基金代码", "code"),
+    },
+}
+```
+
+### Updated acceptance criteria (replaces original §"Acceptance criteria")
+
+~~Original acceptance criteria (4–8): `fund_announcement_em` exists, returns non-empty DataFrame with `{title, type, date, url}` columns for all 3 symbols, fixture written to `fund_announcement_em_518880.json`.~~ — pivoted to option (a) 2026-05-23: AkShare 1.18.63 has no `fund_announcement_em`; substituted 3 topic-specific endpoints.
+
+**New criteria (option a):**
+
+1. **11-test suite.** `test_fund_announcement_em_live.py` carries: 1 preflight + 9 per-endpoint × per-symbol + 1 aggregate gate = 11 live tests.
+2. **Preflight.** `test_fund_announcement_endpoints_exist` asserts `hasattr(ak, fn)` for all 3 endpoints.
+3. **Per-endpoint × per-symbol tests (9 cells).** Each test calls the endpoint and asserts no exception raised; returns a DataFrame (possibly empty for some cells — see aggregate gate for coverage requirement). Non-empty cells also assert `title` and `date` columns resolve and first row is non-null.
+4. **Per-symbol coverage (aggregate gate).** For each of the 3 symbols, AT LEAST ONE of the 3 endpoints must return a non-empty DataFrame. This gate PASSes even if some endpoint × symbol combinations are legitimately empty (e.g. `dividend_em` for `005827` returned only 1 row — fine if `report_em` covers it).
+5. **9 fixture files.** `tests/fixtures/akshare/{endpoint}_{symbol}.json` written for all 9 combinations. Empty DataFrames produce empty `rows: []` arrays (still valid fixture, captures the schema).
+6. **Failure-mode companion untouched.** `test_fund_announcement_em_failure_modes.py` still 5/5 PASS.
+
+### Downstream impact for item 005
+
+Item 005 (Slice F) must:
+
+1. Call all 3 topic-specific endpoints for each fund symbol (not one endpoint).
+2. Union the 3 DataFrames per symbol, normalizing columns to `{title, date, id}` (no `url` — use `报告ID` as opaque reference identifier).
+3. The `citation_kind="information"` leg now emits 3 rows per fund (one per announcement topic) rather than N rows from a single unified stream.
+4. The column normalizer must handle `datetime.date` objects in `公告日期` (not strings) — AkShare returns Python date objects, not date strings.
+
 ## Resolved decisions
 
 Grilling pass on 2026-05-23. Six questions raised against the spec; auto-accepted recommendations applied inline above. Original spec content preserved; corrected lines are called out below for provenance.
