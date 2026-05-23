@@ -14,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from irc.fundamentals.types import FilingDigest
+from irc.fundamentals.types import FilingDigest, NewsItem
 
 
 _KEY_REVENUE = "营业额"
@@ -128,3 +128,56 @@ def fetch_hk_filing_digest(symbol: str) -> FilingDigest | None:
         gross_margin=gross_margin,
         source_url=_EM_HK_QUOTE_URL.format(symbol=code),
     )
+
+
+# ── Item 003: HK stock news ───────────────────────────────────────────────────
+
+def fetch_hk_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
+    """Top-K recent HK stock news via AkShare `stock_hk_news_em`.
+
+    On any adapter error (including `AttributeError` from AkShare versions
+    that don't ship the function) or empty frame, returns `()`. The caller
+    distinguishes "adapter missing" vs "empty result" by inspecting its own
+    failure-reason context (`hk_news_unsupported_adapter` vs `hk_news_empty`).
+    """
+    code = _normalize_hk_code(stock)
+    if not code:
+        return ()
+    try:
+        df = _ak_call("stock_hk_news_em", symbol=code)
+    except Exception:
+        return ()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return ()
+    title_col = "标题" if "标题" in df.columns else None
+    date_col = "发布时间" if "发布时间" in df.columns else None
+    url_col = "新闻链接" if "新闻链接" in df.columns else None
+    summary_col = "内容摘要" if "内容摘要" in df.columns else None
+    if not (title_col and date_col):
+        return ()
+    sorted_df = df.sort_values(date_col, ascending=False).head(top_k)
+    out: list[NewsItem] = []
+    for _, row in sorted_df.iterrows():
+        raw_date = str(row[date_col])
+        published = raw_date.split(" ")[0]
+        out.append(NewsItem(
+            symbol=code,
+            title=str(row[title_col]),
+            url=str(row[url_col]) if url_col else "",
+            published_iso=published,
+            summary=str(row[summary_col]) if summary_col else "",
+            source="stock_hk_news_em",
+        ))
+    return tuple(out)
+
+
+def hk_news_adapter_available() -> bool:
+    """Return True iff the installed AkShare exposes `stock_hk_news_em`.
+
+    Lazy-imports AkShare; on ImportError returns False.
+    """
+    try:
+        import akshare as ak  # local import
+    except ImportError:
+        return False
+    return hasattr(ak, "stock_hk_news_em")
