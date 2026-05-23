@@ -314,6 +314,43 @@ def test_citation_id_uses_summary_fallback_when_url_empty():
 
 # ── Item 003: LookthroughTarget.provider_symbol tests ────────────────────────
 
+# ── Item 003: ThesisCard.constituent_analyses + DisciplineRow narrowing ───────
+
+def test_thesis_card_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import ThesisCard
+    card = ThesisCard(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None, role="watchlist",
+        lookthrough_target="易方达蓝筹精选", entry_reason="",
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        dca_action="pause_dca", risk_action="none",
+        falsification_triggers=(), trim_triggers=(),
+        do_not_sell_just_because=(), review_cadence="weekly",
+        evidence_gaps=(),
+    )
+    assert card.constituent_analyses == ()
+
+
+def test_discipline_row_constituent_analyses_typed() -> None:
+    from irc.opportunity.types import ConstituentAnalysis, DisciplineRow
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=6.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+    row = DisciplineRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+        constituent_analyses=(c,),
+    )
+    assert row.constituent_analyses[0].symbol == "600519"
+
+
 def test_lookthrough_target_provider_symbol_default_empty() -> None:
     t = LookthroughTarget("broad_index", "csi300", "沪深300")
     assert t.provider_symbol == ""

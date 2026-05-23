@@ -245,6 +245,8 @@ class ThesisCard:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    # Item 003: per-constituent structured evidence (threaded from OpportunityRow).
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -258,10 +260,8 @@ class DisciplineRow:
     risk_action: RiskAction
     note_cn: str
     # Item 002: gap state and provenance carried through to renderers.
-    # `constituent_analyses` is typed `tuple[Any, ...]` until item 003 narrows
-    # to `tuple[ConstituentAnalysis, ...]`; default `()` round-trips through
-    # JSON as `[]`.
+    # Item 003: `constituent_analyses` narrowed from `tuple[object, ...]` to typed.
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
-    constituent_analyses: tuple[object, ...] = ()
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
     evidence_gaps: tuple[str, ...] = ()
     fetch_types_attempted: tuple[str, ...] = ()
