@@ -602,3 +602,75 @@ def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None
     assert "163417" in rej_iids, "gapped iid missing from rejections.json"
     assert "005827" not in rej_iids, "publishable iid leaked into rejections.json"
     assert "163417" in below, "gapped iid missing from discipline failure section"
+
+
+# ─── AC11: Policy-B precedence ───────────────────────────────────────────────
+
+def test_policy_b_precedence_qdii_over_policy_b_code(tmp_path, monkeypatch) -> None:
+    """AC11 — a QDII row carrying BOTH 'qdii_information_unavailable' AND
+    'insufficient_info_coverage_top_half' in evidence_gaps must classify
+    its rejection_reason as 'qdii_information_unavailable'.
+
+    Asserts on the OBSERVABLE string, NOT by importing _GAP_TO_REASON.
+    """
+    # precedence per src/irc/opportunity/rejection_log.py::_GAP_TO_REASON
+    # dict-iteration order + ADR 0003
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.selection import SelectionQuality
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    qdii_row = OpportunityRow(
+        instrument_id="004243",
+        name_cn="易方达原油",
+        asset_class="us_etf",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="qdii_us", key="sp500",
+            display_cn="标普500", provider_symbol="",
+        ),
+        valuation_state="fair",
+        heat_state="normal",
+        thesis_state="evidence_insufficient",
+        product_quality_state="strong",
+        opportunity_state="exclude",
+        opportunity_reason="",
+        evidence_gaps=(
+            "qdii_information_unavailable",
+            "insufficient_info_coverage_top_half",
+        ),
+        thesis_evidence=(),
+        constituent_analyses=(),
+    )
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    _write_opportunity_outputs(
+        kept_rows=[qdii_row],
+        positions={"004243": PositionContext(
+            portfolio_weight=None, target_band_low=None, target_band_high=None,
+            drawdown_since_entry=None, is_holding=False,
+        )},
+        qualities={"004243": SelectionQuality(
+            expense_ratio=None, aum_cny=None, tracking_error=None,
+            premium_discount_abs=None, history_days=None, data_completeness=0.5,
+        )},
+        roles={"004243": ""},
+        holdings={},
+        out_dir=out_dir,
+        today=_today_cn(),
+    )
+
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    entry = next(e for e in rej["entries"] if e["instrument_id"] == "004243")
+    assert entry["rejection_reason"] == "qdii_information_unavailable", \
+        f"Policy-B precedence broken: got {entry['rejection_reason']!r}, " \
+        "expected 'qdii_information_unavailable' (qdii key precedes policy-b key " \
+        "in _GAP_TO_REASON dict-iteration order per ADR 0003)"
