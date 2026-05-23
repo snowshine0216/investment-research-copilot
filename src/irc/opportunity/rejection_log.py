@@ -71,6 +71,17 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "missing_valuation_data":               "incomplete_constituent_data",
     "missing_flow_or_return_data":          "incomplete_constituent_data",
     "missing_product_metadata":             "incomplete_constituent_record",
+    # Legacy-path gap codes from thesis_evidence.py:409-429 / states.py:415.
+    # These surface for non-active-fund rows that hit the legacy constituent path.
+    # news_* codes: data leg present but info leg degraded — closest match.
+    "news_stage_skipped":                   "incomplete_constituent_data",
+    "news_search_empty":                    "incomplete_constituent_data",
+    "news_llm_failed":                      "incomplete_constituent_data",
+    # constituent record gaps: snapshot absent or constituent not found.
+    "missing_constituent_snapshot":         "incomplete_constituent_record",
+    "constituent_missing":                  "incomplete_constituent_record",
+    # broker coverage absent for a constituent — data leg degraded.
+    "missing_broker_coverage":              "incomplete_constituent_data",
 }
 
 
