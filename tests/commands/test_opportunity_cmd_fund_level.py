@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 
 # These fixtures stage minimal `_build_rows` inputs. They use the seam

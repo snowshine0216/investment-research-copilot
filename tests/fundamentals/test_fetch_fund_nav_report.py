@@ -5,7 +5,6 @@ import datetime as _dt
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from irc.fundamentals.akshare_fundamentals import fetch_fund_nav_report
 from irc.fundamentals.types import FundNavReport

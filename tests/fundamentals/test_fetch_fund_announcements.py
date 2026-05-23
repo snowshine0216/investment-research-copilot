@@ -7,7 +7,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from irc.fundamentals.akshare_fundamentals import fetch_fund_announcements
 from irc.fundamentals.types import FundAnnouncement
@@ -82,7 +81,7 @@ def test_fetch_fund_announcements_sorted_by_date_desc_report_id_asc() -> None:
     with patch(
         "irc.fundamentals.akshare_fundamentals._ak_call",
         side_effect=_mock_3_endpoints_for("518880"),
-    ) as mocked:
+    ):
         out = fetch_fund_announcements("518880")
     # Date descending; tie-break by report_id ascending.
     for prev, curr in zip(out, out[1:]):

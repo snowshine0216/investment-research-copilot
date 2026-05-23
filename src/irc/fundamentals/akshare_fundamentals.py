@@ -15,7 +15,14 @@ from typing import Any
 
 import pandas as pd
 
-from irc.fundamentals.types import Constituent, FundHolding, HoldingsResult, NewsItem
+from irc.fundamentals.types import (
+    Constituent,
+    FundAnnouncement,
+    FundHolding,
+    FundNavReport,
+    HoldingsResult,
+    NewsItem,
+)
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -445,8 +452,6 @@ def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
 
 
 # ── Item 005: Fund-level adapters ─────────────────────────────────────────────
-
-from irc.fundamentals.types import FundNavReport, FundAnnouncement
 
 
 def _normalize_nav_date(value: Any) -> str:

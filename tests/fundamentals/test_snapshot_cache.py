@@ -2,13 +2,24 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from irc.fundamentals.snapshot_cache import (
     active_fund_cache_path,
     load_active_fund_cache,
+    nav_cache_path,
+    load_nav_cache,
     write_active_fund_cache,
+    write_nav_cache,
 )
-from irc.fundamentals.types import ActiveFundSnapshot
-from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence
+from irc.fundamentals.types import (
+    ActiveFundSnapshot,
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
+    ThesisEvidence,
+)
+from irc.opportunity.types import ConstituentAnalysis
 
 
 def _make_snapshot(quarter: str = "2024Q1") -> ActiveFundSnapshot:
@@ -67,22 +78,6 @@ def test_write_then_reload_preserves_holding_weight_pct(tmp_path: Path) -> None:
 
 
 # ── Task 7: NAV cache I/O tests ───────────────────────────────────────────────
-
-import json
-
-import pytest
-
-from irc.fundamentals.snapshot_cache import (
-    nav_cache_path,
-    load_nav_cache,
-    write_nav_cache,
-)
-from irc.fundamentals.types import (
-    FundAnnouncement,
-    FundLevelSnapshot,
-    FundNavReport,
-    ThesisEvidence,
-)
 
 
 def _make_snap(tmp_id: str = "518880") -> FundLevelSnapshot:
@@ -174,7 +169,7 @@ def test_write_nav_cache_skips_qdii_sentinel(tmp_path: Path) -> None:
         cache_probed_at="",
         evidence_gaps=("qdii_information_unavailable",),
     )
-    written = write_nav_cache(sentinel, tmp_path)
+    write_nav_cache(sentinel, tmp_path)
     # Sentinel writers return a sentinel path (or None) — the file MUST NOT exist.
     assert not (tmp_path / "fundamentals").exists() or not any(
         (tmp_path / "fundamentals").rglob("fund_513500.json")

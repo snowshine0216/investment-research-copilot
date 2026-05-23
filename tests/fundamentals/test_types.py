@@ -10,6 +10,10 @@ from irc.fundamentals.types import (
     Constituent,
     ConstituentSnapshot,
     FilingDigest,
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
+    ThesisEvidence,
 )
 
 
@@ -163,10 +167,6 @@ def test_constituent_snapshot_records_per_source_failures() -> None:
 
 # ── Task 1: FundNavReport tests ───────────────────────────────────────────────
 
-import pytest
-
-from irc.fundamentals.types import FundNavReport
-
 
 def test_fund_nav_report_construction_happy() -> None:
     r = FundNavReport(
@@ -256,8 +256,6 @@ def test_fund_nav_report_rejects_malformed_quarter() -> None:
 
 # ── Task 2: FundAnnouncement tests ────────────────────────────────────────────
 
-from irc.fundamentals.types import FundAnnouncement
-
 
 def test_fund_announcement_construction_happy() -> None:
     a = FundAnnouncement(
@@ -305,8 +303,6 @@ def test_fund_announcement_rejects_malformed_date() -> None:
 
 
 # ── Task 3: FundLevelSnapshot tests ──────────────────────────────────────────
-
-from irc.fundamentals.types import FundLevelSnapshot, ThesisEvidence
 
 
 def test_fund_level_snapshot_construction_minimal() -> None:

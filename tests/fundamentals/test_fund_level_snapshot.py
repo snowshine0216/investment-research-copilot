@@ -1,12 +1,14 @@
 """Unit tests for fund-level snapshot builders (item 005 F3/F4)."""
 from __future__ import annotations
 
+import datetime as _dt
 from unittest.mock import patch
 
 import pandas as pd
 import pytest
 
 from irc.fundamentals.snapshot import (
+    _build_fund_level_snapshot,
     _build_qdii_sentinel_snapshot,
     build_snapshot,
 )
@@ -64,10 +66,6 @@ def test_build_snapshot_routes_all_qdii_kinds_to_sentinel() -> None:
 
 
 # ── Task 9: _build_fund_level_snapshot tests ─────────────────────────────────
-
-import datetime as _dt
-
-from irc.fundamentals.snapshot import _build_fund_level_snapshot
 
 
 def _nav_frame() -> pd.DataFrame:

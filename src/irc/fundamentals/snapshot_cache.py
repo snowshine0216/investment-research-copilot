@@ -19,6 +19,9 @@ from irc.fundamentals.types import (
     ConstituentAnalysis,
     ConstituentSnapshot,
     FilingDigest,
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
     ThesisEvidence,
 )
 
@@ -239,12 +242,6 @@ def load_active_fund_cache(
 
 
 # ── Item 005: NAV cache I/O ───────────────────────────────────────────────────
-
-from irc.fundamentals.types import (
-    FundAnnouncement,
-    FundLevelSnapshot,
-    FundNavReport,
-)
 
 
 def nav_cache_path(fund_id: str, quarter: str, root: Path) -> Path:

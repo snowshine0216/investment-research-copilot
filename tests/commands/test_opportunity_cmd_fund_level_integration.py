@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import duckdb
 import pandas as pd
-import pytest
 
 
 def _nav_frame_for(date_str: str = "2026-03-15", nav: float = 4.5678) -> pd.DataFrame:

@@ -10,7 +10,6 @@ import datetime as _dt
 from unittest.mock import patch
 
 import pandas as pd
-import pytest
 
 from irc.fundamentals.snapshot import _build_fund_level_snapshot
 from irc.fundamentals.types import LookthroughTarget
