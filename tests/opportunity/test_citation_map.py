@@ -107,3 +107,85 @@ def test_build_cited_map_raises_immediately_on_first_violation():
     row = _row(iid="510300", evidence=(ev_bad, ev_ok))
     with pytest.raises(RuntimeError, match="owner_instrument_id"):
         build_cited_map((row,))
+
+
+# ── Task 8: build_constituent_cited_map ──────────────────────────────────────
+
+def test_build_constituent_cited_map_basic() -> None:
+    """Build a constituent-cited map: instrument_id → constituent_key → {cid: CitationMeta}."""
+    from irc.fundamentals.types import (
+        ConstituentAnalysis, LookthroughTarget, ThesisEvidence,
+    )
+    from irc.opportunity.citation_map import build_constituent_cited_map
+    from irc.opportunity.types import OpportunityRow
+    ev = ThesisEvidence(
+        type="filing", source="src", url="https://x", date="2024-04-15",
+        summary="x", scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519", holding_weight_pct=8.2,
+    )
+    constituent = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(ev,), failure_reasons=(), one_line_view="",
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827",
+            display_cn="易方达蓝筹精选", provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(),
+        thesis_evidence=(), constituent_analyses=(constituent,),
+    )
+    m = build_constituent_cited_map((row,))
+    assert "005827" in m
+    assert "600519" in m["005827"]
+    cids = list(m["005827"]["600519"].keys())
+    assert len(cids) == 1
+    meta = m["005827"]["600519"][cids[0]]
+    assert meta.scope == "constituent"
+    assert meta.citation_kind == "data"
+    assert meta.owner_instrument_id == "005827"
+
+
+def test_build_constituent_cited_map_empty_returns_empty_dict() -> None:
+    from irc.opportunity.citation_map import build_constituent_cited_map
+    assert build_constituent_cited_map(()) == {}
+
+
+def test_build_constituent_cited_map_provenance_mismatch_raises() -> None:
+    """Mirror build_cited_map's provenance check."""
+    import pytest
+    from irc.fundamentals.types import (
+        ConstituentAnalysis, LookthroughTarget, ThesisEvidence,
+    )
+    from irc.opportunity.citation_map import build_constituent_cited_map
+    from irc.opportunity.types import OpportunityRow
+    ev = ThesisEvidence(
+        type="filing", source="src", url="https://x", date="2024-04-15",
+        summary="x", scope="constituent", citation_kind="data",
+        owner_instrument_id="OTHER_FUND",  # wrong owner
+        parent_fund_id="005827", constituent_key="600519",
+        holding_weight_pct=8.2,
+    )
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(ev,), failure_reasons=(), one_line_view="",
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="X", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827",
+            display_cn="X", provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(),
+        thesis_evidence=(), constituent_analyses=(c,),
+    )
+    with pytest.raises(RuntimeError, match="provenance mismatch"):
+        build_constituent_cited_map((row,))
