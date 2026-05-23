@@ -243,3 +243,90 @@ def test_build_fund_level_snapshot_data_evidence_no_holding_weight() -> None:
     data = [e for e in snap.evidence if e.citation_kind == "data"]
     for e in data:
         assert e.holding_weight_pct is None
+
+
+# ── Task 10: build_snapshot dispatch tests ───────────────────────────────────
+
+def test_build_snapshot_routes_gold_with_provider_symbol_to_fund_level() -> None:
+    target = LookthroughTarget(
+        kind="gold", key="gold", display_cn="黄金",
+        provider_symbol="518880",
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=_make_side_effect(_ann_frames()),
+    ):
+        snap = build_snapshot(target)
+    assert isinstance(snap, FundLevelSnapshot)
+    assert snap.fund_id == "518880"
+
+
+def test_build_snapshot_routes_bond_with_provider_symbol_to_fund_level() -> None:
+    target = LookthroughTarget(
+        kind="bond", key="cn_bond", display_cn="中国债券",
+        provider_symbol="000001",
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=_make_side_effect(_ann_frames()),
+    ):
+        snap = build_snapshot(target)
+    assert isinstance(snap, FundLevelSnapshot)
+
+
+def test_build_snapshot_routes_broad_index_with_provider_symbol_to_fund_level() -> None:
+    target = LookthroughTarget(
+        kind="broad_index", key="csi300", display_cn="沪深300",
+        provider_symbol="510300",
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=_make_side_effect(_ann_frames()),
+    ):
+        snap = build_snapshot(target)
+    assert isinstance(snap, FundLevelSnapshot)
+
+
+def test_build_snapshot_routes_sector_theme_with_provider_symbol_to_fund_level() -> None:
+    target = LookthroughTarget(
+        kind="sector_theme", key="semiconductor", display_cn="半导体",
+        provider_symbol="512480",
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=_make_side_effect(_ann_frames()),
+    ):
+        snap = build_snapshot(target)
+    assert isinstance(snap, FundLevelSnapshot)
+
+
+def test_build_snapshot_routes_broad_index_without_provider_symbol_to_legacy() -> None:
+    """Empty provider_symbol → falls through to legacy display-only path."""
+    from irc.fundamentals.types import ConstituentSnapshot
+    target = LookthroughTarget(
+        kind="broad_index", key="csi300", display_cn="沪深300",
+        provider_symbol="",
+    )
+    # Legacy path tries _build_cn_snapshot which calls fetch_cn_index_constituents.
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call"
+    ) as mocked:
+        mocked.return_value = pd.DataFrame()  # legacy gets empty too
+        snap = build_snapshot(target)
+    # The legacy path returns ConstituentSnapshot, not FundLevelSnapshot.
+    assert isinstance(snap, ConstituentSnapshot)
+
+
+def test_build_snapshot_active_fund_path_unchanged() -> None:
+    """Item 003 regression — active_fund kind still routes to _build_active_fund_snapshot."""
+    from irc.fundamentals.types import ActiveFundSnapshot
+    target = LookthroughTarget(
+        kind="active_fund", key="fund_005827", display_cn="易方达蓝筹精选",
+        provider_symbol="005827",
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call"
+    ) as mocked:
+        mocked.return_value = pd.DataFrame()  # holdings empty → empty snapshot
+        snap = build_snapshot(target)
+    assert isinstance(snap, ActiveFundSnapshot)
