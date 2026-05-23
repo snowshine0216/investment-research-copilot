@@ -18,7 +18,12 @@ pivot rationale.
 
 ## How to run
 
-Both the marker AND the env var are required (dual gate):
+The runtime gate is the `IRC_RUN_LIVE_AKSHARE=1` env var (matches the
+existing `RUN_LIVE_*` convention in `tests/llm/test_live_smoke.py` and
+`tests/integration/test_live_endpoints.py`). The `live_akshare` marker is
+registered for CLI filtering (`-m live_akshare` to run ONLY these tests,
+`-m "not live_akshare"` to exclude them) but the env var is the actual
+runtime guard:
 
 ```bash
 IRC_RUN_LIVE_AKSHARE=1 pytest -m live_akshare \
@@ -29,6 +34,11 @@ Expected: 11 tests pass (1 preflight + 9 per-endpoint × per-symbol + 1
 aggregate Q4 gate). Each per-symbol test prints a one-line shape summary;
 the aggregate gate prints the AkShare version and the per-symbol coverage
 matrix on success.
+
+**Note on the gate:** if `IRC_RUN_LIVE_AKSHARE=1` is set in your shell and
+you run bare `pytest` (no `-m` filter), these tests WILL run and hit the
+network. Either keep the env var unset in default shells or always pass
+`-m "not live_akshare"` in CI configurations that share the shell.
 
 ## Fixture refresh behaviour
 
@@ -56,10 +66,15 @@ aggregate gate), so daily content drift is benign.
 
 Any failing test raises with a structured message prefixed
 `Q4 PREREQUISITE FAILURE: …`. The aggregate gate FAILs if any symbol has
-ZERO non-empty results across all 3 endpoints. Per-endpoint × per-symbol
-tests may legitimately report empty (and pass with a documented skip-style
-message) for combinations where the symbol genuinely has no events of that
-type (e.g. no personnel changes for a passive ETF).
+ZERO non-empty results across all 3 endpoints.
+
+Per-endpoint × per-symbol tests hard-assert `len(df) > 0`: an empty
+response from any single endpoint × symbol cell is a per-cell FAIL. The
+aggregate gate then asks the broader Q4 question — does each symbol have
+coverage from AT LEAST ONE endpoint? If yes, the gate PASSes even when
+individual cells fail (the gate test catches the per-cell AssertionError
+and tallies per-symbol coverage). The orchestrator-readable verdict is the
+aggregate gate; per-cell failures are diagnostic detail.
 
 Fall-back options if a future AkShare release breaks the 3 endpoints
 (verbatim from `docs/diagnosis-thesis-cards-evidence-gap.md` §5):
@@ -79,7 +94,7 @@ FAIL.
 
 ## Default `pytest` behaviour
 
-Running `pytest` (or `pytest -x`) without the marker AND env var skips
+Running `pytest` (or `pytest -x`) without `IRC_RUN_LIVE_AKSHARE=1` skips
 every live test in this file. Zero AkShare calls occur in default suite
 runs.
 

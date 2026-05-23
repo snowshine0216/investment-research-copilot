@@ -32,7 +32,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-# ── Dual-gate preamble ──────────────────────────────────────────────────────
+# ── Gate preamble ───────────────────────────────────────────────────────────
+# Runtime gate: IRC_RUN_LIVE_AKSHARE=1 env var (matches existing RUN_LIVE_*
+# family in tests/llm/test_live_smoke.py and tests/integration/test_live_endpoints.py).
+# Marker `live_akshare` is for CLI filtering (`-m live_akshare`/`-m "not live_akshare"`),
+# NOT a second runtime gate — setting the env var alone is sufficient to run these
+# tests under bare `pytest`. Use `-m "not live_akshare"` to explicitly exclude
+# them from CI without unsetting the env var.
 
 _RUN = os.environ.get("IRC_RUN_LIVE_AKSHARE") == "1"
 pytestmark = [
