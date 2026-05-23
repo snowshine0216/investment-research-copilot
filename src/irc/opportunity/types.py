@@ -178,6 +178,24 @@ ConstituentCitedMap = dict[str, dict[str, dict[str, CitationMeta]]]
 
 
 @dataclass(frozen=True)
+class ConstituentAnalysis:
+    symbol: str
+    name_cn: str
+    weight_pct: float
+    evidence: tuple[ThesisEvidence, ...]
+    failure_reasons: tuple[str, ...]
+    one_line_view: str
+
+    def __post_init__(self) -> None:
+        if not self.symbol:
+            raise ValueError("ConstituentAnalysis.symbol must be non-empty")
+        if self.weight_pct < 0:
+            raise ValueError(
+                f"ConstituentAnalysis.weight_pct must be >= 0; got {self.weight_pct}"
+            )
+
+
+@dataclass(frozen=True)
 class OpportunityRow:
     instrument_id: str
     name_cn: str
@@ -197,6 +215,8 @@ class OpportunityRow:
     # Item 002: fetch pipeline diagnostics — mirrors DisciplineRow.fetch_types_attempted.
     # Serialized by _row_to_dict so render_failure_sections can populate 已尝试:.
     fetch_types_attempted: tuple[str, ...] = ()
+    # Item 003: per-constituent structured evidence for active-fund rows.
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
 
 
 @dataclass(frozen=True)

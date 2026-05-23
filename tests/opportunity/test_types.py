@@ -325,3 +325,59 @@ def test_lookthrough_target_provider_symbol_explicit() -> None:
         display_cn="易方达蓝筹精选", provider_symbol="005827",
     )
     assert t.provider_symbol == "005827"
+
+
+# ── Item 003: ConstituentAnalysis + OpportunityRow.constituent_analyses ───────
+
+def test_constituent_analysis_construction() -> None:
+    from irc.opportunity.types import ConstituentAnalysis
+    c = ConstituentAnalysis(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=6.2,
+        evidence=(),
+        failure_reasons=("filing_empty:600519",),
+        one_line_view="证据获取失败",
+    )
+    assert c.symbol == "600519"
+    assert c.weight_pct == 6.2
+
+
+def test_constituent_analysis_rejects_negative_weight() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="600519", name_cn="贵州茅台", weight_pct=-1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+def test_constituent_analysis_rejects_empty_symbol() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="", name_cn="x", weight_pct=1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+def test_opportunity_row_has_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import (
+        LookthroughTarget, OpportunityRow,
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", "fund_005827", "易方达蓝筹精选", "005827",
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="", evidence_gaps=(),
+    )
+    assert row.constituent_analyses == ()
