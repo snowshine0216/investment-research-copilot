@@ -269,3 +269,97 @@ def test_evaluate_policy_b_does_not_mutate_input_snapshot_cache_file(tmp_path) -
     }, sort_keys=True).encode("utf-8")
     post_sha = hashlib.sha256(post).hexdigest()
     assert pre_sha == post_sha
+
+
+def _evidence_data(symbol: str, owner: str = "005827"):
+    """Build a citation_kind='data' ThesisEvidence for a constituent."""
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type="filing",
+        source=symbol,
+        url=f"https://example.com/{symbol}",
+        date="2024-04-15",
+        summary=f"{symbol} 24Q1 财报",
+        scope="constituent",
+        citation_kind="data",
+        owner_instrument_id=owner,
+        parent_fund_id=owner,
+        constituent_key=symbol,
+    )
+
+
+def _evidence_info(symbol: str, owner: str = "005827"):
+    """Build a citation_kind='information' ThesisEvidence for a constituent."""
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type="news",
+        source=symbol,
+        url=f"https://example.com/{symbol}/news",
+        date="2024-04-15",
+        summary=f"{symbol} 调研",
+        scope="constituent",
+        citation_kind="information",
+        owner_instrument_id=owner,
+        parent_fund_id=owner,
+        constituent_key=symbol,
+    )
+
+
+def test_evaluate_policy_b_rule_3_data_leg_missing_one_holding() -> None:
+    """Position 7 has no data leg → gap_codes=('incomplete_constituent_data',)."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(f"S{i:02d}", 10.0 - i, evidence=(_evidence_data(f"S{i:02d}"),))
+        for i in range(10)
+        if i != 6
+    ) + (
+        # Position 7 (S06): info-only.
+        _ca("S06", 4.0, evidence=(_evidence_info("S06"),)),
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("incomplete_constituent_data",)
+    assert "data leg missing for 1 of 10 holdings: ['S06']" == v.decision_rule
+
+
+def test_evaluate_policy_b_rule_3_precedence_over_rule_4() -> None:
+    """Criterion 14: position 3 (material) has no data leg AND positions 6–10
+    have no info leg (tail data-only). Rule 3 fires first.
+    """
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # Material top-5: S00 weight=10, S01 weight=9, S02 weight=8, S03 weight=7, S04 weight=6.
+    # Position 3 (S02) is missing data leg.
+    analyses = tuple(
+        _ca(
+            f"S{i:02d}",
+            10.0 - i,
+            evidence=(
+                # Material slots S00, S01, S03, S04 have BOTH legs; S02 (rank 3) has only info.
+                # Tail S05..S09 have only data leg.
+                _evidence_info(f"S{i:02d}"),
+            ) if i == 2 else (
+                (_evidence_data(f"S{i:02d}"), _evidence_info(f"S{i:02d}"))
+                if i < 5 else (_evidence_data(f"S{i:02d}"),)
+            ),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("incomplete_constituent_data",)
+    assert "S02" in v.decision_rule
+
+
+def test_evaluate_policy_b_rule_3_all_holdings_failure_reasons_only() -> None:
+    """Criterion 12: every constituent has evidence==() AND failure_reasons!=().
+    Rule 3 fires because every holding lacks the data leg.
+    """
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(f"S{i:02d}", 10.0 - i, evidence=(), failure_reasons=("filing_empty:S",))
+        for i in range(10)
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("incomplete_constituent_data",)
+    assert "10 of 10" in v.decision_rule

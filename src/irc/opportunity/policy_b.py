@@ -234,14 +234,32 @@ def evaluate_policy_b(
             ),
         )
 
-    # Rules 3–5 + publishable fall-through land in tasks 5–7. For now, return
-    # a placeholder "publishable" verdict so the rule 1 + rule 2 tests can run.
+    # Rule 3: per-holding data leg required for ALL ranked holdings.
+    no_data_leg = tuple(
+        c for c in ranked
+        if not any(e.citation_kind == "data" for e in c.evidence)
+    )
+    if no_data_leg:
+        symbols = sorted(c.symbol for c in no_data_leg)
+        return PolicyBVerdict(
+            gap_codes=("incomplete_constituent_data",),
+            audit_errors=(),
+            decision_rule=(
+                f"data leg missing for {len(no_data_leg)} of {top_n} holdings: "
+                f"{symbols}"
+            ),
+            material_symbols=_material_symbols(ranked, top_n),
+            constituent_coverage=_build_coverage_entries(ranked, top_n),
+        )
+
+    # Rules 4 + 5 + publishable fall-through land in tasks 6 + 7. For now,
+    # placeholder publishable.
     material = _material_set_with_ties(ranked, top_n=top_n)
     return PolicyBVerdict(
         gap_codes=(),
         audit_errors=(),
         decision_rule=f"info-leg quorum {len(material)} of {top_n}; "
-                      f"placeholder (rules 3–5 land in tasks 5–7)",
+                      f"placeholder (rules 4–5 land in tasks 6–7)",
         material_symbols=tuple(c.symbol for c in material),
         constituent_coverage=_build_coverage_entries(ranked, top_n),
     )
