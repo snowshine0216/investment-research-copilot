@@ -664,8 +664,18 @@ def _build_rows(
     output_date: str,
     limit: int | None = None,
     rebuild_fundamentals: bool = False,
-) -> tuple[list[OpportunityRow], dict, dict, dict, dict]:
-    """Build opportunity rows for each score entry; return (rows, positions, qualities, roles, pending_verdicts)."""
+) -> tuple[list[OpportunityRow], dict, dict, dict, dict, str, dict]:
+    """Build opportunity rows for each score entry.
+
+    Returns (rows, positions, qualities, roles, pending_verdicts,
+             plan_hash, snapshot_cache_by_instrument).
+
+    `plan_hash` is the ADR 0003 §4 audit-trail correlation key (non-empty
+    when autobuild is on; "" otherwise).
+    `snapshot_cache_by_instrument` maps instrument_id → snapshot object for
+    every active-fund / fund-level row fetched; used by `_write_opportunity_outputs`
+    to populate `fund_level_failure_reasons` in `rejections.json`.
+    """
     # ── Step 1: Apply --limit BEFORE any fetch cost computation ─────────────────
     if limit is not None:
         active_fund_scores = sorted(
@@ -754,6 +764,7 @@ def _build_rows(
     qualities: dict[str, SelectionQuality] = {}
     roles: dict[str, str] = {}
     snapshot_cache: dict[str, object] = {}
+    snapshot_cache_by_instrument: dict[str, object] = {}
     pending_verdicts: dict[str, PolicyBVerdict] = {}
 
     try:
@@ -881,6 +892,9 @@ def _build_rows(
                         evidence_gaps=row.evidence_gaps + verdict.gap_codes,
                     )
                 pending_verdicts[row.instrument_id] = verdict
+            # Thread snapshot into per-instrument cache for _write_opportunity_outputs.
+            if snap_obj is not None:
+                snapshot_cache_by_instrument[iid] = snap_obj
             rows.append(row)
             positions[iid] = PositionContext(
                 portfolio_weight=inp.portfolio_weight,
@@ -904,7 +918,7 @@ def _build_rows(
             except OSError:
                 pass
 
-    return rows, positions, qualities, roles, pending_verdicts
+    return rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument
 
 
 def _write_state_complete(
@@ -1137,7 +1151,7 @@ def run_opportunity(
     ensure_schema(con)
     out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
     try:
-        rows, positions, qualities, roles, pending_verdicts = _build_rows(
+        rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument = _build_rows(
             scores, instr_index, holdings, portfolio_total_cny,
             available_venues, theme_thesis, theme_reports, root,
             bundle.preferences.asset_class_targets,
@@ -1152,6 +1166,8 @@ def run_opportunity(
         _write_opportunity_outputs(
             kept_rows, positions, qualities, roles, holdings, out_dir, today,
             pending_verdicts=pending_verdicts,
+            plan_hash=plan_hash,
+            snapshot_cache_by_instrument=snapshot_cache_by_instrument,
         )
     except FetchBudgetExceeded as exc:
         sys.stderr.write(str(exc) + "\n")

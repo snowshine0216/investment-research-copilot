@@ -770,7 +770,7 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
     ), patch(
         "irc.commands.opportunity_cmd.populate_inputs", side_effect=lambda con, s, **kw: s,
     ):
-        rows, _positions, _qualities, _roles, _pending_verdicts = _build_rows(
+        rows, _positions, _qualities, _roles, _pending_verdicts, _plan_hash, _snap_cache = _build_rows(
             scores, instr_index, {}, 0.0,
             available_venues=set(), theme_thesis=None, theme_reports={},
             root=tmp_path, asset_class_targets={}, con=con,
@@ -795,4 +795,97 @@ def test_write_opportunity_outputs_accepts_pending_verdicts_kwarg(tmp_path):
         today="2026-05-23",
         pending_verdicts={},
     )
-    assert (tmp_path / "rejections.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# P0-2 regression: run_opportunity must thread plan_hash + snapshot_cache_by_instrument
+# ---------------------------------------------------------------------------
+
+def _make_gapped_row(instrument_id: str, name_cn: str, evidence_gaps: tuple) -> "object":
+    """Build a minimal gapped OpportunityRow."""
+    from irc.opportunity.types import LookthroughTarget, OpportunityRow
+    return OpportunityRow(
+        instrument_id=instrument_id,
+        name_cn=name_cn,
+        asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", f"fund_{instrument_id}", name_cn, instrument_id,
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="",
+        evidence_gaps=evidence_gaps,
+    )
+
+
+def test_run_opportunity_threads_plan_hash_and_snapshot_cache_to_rejections(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    """P0-2 regression: run_opportunity must pass plan_hash + snapshot_cache_by_instrument
+    to _write_opportunity_outputs so that rejections.json carries a non-empty
+    plan_hash and fund_level_failure_reasons for funds with known failures."""
+    import json
+    from irc.commands.opportunity_cmd import run_opportunity
+    from irc.fundamentals.types import ActiveFundSnapshot
+    from irc.opportunity.discipline import PositionContext
+
+    _seed_minimal_repo(tmp_path)
+    monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
+
+    # Build a snapshot with a known fund-level failure reason.
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=("holdings_fetch_failed:005827:Timeout",),
+    )
+    gapped_row = _make_gapped_row("005827", "易方达蓝筹精选", ("holdings_fetch_failed",))
+    publishable_row = _make_gapped_row("510300", "沪深300ETF", ())
+    position = PositionContext(
+        portfolio_weight=None, target_band_low=None, target_band_high=None,
+        drawdown_since_entry=None, is_holding=False,
+    )
+
+    # Patch _build_rows to return a known plan_hash and snapshot_cache.
+    import irc.commands.opportunity_cmd as opp_mod
+
+    def fake_build_rows(*args, **kwargs):
+        rows = [publishable_row, gapped_row]
+        positions = {"005827": position, "510300": position}
+        qualities = {}
+        roles = {}
+        pending_verdicts = {}
+        plan_hash = "deadbeef1234"
+        snapshot_cache_by_instrument = {"005827": snap}
+        return rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument
+
+    monkeypatch.setattr(opp_mod, "_build_rows", fake_build_rows)
+
+    rc = run_opportunity(repo_root=str(tmp_path))
+    assert rc == 0
+
+    rejections_path = tmp_path / "outputs" / "2026-05-14" / "rejections.json"
+    assert rejections_path.exists(), "rejections.json must be written"
+    body = json.loads(rejections_path.read_text(encoding="utf-8"))
+
+    # plan_hash must be threaded through — not empty string.
+    assert body["plan_hash"] == "deadbeef1234", (
+        f"plan_hash was {body['plan_hash']!r} — run_opportunity did not pass it through"
+    )
+
+    # At least one rejection entry must carry fund_level_failure_reasons.
+    gapped_entries = [e for e in body["entries"] if e["instrument_id"] == "005827"]
+    assert gapped_entries, "005827 must appear in rejections"
+    assert gapped_entries[0]["fund_level_failure_reasons"] == [
+        "holdings_fetch_failed:005827:Timeout"
+    ], (
+        f"fund_level_failure_reasons was {gapped_entries[0]['fund_level_failure_reasons']!r} "
+        "— run_opportunity did not pass snapshot_cache_by_instrument through"
+    )
