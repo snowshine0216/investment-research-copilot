@@ -240,3 +240,28 @@ class FundNavReport:
                 f"FundNavReport.source_report_quarter must match YYYYQ[1-4]; "
                 f"got {self.source_report_quarter!r}"
             )
+
+
+@dataclass(frozen=True)
+class FundAnnouncement:
+    """One fund-specific announcement. `date` is ISO 8601 `str` — adapter
+    normalises AkShare's `datetime.date` via `.isoformat()`. `report_id` is
+    the opaque `报告ID` provider reference (no URL column in AkShare 1.18.63's
+    topic-specific announcement endpoints)."""
+    fund_id: str
+    title: str
+    topic: Literal["dividend", "report", "personnel"]
+    date: str
+    report_id: str
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundAnnouncement.fund_id must be non-empty")
+        if not self.title:
+            raise ValueError("FundAnnouncement.title must be non-empty")
+        if not self.report_id:
+            raise ValueError("FundAnnouncement.report_id must be non-empty")
+        if not _ISO_DATE_RE.match(self.date):
+            raise ValueError(
+                f"FundAnnouncement.date must be ISO YYYY-MM-DD; got {self.date!r}"
+            )

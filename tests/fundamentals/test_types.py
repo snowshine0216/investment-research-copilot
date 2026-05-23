@@ -252,3 +252,53 @@ def test_fund_nav_report_rejects_malformed_quarter() -> None:
             nav_history=(("2026-03-15", 1.0),),
             source_report_quarter="2026-Q1",  # extra hyphen
         )
+
+
+# ── Task 2: FundAnnouncement tests ────────────────────────────────────────────
+
+from irc.fundamentals.types import FundAnnouncement
+
+
+def test_fund_announcement_construction_happy() -> None:
+    a = FundAnnouncement(
+        fund_id="518880",
+        title="关于华安易富黄金交易型开放式证券投资基金基金份额折算日的公告",
+        topic="dividend",
+        date="2013-07-24",
+        report_id="AN201307240003689710",
+    )
+    assert a.fund_id == "518880"
+    assert a.topic == "dividend"
+    assert a.report_id.startswith("AN")
+
+
+def test_fund_announcement_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="", title="x", topic="dividend",
+            date="2024-01-01", report_id="AN1",
+        )
+
+
+def test_fund_announcement_rejects_empty_title() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="", topic="dividend",
+            date="2024-01-01", report_id="AN1",
+        )
+
+
+def test_fund_announcement_rejects_empty_report_id() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="x", topic="dividend",
+            date="2024-01-01", report_id="",
+        )
+
+
+def test_fund_announcement_rejects_malformed_date() -> None:
+    with pytest.raises(ValueError):
+        FundAnnouncement(
+            fund_id="518880", title="x", topic="dividend",
+            date="20240101", report_id="AN1",  # missing hyphens
+        )
