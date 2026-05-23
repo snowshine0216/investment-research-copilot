@@ -201,3 +201,76 @@ def test_find_missing_pick_citations_wrong_instrument_flagged() -> None:
     findings = find_missing_pick_citations((pick,), {})
     kinds = [f.kind for f in findings]
     assert "wrong_instrument_citation" in kinds
+
+
+# ── Task 6: find_uncited_discipline_rows ──────────────────────────────────────
+
+def _discipline_row(
+    *, iid="005827", thesis_evidence=(), constituent_analyses=(),
+):
+    from irc.opportunity.types import DisciplineRow
+    return DisciplineRow(
+        instrument_id=iid,
+        name_cn="X",
+        asset_class="cn_equity_fund",
+        theme=None,
+        opportunity_state="core_dca",
+        dca_action="normal_dca",
+        risk_action="none",
+        note_cn="",
+        thesis_evidence=thesis_evidence,
+        constituent_analyses=constituent_analyses,
+        evidence_gaps=(),
+        fetch_types_attempted=(),
+    )
+
+
+def test_find_uncited_discipline_rows_dual_leg_present_returns_empty() -> None:
+    """AC4 (i) — both legs on row.thesis_evidence → no finding."""
+    from irc.memo.numeric_audit import find_uncited_discipline_rows
+    data = _ev_for_pick(citation_kind="data", owner="005827")
+    info = _ev_for_pick(citation_kind="information", owner="005827",
+                        date="2024-04-16")
+    row = _discipline_row(thesis_evidence=(data, info))
+    assert find_uncited_discipline_rows((row,), {}) == []
+
+
+def test_find_uncited_discipline_rows_missing_data_emits_finding() -> None:
+    """AC4 (i) — info-only → missing data."""
+    from irc.memo.numeric_audit import find_uncited_discipline_rows
+    info = _ev_for_pick(citation_kind="information", owner="005827")
+    row = _discipline_row(thesis_evidence=(info,))
+    findings = find_uncited_discipline_rows((row,), {})
+    assert any(f.kind == "missing_data_citation" for f in findings)
+
+
+def test_find_uncited_discipline_rows_wrong_instrument_emits_finding() -> None:
+    """AC4 (ii) — entry.owner_instrument_id != row.instrument_id is flagged."""
+    from irc.memo.numeric_audit import find_uncited_discipline_rows
+    foreign_data = _ev_for_pick(citation_kind="data", owner="OTHER")
+    foreign_info = _ev_for_pick(citation_kind="information", owner="OTHER",
+                                date="2024-04-16")
+    row = _discipline_row(thesis_evidence=(foreign_data, foreign_info))
+    findings = find_uncited_discipline_rows((row,), {})
+    kinds = [f.kind for f in findings]
+    assert "wrong_instrument_citation" in kinds
+
+
+def test_find_uncited_discipline_rows_constituent_parent_check() -> None:
+    """AC4 (ii) — constituent-scoped entry must have parent_fund_id == row.instrument_id."""
+    from irc.fundamentals.types import ThesisEvidence
+    from irc.memo.numeric_audit import find_uncited_discipline_rows
+    bad_parent = ThesisEvidence(
+        type="filing", source="src", url="https://x", date="2024-04-15",
+        summary="x", scope="constituent", citation_kind="data",
+        owner_instrument_id="005827",  # owner matches
+        parent_fund_id="WRONG_PARENT",  # but parent doesn't
+        constituent_key="600519",
+        holding_weight_pct=None,
+    )
+    good_info = _ev_for_pick(citation_kind="information", owner="005827",
+                             date="2024-04-16")
+    row = _discipline_row(thesis_evidence=(bad_parent, good_info))
+    findings = find_uncited_discipline_rows((row,), {})
+    kinds = [f.kind for f in findings]
+    assert "wrong_instrument_citation" in kinds
