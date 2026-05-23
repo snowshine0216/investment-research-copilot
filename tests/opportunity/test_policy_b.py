@@ -165,3 +165,107 @@ def test_build_coverage_entries_audit_overrides_applied() -> None:
         audit_overrides={"X": ("missing_constituent_record:X",)},
     )
     assert entries[0].audit_errors == ("missing_constituent_record:X",)
+
+
+def _snapshot(analyses=(), fund_level_failure_reasons=()):
+    """Tiny ActiveFundSnapshot factory."""
+    from irc.fundamentals.types import ActiveFundSnapshot
+    return ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=analyses,
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=fund_level_failure_reasons,
+    )
+
+
+def test_evaluate_policy_b_rule_1_holdings_fetch_failed() -> None:
+    from irc.opportunity.policy_b import evaluate_policy_b
+    snap = _snapshot(
+        analyses=(),
+        fund_level_failure_reasons=("holdings_fetch_failed:005827:Timeout",),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("holdings_fetch_failed",)
+    assert v.decision_rule == "holdings adapter empty/failed"
+    assert v.constituent_coverage == ()
+    assert v.material_symbols == ()
+
+
+def test_evaluate_policy_b_rule_2_missing_constituent_record_audit_error() -> None:
+    """Constituent with evidence==() AND failure_reasons==() is shape-corrupt."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = (
+        _ca("600519", 6.0, evidence=(), failure_reasons=()),  # ← audit error
+        _ca("000333", 4.0, evidence=(), failure_reasons=()),  # ← audit error
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("incomplete_constituent_record",)
+    assert "missing_constituent_record:600519" in v.audit_errors
+    assert "missing_constituent_record:000333" in v.audit_errors
+    assert v.decision_rule == "missing constituent records: 2 of 10"
+
+
+def test_evaluate_policy_b_rule_2_coverage_entries_carry_audit_errors() -> None:
+    """The coverage entry for an audit-error symbol carries the audit_errors string."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = (
+        _ca("600519", 6.0, evidence=(), failure_reasons=()),
+    )
+    snap = _snapshot(analyses=analyses)
+    v = evaluate_policy_b(snap, top_n=10)
+    [entry] = [e for e in v.constituent_coverage if e.symbol == "600519"]
+    assert entry.audit_errors == ("missing_constituent_record:600519",)
+
+
+def test_evaluate_policy_b_empty_analyses_no_failure_reason_defensive_path() -> None:
+    """Edge case: len(constituent_analyses)==0 AND fund_level_failure_reasons==()."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    snap = _snapshot(analyses=(), fund_level_failure_reasons=())
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("incomplete_constituent_record",)
+    assert v.audit_errors == ("empty_constituent_analyses_without_failure_reason",)
+    assert v.decision_rule == "empty constituent_analyses; 0 of 10 holdings"
+
+
+def test_evaluate_policy_b_does_not_mutate_input_snapshot_cache_file(tmp_path) -> None:
+    """Spec edge case: replace(c, audit_errors=...) does NOT modify the cached snapshot."""
+    import hashlib
+    import json
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = (
+        _ca("600519", 6.0, evidence=(), failure_reasons=()),  # forces rule 2
+    )
+    snap = _snapshot(analyses=analyses)
+    # Serialise the snapshot pre-evaluation.
+    pre = json.dumps({
+        "fund_id": snap.fund_id,
+        "constituent_analyses": [
+            {
+                "symbol": c.symbol,
+                "weight_pct": c.weight_pct,
+                "audit_errors": list(c.audit_errors),
+            }
+            for c in snap.constituent_analyses
+        ],
+    }, sort_keys=True).encode("utf-8")
+    pre_sha = hashlib.sha256(pre).hexdigest()
+    # Evaluate Policy B.
+    _ = evaluate_policy_b(snap, top_n=10)
+    # Re-serialise the SAME snapshot object; sha must be unchanged.
+    post = json.dumps({
+        "fund_id": snap.fund_id,
+        "constituent_analyses": [
+            {
+                "symbol": c.symbol,
+                "weight_pct": c.weight_pct,
+                "audit_errors": list(c.audit_errors),
+            }
+            for c in snap.constituent_analyses
+        ],
+    }, sort_keys=True).encode("utf-8")
+    post_sha = hashlib.sha256(post).hexdigest()
+    assert pre_sha == post_sha

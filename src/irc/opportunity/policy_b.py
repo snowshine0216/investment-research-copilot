@@ -47,7 +47,7 @@ class ConstituentCoverageEntry:
     audit_errors: tuple[str, ...]
 
 
-from irc.fundamentals.types import ConstituentAnalysis
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 
 
 _EXCHANGE_FROM_SYMBOL_PREFIX = {
@@ -175,3 +175,73 @@ class PolicyBVerdict:
     decision_rule: str
     material_symbols: tuple[str, ...]
     constituent_coverage: tuple[ConstituentCoverageEntry, ...]
+
+
+def evaluate_policy_b(
+    snapshot: ActiveFundSnapshot,
+    *,
+    top_n: int,
+) -> PolicyBVerdict:
+    """Apply Policy B v2 — five-rule precedence (1 → 2 → 3 → 4 → 5).
+
+    Pure function. Reads `snapshot.constituent_analyses` +
+    `snapshot.fund_level_failure_reasons`. Does NOT touch
+    `snapshot.failure_reasons_by_symbol` (item 003 owns that surface).
+    Returns a `PolicyBVerdict` whose `gap_codes` is `()` iff publishable.
+
+    See ADR 0003 §1 for the precedence rationale.
+    """
+    analyses = snapshot.constituent_analyses
+
+    # Rule 1: fund-level holdings fetch failed.
+    if not analyses and snapshot.fund_level_failure_reasons:
+        return PolicyBVerdict(
+            gap_codes=("holdings_fetch_failed",),
+            audit_errors=(),
+            decision_rule="holdings adapter empty/failed",
+            material_symbols=(),
+            constituent_coverage=(),
+        )
+
+    # Defensive guard (spec edge case): empty AND no failure reason.
+    if not analyses and not snapshot.fund_level_failure_reasons:
+        return PolicyBVerdict(
+            gap_codes=("incomplete_constituent_record",),
+            audit_errors=("empty_constituent_analyses_without_failure_reason",),
+            decision_rule=f"empty constituent_analyses; 0 of {top_n} holdings",
+            material_symbols=(),
+            constituent_coverage=(),
+        )
+
+    ranked = _rank_by_weight(analyses)
+
+    # Rule 2: missing constituent record (audit error).
+    missing = tuple(c for c in ranked if not c.evidence and not c.failure_reasons)
+    if missing:
+        audit_errors = tuple(
+            f"missing_constituent_record:{c.symbol}" for c in missing
+        )
+        audit_overrides = {
+            c.symbol: (f"missing_constituent_record:{c.symbol}",) for c in missing
+        }
+        return PolicyBVerdict(
+            gap_codes=("incomplete_constituent_record",),
+            audit_errors=audit_errors,
+            decision_rule=f"missing constituent records: {len(missing)} of {top_n}",
+            material_symbols=_material_symbols(ranked, top_n),
+            constituent_coverage=_build_coverage_entries(
+                ranked, top_n, audit_overrides=audit_overrides,
+            ),
+        )
+
+    # Rules 3–5 + publishable fall-through land in tasks 5–7. For now, return
+    # a placeholder "publishable" verdict so the rule 1 + rule 2 tests can run.
+    material = _material_set_with_ties(ranked, top_n=top_n)
+    return PolicyBVerdict(
+        gap_codes=(),
+        audit_errors=(),
+        decision_rule=f"info-leg quorum {len(material)} of {top_n}; "
+                      f"placeholder (rules 3–5 land in tasks 5–7)",
+        material_symbols=tuple(c.symbol for c in material),
+        constituent_coverage=_build_coverage_entries(ranked, top_n),
+    )
