@@ -944,3 +944,64 @@ Placeholder scan: no "TBD"/"TODO"; every code block is verbatim and complete; ev
 Type consistency: `_resolve_column`, `_capture_fixture`, `_assert_announcement_df`, `_call_fund_announcement_em`, `_akshare_version`, `_FIXTURE_DIR`, `COLUMN_EQUIVALENCE`, `N_MIN` — all named consistently across Tasks 3–6. The companion file imports `_assert_announcement_df`, `_call_fund_announcement_em`, `_resolve_column` from the live file by absolute path `tests.fundamentals.test_fund_announcement_em_live` — matches the `pythonpath = ["src", "."]` in `pyproject.toml`.
 
 Plan complete. 8 tasks; 10 new pytest tests (5 live + 5 mocked); 1 markdown doc; 3 captured fixtures.
+
+---
+
+## Pivot tasks (Q4 option a, adopted 2026-05-23)
+
+`fund_announcement_em` was confirmed missing from AkShare 1.18.63. User chose option (a): adapt to the 3 topic-specific endpoints. These tasks replace Tasks 3–8 for the live test file (Tasks 1, 2, 6, 7 are unchanged).
+
+### Task P1: Explore + record AkShare 1.18.63 shapes for the 3 endpoints
+
+- [x] Run exploratory shell to confirm `fund_announcement_{dividend,report,personnel}_em` exist and record column shapes + row counts per symbol.
+- [x] Commit: `docs(autodev/004): explore AkShare 1.18.63 topic-specific endpoint shapes`
+
+**Observed shapes (all 3 endpoints, identical schema):**
+
+```
+['基金代码', '公告标题', '基金名称', '公告日期', '报告ID']
+```
+
+Row counts: dividend_em (518880: 4, 000001: 15, 005827: 1), report_em (518880: 94, 000001: 100, 005827: 50), personnel_em (518880: 2, 000001: 14, 005827: 2).
+
+### Task P2: Update COLUMN_EQUIVALENCE map for the 3 endpoints
+
+- [x] Update `COLUMN_EQUIVALENCE` in `test_fund_announcement_em_live.py` to use per-endpoint maps reflecting the actual `['基金代码', '公告标题', '基金名称', '公告日期', '报告ID']` schema (no `url` column; `报告ID` is the reference identifier).
+- [x] Commit: `test(fundamentals): update COLUMN_EQUIVALENCE for 3 topic-specific endpoints`
+
+### Task P3: Rewrite live tests file with 11 tests
+
+Replace the 5 tests calling `fund_announcement_em` with 11 tests for the 3 topic-specific endpoints:
+
+1. `test_fund_announcement_endpoints_exist` — preflight for all 3 endpoints
+2. `test_fund_announcement_dividend_em_518880_non_empty`
+3. `test_fund_announcement_dividend_em_000001_non_empty`
+4. `test_fund_announcement_dividend_em_005827_non_empty`
+5. `test_fund_announcement_report_em_518880_non_empty`
+6. `test_fund_announcement_report_em_000001_non_empty`
+7. `test_fund_announcement_report_em_005827_non_empty`
+8. `test_fund_announcement_personnel_em_518880_non_empty`
+9. `test_fund_announcement_personnel_em_000001_non_empty`
+10. `test_fund_announcement_personnel_em_005827_non_empty`
+11. `test_fund_announcement_q4_aggregate_gate`
+
+Each per-endpoint × per-symbol test: (a) calls the endpoint; (b) asserts no exception; (c) asserts result is a DataFrame; (d) if non-empty, resolves `title` and `date` columns. Writes fixture to `tests/fixtures/akshare/{endpoint}_{symbol}.json`.
+
+Aggregate gate: PASSes if EACH symbol has non-empty data from AT LEAST ONE endpoint.
+
+- [x] Commit: `test(fundamentals): rewrite live tests for the 3 topic-specific announcement endpoints (Q4 pivot)`
+
+### Task P4: Run live gate — expect 11 pass
+
+```bash
+IRC_RUN_LIVE_AKSHARE=1 pytest -m live_akshare tests/fundamentals/test_fund_announcement_em_live.py -v -s
+```
+
+Expected: 11 tests pass. Aggregate gate PASS (each symbol covered by at least `report_em`).
+
+- [x] Commit verdict in `004-verify.md` after run.
+
+### Task P5: Capture 9 fixtures
+
+- [x] Commit `tests/fixtures/akshare/{endpoint}_{symbol}.json` for all 9 combinations.
+- [x] Commit: `test(fundamentals): capture topic-specific endpoint fixtures (Q4 pivot)`
