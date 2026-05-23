@@ -367,11 +367,17 @@ def test_write_rejections_json_byte_identical_two_runs(tmp_path) -> None:
 # P0-1 regression: mixed known + unknown gap codes must raise, not silently accept
 # ---------------------------------------------------------------------------
 
-def test_classify_rejection_reason_mixed_known_and_unknown_raises() -> None:
+@pytest.mark.parametrize("gap_tuple", [
+    ("unknown_synthetic_gap", "holdings_fetch_failed"),   # unknown-first
+    ("holdings_fetch_failed", "unknown_synthetic_gap"),   # known-first
+])
+def test_classify_rejection_reason_mixed_known_and_unknown_raises(
+    gap_tuple: tuple[str, ...],
+) -> None:
     """P0-1 regression: unknown gap code alongside a known one must raise RuntimeError
-    (not silently return the known-code match)."""
+    regardless of ordering (pre-scan validates ALL gaps before returning)."""
     from irc.opportunity.rejection_log import _classify_rejection_reason
-    row = _row(evidence_gaps=("unknown_synthetic_gap", "holdings_fetch_failed"))
+    row = _row(evidence_gaps=gap_tuple)
     with pytest.raises(RuntimeError, match="unknown evidence_gap code"):
         _classify_rejection_reason(row)
 
