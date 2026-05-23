@@ -352,7 +352,7 @@ def derive_thesis_from_evidence(
         if not evidence:
             return (
                 "evidence_insufficient",
-                "" if gaps else "基金层级证据未能加载。",
+                "QDII: 境外数据不可用。" if gaps else "基金层级证据未能加载。",
                 evidence, gaps, (),
             )
         # Heuristic: if both legs present, thesis stays intact (downstream
