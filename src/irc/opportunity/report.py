@@ -224,10 +224,118 @@ _DRAWDOWN_NOTE_CN = (
 )
 
 
+# Item 007 D3b §17 — locked appendix line regex contract. Item 009's
+# find_uncited_discipline_rows parses appendix bullets against this.
+_APPENDIX_LINE_RE = re.compile(
+    r"^- (?P<sym>[0-9A-Z]{4,6}) (?P<nm>[^()\n]+?) "
+    r"\(权重 (?P<wpct>\d+(?:\.\d+)?)%\): "
+    r"(?:"
+    # Shape 1: evidence + failures
+    r"(?P<oneline_with_failures>.+?)(?P<refs_with_failures>(?: \[ref:[0-9a-f]{16}\])+) "
+    r"\((?P<failures_partial>.+?)\)"
+    # Shape 2: failure only
+    r"|❌ (?P<failure_only>.+?)"
+    # Shape 3 / Shape 5: audit-error only
+    r"|⚠️ audit_error: (?P<audit_error>.+?)"
+    # Shape 4: evidence only
+    r"|(?P<oneline_only>.+?)(?P<refs_only>(?: \[ref:[0-9a-f]{16}\])+)"
+    r")$"
+)
+
+
+def _format_appendix_constituent_line(c) -> str:
+    """Render one appendix bullet by FIRST-MATCH precedence (spec §17).
+
+    Per ADR 0004 + spec §17:
+    1. audit_errors != () → Shape 3 (audit-error only, NO refs).
+    2. evidence != () AND failure_reasons != () → Shape 1 (evidence + failures).
+    3. evidence == () AND failure_reasons != () → Shape 2 (failure only, NO refs).
+    4. evidence != () → Shape 4 (evidence only).
+    5. all-empty (defensive) → Shape 5 = Shape 3 with literal sentinel.
+    """
+    head = f"- {c.symbol} {c.name_cn} (权重 {c.weight_pct}%): "
+    if c.audit_errors:
+        return f"{head}⚠️ audit_error: {'; '.join(c.audit_errors)}"
+    if c.evidence and c.failure_reasons:
+        refs = " ".join(
+            f"[ref:{ev.citation_id}]"
+            for ev in select_citations(c.evidence, cap=3)
+        )
+        return f"{head}{c.one_line_view} {refs} ({'; '.join(c.failure_reasons)})"
+    if not c.evidence and c.failure_reasons:
+        return f"{head}❌ {'; '.join(c.failure_reasons)}"
+    if c.evidence:
+        refs = " ".join(
+            f"[ref:{ev.citation_id}]"
+            for ev in select_citations(c.evidence, cap=3)
+        )
+        return f"{head}{c.one_line_view} {refs}"
+    # Shape 5 (defensive fallback).
+    return f"{head}⚠️ audit_error: missing_constituent_record"
+
+
+def _render_appendix_subsection(row) -> list[str]:
+    """Render one fund subsection: `### {iid} {name} ({asset_class})` + bullets.
+
+    Constituents ordered by weight_pct DESC, symbol ASC tiebreaker.
+    """
+    header = f"### {row.instrument_id} {row.name_cn} ({row.asset_class})"
+    ranked = _rank_constituents_by_weight(row.constituent_analyses)
+    return [
+        "",
+        header,
+        "",
+        *[_format_appendix_constituent_line(c) for c in ranked],
+    ]
+
+
+def _order_publishable_rows_for_appendix(
+    publishable_rows: tuple,
+    pick_order_iids: tuple[str, ...],
+) -> tuple:
+    """Order rows: pick-row order first, then instrument_id ascending."""
+    pick_set = set(pick_order_iids)
+    by_iid = {r.instrument_id: r for r in publishable_rows}
+    pick_ordered = [by_iid[iid] for iid in pick_order_iids if iid in by_iid]
+    non_pick = sorted(
+        (r for r in publishable_rows if r.instrument_id not in pick_set),
+        key=lambda r: r.instrument_id,
+    )
+    return tuple(pick_ordered + non_pick)
+
+
+def _render_appendix_section(
+    publishable_rows: tuple,
+    pick_order_iids: tuple[str, ...],
+) -> str:
+    """Render the `## 持仓明细` section. Empty case → `（无）` body."""
+    eligible = tuple(
+        r for r in publishable_rows
+        if getattr(r, "constituent_analyses", ())
+    )
+    if not eligible:
+        return "## 持仓明细\n\n（无）\n"
+    ordered = _order_publishable_rows_for_appendix(eligible, pick_order_iids)
+    parts: list[str] = ["## 持仓明细"]
+    for r in ordered:
+        parts.extend(_render_appendix_subsection(r))
+    parts.append("")  # trailing newline
+    return "\n".join(parts)
+
+
 def compose_discipline_markdown(
     rows: list[DisciplineRow] | tuple[DisciplineRow, ...],
     date: str,
+    *,
+    publishable_rows: tuple = (),
+    pick_order_iids: tuple[str, ...] = (),
 ) -> str:
+    """Compose `discipline_report.md`.
+
+    Q10 (item 007): two keyword-only params control the appendix render.
+    Backward-compat: empty defaults render the appendix with body `（无）`
+    (no pick-row priority); legacy callers still produce valid markdown.
+    """
     buckets = _bucket_rows(rows)
     parts = [
         f"# Discipline Report — {date}\n",
@@ -238,5 +346,6 @@ def compose_discipline_markdown(
         _render_section("调仓复核", buckets["调仓复核"]),
         _render_section("退出复核", buckets["退出复核"]),
         _DRAWDOWN_NOTE_CN,
+        _render_appendix_section(publishable_rows, pick_order_iids),
     ]
     return "\n".join(parts)
