@@ -124,3 +124,112 @@ def test_classify_rejection_reason_empty_gaps_raises() -> None:
     row = _row(evidence_gaps=())
     with pytest.raises(RuntimeError):
         _classify_rejection_reason(row)
+
+
+def _active_fund_snapshot(
+    constituent_analyses=(),
+    fund_level_failure_reasons=(),
+):
+    from irc.fundamentals.types import ActiveFundSnapshot
+    return ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=constituent_analyses,
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=fund_level_failure_reasons,
+    )
+
+
+def _verdict_for(snapshot, top_n=10):
+    from irc.opportunity.policy_b import evaluate_policy_b
+    return evaluate_policy_b(snapshot, top_n=top_n)
+
+
+def test_record_fund_rejection_with_active_fund_verdict() -> None:
+    """Criterion 1: every required field is populated from the verdict + row + snapshot."""
+    from irc.opportunity.rejection_log import record_fund_rejection
+    snap = _active_fund_snapshot(
+        fund_level_failure_reasons=("holdings_fetch_failed:005827:Timeout",),
+    )
+    verdict = _verdict_for(snap)
+    row = _row(evidence_gaps=("holdings_fetch_failed",))
+    record = record_fund_rejection(
+        row=row,
+        snapshot=snap,
+        verdict=verdict,
+        rejection_reason="holdings_fetch_failed",
+        decision_rule="holdings adapter empty/failed",
+    )
+    assert record.instrument_id == "005827"
+    assert record.name_cn == "易方达蓝筹精选"
+    assert record.asset_class == "cn_equity_fund"
+    assert record.rejection_reason == "holdings_fetch_failed"
+    assert record.decision_rule == "holdings adapter empty/failed"
+    assert record.rejection_at_stage == "opportunity_write"
+    assert record.fund_level_failure_reasons == ("holdings_fetch_failed:005827:Timeout",)
+    assert record.evidence_gaps == ("holdings_fetch_failed",)
+
+
+def test_record_fund_rejection_with_no_verdict_non_active_fund_row() -> None:
+    """G-Q6: FundLevelSnapshot rows have no Policy B verdict. Fallback decision_rule."""
+    from irc.opportunity.rejection_log import (
+        _decision_rule_for,
+        record_fund_rejection,
+    )
+    row = _row(evidence_gaps=("qdii_information_unavailable",))
+    rule = _decision_rule_for(row, verdict=None)
+    record = record_fund_rejection(
+        row=row,
+        snapshot=None,
+        verdict=None,
+        rejection_reason="qdii_information_unavailable",
+        decision_rule=rule,
+    )
+    assert record.constituent_coverage == ()
+    assert record.fund_level_failure_reasons == ()
+    assert "qdii_information_unavailable" in record.decision_rule
+
+
+def test_decision_rule_for_active_fund_uses_verdict() -> None:
+    from irc.opportunity.rejection_log import _decision_rule_for
+    snap = _active_fund_snapshot(
+        fund_level_failure_reasons=("holdings_fetch_failed:fund:Boom",),
+    )
+    verdict = _verdict_for(snap)
+    row = _row(evidence_gaps=("holdings_fetch_failed",))
+    rule = _decision_rule_for(row, verdict=verdict)
+    assert rule == "holdings adapter empty/failed"
+
+
+def test_decision_rule_for_non_active_fund_template_locked() -> None:
+    """Template-format locked (extends criterion 11 to fallback path)."""
+    from irc.opportunity.rejection_log import _decision_rule_for
+    row = _row(evidence_gaps=("qdii_information_unavailable",))
+    rule = _decision_rule_for(row, verdict=None)
+    assert rule == "qdii_information_unavailable (non-active-fund row; no Policy B verdict)"
+
+
+def test_record_fund_rejection_uses_fund_level_failure_reasons_from_fund_level_snapshot() -> None:
+    from irc.fundamentals.types import FundLevelSnapshot
+    from irc.opportunity.rejection_log import record_fund_rejection
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        fund_level_failure_reasons=("nav_fetch_failed:518880:Timeout",),
+        evidence_gaps=("fund_nav_unavailable",),
+    )
+    row = _row(evidence_gaps=("fund_nav_unavailable",))
+    record = record_fund_rejection(
+        row=row,
+        snapshot=snap,
+        verdict=None,
+        rejection_reason="fund_nav_unavailable",
+        decision_rule="fund_nav_unavailable (non-active-fund row; no Policy B verdict)",
+    )
+    assert record.fund_level_failure_reasons == ("nav_fetch_failed:518880:Timeout",)

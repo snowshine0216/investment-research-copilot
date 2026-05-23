@@ -67,6 +67,72 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
 }
 
 
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
+from irc.opportunity.policy_b import PolicyBVerdict
+
+
+def _decision_rule_for(
+    row: OpportunityRow,
+    verdict: PolicyBVerdict | None,
+) -> str:
+    """Compose the `decision_rule` string for a rejection record.
+
+    - Active-fund rows: use `verdict.decision_rule` (carries the info-leg
+      quorum math from Policy B).
+    - Non-active-fund rows (FundLevelSnapshot QDII sentinel / NAV-failed /
+      legacy ConstituentSnapshot): verdict is None → fall back to a
+      template-format-locked string composed from the first gap code.
+    """
+    if verdict is not None:
+        return verdict.decision_rule
+    first = row.evidence_gaps[0] if row.evidence_gaps else "unknown"
+    return f"{first} (non-active-fund row; no Policy B verdict)"
+
+
+def record_fund_rejection(
+    *,
+    row: OpportunityRow,
+    snapshot: ActiveFundSnapshot | FundLevelSnapshot | None,
+    verdict: PolicyBVerdict | None,
+    rejection_reason: RejectionReasonCode,
+    decision_rule: str,
+    rejection_at_stage: Literal[
+        "opportunity_build", "opportunity_write"
+    ] = "opportunity_write",
+) -> RejectionRecord:
+    """Pure builder. Composes a RejectionRecord from a gapped row + the
+    (optional) per-fund snapshot + (optional) Policy B verdict.
+
+    `verdict` is `None` for non-active-fund rows (FundLevelSnapshot QDII /
+    NAV-failed / legacy ConstituentSnapshot). When present, the verdict's
+    `constituent_coverage` is propagated verbatim.
+    """
+    if verdict is not None:
+        coverage = verdict.constituent_coverage
+    else:
+        coverage = ()
+
+    if isinstance(snapshot, ActiveFundSnapshot):
+        fund_level_failure_reasons = snapshot.fund_level_failure_reasons
+    elif isinstance(snapshot, FundLevelSnapshot):
+        fund_level_failure_reasons = snapshot.fund_level_failure_reasons
+    else:
+        fund_level_failure_reasons = ()
+
+    return RejectionRecord(
+        instrument_id=row.instrument_id,
+        name_cn=row.name_cn,
+        asset_class=row.asset_class,
+        rejection_reason=rejection_reason,
+        decision_rule=decision_rule,
+        rejection_at_stage=rejection_at_stage,
+        constituent_coverage=coverage,
+        fund_level_failure_reasons=fund_level_failure_reasons,
+        fetch_types_attempted=row.fetch_types_attempted,
+        evidence_gaps=row.evidence_gaps,
+    )
+
+
 def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
     """Return the dominant RejectionReasonCode for a gapped row.
 
