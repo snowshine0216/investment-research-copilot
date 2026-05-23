@@ -63,3 +63,64 @@ def test_rejections_document_construction() -> None:
     )
     assert d.run_date == "2026-05-23"
     assert d.entries == ()
+
+
+def _row(evidence_gaps=()):
+    """Tiny OpportunityRow factory with default conclusion fields."""
+    from irc.opportunity.types import LookthroughTarget, OpportunityRow
+    return OpportunityRow(
+        instrument_id="005827",
+        name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", "fund_005827", "易方达蓝筹精选", "005827",
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="",
+        evidence_gaps=evidence_gaps,
+    )
+
+
+def test_classify_rejection_reason_qdii_first_precedence() -> None:
+    """Edge case: row carries both qdii_information_unavailable AND a Policy B code.
+    Classifier returns the QDII reason (dict-literal order)."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=(
+        "qdii_information_unavailable",
+        "insufficient_info_coverage_top_half",
+    ))
+    assert _classify_rejection_reason(row) == "qdii_information_unavailable"
+
+
+def test_classify_rejection_reason_holdings_fetch_failed() -> None:
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=("holdings_fetch_failed",))
+    assert _classify_rejection_reason(row) == "holdings_fetch_failed"
+
+
+def test_classify_rejection_reason_insufficient_info_quorum() -> None:
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=("insufficient_info_coverage_top_half",))
+    assert _classify_rejection_reason(row) == "insufficient_info_coverage_top_half"
+
+
+def test_classify_rejection_reason_unknown_gap_raises_runtime_error() -> None:
+    """Criterion 19: adding a new gap code without updating _GAP_TO_REASON raises."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=("unknown_synthetic_gap",))
+    with pytest.raises(RuntimeError) as exc_info:
+        _classify_rejection_reason(row)
+    assert "unknown_synthetic_gap" in str(exc_info.value)
+
+
+def test_classify_rejection_reason_empty_gaps_raises() -> None:
+    """Defensive: a row with empty evidence_gaps in the gapped partition is a bug."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=())
+    with pytest.raises(RuntimeError):
+        _classify_rejection_reason(row)

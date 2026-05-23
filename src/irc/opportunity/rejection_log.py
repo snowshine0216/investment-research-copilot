@@ -53,7 +53,9 @@ class RejectionsDocument:
     entries: tuple[RejectionRecord, ...]
 
 
-# Populated in task 9 — full classifier.
+from irc.opportunity.types import OpportunityRow
+
+
 _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "qdii_information_unavailable":         "qdii_information_unavailable",
     "holdings_fetch_failed":                "holdings_fetch_failed",
@@ -63,3 +65,22 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "incomplete_constituent_coverage":      "incomplete_constituent_coverage",
     "fund_nav_unavailable":                 "fund_nav_unavailable",
 }
+
+
+def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
+    """Return the dominant RejectionReasonCode for a gapped row.
+
+    Precedence: iterates `row.evidence_gaps` in row order; the first gap that
+    matches a key in `_GAP_TO_REASON` (dict-literal insertion order) wins.
+    QDII precedes Policy B codes by construction.
+
+    Raises RuntimeError on unknown gap codes — defence against silent
+    acceptance of new codes that bypass the rejection log (criterion 19).
+    """
+    for gap in row.evidence_gaps:
+        if gap in _GAP_TO_REASON:
+            return _GAP_TO_REASON[gap]
+    raise RuntimeError(
+        f"row {row.instrument_id} carries unrecognised evidence_gaps: "
+        f"{row.evidence_gaps}"
+    )
