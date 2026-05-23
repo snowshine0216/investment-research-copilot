@@ -88,6 +88,65 @@ The "forbidden" column is enforced by the dispatcher's branch structure and by t
 **Trade-off considered:**
 - *Alternative*: try all adapters on every holding; let the providers reject. Rejected — silently returns partial-junk for HK tickers (provider tolerates them, parses nothing usable). Test fixtures would not catch this.
 
+### 5. Fund-level engine (Slice F, item 005)
+
+Item 005 adds a parallel **fund-level fetch engine** for the four V1 non-active asset classes (`gold`, `cn_bond_fund`, `cn_etf`, tracked CN indices that ARE themselves tradeable funds). The engine reuses contracts §1–§3 with the following per-slice adaptations; contract §4 (forbidden adapter pairs) does **not** apply (fund-level dispatches by `target.kind`, not by holding exchange).
+
+**Cache layout (extends §1):**
+
+```
+data/fundamentals/{source_report_quarter}/nav/fund_{fund_id}.json
+```
+
+Parallel to `active_fund/`. `source_report_quarter` for fund-level snapshots is derived from `FundNavReport.latest_nav_date` via the existing `infer_quarter` helper (calendar-quarter rule — NAV is a daily series, the provider does not declare a fiscal disclosure quarter for NAV the way it does for holdings). Atomic write uses the same `.tmp.{pid} → os.replace` pattern as `active_fund/`.
+
+The legacy `ConstituentSnapshot` cache layout under `data/fundamentals/{calendar_quarter}/{display_cn}.json` is **left untouched** — it now serves only the raw-index display path (`_TARGET_REGISTRY` keyed by `display_cn`). Three cache code paths coexist until item 010 unifies them.
+
+**Freshness probe (extends §2):**
+
+`fund_open_fund_info_em(symbol, indicator="单位净值走势")` does NOT expose a top-N parameter — it always returns the full NAV history. The "probe" is therefore equal in cost to a full refetch. Trade-off considered:
+
+- *Alternative*: add a `top_n=1` parameter to `fetch_fund_nav_report` (extra adapter surface). Rejected — would require post-fetch DataFrame truncation since the upstream doesn't support pagination, adding API surface for no real saving.
+- *Decision*: a stale-cache hit on the canonical path proceeds directly to a full refetch (NAV + 3 announcement endpoints). `cache_probed_at` is updated either on a successful re-read with same `source_report_quarter` (re-emit cached body) or on a full rebuild. Fail-closed semantics still hold: any adapter exception forces re-fetch state, never silent stale reuse.
+
+`--rebuild-fundamentals` bypasses the freshness check exactly as for active funds.
+
+**Preflight budget (extends §3):**
+
+Per cold fund-level row: 1 NAV call + 3 announcement endpoints = **4 AkShare calls**. Per stale fund: same 4 calls (probe = refetch). V1 universe ≈ 5 gold/bond/etf rows + ~15 broad/sector index ETFs ≈ 20 funds × 4 calls = **80 calls** comfortably under `IRC_FETCH_BUDGET=2000`. Combined with item 003's ~1620 active-fund calls, total V1 cost is well below the budget.
+
+The `FetchPlan` ledger gains a `fund_level_cold + fund_level_stale` categorical breakdown (concrete dataclass shape deferred to item 005's plan phase). Preflight abort behaviour is unchanged.
+
+**Dispatch contract (new):**
+
+`build_snapshot(target: LookthroughTarget)` routes by `target.kind` **only** — `target.key` and `target.display_cn` are never read by the new dispatch branches:
+
+| `target.kind` | Branch | Notes |
+|---|---|---|
+| `active_fund` | `_build_active_fund_snapshot` | Item 003 (unchanged) |
+| `qdii_us` / `qdii_hk` / `qdii_global` | `_build_qdii_sentinel_snapshot` | Zero AkShare calls; sentinel `evidence_gaps=("qdii_information_unavailable",)` |
+| `gold` / `bond` / `broad_index` / `sector_theme` **with non-empty `provider_symbol`** | `_build_fund_level_snapshot` | NAV + 3 announcement endpoints |
+| (else / empty `provider_symbol`) | `_build_legacy_snapshot` | Display-only; `_TARGET_REGISTRY`-keyed `## 持仓明细` appendix |
+
+`map_lookthrough` is patched in item 005 to populate `provider_symbol=inp.instrument_id` for the four kinds that dispatch to fund-level (gold, bond, broad_index, sector_theme — when the instrument IS itself a tradeable fund). When `provider_symbol` is empty (raw-index display target), the row falls through to the legacy display-only path — correct behaviour (no fund to fetch NAV for).
+
+**F5 static-profile invariant (new):**
+
+`ak.fund_open_fund_info_em(symbol, indicator="基金概况")` MUST NOT be called by the production engine. Fund profile text is static metadata, not a time-bound communication; tagging it `citation_kind="information"` would silently bypass the freshness intent of the information leg. The invariant is enforced **upstream at the adapter layer** — `fetch_fund_nav_report` only consults `indicator="单位净值走势"`, and the information leg emits only via `fetch_fund_announcements` (the 3 topic-specific endpoints). There is no downstream gate enforcement (and none possible — `ThesisEvidence` carries no `indicator` field). Locked by an acceptance test that greps for the literal `"基金概况"` in `src/irc/fundamentals/akshare_fundamentals.py` and asserts zero production-code matches.
+
+**F4 QDII sentinel (new):**
+
+QDII V1 exclusion is **the only mechanism by which a row acquires `evidence_gaps=("qdii_information_unavailable",)`**. The sentinel `FundLevelSnapshot` is computed in-process (zero AkShare calls) and is **NOT serialised to disk** (gap-only rows have nothing to cache; in-process re-emission is cheaper than I/O). Item 006's H3 universal-gap invariant reads this gap from the in-memory snapshot and routes the row to the discipline failure section.
+
+**Citation-id determinism for empty-URL announcements (new):**
+
+Fund announcements have no `公告链接` column in AkShare 1.18.63's topic-specific endpoints. Per ADR 0001 §2, when `url=""` the citation-id preimage falls back to `f"{source}:{date}:{summary[:64]}"`. Item 005's adapter sets `summary = f"[{report_id}] {title}"` so the discriminating `report_id` (e.g. `AN201307240003689710`) lands in the first ~24 chars of `summary[:64]` — well within the fallback window. Two announcements with identical title and date but different `report_id` produce distinct `citation_id` values. ADR 0001 §2 is unchanged; the determinism contract is satisfied.
+
+**Trade-offs considered for §5 as a whole:**
+
+- *Alternative*: write a new ADR 0003 for the fund-level engine. Rejected — the four contracts (cache layout, freshness probe, preflight budget, plus the new dispatch table) are direct extensions of the active-fund engine. Co-locating them in ADR 0002 keeps the "fetch engine" decision surface in one document.
+- *Alternative*: extend `ThesisEvidenceKind` with a new literal `"nav"` (or `"nav_metric"` per the diagnosis). Rejected — the existing `"snapshot"` literal semantically aligns with "single periodic data point" and item 009's per-driver gate map already handles `"snapshot"` → data-leg via standard rules. Adding a new literal would require touching every existing consumer (the type-rank ordering in `_flatten_analyses`, the renderer's per-type dispatch, etc.) for no semantic gain. Reuse `"snapshot"` for NAV.
+
 ## Canonical failure-reason list
 
 The engine emits structured failure reasons for downstream gap-stamping (item 006). Codes are stable strings; item 006 keys off the prefix before the `:`. See `003-spec.md` §"Failure reason codes" for the full table.

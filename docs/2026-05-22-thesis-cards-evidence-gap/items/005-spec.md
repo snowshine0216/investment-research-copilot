@@ -65,6 +65,13 @@ Public adapter `fetch_fund_announcements(fund_id: str) -> tuple[FundAnnouncement
 
 ### F3 — `build_snapshot` dispatch + `_build_fund_level_snapshot`
 
+**Pre-requisite patch from grill Q1 (CONFIRMED required, not conditional):** `map_lookthrough` in `src/irc/opportunity/lookthrough.py` MUST be patched in item 005 to populate `provider_symbol=inp.instrument_id` for the three branches that currently leave it empty:
+- `inp.asset_class == "gold"` → `LookthroughTarget("gold", "gold", "黄金", provider_symbol=inp.instrument_id)`
+- `inp.asset_class == "cn_bond_fund"` → `LookthroughTarget("bond", "cn_bond", "中国债券", provider_symbol=inp.instrument_id)`
+- `tracked_index`/`theme` fall-through (for `cn_etf` rows) → propagate `provider_symbol=inp.instrument_id` into every `LookthroughTarget("broad_index", ...)`, `LookthroughTarget("qdii_us", ...)`, etc.
+
+Without this patch the F3 dispatch (`target.kind in {...} and target.provider_symbol`) ALWAYS falls through to the legacy display-only path, defeating Slice F's purpose. ≤10-line surgical edit. See `## Resolved decisions` Q1.
+
 Extend `build_snapshot(target: LookthroughTarget, ...)` in `src/irc/fundamentals/snapshot.py` with two new branches BEFORE the legacy `_build_legacy_snapshot` fall-through:
 
 ```python
@@ -135,10 +142,10 @@ This is the **only** mechanism by which QDII rows acquire `evidence_gaps`. NO Ak
 NAV cache freshness reuses item 003's contract verbatim:
 
 - `(today - cache_probed_at).days <= IRC_CACHE_FRESHNESS_DAYS` (default 7) → fresh, reuse cached body, update `cache_probed_at`.
-- Stale → fire a freshness probe via `fetch_fund_nav_report(fund_id)` with a 1-point limit (the existing adapter doesn't expose `top_n`; the probe is effectively a full re-call — accept the cost, document the trade-off). Probe success with the same `source_report_quarter` → reuse cached body, update `cache_probed_at`. Newer quarter or exception → fail-closed: refetch NAV + announcements.
+- ~~Stale → fire a freshness probe via `fetch_fund_nav_report(fund_id)` with a 1-point limit (the existing adapter doesn't expose `top_n`; the probe is effectively a full re-call — accept the cost, document the trade-off). Probe success with the same `source_report_quarter` → reuse cached body, update `cache_probed_at`. Newer quarter or exception → fail-closed: refetch NAV + announcements.~~ — **corrected by grill Q3:** the AkShare endpoint `fund_open_fund_info_em(symbol, indicator="单位净值走势")` returns the FULL nav history every call with no `top_n` option. There is no meaningful "probe" cheaper than the full call. Resolved policy: stale cache → direct full refetch (1 NAV + 3 announcement calls). `cache_probed_at` updates either on a successful re-read with same `source_report_quarter` (re-emit cached body) or on a full rebuild. Fail-closed semantics still hold (any adapter exception forces a refetch state, never silent stale reuse).
 - `--rebuild-fundamentals` bypasses the probe (existing flag from item 003).
 
-**Preflight budget:** the FetchPlan computed at `_build_rows` entry must account for the new per-fund cost. Per cold fund: 1 NAV + 3 announcement = 4 calls. Per stale fund: 1 probe + (if newer quarter or fail) 4 calls = up to 5 calls. V1 universe: ~5 gold/bond/etf rows + ~15 broad/sector index ETFs ≈ 20 funds × 4 calls = 80 calls. Comfortably under `IRC_FETCH_BUDGET=2000`. The FetchPlan dataclass (item 003) gets a new field `fund_level_cold + fund_level_stale` (or extends the existing `cold/stale` tally with a categorical breakdown — concrete shape deferred to plan phase).
+**Preflight budget:** the FetchPlan computed at `_build_rows` entry must account for the new per-fund cost. Per cold fund: 1 NAV + 3 announcement = 4 calls. ~~Per stale fund: 1 probe + (if newer quarter or fail) 4 calls = up to 5 calls.~~ — **corrected by grill Q3:** stale = full refetch (4 calls), no separate probe call. V1 universe: ~5 gold/bond/etf rows + ~15 broad/sector index ETFs ≈ 20 funds × 4 calls = 80 calls. Comfortably under `IRC_FETCH_BUDGET=2000`. The FetchPlan dataclass (item 003) gets a new field `fund_level_cold + fund_level_stale` (or extends the existing `cold/stale` tally with a categorical breakdown — concrete shape deferred to plan phase).
 
 ## Acceptance criteria
 
@@ -172,7 +179,7 @@ NAV cache freshness reuses item 003's contract verbatim:
 
 15. **Existing passive-fund display tests still pass.** `tests/fundamentals/test_snapshot.py` (legacy `_TARGET_REGISTRY` keyed by `display_cn`) is untouched. The `## 持仓明细` appendix path is preserved. Display-only entries are NEVER tagged `citation_kind="data"` or `citation_kind="information"` — they don't participate in the citation gate per CONTEXT.md "Passive ETF / tracked index".
 
-16. **No new ADR required.** Item 005 inherits ADR 0001 (citation_id preimage — unchanged; `url=""` + `summary` carrying `[{report_id}]` is a valid preimage by §2's fallback) and ADR 0002 (cache layout, freshness, budget — extended along the same patterns). The grill phase decides whether the new dataclass triad warrants a CONTEXT.md expansion (likely yes for `FundNavReport`, `FundAnnouncement`, `FundLevelSnapshot`).
+16. **No new ADR required.** Item 005 inherits ADR 0001 (citation_id preimage — unchanged; `url=""` + `summary` carrying `[{report_id}]` is a valid preimage by §2's fallback) and ADR 0002 (cache layout, freshness, budget — extended in place via §5 amendment per grill Q7). CONTEXT.md gains the fund-level glossary section per grill Q6. No new `ThesisEvidenceKind` literal required per grill Q4 (NAV reuses `"snapshot"`).
 
 ## Out of scope
 
@@ -242,3 +249,61 @@ NAV cache freshness reuses item 003's contract verbatim:
 - Item 007 (memo + discipline renderers): reads `FundLevelSnapshot.evidence` for memo `evidence_pool` + discipline `_render_section` nested bullets.
 - Item 008 (integration sweep): E10 coverage smoke asserts every V1 published row has dual-coverage `ThesisEvidence` — item 005's emissions are the data under test.
 - Item 009 (citation gate block mode): the per-driver gate consumes item 005's evidence. NAV evidence must satisfy the data leg for gold/bond/etf rows; announcement evidence must satisfy the information leg.
+
+## Resolved decisions
+
+Output of the grill phase. Each entry: question → recommendation → adopted answer. Auto-accepted under autonomy override 2026-05-23.
+
+### Q1 — Does `map_lookthrough` populate `target.provider_symbol` for `cn_etf`/`gold`/`cn_bond_fund`?
+
+**Investigation:** read `src/irc/opportunity/lookthrough.py` lines 96–134.
+
+- `inp.asset_class == "gold"` → `LookthroughTarget("gold", "gold", "黄金")` — **provider_symbol="" (default)**
+- `inp.asset_class == "cn_bond_fund"` → `LookthroughTarget("bond", "cn_bond", "中国债券")` — **provider_symbol=""**
+- `cn_etf` fall-through → `LookthroughTarget("broad_index", tracked, ...)` — **provider_symbol=""**
+
+Only `active_fund` (item 003) sets `provider_symbol=inp.instrument_id`.
+
+**Adopted:** item 005 patches `map_lookthrough` to populate `provider_symbol=inp.instrument_id` for the `gold`, `cn_bond_fund`, and `cn_etf` (tracked_index / theme fall-through) branches. This is a **hard pre-requisite** (not conditional) — without it the F3 dispatch always falls through to legacy. Spec body F3 updated.
+
+### Q2 — Tracked CN indices: does a `kind="broad_index"` row route to fund-level or legacy?
+
+**Investigation:** `_TARGET_REGISTRY` in `snapshot.py` is keyed by `display_cn` (e.g. `"沪深300"`) and maps to `_TargetSpec(kind="cn_index", code="000300")` where `code` is an **index code** (CSI300), not an ETF fund code. `_build_cn_snapshot` fetches index constituents and assembles a display-only `ConstituentSnapshot`.
+
+**Adopted:** When a row is `asset_class="cn_etf"` and the row's `instrument_id` is a tradeable fund symbol (e.g. `"510300"` for 华泰柏瑞沪深300), Q1's patch propagates that symbol into `target.provider_symbol`, and the F3 dispatch routes to `_build_fund_level_snapshot` (NAV + announcements). The legacy `_TARGET_REGISTRY` (keyed by `display_cn` like `"沪深300"`) remains intact to serve the raw-index display path (`## 持仓明细` appendix) for any consumer that passes the legacy string-only entry point. The two paths coexist; only fund-level entries with a populated `provider_symbol` exercise the new path.
+
+### Q3 — Does the NAV freshness probe need to be cheaper than a full refetch?
+
+**Investigation:** `ak.fund_open_fund_info_em(symbol, indicator="单位净值走势")` returns the full nav history; no `top_n`/pagination parameter exists in AkShare 1.18.63.
+
+**Adopted:** **Skip the probe optimisation.** Stale cache → direct full refetch (1 NAV + 3 announcement calls = 4 calls). `cache_probed_at` updates either on a successful re-read with same `source_report_quarter` (re-emit cached body) or on a full rebuild. Fail-closed semantics still hold. Spec F6 and ADR 0002 §5 both updated.
+
+### Q4 — `type` literal for NAV evidence: reuse `"snapshot"` or add `"nav"`?
+
+**Investigation:** `ThesisEvidenceKind = Literal["filing", "broker", "news", "policy", "snapshot"]` in `src/irc/fundamentals/types.py:40`. `"snapshot"` already exists; semantically aligns with "single periodic data point".
+
+**Adopted:** **Reuse `"snapshot"`** for the NAV data-leg evidence record. No `Literal` change required, no ADR 0001 amendment, no downstream renderer/gate touch. Trade-off documented in ADR 0002 §5 (rejected alternative).
+
+### Q5 — Should the QDII sentinel `FundLevelSnapshot` be cached on disk?
+
+**Investigation:** the sentinel has `nav_report=None, announcements=(), evidence=()` — no fetchable content. Re-emission cost is one dataclass constructor call; disk I/O cost is a round-trip JSON serialise/parse plus an `os.replace`.
+
+**Adopted:** **No.** Sentinel `FundLevelSnapshot` is NOT serialised. The cache writer skips `evidence_gaps == ("qdii_information_unavailable",)` rows; item 006's H3 reads `evidence_gaps` from the in-memory snapshot. Spec F4 and ADR 0002 §5 both document the no-cache rule.
+
+### Q6 — CONTEXT.md additions
+
+**Adopted:** new "Fund-level fetch engine" section in CONTEXT.md with: `FundNavReport`, `FundAnnouncement`, `FundLevelSnapshot`, `Fund-level dispatch`, `QDII V1 exclusion`, `Static-profile invariant`. Section sits between "Active-fund fetch engine" and "Test infrastructure". Applied in the same commit as this grill verdict.
+
+### Q7 — ADR amendment vs. new ADR 0003?
+
+**Investigation:** four contracts (cache layout, freshness probe, preflight budget, exchange routing). Fund-level reuses §1–§3 verbatim with per-slice numeric adjustments; §4 (forbidden adapter pairs) does NOT apply (fund-level dispatches by `target.kind`, not by holding `exchange` — there is no second-level adapter selection).
+
+**Adopted:** **Extend ADR 0002 with §5 "Fund-level engine (Slice F)".** The decision surface is "fetch engine contracts"; co-locating the four contracts in one ADR preserves the load-bearing reading order ("read ADR 0002 first"). The §5 amendment documents: cache layout (`nav/`), simplified probe (single full call per Q3), dispatch contract by `target.kind`, F5 static-profile invariant, F4 QDII sentinel-only path, and the empty-URL citation-id determinism note. Applied in the same commit.
+
+### Additional grill questions
+
+**F5 invariant enforcement location.** The spec's "static profile MUST NOT satisfy info gate" invariant has no good downstream enforcement point — `ThesisEvidence` carries no `indicator` field, so a hypothetical gate function could not distinguish "this announcement came from `基金概况`" from "this came from `公告标题`". **Adopted:** enforce upstream at the adapter layer. `fetch_fund_nav_report` calls only `indicator="单位净值走势"`. `fetch_fund_announcements` calls only the 3 topic-specific announcement endpoints (never `fund_open_fund_info_em` with any indicator). Lock via the grep-based acceptance test (criterion 9). Documented in CONTEXT.md "Static-profile invariant" and ADR 0002 §5.
+
+**Date column type from item 004 fixtures.** `004-verify.md` §"Downstream impact for item 005" #3 confirms `公告日期` is a Python `datetime.date` object (not a string). NAV `净值日期` is similarly a date. **Adopted:** `FundAnnouncement.date` and `FundNavReport.latest_nav_date` are both `str` (ISO 8601). Conversion happens at the adapter boundary via `.isoformat()`. Locked by F2 acceptance criterion 3 (the unit test asserts ISO-shape dates after adapter normalisation).
+
+**Symbol normalization.** Gold (`518880`), bond (`000001`), all CN ETFs use 6-digit codes. Item 003's `_normalize_ticker` handles them; no extension needed for V1 fund-level symbols.
