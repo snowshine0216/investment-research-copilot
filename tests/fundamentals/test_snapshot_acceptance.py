@@ -1,4 +1,4 @@
-"""Spec §Acceptance criteria 6, 7, 8, 9, 10, 11, 29, 30, 31."""
+"""Spec §Acceptance criteria 6, 7, 8, 9, 10, 11, 29, 30, 31 + round-3 hardening."""
 from __future__ import annotations
 
 from irc.fundamentals import snapshot as snap_mod
@@ -116,3 +116,59 @@ def test_g6_c_news_carries_constituent_scope_and_information_kind(monkeypatch) -
     assert news_ev[0].citation_kind == "information"
     assert news_ev[0].constituent_key == "600519"
     assert snap.fund_level_failure_reasons == ()
+
+
+# ── Round-3 hardening: item 2 regression ─────────────────────────────────────
+
+def test_missing_quarter_column_emits_holdings_quarter_parse_failed(monkeypatch) -> None:
+    """Round-3 item 2: DataFrame has rows but no quarter column → still emits
+    constituent_analyses (10 entries) + stamps holdings_quarter_parse_failed.
+
+    Previously the function returned HoldingsResult((), "", "") when quarter_col
+    is None, which caused _build_active_fund_snapshot to stamp
+    holdings_fetch_failed:empty instead of holdings_quarter_parse_failed.
+    """
+    from unittest.mock import patch
+    import pandas as pd
+
+    # Build a DataFrame with required holding columns but NO quarter column.
+    no_quarter_df = pd.DataFrame({
+        "股票代码": [f"60001{i}" for i in range(10)],
+        "股票名称": [f"股票{i}" for i in range(10)],
+        "占净值比例": [10.0 - i for i in range(10)],
+        # deliberately omit "季度" and "报告期"
+    })
+
+    from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call", return_value=no_quarter_df):
+        result = fetch_cn_etf_holdings("005827", top_n=10)
+
+    # Constituents should be populated (not empty).
+    assert len(result.constituents) == 10, (
+        f"expected 10 constituents when quarter col absent, got {len(result.constituents)}"
+    )
+    # Quarter fields should be empty strings.
+    assert result.source_report_quarter == ""
+    assert result.source_report_date == ""
+
+    # Now verify the snapshot builder stamps holdings_quarter_parse_failed.
+    monkeypatch.setattr(
+        snap_mod, "fetch_cn_etf_holdings",
+        lambda sym, top_n=10: result,
+    )
+    monkeypatch.setattr(snap_mod, "fetch_cn_filing_digest", lambda s: None)
+    monkeypatch.setattr(snap_mod, "fetch_cn_broker_reports", lambda s: ())
+    monkeypatch.setattr(snap_mod, "fetch_cn_stock_news", lambda s, top_k=3: ())
+
+    target = LookthroughTarget("active_fund", "fund_005827", "fund", "005827")
+    snap = build_snapshot(target, top_n=10)
+
+    assert isinstance(snap, ActiveFundSnapshot)
+    assert len(snap.constituent_analyses) == 10, (
+        f"expected 10 constituent_analyses, got {len(snap.constituent_analyses)}"
+    )
+    assert any(
+        r.startswith("holdings_quarter_parse_failed:")
+        for r in snap.fund_level_failure_reasons
+    ), f"expected holdings_quarter_parse_failed in {snap.fund_level_failure_reasons}"

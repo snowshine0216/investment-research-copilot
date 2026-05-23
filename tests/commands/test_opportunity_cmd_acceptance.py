@@ -1,4 +1,4 @@
-"""Acceptance criteria 11, 12, 16, 18, 19, 20, 21, 22, 23 + round-2 wiring."""
+"""Acceptance criteria 11, 12, 16, 18, 19, 20, 21, 22, 23 + round-2/3 hardening."""
 from __future__ import annotations
 
 import json
@@ -420,6 +420,58 @@ def test_stale_plan_hash_discarded(tmp_path: Path, monkeypatch) -> None:
     assert "005827" in fetched, f"expected 005827 fetched despite stale state, got {fetched}"
 
 
+def test_stale_plan_hash_discard_is_silent(tmp_path: Path, monkeypatch, capsys) -> None:
+    """Round-3 item 1: stale plan_hash discard must NOT write to stderr (AC 20)."""
+    import irc.commands.opportunity_cmd as opp_mod
+    from irc.commands.opportunity_cmd import write_fetch_state
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    fund_ids = ["005827"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "9999")
+
+    old_hash = "deadbeef1111"
+    state = {
+        "plan_hash": old_hash,
+        "started_at": "2026-05-13T09:00:00",
+        "items": [
+            {"fund_id": "005827", "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-13T09:05:00"},
+        ],
+    }
+    fundamentals_dir = tmp_path / "data" / "fundamentals"
+    fundamentals_dir.mkdir(parents=True, exist_ok=True)
+    write_fetch_state(state, fundamentals_dir, old_hash)
+
+    def mock_build_snapshot(target, top_n=10):
+        return ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    rc = opp_mod.run_opportunity(
+        repo_root=str(tmp_path),
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "discarded stale" not in captured.err, (
+        f"stale-hash discard must be silent, but stderr contained: {captured.err!r}"
+    )
+    assert "plan_hash changed" not in captured.err, (
+        f"stale-hash discard must be silent, but stderr contained: {captured.err!r}"
+    )
+
+
 # ── P0-4: validate_cli_args default-path + symlink ────────────────────────────
 
 def test_limit_rejected_on_default_canonical_path(tmp_path: Path, monkeypatch) -> None:
@@ -504,3 +556,147 @@ def test_empty_source_report_quarter_no_cache_written_stamps_failure_reason(tmp_
     # No cache file must exist under data/fundamentals/.
     cache_files = list((tmp_path / "data").rglob("fund_005827.json")) if (tmp_path / "data").exists() else []
     assert cache_files == [], f"cache file should NOT be written for empty quarter: {cache_files}"
+
+
+# ── Round-3 hardening: item 3 — cache_write_failed in fund_level_failure_reasons
+
+def test_cache_write_failed_stamped_in_fund_level_failure_reasons(tmp_path: Path, monkeypatch) -> None:
+    """Round-3 item 3: when write_active_fund_cache raises, the reason
+    cache_write_failed:{fund_id}:{ExcType} must appear in
+    ActiveFundSnapshot.fund_level_failure_reasons (not only on stderr).
+    """
+    import irc.commands.opportunity_cmd as opp_mod
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    fund_ids = ["005827"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "9999")
+
+    built_snaps: list[ActiveFundSnapshot] = []
+
+    def mock_build_snapshot(target, top_n=10):
+        snap = ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+        built_snaps.append(snap)
+        return snap
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    def failing_write(snap, root):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(opp_mod, "write_active_fund_cache", failing_write)
+
+    # Capture produced rows so we can inspect fund_level_failure_reasons.
+    produced_rows: list = []
+    _orig_build_opp = opp_mod.build_opportunity_row
+
+    def capturing_build_opportunity_row(inp, thesis, *, snapshot=None, theme_report=None):
+        row = _orig_build_opp(inp, thesis, snapshot=snapshot, theme_report=theme_report)
+        produced_rows.append(snapshot)
+        return row
+
+    monkeypatch.setattr(opp_mod, "build_opportunity_row", capturing_build_opportunity_row)
+
+    rc = opp_mod.run_opportunity(
+        repo_root=str(tmp_path),
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert rc == 0, f"run_opportunity returned {rc}"
+
+    active_snaps = [s for s in produced_rows if isinstance(s, ActiveFundSnapshot)]
+    assert active_snaps, "no ActiveFundSnapshot passed to build_opportunity_row"
+    snap = active_snaps[0]
+    assert any(
+        "cache_write_failed:005827" in r for r in snap.fund_level_failure_reasons
+    ), f"expected cache_write_failed:005827 in {snap.fund_level_failure_reasons}"
+
+
+# ── Round-3 hardening: item 4 — budget gate credits completed_ids ─────────────
+
+def test_budget_gate_credits_completed_ids(tmp_path: Path, monkeypatch) -> None:
+    """Round-3 item 4: state file marks 3 funds complete; 5 cold + 0 stale funds
+    in the score list → budget cost should be (5-3) * (1 + TOP_N*3) = 2*31 = 62,
+    NOT 5 * 31 = 155.
+
+    Set IRC_FETCH_BUDGET=100 → without credit it would exceed (155 > 100),
+    with credit it should pass (62 <= 100).
+    """
+    import irc.commands.opportunity_cmd as opp_mod
+    from irc.commands.opportunity_cmd import compute_plan_hash, write_fetch_state
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    # 5 funds, all cold (no cache).
+    fund_ids = ["005827", "100032", "110022", "161725", "519674"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    # Budget between crediting (62 ≤ 100) and non-crediting (155 > 100).
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "100")
+
+    # Mark 3 of the 5 funds as complete in the state file.
+    plan_hash = compute_plan_hash("2026-05-14", fund_ids, 10)
+    state = {
+        "plan_hash": plan_hash,
+        "started_at": "2026-05-14T08:00:00",
+        "items": [
+            {"fund_id": fid, "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-14T08:05:00"}
+            for fid in ["005827", "100032", "110022"]  # 3 completed
+        ],
+    }
+    fundamentals_dir = tmp_path / "data" / "fundamentals"
+    fundamentals_dir.mkdir(parents=True, exist_ok=True)
+    write_fetch_state(state, fundamentals_dir, plan_hash)
+
+    # Also write cache files so the completed funds return something from disk.
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    for fid in ["005827", "100032", "110022"]:
+        cached_snap = ActiveFundSnapshot(
+            fund_id=fid,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+        write_active_fund_cache(cached_snap, tmp_path / "data")
+
+    fetched: list[str] = []
+
+    def mock_build_snapshot(target, top_n=10):
+        fetched.append(target.provider_symbol)
+        return ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    # Should NOT raise FetchBudgetExceeded (62 ≤ 100).
+    rc = opp_mod.run_opportunity(
+        repo_root=str(tmp_path),
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert rc == 0, (
+        f"run_opportunity returned {rc} — budget gate did not credit completed_ids. "
+        f"fetched={fetched}"
+    )
+    # Only the 2 incomplete funds should have been fetched.
+    assert set(fetched) == {"161725", "519674"}, (
+        f"expected only incomplete funds fetched, got {fetched}"
+    )

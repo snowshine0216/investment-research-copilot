@@ -460,13 +460,17 @@ def _classify_active_fund_scores(
     today: date_cls,
     threshold_days: int,
     rebuild_fundamentals: bool,
+    completed_ids: set[str] | None = None,
 ) -> tuple[int, int]:
     """Count (misses, stale) among cn_equity_fund rows — for preflight budget.
 
     A miss  = no cache file on disk.
     A stale = cache exists but probe is overdue.
     rebuild_fundamentals = True → every fund counts as a miss (full re-fetch forced).
+    completed_ids: funds already finished in the current resume state are excluded
+        from both miss and stale counts (resume credit, spec AC item 4 hardening).
     """
+    _completed = completed_ids or set()
     misses = 0
     stale = 0
     seen: set[str] = set()
@@ -477,6 +481,9 @@ def _classify_active_fund_scores(
         if not iid or iid in seen:
             continue
         seen.add(iid)
+        # Credit already-completed funds — no fetch cost on a resumed run.
+        if iid in _completed:
+            continue
         if rebuild_fundamentals:
             misses += 1
             continue
@@ -521,26 +528,9 @@ def _build_rows(
     autobuild_on = _is_active_fund_target_autobuild_on()
     today = date_cls.today()
 
-    # ── Step 2: Preflight budget gate (P0-1) ────────────────────────────────────
     if autobuild_on:
-        misses, stale = _classify_active_fund_scores(
-            scores, root / "data",
-            today=today, threshold_days=_freshness_days(),
-            rebuild_fundamentals=rebuild_fundamentals,
-        )
-        plan = FetchPlan(
-            active_fund_misses=misses,
-            active_fund_stale=stale,
-            passive_misses=0,   # placeholder — item 005
-            passive_stale=0,    # placeholder — item 005
-            top_n=TOP_N_DEFAULT,
-        )
-        total = plan.total_calls()
-        budget = _fetch_budget()
-        if total > budget:
-            raise FetchBudgetExceeded(plan, total, budget)
-
-        # ── Step 3: Compute plan_hash + load existing fetch state (P0-3) ─────────
+        # ── Step 2a: Compute plan_hash + load existing fetch state (P0-3) ────────
+        # Must happen BEFORE the budget gate so completed_ids can be credited.
         active_fund_ids = sorted({
             s.get("instrument_id", "")
             for s in scores
@@ -552,19 +542,7 @@ def _build_rows(
 
         existing_state = load_fetch_state(fundamentals_dir, plan_hash)
         if existing_state is None:
-            # Check if there's a state file for a DIFFERENT plan_hash (stale).
-            if state_path.exists():
-                # Read the old hash to log it.
-                try:
-                    import json as _json
-                    old_body = _json.loads(state_path.read_text(encoding="utf-8"))
-                    old_hash = old_body.get("plan_hash", "?")
-                except Exception:
-                    old_hash = "?"
-                sys.stderr.write(
-                    f"discarded stale fetch state file "
-                    f"(plan_hash changed: {old_hash}→{plan_hash})\n"
-                )
+            # Stale state file (different plan_hash) is silently discarded — spec AC 20.
             fetch_state: dict = {
                 "plan_hash": plan_hash,
                 "started_at": datetime.now(timezone.utc).isoformat(),
@@ -579,7 +557,27 @@ def _build_rows(
             if item.get("status") == "complete"
         }
 
-        # ── Step 4: Acquire advisory lock keyed on plan_hash (P0-2) ─────────────
+        # ── Step 2b: Preflight budget gate (P0-1) ────────────────────────────────
+        # completed_ids are excluded from the cost count (resume credit).
+        misses, stale = _classify_active_fund_scores(
+            scores, root / "data",
+            today=today, threshold_days=_freshness_days(),
+            rebuild_fundamentals=rebuild_fundamentals,
+            completed_ids=completed_ids,
+        )
+        plan = FetchPlan(
+            active_fund_misses=misses,
+            active_fund_stale=stale,
+            passive_misses=0,   # placeholder — item 005
+            passive_stale=0,    # placeholder — item 005
+            top_n=TOP_N_DEFAULT,
+        )
+        total = plan.total_calls()
+        budget = _fetch_budget()
+        if total > budget:
+            raise FetchBudgetExceeded(plan, total, budget)
+
+        # ── Step 3: Acquire advisory lock keyed on plan_hash (P0-2) ─────────────
         lock_path = fundamentals_dir / f".fetch_lock_{plan_hash}.lock"
         lock_fd = acquire_fetch_lock(lock_path)
     else:
@@ -635,8 +633,11 @@ def _build_rows(
                                 try:
                                     write_active_fund_cache(snap_to_cache, root / "data")
                                 except Exception as cache_exc:
-                                    sys.stderr.write(
-                                        f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}\n"
+                                    reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                    sys.stderr.write(reason + "\n")
+                                    snap_obj = replace(
+                                        snap_obj,
+                                        fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
                                     )
                         _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                     else:
@@ -651,8 +652,11 @@ def _build_rows(
                                     try:
                                         write_active_fund_cache(snap_to_cache, root / "data")
                                     except Exception as cache_exc:
-                                        sys.stderr.write(
-                                            f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}\n"
+                                        reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                        sys.stderr.write(reason + "\n")
+                                        snap_obj = replace(
+                                            snap_obj,
+                                            fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
                                         )
                             _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                         else:
@@ -668,8 +672,11 @@ def _build_rows(
                                         try:
                                             write_active_fund_cache(snap_to_cache, root / "data")
                                         except Exception as cache_exc:
-                                            sys.stderr.write(
-                                                f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}\n"
+                                            reason = f"cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+                                            sys.stderr.write(reason + "\n")
+                                            snap_obj = replace(
+                                                snap_obj,
+                                                fund_level_failure_reasons=snap_obj.fund_level_failure_reasons + (reason,),
                                             )
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                             else:

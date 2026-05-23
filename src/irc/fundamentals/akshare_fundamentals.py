@@ -268,7 +268,30 @@ def fetch_cn_etf_holdings(
     # Pick latest quarter via column lex-sort.
     quarter_col = "季度" if "季度" in df.columns else ("报告期" if "报告期" in df.columns else None)
     if quarter_col is None:
-        return HoldingsResult((), "", "")
+        # Quarter column absent: still emit constituents so the snapshot builder
+        # can stamp holdings_quarter_parse_failed rather than holdings_fetch_failed.
+        ranked = df.sort_values("占净值比例", ascending=False).head(top_n)
+        holdings_no_quarter: list[FundHolding] = []
+        for _, row in ranked.iterrows():
+            raw_code = str(row["股票代码"]).strip()
+            normalized = _normalize_ticker(raw_code)
+            exchange = _parse_exchange(row)
+            try:
+                weight_pct = float(row["占净值比例"])
+            except (TypeError, ValueError):
+                weight_pct = 0.0
+            holdings_no_quarter.append(FundHolding(
+                symbol=normalized,
+                name_cn=str(row["股票名称"]),
+                weight_pct=weight_pct,
+                exchange=exchange,
+                provider_symbol=raw_code,
+            ))
+        return HoldingsResult(
+            constituents=tuple(holdings_no_quarter),
+            source_report_date="",
+            source_report_quarter="",
+        )
     latest_quarter = sorted(df[quarter_col].astype(str).unique())[-1]
     latest = df[df[quarter_col].astype(str) == latest_quarter]
     ranked = latest.sort_values("占净值比例", ascending=False).head(top_n)
