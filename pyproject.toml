@@ -46,6 +46,11 @@ packages = ["src/irc", "evals"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src", "."]
+addopts = ["--strict-markers"]
+markers = [
+    "live_akshare: hits the real AkShare network. Run via `pytest -m live_akshare` with IRC_RUN_LIVE_AKSHARE=1. Excluded from default `pytest` runs.",
+    "integration: integration test exercising multiple modules end-to-end (no external network). Currently used by tests/integration/test_thesis_coverage.py.",
+]
 
 [tool.ruff]
 line-length = 100
