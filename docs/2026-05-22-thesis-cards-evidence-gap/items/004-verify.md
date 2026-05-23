@@ -1,53 +1,67 @@
-Verdict: FAIL
+Verdict: PASS
 
-Source: live AkShare verification (IRC_RUN_LIVE_AKSHARE=1 pytest -m live_akshare tests/fundamentals/test_fund_announcement_em_live.py)
-Entry point exercised: ak.fund_announcement_em(symbol=<each of 518880, 000001, 005827>)
+Source: live AkShare verification — pivoted to Q4 option (a) on 2026-05-23
+Entry points exercised: ak.fund_announcement_{dividend,report,personnel}_em(symbol=<each of 518880, 000001, 005827>)
 
-## Q4 PREREQUISITE FAILURE
+## Q4 fallback option (a) — adopted
 
-`ak.fund_announcement_em` is missing from the installed AkShare. All 5 live tests on item 004's sub-branch FAIL with `AttributeError: module 'akshare' has no attribute 'fund_announcement_em'`.
+`fund_announcement_em` was confirmed absent in AkShare 1.18.63. The user chose option (a) on 2026-05-23: adapt to the 3 topic-specific announcement endpoints. The live gate was re-run with 11 pivoted tests and all 11 PASS.
 
-Pinned AkShare version: 1.18.63 (confirm with `python -c "import akshare; print(akshare.__version__)"`).
+All three endpoints share the same column schema:
+`['基金代码', '公告标题', '基金名称', '公告日期', '报告ID']`
 
-The endpoint named in spec §"In scope" and ADR-implicit assumption for item 005's information leg does not exist in this version. Items 005, 006, 007, 008, 009 — all of which depend on the existence of a fund-level announcement adapter — are blocked until Q4 is re-decided.
+Key differences from the original `fund_announcement_em` spec:
+- No `公告类型` (type) column
+- No `公告链接` (url) column — `报告ID` is the opaque reference identifier
+- `公告日期` is a Python `datetime.date` object (not a string)
 
-## What AkShare 1.18.63 DOES have (alternatives)
+## Test results
 
-Three topic-specific variants, all confirmed present and callable via `hasattr(ak, "...")`:
+Per-endpoint × per-symbol matrix (11 live tests, AkShare 1.18.63):
 
-- `ak.fund_announcement_dividend_em(symbol)` — 分红配送 / dividend & distribution announcements
-- `ak.fund_announcement_report_em(symbol)` — 定期报告 / periodic reports (quarterly/semi-annual/annual)
-- `ak.fund_announcement_personnel_em(symbol)` — 人员变动 / personnel changes
+| Endpoint | 518880 | 000001 | 005827 |
+|---|---|---|---|
+| `fund_announcement_dividend_em` | 4 rows ✓ | 15 rows ✓ | 1 row ✓ |
+| `fund_announcement_report_em` | 94 rows ✓ | 100 rows ✓ | 50 rows ✓ |
+| `fund_announcement_personnel_em` | 2 rows ✓ | 14 rows ✓ | 2 rows ✓ |
 
-These can be composed to produce a general fund-announcement stream for the gold/bond/active-fund symbols, but each returns a topic-scoped DataFrame; their column shapes differ slightly and they do not unify on the `{title, type, date, url}` contract item 005 assumed.
+All 9 cells: PASS (non-empty, title+date columns resolve, row 0 non-null).
 
-## Q4 fallback options (your decision — do NOT auto-select)
+## Aggregate gate
 
-Per MASTER-PLAN.md § "Stop conditions (hard)" and MASTER-SPEC.md item 004 description:
+PASS — all 3 symbols have non-empty data from all 3 endpoints (9/9 cells non-empty in this run). Gate condition (at least 1 endpoint per symbol) is easily satisfied.
 
-**Option (a) — Adapt to the topic-specific endpoints.** Re-spec item 005 (Slice F) to call the 3 topic-specific announcement functions for each fund symbol, union the results, normalize the columns, and treat the unioned stream as the information leg. Costs ~3× the AkShare calls per fund vs. the original plan (well within the 2000 budget per ADR 0002). Preserves the gold + cn_bond_fund + tracked-CN-index information-leg coverage.
+## Fixtures captured
 
-**Option (b) — Reuse theme reports with promoted scope.** Drop the fund-level announcement requirement for gold/bond. Use the existing `data/research/` theme reports as the information leg for gold (already produces commentary) + bond (would need a bond-theme report added). Lighter implementation but means information citations are macro-scoped rather than instrument-scoped for these asset classes.
+9 endpoint × symbol fixture files:
 
-**Option (c) — Exclude gold + cn_bond_fund from V1.** Both asset classes flow only to the discipline failure section; never appear in actionable picks. Cleanest fix, smallest scope. Costs the V1 product surface — gold/bond rows currently in the universe.
+- `tests/fixtures/akshare/fund_announcement_dividend_em_518880.json` (1.4 KB, 4 rows)
+- `tests/fixtures/akshare/fund_announcement_dividend_em_000001.json` (3.9 KB, 15 rows)
+- `tests/fixtures/akshare/fund_announcement_dividend_em_005827.json` (0.5 KB, 1 row)
+- `tests/fixtures/akshare/fund_announcement_report_em_518880.json` (25.4 KB, 94 rows)
+- `tests/fixtures/akshare/fund_announcement_report_em_000001.json` (24.6 KB, 100 rows)
+- `tests/fixtures/akshare/fund_announcement_report_em_005827.json` (13.8 KB, 50 rows)
+- `tests/fixtures/akshare/fund_announcement_personnel_em_518880.json` (0.7 KB, 2 rows)
+- `tests/fixtures/akshare/fund_announcement_personnel_em_000001.json` (4.2 KB, 14 rows)
+- `tests/fixtures/akshare/fund_announcement_personnel_em_005827.json` (0.8 KB, 2 rows)
 
-## Recommendation
+Plus `tests/fixtures/akshare/q4_aggregate_gate_summary.json` (aggregate gate structured summary).
 
-**Option (a)** is the lowest-cost, highest-coverage fallback if the topic-specific endpoints' column shapes are workable. The cost is bounded: the FetchPlan budget gate (ADR 0002 §3) already handles the 3× call multiplier. The downside is that item 005 needs a small re-spec to drive the union/normalize logic. Recommend verifying the column shapes of all 3 endpoints (live call, fixture capture, same approach as this item) before committing.
+Total: 10 new fixture files. Total size: ~75 KB.
 
-**Option (c)** is the safest if the user wants to lock the V1 scope quickly without re-spec churn.
+## Downstream impact for item 005
 
-**Option (b)** is the riskiest — bond theme report doesn't exist yet, would require new research authoring.
+Item 005 (Slice F) must:
 
-## Test infrastructure landed (item 004 work product)
+1. Call all 3 topic-specific endpoints per fund symbol (3× AkShare calls per symbol, within ADR 0002 FetchPlan budget).
+2. Union the 3 DataFrames per symbol; normalize columns to `{title, date, id}` (no `url` — `报告ID` serves as the opaque reference).
+3. Handle `datetime.date` objects in `公告日期` (not strings) — AkShare returns Python date objects.
+4. The `citation_kind="information"` leg now emits union rows across 3 announcement topics rather than a single unified stream.
+5. The 9 fixture files above are the canonical column-shape reference for item 005's mocked unit tests.
 
-Even though the live gate FAILED, item 004's test infrastructure is reusable:
+## Failure-mode companion
 
-- `pyproject.toml` `[tool.pytest.ini_options]` registers `live_akshare` and `integration` markers + `--strict-markers`.
-- `tests/fundamentals/test_fund_announcement_em_live.py` — gated by `IRC_RUN_LIVE_AKSHARE=1` env var AND `-m live_akshare` marker. Currently asserts the missing function exists; will need to evolve based on which fallback option is chosen.
-- `tests/fundamentals/test_fund_announcement_em_failure_modes.py` — mocked failure-mode tests, 5/5 PASS (runs in default suite).
-- `tests/fixtures/akshare/.gitkeep` — fixture directory scaffolded.
-- `tests/fundamentals/README-live-tests.md` — run-discipline doc.
+`tests/fundamentals/test_fund_announcement_em_failure_modes.py` still 5/5 PASS. The legacy helpers `_assert_announcement_df` and `_call_fund_announcement_em` are preserved in the live test file to maintain companion compatibility.
 
 ## Subagent
 
@@ -55,9 +69,30 @@ sonnet (impl); orchestrator-recorded verdict.
 
 ## Run state
 
-- 8 commits on branch `autodev/thesis-evidence-004-live-verify-fund-announcement-em` (committed; pushed for user inspection).
-- No PR opened (the 5 currently-failing live tests cannot be merged as-is; the fallback decision dictates how to evolve them).
-- Items 005, 006, 007, 008, 009 marked ⚠️ BLOCKED-BY-004 in PROGRESS.md.
-- Item 010 (DuckDB ingestor) is INDEPENDENT of the Q4 decision per MASTER-SPEC.md item 010; can land in parallel.
+- Pivot commits on branch `autodev/thesis-evidence-004-live-verify-fund-announcement-em`:
+  - `20c59f1` docs(autodev/004): explore AkShare 1.18.63 topic-specific endpoint shapes + pivot spec/plan
+  - `2c24edd` test(fundamentals): rewrite live tests for the 3 topic-specific announcement endpoints (Q4 pivot)
+  - `f2bdf2a` test(fundamentals): capture topic-specific endpoint fixtures (Q4 pivot)
+- 11 live tests: 11/11 PASS
+- 5 failure-mode tests: 5/5 PASS
+- Q4 aggregate gate: PASS
+- Ready for PR against `autodev/thesis-cards-evidence-gap`.
+- Items 005, 006, 007, 008, 009: UNBLOCKED — proceed with item 005 per updated spec.
 
-After Q4 is re-decided, this verdict file should be amended with the chosen path and the run can resume from item 005 (per the new spec) with item 004's test infrastructure re-purposed as appropriate.
+---
+
+## Prior Q4 FAIL verdict (resolved by pivot)
+
+Preserved for historical context.
+
+**Original verdict: FAIL**
+
+`ak.fund_announcement_em` raised `AttributeError: module 'akshare' has no attribute 'fund_announcement_em'` in AkShare 1.18.63 for all 3 symbols (518880, 000001, 005827). All 5 original live tests failed.
+
+**Three fallback options presented to user:**
+
+- **(a)** Adapt to the 3 topic-specific endpoints: `fund_announcement_{dividend,report,personnel}_em`. → **User chose this option on 2026-05-23.**
+- **(b)** Reuse theme reports with promoted scope (treat asset-class macro citations as information-leg for gold + cn_bond_fund).
+- **(c)** Exclude gold + cn_bond_fund from V1.
+
+**Resolution:** Option (a) verified and PASS above.
