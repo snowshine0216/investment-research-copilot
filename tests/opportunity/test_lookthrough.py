@@ -200,4 +200,85 @@ def test_map_lookthrough_gold_unchanged() -> None:
         instrument_id="x", asset_class="gold",
         market="cn_off_exchange", name_cn="黄金ETF",
     )
-    assert map_lookthrough(inp) == LookthroughTarget("gold", "gold", "黄金", "")
+    assert map_lookthrough(inp) == LookthroughTarget("gold", "gold", "黄金", "x")
+
+
+# ── Task 4: provider_symbol population tests ─────────────────────────────────
+
+def test_map_lookthrough_gold_populates_provider_symbol() -> None:
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="518880", asset_class="gold", market="cn_off_exchange",
+        name_cn="华安黄金易ETF",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "gold"
+    assert t.provider_symbol == "518880"
+
+
+def test_map_lookthrough_cn_bond_fund_populates_provider_symbol() -> None:
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="000001", asset_class="cn_bond_fund", market="cn_off_exchange",
+        name_cn="华夏债券",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "bond"
+    assert t.provider_symbol == "000001"
+
+
+def test_map_lookthrough_cn_etf_tracked_index_populates_provider_symbol() -> None:
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_exchange", tracked_index="csi300",
+        name_cn="华泰柏瑞沪深300ETF",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "broad_index"
+    assert t.provider_symbol == "510300"
+
+
+def test_map_lookthrough_cn_etf_theme_populates_provider_symbol() -> None:
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="512480", asset_class="cn_etf",
+        market="cn_exchange", theme="semiconductor",
+        name_cn="国联安半导体ETF",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "sector_theme"
+    assert t.provider_symbol == "512480"
+
+
+def test_map_lookthrough_qdii_us_leaves_provider_symbol_empty() -> None:
+    # QDII routes to qdii_us; provider_symbol stays empty (no fund-level dispatch).
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="513500", asset_class="us_etf",
+        market="cn_exchange", tracked_index="sp500",
+        name_cn="博时标普500ETF",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "qdii_us"
+    assert t.provider_symbol == ""
+
+
+def test_map_lookthrough_unknown_tracked_index_propagates_provider_symbol() -> None:
+    # Unknown tracked_index falls through to broad_index branch — must still
+    # populate provider_symbol so the dispatch can resolve.
+    from irc.opportunity.lookthrough import map_lookthrough
+    from irc.opportunity.types import OpportunityInput
+    inp = OpportunityInput(
+        instrument_id="159999", asset_class="cn_etf",
+        market="cn_exchange", tracked_index="unknown_idx",
+        name_cn="未知ETF",
+    )
+    t = map_lookthrough(inp)
+    assert t.kind == "broad_index"
+    assert t.provider_symbol == "159999"
