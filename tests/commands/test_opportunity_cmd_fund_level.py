@@ -117,7 +117,7 @@ def test_build_rows_routes_fund_level_evidence_into_opportunity_row(tmp_path: Pa
         side_effect=_make_universal_side_effect(),
     ):
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
-            rows, _positions, _q, _roles = _build_rows(
+            rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
                 asset_class_targets, con,
@@ -171,7 +171,7 @@ def test_build_rows_qdii_row_carries_sentinel_gap(tmp_path: Path) -> None:
         "irc.fundamentals.akshare_fundamentals._ak_call",
     ) as mocked:
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
-            rows, _positions, _q, _roles = _build_rows(
+            rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
                 asset_class_targets, con,

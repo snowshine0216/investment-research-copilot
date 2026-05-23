@@ -81,7 +81,7 @@ def test_three_row_integration_gold_bond_cn_etf_dual_coverage(tmp_path: Path) ->
         side_effect=_universal_side(["518880", "000001", "510300"]),
     ):
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
-            rows, _positions, _q, _roles = _build_rows(
+            rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
                 asset_class_targets, con,

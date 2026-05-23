@@ -11,6 +11,18 @@ from pathlib import Path
 
 import duckdb
 
+from irc.opportunity.failure_renderer import (
+    render_failure_section,
+    render_v1_systematic_exclusion_summary,
+)
+from irc.opportunity.policy_b import PolicyBVerdict, evaluate_policy_b
+from irc.opportunity.rejection_log import (
+    RejectionsDocument,
+    _classify_rejection_reason,
+    _decision_rule_for,
+    record_fund_rejection,
+    write_rejections_json,
+)
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -652,8 +664,18 @@ def _build_rows(
     output_date: str,
     limit: int | None = None,
     rebuild_fundamentals: bool = False,
-) -> tuple[list[OpportunityRow], dict, dict, dict]:
-    """Build opportunity rows for each score entry; return (rows, positions, qualities, roles)."""
+) -> tuple[list[OpportunityRow], dict, dict, dict, dict, str, dict]:
+    """Build opportunity rows for each score entry.
+
+    Returns (rows, positions, qualities, roles, pending_verdicts,
+             plan_hash, snapshot_cache_by_instrument).
+
+    `plan_hash` is the ADR 0003 §4 audit-trail correlation key (non-empty
+    when autobuild is on; "" otherwise).
+    `snapshot_cache_by_instrument` maps instrument_id → snapshot object for
+    every active-fund / fund-level row fetched; used by `_write_opportunity_outputs`
+    to populate `fund_level_failure_reasons` in `rejections.json`.
+    """
     # ── Step 1: Apply --limit BEFORE any fetch cost computation ─────────────────
     if limit is not None:
         active_fund_scores = sorted(
@@ -742,6 +764,8 @@ def _build_rows(
     qualities: dict[str, SelectionQuality] = {}
     roles: dict[str, str] = {}
     snapshot_cache: dict[str, object] = {}
+    snapshot_cache_by_instrument: dict[str, object] = {}
+    pending_verdicts: dict[str, PolicyBVerdict] = {}
 
     try:
         for score in scores:
@@ -859,6 +883,18 @@ def _build_rows(
                 snapshot=snap_obj,
                 theme_report=_resolve_research_theme(inp, theme_reports),
             )
+            # Item 006: Policy B verdict stamping for ActiveFundSnapshot rows.
+            if isinstance(snap_obj, ActiveFundSnapshot):
+                verdict = evaluate_policy_b(snap_obj, top_n=TOP_N_DEFAULT)
+                if verdict.gap_codes:
+                    row = replace(
+                        row,
+                        evidence_gaps=row.evidence_gaps + verdict.gap_codes,
+                    )
+                pending_verdicts[row.instrument_id] = verdict
+            # Thread snapshot into per-instrument cache for _write_opportunity_outputs.
+            if snap_obj is not None:
+                snapshot_cache_by_instrument[iid] = snap_obj
             rows.append(row)
             positions[iid] = PositionContext(
                 portfolio_weight=inp.portfolio_weight,
@@ -882,7 +918,7 @@ def _build_rows(
             except OSError:
                 pass
 
-    return rows, positions, qualities, roles
+    return rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument
 
 
 def _write_state_complete(
@@ -974,7 +1010,34 @@ def _write_opportunity_outputs(
     holdings: dict[str, Holding],
     out_dir: Path,
     today: str,
+    *,
+    pending_verdicts: dict[str, PolicyBVerdict] | None = None,
+    snapshot_cache_by_instrument: dict[str, object] | None = None,
+    plan_hash: str = "",
 ) -> None:
+    """Compose the per-run opportunity outputs.
+
+    Item 006 H3 invariant: gapped rows (rows with non-empty `evidence_gaps`)
+    are partitioned out BEFORE any thesis_card / opportunity_report / discipline
+    bucket emission. Gapped rows surface ONLY in `rejections.json` and the
+    `## 证据不足 / Failed fetch` section of `discipline_report.md`.
+
+    See ADR 0003 §3 for the H3 invariant rationale.
+    """
+    # Step 1 — H3 fatal pre-gate: fetch_budget_exhausted is run-level only.
+    for r in kept_rows:
+        if "fetch_budget_exhausted" in r.evidence_gaps:
+            raise RuntimeError(
+                f"fetch_budget_exhausted appeared on row {r.instrument_id} — "
+                "this gap is run-level fatal and must be caught at preflight; "
+                "row-level emission is a programming error"
+            )
+
+    # Step 2 — H3 partition.
+    publishable_rows = [r for r in kept_rows if not r.evidence_gaps]
+    gapped_rows = [r for r in kept_rows if r.evidence_gaps]
+
+    # Step 3 — emit thesis_cards.yaml + opportunity_report.json from publishable only.
     cards = [
         build_thesis_card(
             row=r,
@@ -982,20 +1045,59 @@ def _write_opportunity_outputs(
             role=_role_for(r, roles),
             entry_reason=r.opportunity_reason.split(" | ")[0] if r.opportunity_reason else "",
         )
-        for r in kept_rows
+        for r in publishable_rows
         if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
     ]
-    discipline_rows = [_discipline_row_from(r, positions[r.instrument_id]) for r in kept_rows]
+    discipline_rows = [
+        _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
+    ]
     out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
         out_dir / "opportunity_report.json",
-        json.dumps(compose_opportunity_report(kept_rows, today), ensure_ascii=False, indent=2),
+        json.dumps(
+            compose_opportunity_report(publishable_rows, today),
+            ensure_ascii=False, indent=2,
+        ),
     )
     atomic_write_text(out_dir / "thesis_cards.yaml", compose_thesis_cards_yaml(cards))
-    atomic_write_text(out_dir / "discipline_report.md", compose_discipline_markdown(discipline_rows, today))
+
+    # Step 4 — build rejections.json from gapped rows.
+    _verdicts = pending_verdicts or {}
+    _snapshots = snapshot_cache_by_instrument or {}
+    rejection_records: list = []
+    for r in gapped_rows:
+        reason = _classify_rejection_reason(r)
+        verdict = _verdicts.get(r.instrument_id)
+        snapshot = _snapshots.get(r.instrument_id)
+        rejection_records.append(record_fund_rejection(
+            row=r,
+            snapshot=snapshot,
+            verdict=verdict,
+            rejection_reason=reason,
+            decision_rule=_decision_rule_for(r, verdict),
+        ))
+    rejection_doc = RejectionsDocument(
+        run_date=today,
+        plan_hash=plan_hash,
+        entries=tuple(rejection_records),
+    )
+    write_rejections_json(rejection_doc, out_dir)
+
+    # Step 5 — compose discipline_report.md: publishable buckets + V1 summary + failure section.
+    publishable_md = compose_discipline_markdown(discipline_rows, today)
+    v1_summary = render_v1_systematic_exclusion_summary(rejection_doc.entries)
+    failure_section = render_failure_section(gapped_rows)
+    discipline_md = (
+        publishable_md
+        + "\n\n" + v1_summary
+        + "\n\n## 证据不足 / Failed fetch\n\n" + failure_section + "\n"
+    )
+    atomic_write_text(out_dir / "discipline_report.md", discipline_md)
+
     print(
-        f"opportunity OK: {len(kept_rows)} rows, {len(cards)} cards, "
-        f"{len(discipline_rows)} discipline entries -> {out_dir}"
+        f"opportunity OK: {len(publishable_rows)} rows, {len(cards)} cards, "
+        f"{len(discipline_rows)} discipline entries, "
+        f"{len(rejection_records)} rejections -> {out_dir}"
     )
 
 
@@ -1049,7 +1151,7 @@ def run_opportunity(
     ensure_schema(con)
     out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
     try:
-        rows, positions, qualities, roles = _build_rows(
+        rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument = _build_rows(
             scores, instr_index, holdings, portfolio_total_cny,
             available_venues, theme_thesis, theme_reports, root,
             bundle.preferences.asset_class_targets,
@@ -1061,7 +1163,12 @@ def run_opportunity(
         if rows:
             _print_quality_warnings(rows)
         kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
-        _write_opportunity_outputs(kept_rows, positions, qualities, roles, holdings, out_dir, today)
+        _write_opportunity_outputs(
+            kept_rows, positions, qualities, roles, holdings, out_dir, today,
+            pending_verdicts=pending_verdicts,
+            plan_hash=plan_hash,
+            snapshot_cache_by_instrument=snapshot_cache_by_instrument,
+        )
     except FetchBudgetExceeded as exc:
         sys.stderr.write(str(exc) + "\n")
         con.close()

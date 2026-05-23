@@ -110,6 +110,7 @@ class ConstituentAnalysis:
     evidence: tuple[ThesisEvidence, ...]
     failure_reasons: tuple[str, ...]
     one_line_view: str
+    audit_errors: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.symbol:

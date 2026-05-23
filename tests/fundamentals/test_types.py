@@ -371,3 +371,39 @@ def test_fund_level_snapshot_in_all() -> None:
     assert "FundLevelSnapshot" in _t.__all__
     assert "FundNavReport" in _t.__all__
     assert "FundAnnouncement" in _t.__all__
+
+
+def test_constituent_analysis_audit_errors_default_empty() -> None:
+    from irc.fundamentals.types import ConstituentAnalysis
+    c = ConstituentAnalysis(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=6.2,
+        evidence=(),
+        failure_reasons=(),
+        one_line_view="证据获取失败",
+    )
+    assert c.audit_errors == ()
+
+
+def test_constituent_analysis_audit_errors_explicit() -> None:
+    from irc.fundamentals.types import ConstituentAnalysis
+    c = ConstituentAnalysis(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=6.2,
+        evidence=(),
+        failure_reasons=(),
+        one_line_view="",
+        audit_errors=("missing_constituent_record:600519",),
+    )
+    assert c.audit_errors == ("missing_constituent_record:600519",)
+
+
+def test_constituent_analysis_audit_errors_field_position_at_end() -> None:
+    """Field MUST be at the END of the dataclass — required for positional
+    compat with item 003's existing call sites and cache JSON deserialisers."""
+    from dataclasses import fields
+    from irc.fundamentals.types import ConstituentAnalysis
+    field_names = [f.name for f in fields(ConstituentAnalysis)]
+    assert field_names[-1] == "audit_errors"
