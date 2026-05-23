@@ -101,6 +101,39 @@ class ThesisEvidence:
             self, "citation_id", hashlib.sha256(preimage).hexdigest()[:16]
         )
 
+    @classmethod
+    def from_dict(cls, d: dict) -> "ThesisEvidence":
+        """Rebuild a `ThesisEvidence` from its JSON dict form.
+
+        Recomputes `citation_id` via `__post_init__`. If the JSON dict carries
+        a `citation_id` that doesn't match the recomputed value, raise — detects
+        drift/tampering of `opportunity_report.json` between stages.
+
+        Single source of truth for the dict→dataclass rebuild across
+        snapshot_cache.py, memo_cmd.py, and the renderer pipeline.
+        """
+        expected_id = d.get("citation_id")
+        ev = cls(
+            type=d["type"],
+            source=d["source"],
+            url=d.get("url") or "",
+            date=d["date"],
+            summary=d.get("summary") or "",
+            scope=d["scope"],
+            citation_kind=d["citation_kind"],
+            owner_instrument_id=d["owner_instrument_id"],
+            parent_fund_id=d.get("parent_fund_id"),
+            constituent_key=d.get("constituent_key"),
+            holding_weight_pct=d.get("holding_weight_pct"),
+        )
+        if expected_id and expected_id != ev.citation_id:
+            raise ValueError(
+                f"citation_id mismatch: JSON has {expected_id!r} "
+                f"but recomputed to {ev.citation_id!r} "
+                f"(possible tampering of opportunity_report.json)"
+            )
+        return ev
+
 
 @dataclass(frozen=True)
 class ConstituentAnalysis:

@@ -407,3 +407,88 @@ def test_constituent_analysis_audit_errors_field_position_at_end() -> None:
     from irc.fundamentals.types import ConstituentAnalysis
     field_names = [f.name for f in fields(ConstituentAnalysis)]
     assert field_names[-1] == "audit_errors"
+
+
+# ── Item 007 OQ1 — ThesisEvidence.from_dict classmethod ─────────────────────
+
+
+def test_thesis_evidence_from_dict_happy_path() -> None:
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "filing",
+        "source": "akshare:filing:600519",
+        "url": "https://example.com/600519/2024q1",
+        "date": "2024-04-15",
+        "summary": "600519 24Q1 财报",
+        "scope": "constituent",
+        "citation_kind": "data",
+        "owner_instrument_id": "005827",
+        "parent_fund_id": "005827",
+        "constituent_key": "600519",
+    }
+    ev = ThesisEvidence.from_dict(d)
+    assert ev.type == "filing"
+    assert ev.owner_instrument_id == "005827"
+    assert ev.constituent_key == "600519"
+    assert len(ev.citation_id) == 16
+    assert all(c in "0123456789abcdef" for c in ev.citation_id)
+
+
+def test_thesis_evidence_from_dict_missing_optional_fields() -> None:
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "snapshot",
+        "source": "akshare:nav:518880",
+        "url": "",
+        "date": "2026-03-15",
+        "summary": "518880 NAV snapshot",
+        "scope": "instrument",
+        "citation_kind": "data",
+        "owner_instrument_id": "518880",
+    }
+    ev = ThesisEvidence.from_dict(d)
+    assert ev.parent_fund_id is None
+    assert ev.constituent_key is None
+    assert ev.holding_weight_pct is None
+    assert ev.url == ""
+
+
+def test_thesis_evidence_from_dict_holding_weight_carried() -> None:
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "filing",
+        "source": "akshare:filing:600519",
+        "url": "https://example.com/600519",
+        "date": "2024-04-15",
+        "summary": "600519",
+        "scope": "constituent",
+        "citation_kind": "data",
+        "owner_instrument_id": "005827",
+        "parent_fund_id": "005827",
+        "constituent_key": "600519",
+        "holding_weight_pct": 8.2,
+    }
+    ev = ThesisEvidence.from_dict(d)
+    assert ev.holding_weight_pct == 8.2
+
+
+def test_thesis_evidence_from_dict_citation_id_mismatch_raises() -> None:
+    """If the JSON carries a citation_id that doesn't match __post_init__'s
+    recomputed value, raise (catches tampering of opportunity_report.json)."""
+    import pytest
+    from irc.fundamentals.types import ThesisEvidence
+    d = {
+        "type": "filing",
+        "source": "akshare:filing:600519",
+        "url": "https://example.com/600519",
+        "date": "2024-04-15",
+        "summary": "600519",
+        "scope": "constituent",
+        "citation_kind": "data",
+        "owner_instrument_id": "005827",
+        "parent_fund_id": "005827",
+        "constituent_key": "600519",
+        "citation_id": "ffffffffffffffff",  # bogus
+    }
+    with pytest.raises(ValueError, match="citation_id mismatch"):
+        ThesisEvidence.from_dict(d)
