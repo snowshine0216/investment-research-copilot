@@ -16,11 +16,12 @@ Pure function. The rules implement the May-14 spec's deterministic table:
 from __future__ import annotations
 
 from irc.fundamentals.types import (
+    ActiveFundSnapshot,
     BrokerReport,
     ConstituentSnapshot,
     FilingDigest,
 )
-from irc.opportunity.types import ThesisEvidence, ThesisState
+from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence, ThesisState
 from irc.research.theme_research import ThemeReport
 
 
@@ -276,6 +277,25 @@ def _classify_state(
 NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
     "gold", "cn_bond_fund", "qdii_global",
 })
+
+# ── Item 003: flatten ordering (spec Q-J) ─────────────────────────────────────
+
+_TYPE_RANK: dict[str, int] = {"filing": 0, "broker": 1, "news": 2}
+
+
+def _flatten_analyses(
+    analyses: tuple[ConstituentAnalysis, ...],
+) -> tuple[ThesisEvidence, ...]:
+    """Flatten per-spec Q-J: (weight_pct desc, type_rank asc, citation_id asc)."""
+    entries: list[ThesisEvidence] = []
+    for c in analyses:
+        entries.extend(c.evidence)
+    entries.sort(key=lambda e: e.citation_id)
+    entries.sort(key=lambda e: _TYPE_RANK.get(e.type, 99))
+    entries.sort(
+        key=lambda e: -(e.holding_weight_pct if e.holding_weight_pct is not None else 0.0),
+    )
+    return tuple(entries)
 _NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
 
 
@@ -306,18 +326,54 @@ def _classify_constituent_gap(
 
 
 def derive_thesis_from_evidence(
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | None,
+    theme_report: ThemeReport | None,
+    *,
+    asset_class: str | None = None,
+    owner_instrument_id: str,
+) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...], tuple[ConstituentAnalysis, ...]]:
+    """Derive (state, reason, evidence, gap_labels, constituent_analyses) from
+    concrete sources.
+
+    Active-fund branch returns analyses + flattened evidence.
+    Legacy `ConstituentSnapshot` branch returns the same first-4-slot tuple
+    plus an empty analyses tuple at slot 5.
+
+    `owner_instrument_id` is the instrument id of the row being built; it is
+    stamped on every emitted `ThesisEvidence` so `build_cited_map` can verify
+    `e.owner_instrument_id == row.instrument_id`.
+    """
+    if isinstance(snapshot, ActiveFundSnapshot):
+        analyses = snapshot.constituent_analyses
+        flattened = _flatten_analyses(analyses)
+        # Item 003: do NOT stamp evidence_gaps yet; item 006 H2 owns that.
+        gaps: tuple[str, ...] = ()
+        if flattened:
+            state: ThesisState = "intact"
+            reason = (
+                f"主动基金 {len(analyses)} 个核心持仓的成分股证据已收集。"
+            )
+        else:
+            state = "evidence_insufficient"
+            reason = "主动基金未能收集到任何成分股证据。"
+        return state, reason, flattened, gaps, tuple(analyses)  # type: ignore[return-value]
+
+    # Legacy path: unchanged behaviour, plus empty 5th slot.
+    state_l, reason_l, evidence_l, gaps_l = _derive_legacy(
+        snapshot, theme_report,
+        asset_class=asset_class, owner_instrument_id=owner_instrument_id,
+    )
+    return state_l, reason_l, evidence_l, gaps_l, ()
+
+
+def _derive_legacy(
     snapshot: ConstituentSnapshot | None,
     theme_report: ThemeReport | None,
     *,
     asset_class: str | None = None,
     owner_instrument_id: str,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...]]:
-    """Derive (state, reason, evidence, gap_labels) from concrete sources.
-
-    `owner_instrument_id` is the instrument id of the row being built; it is
-    stamped on every emitted `ThesisEvidence` so `build_cited_map` can verify
-    `e.owner_instrument_id == row.instrument_id`.
-    """
+    """Original derive_thesis_from_evidence body (4-tuple return)."""
     gaps: list[str] = []
 
     snapshot_usable = snapshot is not None and bool(snapshot.filings)
