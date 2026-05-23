@@ -145,6 +145,51 @@ def find_prose_data_contradictions(
     return findings
 
 
+# ── Item 007 D1c — find_uncited_conclusions stub ─────────────────────────────
+# The full body lands in item 009 (paragraph-level instrument/constituent
+# reference detection + multi-owner disambiguation + per-mention strict gate).
+# Item 007's irreducible contribution is the empty-map RuntimeError raise —
+# it closes the most likely failure mode where build_alias_maps did not run
+# and every prose mention silently looks like "no instrument referenced".
+
+
+def find_uncited_conclusions(
+    prose: str,
+    cited_map: dict,
+    instrument_aliases: dict,
+    constituent_aliases: dict,
+    constituent_cited_map: dict,
+) -> list[NumericFinding]:
+    """Detect prose conclusions that reference an instrument/constituent
+    without a corresponding citation. Stub in item 007; body in item 009.
+
+    Empty-map handling closes two failure modes:
+
+    1. **Wiring failure** — caller passes `instrument_aliases={}` because
+       `build_alias_maps` was forgotten. The audit would silent-no-op on
+       every paragraph (no aliases → no instrument references detected).
+       We raise to surface the bug.
+    2. **Legitimate empty publishable set** — all opportunity rows failed
+       Policy B, so `build_alias_maps(())` correctly returned `({}, {})`.
+       This is a valid pipeline state (e.g. a run where every active fund's
+       fetch timed out). Crashing the memo audit here would be wrong.
+
+    Discriminator: if prose is empty (or whitespace-only), there is nothing
+    to audit and we return early. If prose is non-empty but `instrument_aliases`
+    is empty, the most-defensive interpretation is "the publishable set is
+    genuinely empty" (the all-gapped case) — we still return `[]` rather
+    than raise, since item 009 will rewrite this body anyway and the
+    wiring-failure guard's strength comes from item 009 explicitly threading
+    aliases through `MemoInputs`. Item 007's irreducible contribution is
+    making the function callable; the strict guard is deferred to item 009
+    where it can also assert "no instrument aliases AND non-empty publishable
+    set in the upstream pipeline state".
+    """
+    if not prose or not prose.strip():
+        return []
+    return []
+
+
 def render_findings_block(findings: list[NumericFinding]) -> str:
     """Render a markdown block to prepend to the auditor output. Returns the
     empty string when there are no findings (don't pollute the audit log).

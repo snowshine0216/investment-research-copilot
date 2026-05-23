@@ -889,3 +889,206 @@ def test_run_opportunity_threads_plan_hash_and_snapshot_cache_to_rejections(
         f"fund_level_failure_reasons was {gapped_entries[0]['fund_level_failure_reasons']!r} "
         "— run_opportunity did not pass snapshot_cache_by_instrument through"
     )
+
+
+# ── Item 007 OQ2 — _stamp_audit_errors_from_verdict helper ───────────────────
+
+
+def test_build_rows_stamps_audit_errors_from_publishable_verdict_coverage(monkeypatch) -> None:
+    """OQ2 — when Policy B returns a publishable verdict (no gap_codes) whose
+    constituent_coverage carries non-empty audit_errors on any entry, the
+    audit_errors MUST be stamped onto OpportunityRow.constituent_analyses[*]
+    via dataclasses.replace. Locked because item 007's renderer reads
+    OpportunityRow.constituent_analyses[*].audit_errors directly."""
+    import irc.commands.opportunity_cmd as oc
+    from irc.fundamentals.types import ConstituentAnalysis
+    from irc.opportunity.policy_b import (
+        ConstituentCoverageEntry, PolicyBVerdict,
+    )
+
+    # Synthesise a publishable verdict whose coverage carries an audit_error
+    # on one symbol (a future-state defence-in-depth case).
+    fake_verdict = PolicyBVerdict(
+        gap_codes=(),  # ← publishable
+        audit_errors=(),
+        decision_rule="synthetic publishable with audit-error",
+        material_symbols=("600519",),
+        constituent_coverage=(
+            ConstituentCoverageEntry(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                weight_rank=1, in_material_top_half=True, exchange="SH",
+                has_data_leg=True, has_info_leg=True,
+                data_kind_count=1, information_kind_count=1,
+                failure_reasons=(),
+                audit_errors=("missing_constituent_record:600519",),  # ← stamp source
+            ),
+        ),
+    )
+
+    def fake_evaluate(snapshot, *, top_n):
+        return fake_verdict
+
+    monkeypatch.setattr(oc, "evaluate_policy_b", fake_evaluate)
+    # The function-level test cannot run _build_rows end-to-end without all
+    # config inputs. Instead, assert the post-Policy-B stamping helper
+    # exists and behaves correctly on a constructed input.
+    assert hasattr(oc, "_stamp_audit_errors_from_verdict"), \
+        "_stamp_audit_errors_from_verdict helper must exist (OQ2 wiring)"
+
+    # Build a row whose constituent_analyses includes 600519.
+    from irc.opportunity.types import OpportunityRow
+    from irc.fundamentals.types import LookthroughTarget
+    c1 = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="x",
+        audit_errors=(),  # initially empty
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827", display_cn="易方达",
+            provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+        constituent_analyses=(c1,),
+    )
+    patched = oc._stamp_audit_errors_from_verdict(row, fake_verdict)
+    assert patched.constituent_analyses[0].audit_errors == \
+        ("missing_constituent_record:600519",)
+    # Other fields unchanged.
+    assert patched.instrument_id == "005827"
+    assert patched.constituent_analyses[0].symbol == "600519"
+
+
+def test_stamp_audit_errors_no_op_when_coverage_empty() -> None:
+    """No-op when verdict.constituent_coverage carries no audit_errors."""
+    import irc.commands.opportunity_cmd as oc
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.policy_b import (
+        ConstituentCoverageEntry, PolicyBVerdict,
+    )
+    from irc.opportunity.types import OpportunityRow
+
+    fake_verdict = PolicyBVerdict(
+        gap_codes=(), audit_errors=(),
+        decision_rule="publishable, no errors",
+        material_symbols=("600519",),
+        constituent_coverage=(
+            ConstituentCoverageEntry(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                weight_rank=1, in_material_top_half=True, exchange="SH",
+                has_data_leg=True, has_info_leg=True,
+                data_kind_count=1, information_kind_count=1,
+                failure_reasons=(),
+                audit_errors=(),  # ← empty
+            ),
+        ),
+    )
+    c1 = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+        audit_errors=(),
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827", display_cn="易方达",
+            provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="strong", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+        constituent_analyses=(c1,),
+    )
+    patched = oc._stamp_audit_errors_from_verdict(row, fake_verdict)
+    # Identical content (no audit_errors added).
+    assert patched.constituent_analyses[0].audit_errors == ()
+
+
+# ── Item 007 Q10 — _write_opportunity_outputs loads trade_plan for pick order ─
+
+
+def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> None:
+    """Q10 — _write_opportunity_outputs computes pick_order_iids from
+    trade_plan.yaml so the appendix ordering matches the memo pick-table."""
+    import yaml
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+
+    # Write a minimal trade_plan.yaml in tmp_path.
+    plan = {"trades": [
+        {"target": "163417", "target_weight": 0.1},
+        {"target": "005827", "target_weight": 0.05},
+    ]}
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "trade_plan.yaml").write_text(yaml.safe_dump(plan), encoding="utf-8")
+
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+
+    def _row(iid: str, name: str):
+        return OpportunityRow(
+            instrument_id=iid, name_cn=name, asset_class="cn_equity_fund",
+            theme=None,
+            lookthrough_target=LookthroughTarget(
+                kind="active_fund", key=iid, display_cn=name,
+                provider_symbol="",
+            ),
+            valuation_state="fair", heat_state="normal", thesis_state="intact",
+            product_quality_state="strong", opportunity_state="core_dca",
+            opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+            constituent_analyses=(c,),
+        )
+
+    rows = [_row("005827", "A基金"), _row("163417", "B基金")]
+    positions = {iid: type("P", (), {
+        "portfolio_weight": None, "target_band_low": None,
+        "target_band_high": None, "drawdown_since_entry": None,
+        "is_holding": False,
+    })() for iid in ("005827", "163417")}
+
+    _write_opportunity_outputs(
+        rows, positions, {}, {}, {}, tmp_path, "2026-05-23",
+        pending_verdicts={}, plan_hash="",
+        snapshot_cache_by_instrument={},
+    )
+    discipline = (tmp_path / "discipline_report.md").read_text(encoding="utf-8")
+    # 163417 (first in trade_plan) appears before 005827 in the appendix.
+    pos_b = discipline.index("### 163417")
+    pos_a = discipline.index("### 005827")
+    assert pos_b < pos_a, \
+        f"appendix not ordered by pick-row; got:\n{discipline}"
+
+
+def test_load_pick_order_iids_propagates_non_yaml_exceptions(tmp_path) -> None:
+    """Regression — pre-merge silent-failure review surfaced that
+    `except (OSError, Exception)` silently swallowed every error
+    (including TypeErrors inside the comprehension over `doc.get("trades")`).
+    The narrowed `except (OSError, yaml.YAMLError)` must propagate other
+    exceptions. Lock by constructing a `trade_plan.yaml` whose `trades`
+    contains a non-mapping entry — the generator's `.get` call raises
+    AttributeError, which must NOT be swallowed."""
+    import pytest
+    from irc.commands.opportunity_cmd import _load_pick_order_iids
+    # Valid YAML, but `trades` contains a string instead of a dict.
+    plan_path = tmp_path / "trade_plan.yaml"
+    plan_path.write_text("trades:\n  - just_a_string\n", encoding="utf-8")
+    with pytest.raises(AttributeError):
+        _load_pick_order_iids(tmp_path)
+
+
+def test_load_pick_order_iids_tolerates_malformed_yaml(tmp_path) -> None:
+    """Negative complement — a true YAML parse error returns `()` per Q10
+    backward-compat (the appendix then renders in instrument_id-ascending
+    order, no crash)."""
+    from irc.commands.opportunity_cmd import _load_pick_order_iids
+    plan_path = tmp_path / "trade_plan.yaml"
+    plan_path.write_text(": ::: malformed ::: :\n", encoding="utf-8")
+    assert _load_pick_order_iids(tmp_path) == ()

@@ -17,6 +17,7 @@ from irc.memo.diagnostics import (
     compose_fx_qdii_lines,
     compose_role_bucket_banner,
 )
+from irc.memo.aliases import build_alias_maps
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.citation_selector import select_citations
 from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
@@ -260,32 +261,66 @@ def _strip_venue_suffix(iid: str) -> str:
 
 
 def _evidence_from_dict(d: dict) -> ThesisEvidence:
-    """Rebuild a `ThesisEvidence` from its JSON dict form.
+    """Deprecated shim — delegates to ThesisEvidence.from_dict."""
+    return ThesisEvidence.from_dict(d)
 
-    Recomputes `citation_id` via `__post_init__`. If the JSON dict carries a
-    `citation_id` that doesn't match the recomputed value, raise — detects
-    drift/tampering of `opportunity_report.json` between stages.
+
+def _reconstruct_opportunity_rows(
+    rebuilt_op_rows: list[dict],
+) -> tuple:
+    """Reconstruct OpportunityRow dataclasses from rebuilt dict-form rows
+    for the alias-builder. Publishable rows only (evidence_gaps == ()).
+
+    Best-effort — fields not strictly needed by build_alias_maps default
+    to neutral placeholders so the function never raises on a partial dict.
     """
-    expected_id = d.get("citation_id")
-    ev = ThesisEvidence(
-        type=d["type"],
-        source=d["source"],
-        url=d.get("url") or "",
-        date=d["date"],
-        summary=d.get("summary") or "",
-        scope=d["scope"],
-        citation_kind=d["citation_kind"],
-        owner_instrument_id=d["owner_instrument_id"],
-        parent_fund_id=d.get("parent_fund_id"),
-        constituent_key=d.get("constituent_key"),
-    )
-    if expected_id and expected_id != ev.citation_id:
-        raise ValueError(
-            f"citation_id mismatch: JSON has {expected_id!r} "
-            f"but recomputed to {ev.citation_id!r} "
-            f"(possible tampering of opportunity_report.json)"
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+
+    rows: list = []
+    for r in rebuilt_op_rows:
+        if (r.get("evidence_gaps") or ()):
+            continue
+        constituent_analyses = tuple(
+            ConstituentAnalysis(
+                symbol=c.get("symbol", ""),
+                name_cn=c.get("name_cn", ""),
+                weight_pct=float(c.get("weight_pct", 0.0)),
+                evidence=tuple(
+                    ThesisEvidence.from_dict(e) for e in c.get("evidence", [])
+                ),
+                failure_reasons=tuple(c.get("failure_reasons", ())),
+                one_line_view=c.get("one_line_view", ""),
+                audit_errors=tuple(c.get("audit_errors", ())),
+            )
+            for c in (r.get("constituent_analyses") or [])
+            if c.get("symbol")
         )
-    return ev
+        lt = LookthroughTarget(
+            kind=r.get("lookthrough_kind", "broad_index"),
+            key=r.get("lookthrough_key", r["instrument_id"]),
+            display_cn=r.get("lookthrough_target", ""),
+            provider_symbol="",
+        )
+        rows.append(OpportunityRow(
+            instrument_id=r["instrument_id"],
+            name_cn=r.get("name_cn", ""),
+            asset_class=r.get("asset_class", ""),
+            theme=r.get("theme"),
+            lookthrough_target=lt,
+            valuation_state=r.get("valuation_state", "evidence_insufficient"),
+            heat_state=r.get("heat_state", "evidence_insufficient"),
+            thesis_state=r.get("thesis_state", "evidence_insufficient"),
+            product_quality_state=r.get("product_quality_state", "evidence_insufficient"),
+            opportunity_state=r.get("opportunity_state", "small_watch"),
+            opportunity_reason=r.get("opportunity_reason", ""),
+            evidence_gaps=tuple(r.get("evidence_gaps", ())),
+            thesis_evidence=r["thesis_evidence"]
+                if isinstance(r.get("thesis_evidence"), tuple)
+                else tuple(r.get("thesis_evidence") or ()),
+            constituent_analyses=constituent_analyses,
+        ))
+    return tuple(rows)
 
 
 def _build_pick_rows(
@@ -411,12 +446,44 @@ def run_memo(repo_root: str) -> int:
         "zone": gold.get("zone", "unknown"),
         "tilt": alloc.get("gold_tilt", "neutral"),
     }
+    # Item 007 D1a: reconstruct ThesisEvidence dataclasses from the JSON
+    # dict form so build_evidence_pool can pass them through select_citations
+    # without a third-call-site _evidence_from_dict copy.
+    raw_op_rows = list(opportunity.get("rows") or [])
+    rebuilt_op_rows: list[dict] = []
+    for row in raw_op_rows:
+        ev_tuple = tuple(
+            ThesisEvidence.from_dict(d) for d in (row.get("thesis_evidence") or [])
+        )
+        rebuilt_op_rows.append({**row, "thesis_evidence": ev_tuple})
+
     raw_ref_pool = build_evidence_pool(
-        opportunity_rows=list(opportunity.get("rows") or []),
+        opportunity_rows=rebuilt_op_rows,
         scoring_rows=list(scoring.get("scores") or []),
         plan_trades=trades,
         gold_regime=gold_regime,
     )
+
+    # Item 007 D1c: build alias maps from publishable rows. Item 009's
+    # find_uncited_conclusions consumes these via the audit-gate wiring;
+    # item 007 ships only the producer side. Wrap the call so an
+    # `InstrumentAliasCollisionError` surfaces as a user-readable ERROR
+    # line (not a Python traceback) — production data has occasionally
+    # produced duplicate `name_cn` strings across share-class variants of
+    # the same parent fund family.
+    from irc.memo.aliases import InstrumentAliasCollisionError
+    publishable_rows_for_aliases = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    try:
+        _instrument_aliases, _constituent_aliases = build_alias_maps(
+            publishable_rows_for_aliases,
+        )
+    except InstrumentAliasCollisionError as exc:
+        print(
+            f"ERROR: alias-builder collision while preparing memo: {exc}\n"
+            "Investigate opportunity_report.json for duplicate `name_cn` "
+            "or shared `lookthrough_target.key` across publishable rows."
+        )
+        return 1
 
     tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
 

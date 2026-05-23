@@ -49,7 +49,9 @@ The preimage explicitly uses `owner_instrument_id` (not "instrument_id" loosely)
 
 ### 3. Deterministic selector invariant
 
-`select_citations(entries, cap=3)` in `src/irc/memo/citation_selector.py` is the single source of truth for picks-table (D0e) and evidence-pool (D1a). Two input tuples differing only in element order produce the same output tuple. The data-leg slot and information-leg slot are filled independently; both legs are guaranteed to appear in the output when both are present in the input.
+`select_citations(entries, cap=3)` in `src/irc/opportunity/citation_selector.py` is the single source of truth for picks-table (D0e), evidence-pool (D1a), and the discipline-renderer nested thesis-evidence bullets (D3a, item 007). Two input tuples differing only in element order produce the same output tuple. The data-leg slot and information-leg slot are filled independently; both legs are guaranteed to appear in the output when both are present in the input.
+
+The canonical module moved from `irc.memo.citation_selector` to `irc.opportunity.citation_selector` in item 007 to break an `opportunity → memo` cycle created when `opportunity.report._render_section` started calling the selector. The old import path remains as a re-export shim (`from irc.opportunity.citation_selector import select_citations`) so memo internals and existing tests keep working without churn; new code should prefer the canonical path.
 
 ### 4. Audit-gate consumer list
 
@@ -85,3 +87,4 @@ These gates run immediately before `atomic_write_text` of `opportunity_report.js
 ## Related ADRs
 
 - [ADR 0002 — Active-fund fetch engine](0002-active-fund-fetch-engine.md): the runtime engine that emits `ThesisEvidence` with `scope="constituent"` for active-fund holdings. Adds the optional `holding_weight_pct` field (NOT part of the citation_id hash preimage; the contract in §2 of this ADR is unchanged).
+- [ADR 0004 — Renderer determinism + alias policy](0004-renderer-determinism-and-alias-policy.md): downstream consumer-side companion. Locks the SAME-3 invariant across the three rendering surfaces (picks-table, evidence-pool, discipline nested bullets) — all three call `select_citations` directly with no pre-filter so the deterministic selector contract in §3 of this ADR is preserved end-to-end.

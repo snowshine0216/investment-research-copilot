@@ -884,6 +884,8 @@ def _build_rows(
                 theme_report=_resolve_research_theme(inp, theme_reports),
             )
             # Item 006: Policy B verdict stamping for ActiveFundSnapshot rows.
+            # Item 007 OQ2: stamp per-constituent audit_errors from publishable
+            # verdicts so the renderer reads them directly off the OpportunityRow.
             if isinstance(snap_obj, ActiveFundSnapshot):
                 verdict = evaluate_policy_b(snap_obj, top_n=TOP_N_DEFAULT)
                 if verdict.gap_codes:
@@ -891,6 +893,8 @@ def _build_rows(
                         row,
                         evidence_gaps=row.evidence_gaps + verdict.gap_codes,
                     )
+                else:
+                    row = _stamp_audit_errors_from_verdict(row, verdict)
                 pending_verdicts[row.instrument_id] = verdict
             # Thread snapshot into per-instrument cache for _write_opportunity_outputs.
             if snap_obj is not None:
@@ -944,6 +948,38 @@ def _write_state_complete(
     })
     state["items"] = items
     write_fetch_state(state, fundamentals_dir, plan_hash)
+
+
+def _stamp_audit_errors_from_verdict(
+    row: OpportunityRow,
+    verdict: PolicyBVerdict,
+) -> OpportunityRow:
+    """Stamp per-constituent audit_errors from Policy B's coverage entries.
+
+    OQ2 wiring: item 007's renderer reads
+    OpportunityRow.constituent_analyses[*].audit_errors. Policy B v2 emits
+    audit_errors on its ConstituentCoverageEntry; for publishable rows this
+    is usually `()`, but defence-in-depth requires the stamp to fire if a
+    future evaluator path produces non-empty audit_errors on a publishable
+    verdict.
+
+    Pure copy-replace via dataclasses.replace; cached snapshot JSON is
+    untouched (ADR 0003 §2).
+    """
+    audit_by_symbol = {
+        entry.symbol: entry.audit_errors
+        for entry in verdict.constituent_coverage
+        if entry.audit_errors
+    }
+    if not audit_by_symbol:
+        return row
+    patched_constituents = tuple(
+        replace(c, audit_errors=audit_by_symbol[c.symbol])
+        if c.symbol in audit_by_symbol
+        else c
+        for c in row.constituent_analyses
+    )
+    return replace(row, constituent_analyses=patched_constituents)
 
 
 def _print_quality_warnings(rows: list[OpportunityRow]) -> None:
@@ -1000,6 +1036,32 @@ def _apply_reduction(
             "(passive alternative available in same theme)"
         )
     return list(kept_t)
+
+
+def _load_pick_order_iids(out_dir: Path) -> tuple[str, ...]:
+    """Read trade_plan.yaml from out_dir and return ordered list of pick iids.
+
+    Returns empty tuple when trade_plan.yaml does not exist (e.g. opportunity
+    runs before plan/build); the appendix then renders in instrument_id
+    ascending order (backward-compat per Q10).
+    """
+    import yaml as _yaml
+    plan_path = out_dir / "trade_plan.yaml"
+    if not plan_path.exists():
+        return ()
+    try:
+        doc = _yaml.safe_load(plan_path.read_text(encoding="utf-8")) or {}
+    except (OSError, _yaml.YAMLError):
+        # Backward-compat per Q10: tolerate missing/unreadable/malformed
+        # trade_plan.yaml. NEVER swallow non-IO exceptions (used to be
+        # `except (OSError, Exception)`, which masked KeyError/TypeError
+        # bugs in the comprehension below).
+        return ()
+    return tuple(
+        str(t["target"])
+        for t in (doc.get("trades") or [])
+        if t.get("target")
+    )
 
 
 def _write_opportunity_outputs(
@@ -1084,7 +1146,13 @@ def _write_opportunity_outputs(
     write_rejections_json(rejection_doc, out_dir)
 
     # Step 5 — compose discipline_report.md: publishable buckets + V1 summary + failure section.
-    publishable_md = compose_discipline_markdown(discipline_rows, today)
+    # Q10 wiring: load trade_plan.yaml for appendix pick-row order.
+    pick_order_iids = _load_pick_order_iids(out_dir)
+    publishable_md = compose_discipline_markdown(
+        discipline_rows, today,
+        publishable_rows=tuple(publishable_rows),
+        pick_order_iids=pick_order_iids,
+    )
     v1_summary = render_v1_systematic_exclusion_summary(rejection_doc.entries)
     failure_section = render_failure_section(gapped_rows)
     discipline_md = (

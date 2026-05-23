@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json as _json
+import re
 
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import PositionContext
@@ -250,3 +251,219 @@ def test_card_to_dict_raises_on_missing_nested_citation_id(monkeypatch) -> None:
         mocked_asdict.return_value = bad
         with pytest.raises(RuntimeError, match="citation_id"):
             _card_to_dict(card)
+
+
+# ── Item 007 D3a — _render_section nested thesis_evidence bullets ─────────────
+
+
+def _evidence(
+    *, type_="filing", source="x", url="https://x", date="2024-04-15",
+    summary="x", scope="constituent", citation_kind="data",
+    owner="005827", parent="005827", constituent_key="600519",
+    weight=8.2,
+):
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type=type_, source=source, url=url, date=date, summary=summary,
+        scope=scope, citation_kind=citation_kind, owner_instrument_id=owner,
+        parent_fund_id=parent, constituent_key=constituent_key,
+        holding_weight_pct=weight,
+    )
+
+
+def _discipline_row(
+    *, iid="005827", thesis_evidence=(), constituent_analyses=(),
+    dca_action="normal_dca", risk_action="none",
+    opportunity_state="core_dca",
+):
+    from irc.opportunity.types import DisciplineRow
+    return DisciplineRow(
+        instrument_id=iid,
+        name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund",
+        theme=None,
+        opportunity_state=opportunity_state,
+        dca_action=dca_action,
+        risk_action=risk_action,
+        note_cn="",
+        thesis_evidence=thesis_evidence,
+        constituent_analyses=constituent_analyses,
+    )
+
+
+def test_render_section_emits_top_3_nested_bullets() -> None:
+    """AC12 — 5 evidence entries → exactly 3 nested bullets via select_citations."""
+    from irc.opportunity.report import _render_section
+    evs = tuple(
+        _evidence(date=f"2024-04-{d:02d}", url=f"https://x/{d}",
+                  citation_kind="data" if d % 2 == 0 else "information",
+                  scope="constituent",
+                  constituent_key=f"60051{d}")
+        for d in range(1, 6)
+    )
+    row = _discipline_row(thesis_evidence=evs)
+    out = _render_section("今日可定投", [row])
+    # Three nested `  - [ref:...]` bullets.
+    nested = re.findall(r"^  - \[ref:[0-9a-f]{16}\] ", out, re.MULTILINE)
+    assert len(nested) == 3
+
+
+def test_render_section_empty_thesis_evidence_no_bullets() -> None:
+    """AC14 — empty thesis_evidence → no nested bullets, no `（无）` placeholder."""
+    from irc.opportunity.report import _render_section
+    row = _discipline_row(thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    # No `  - [ref:` lines.
+    assert "  - [ref:" not in out
+    # No `（无）` line either (that's the empty-section placeholder, not empty-bullets).
+    parent_line = next(
+        (line for line in out.split("\n") if line.startswith("- **005827")),
+        "",
+    )
+    assert parent_line  # parent line still rendered
+    # Body has no bullet lines beyond the parent.
+    bullets_under = [line for line in out.split("\n")
+                     if line.startswith("  - ")]
+    assert bullets_under == []
+
+
+def test_render_section_nested_bullet_format() -> None:
+    """Locked format: `  - [ref:{cid}] {type} · {source} · {date}` (no summary, no url)."""
+    from irc.opportunity.report import _render_section
+    ev = _evidence(type_="filing", source="akshare:filing:600519",
+                   date="2024-04-15")
+    row = _discipline_row(thesis_evidence=(ev,))
+    out = _render_section("今日可定投", [row])
+    nested = re.search(r"^  - \[ref:[0-9a-f]{16}\] filing · akshare:filing:600519 · 2024-04-15$",
+                       out, re.MULTILINE)
+    assert nested is not None, f"locked format missed; got:\n{out}"
+
+
+# ── Item 007 D3b — inline top-5 holdings block ───────────────────────────────
+
+
+def _constituent(
+    *, symbol="600519", name_cn="贵州茅台", weight=8.2,
+    evidence=(), failure_reasons=(), one_line_view="持有头部白酒",
+    audit_errors=(),
+):
+    from irc.fundamentals.types import ConstituentAnalysis
+    return ConstituentAnalysis(
+        symbol=symbol, name_cn=name_cn, weight_pct=weight,
+        evidence=evidence, failure_reasons=failure_reasons,
+        one_line_view=one_line_view, audit_errors=audit_errors,
+    )
+
+
+def test_render_section_inline_top_5_holdings() -> None:
+    """AC16 — 8 constituents → exactly 5 inline holdings by weight desc."""
+    from irc.opportunity.report import _render_section
+    weights = [8.2, 7.1, 6.5, 5.0, 4.2, 3.8, 3.0, 2.5]
+    constituents = tuple(
+        _constituent(symbol=f"60{i:04d}", name_cn=f"股{i}",
+                     weight=w, evidence=(_evidence(constituent_key=f"60{i:04d}"),))
+        for i, w in enumerate(weights)
+    )
+    row = _discipline_row(constituent_analyses=constituents,
+                         thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    # Header `  - 持仓 (Top 5):` literal.
+    assert "  - 持仓 (Top 5):" in out
+    inline_bullets = re.findall(r"^    - 60\d{4} 股\d ", out, re.MULTILINE)
+    assert len(inline_bullets) == 5
+    # Tail 3 holdings (weight 3.8, 3.0, 2.5) are NOT in the inline block.
+    assert "权重 3.8%" not in out
+    assert "权重 3.0%" not in out
+    assert "权重 2.5%" not in out
+
+
+def test_render_section_inline_top_5_failure_reasons_rendering() -> None:
+    """AC17 — evidence==() AND failure_reasons!=() → `❌ {reasons}`."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(symbol="600519", name_cn="贵州茅台", weight=6.5,
+                     evidence=(), failure_reasons=("filing_fetch_failed:600519",),
+                     one_line_view="should not appear")
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "    - 600519 贵州茅台 (权重 6.5%): ❌ filing_fetch_failed:600519" in out
+    # one_line_view is suppressed when evidence == () and failure_reasons != ().
+    assert "should not appear" not in out
+
+
+def test_render_section_inline_top_5_audit_errors_appended() -> None:
+    """AC18 — audit_errors!=() with evidence!=() → `{one_line_view} ⚠️ {errors}`."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(symbol="600519", name_cn="贵州茅台", weight=6.5,
+                     evidence=(_evidence(constituent_key="600519"),),
+                     audit_errors=("missing_constituent_record:600519",),
+                     one_line_view="持有头部白酒")
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持有头部白酒 ⚠️ missing_constituent_record:600519" in out
+
+
+def test_render_section_no_inline_block_when_empty_constituents() -> None:
+    """Row with constituent_analyses==() emits no inline-5 block."""
+    from irc.opportunity.report import _render_section
+    row = _discipline_row(constituent_analyses=(), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持仓 (Top 5)" not in out
+
+
+def test_inline_audit_errors_win_when_no_evidence_and_failure_reasons_present() -> None:
+    """Regression — post-ship code-review surfaced that the original inline
+    precedence dropped audit_errors when evidence==() AND failure_reasons!=().
+    Lock the audit-precedence behavior: in the no-evidence branch, audit_errors
+    must win over failure_reasons (audit signals data-integrity issues, which
+    are higher urgency than per-constituent fetch failures)."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(
+        symbol="600519", name_cn="贵州茅台", weight=6.5,
+        evidence=(),
+        failure_reasons=("broker_fetch_failed",),
+        audit_errors=("missing_constituent_record:600519",),
+        one_line_view="should not appear",
+    )
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "⚠️ audit_error: missing_constituent_record:600519" in out
+    # When the audit branch wins, the failure_reasons text is NOT silently
+    # rendered as a `❌ ...` line (the appendix would still surface it via
+    # its own first-match Shape 1/3 precedence; inline shows only the audit).
+    assert "❌ broker_fetch_failed" not in out
+    assert "should not appear" not in out
+
+
+def test_inline_partial_success_renders_evidence_plus_failure_reasons() -> None:
+    """Regression — post-ship code-review surfaced that the original inline
+    fell through to bare {one_line_view} when both evidence and
+    failure_reasons were present, silently dropping the failure signal.
+    Lock the partial-success rendering: one_line_view (⚠️ failure_reasons)."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(
+        symbol="600519", name_cn="贵州茅台", weight=6.5,
+        evidence=(_evidence(constituent_key="600519"),),
+        failure_reasons=("broker_report_unavailable",),
+        audit_errors=(),
+        one_line_view="持有头部白酒",
+    )
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持有头部白酒 (⚠️ broker_report_unavailable)" in out
+
+
+def test_render_section_inline_top_5_orders_by_weight_desc() -> None:
+    """Constituents render by weight_pct descending (rank 1 first)."""
+    from irc.opportunity.report import _render_section
+    constituents = (
+        _constituent(symbol="600003", weight=3.0, name_cn="低权"),
+        _constituent(symbol="600001", weight=8.0, name_cn="高权"),
+        _constituent(symbol="600002", weight=5.0, name_cn="中权"),
+    )
+    row = _discipline_row(constituent_analyses=constituents,
+                         thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    high_pos = out.index("高权")
+    mid_pos = out.index("中权")
+    low_pos = out.index("低权")
+    assert high_pos < mid_pos < low_pos

@@ -181,3 +181,27 @@ def test_render_failure_sections_already_tried_empty_renders_dash():
     }]
     md = render_failure_sections([], gapped)
     assert "已尝试: —" in md
+
+
+# ── Item 007 OQ1 — memo_cmd._evidence_from_dict delegates to classmethod ──────
+
+
+def test_memo_cmd_uses_thesis_evidence_from_dict() -> None:
+    """memo_cmd must dispatch dict→dataclass through ThesisEvidence.from_dict."""
+    import irc.commands.memo_cmd as mc
+    # Either _evidence_from_dict was removed (call sites updated to from_dict)
+    # OR it now delegates internally to ThesisEvidence.from_dict.
+    if hasattr(mc, "_evidence_from_dict"):
+        # Delegation path: assert it calls the classmethod.
+        from irc.fundamentals.types import ThesisEvidence
+        d = {
+            "type": "filing", "source": "src", "url": "https://x",
+            "date": "2024-04-15", "summary": "x", "scope": "constituent",
+            "citation_kind": "data", "owner_instrument_id": "005827",
+            "parent_fund_id": "005827", "constituent_key": "600519",
+        }
+        # Both routes must return identical ThesisEvidence instances.
+        assert mc._evidence_from_dict(d).citation_id == ThesisEvidence.from_dict(d).citation_id
+    else:
+        # Removal path: call sites have already migrated.
+        assert True

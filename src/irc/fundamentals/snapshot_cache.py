@@ -146,14 +146,9 @@ def _evidence_to_dict(e: ThesisEvidence) -> dict[str, Any]:
 
 
 def _evidence_from_dict(d: dict[str, Any]) -> ThesisEvidence:
-    return ThesisEvidence(
-        type=d["type"], source=d["source"], url=d["url"], date=d["date"],
-        summary=d["summary"], scope=d["scope"], citation_kind=d["citation_kind"],
-        owner_instrument_id=d["owner_instrument_id"],
-        parent_fund_id=d.get("parent_fund_id"),
-        constituent_key=d.get("constituent_key"),
-        holding_weight_pct=d.get("holding_weight_pct"),
-    )
+    """Deprecated shim — delegates to ThesisEvidence.from_dict. New code should
+    call the classmethod directly."""
+    return ThesisEvidence.from_dict(d)
 
 
 def _constituent_to_dict(c: ConstituentAnalysis) -> dict[str, Any]:
