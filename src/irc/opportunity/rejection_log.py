@@ -177,7 +177,16 @@ def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
 
     Raises RuntimeError on unknown gap codes — defence against silent
     acceptance of new codes that bypass the rejection log (criterion 19).
+    Pre-scan: ALL gaps are validated before returning any result, so a row
+    with mixed known + unknown codes raises rather than silently returning
+    the first-match.
     """
+    unknown = [gap for gap in row.evidence_gaps if gap not in _GAP_TO_REASON]
+    if unknown:
+        raise RuntimeError(
+            f"unknown evidence_gap code: {unknown[0]!r} not in _GAP_TO_REASON "
+            f"(row {row.instrument_id}, all gaps: {row.evidence_gaps})"
+        )
     for gap in row.evidence_gaps:
         if gap in _GAP_TO_REASON:
             return _GAP_TO_REASON[gap]

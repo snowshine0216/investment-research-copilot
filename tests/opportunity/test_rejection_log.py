@@ -361,3 +361,37 @@ def test_write_rejections_json_byte_identical_two_runs(tmp_path) -> None:
     write_rejections_json(doc, tmp_path)
     second = hashlib.sha256(path.read_bytes()).hexdigest()
     assert first == second
+
+
+# ---------------------------------------------------------------------------
+# P0-1 regression: mixed known + unknown gap codes must raise, not silently accept
+# ---------------------------------------------------------------------------
+
+def test_classify_rejection_reason_mixed_known_and_unknown_raises() -> None:
+    """P0-1 regression: unknown gap code alongside a known one must raise RuntimeError
+    (not silently return the known-code match)."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=("unknown_synthetic_gap", "holdings_fetch_failed"))
+    with pytest.raises(RuntimeError, match="unknown evidence_gap code"):
+        _classify_rejection_reason(row)
+
+
+# ---------------------------------------------------------------------------
+# P1-1 regression: legacy-path gap codes must resolve via _GAP_TO_REASON
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("gap_code,expected_reason", [
+    ("news_stage_skipped",        "incomplete_constituent_data"),
+    ("news_search_empty",         "incomplete_constituent_data"),
+    ("news_llm_failed",           "incomplete_constituent_data"),
+    ("missing_constituent_snapshot", "incomplete_constituent_record"),
+    ("constituent_missing",       "incomplete_constituent_record"),
+    ("missing_broker_coverage",   "incomplete_constituent_data"),
+])
+def test_classify_rejection_reason_handles_legacy_gap_codes(
+    gap_code: str, expected_reason: str,
+) -> None:
+    """P1-1 regression: each legacy gap code resolves to the correct RejectionReasonCode."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=(gap_code,))
+    assert _classify_rejection_reason(row) == expected_reason
