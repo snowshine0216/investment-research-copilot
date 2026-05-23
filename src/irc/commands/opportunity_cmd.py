@@ -59,6 +59,12 @@ from irc.opportunity.types import (
     OpportunityInput,
     OpportunityRow,
 )
+from irc.opportunity.auditor import (
+    find_incomplete_constituent_analyses,
+    find_uncited_opportunity_rows,
+)
+from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
+from irc.memo.numeric_audit import find_uncited_discipline_rows
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
 from irc.research.theme_research import ThemeReport
@@ -1152,11 +1158,6 @@ def _write_opportunity_outputs(
     gapped_rows = [r for r in kept_rows if r.evidence_gaps]
 
     # ── Item 009 Step 2a — opportunity-row citation gate ─────────────────────
-    from irc.opportunity.auditor import (
-        find_incomplete_constituent_analyses,
-        find_uncited_opportunity_rows,
-    )
-    from irc.opportunity.citation_map import build_cited_map
     cited_map = build_cited_map(tuple(publishable_rows))
     op_findings = find_uncited_opportunity_rows(publishable_rows, cited_map)
     blocked_iids = {f.instrument_id for f in op_findings}
@@ -1175,7 +1176,6 @@ def _write_opportunity_outputs(
     constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
 
     # ── Item 009 Step 2c — discipline-row citation gate ──────────────────────
-    from irc.memo.numeric_audit import find_uncited_discipline_rows
     discipline_rows = [
         _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
     ]
