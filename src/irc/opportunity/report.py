@@ -122,6 +122,58 @@ def _bucket_rows(rows: list[DisciplineRow] | tuple[DisciplineRow, ...]) -> dict[
     return buckets
 
 
+# Item 007 D3b — inline top-5 holdings constants.
+TOP_5_HOLDINGS_INLINE_CAP = 5
+INLINE_HEADER_LITERAL = "持仓 (Top 5)"
+
+
+def _rank_constituents_by_weight(
+    constituent_analyses: tuple,
+) -> tuple:
+    """Sort by weight_pct DESC, ties broken by symbol ASC. Pure."""
+    return tuple(sorted(
+        constituent_analyses,
+        key=lambda c: (-c.weight_pct, c.symbol),
+    ))
+
+
+def _format_inline_constituent_line(c) -> str:
+    """Render one constituent line for the inline top-5 block.
+
+    Precedence (single-bullet shape — distinct from the appendix's 5-shape
+    contract per spec §17):
+    - `evidence == () AND failure_reasons != ()` → `❌ {failure_reasons_joined}` in place of one_line_view.
+    - `audit_errors != ()` → append ` ⚠️ {audit_errors_joined}` after one_line_view.
+    - `evidence != ()` (no failures) → bare `{one_line_view}`.
+    - all-empty (defensive) → ` ⚠️ audit_error: missing_constituent_record`.
+    """
+    head = f"    - {c.symbol} {c.name_cn} (权重 {c.weight_pct}%): "
+    if not c.evidence and c.failure_reasons:
+        return f"{head}❌ {'; '.join(c.failure_reasons)}"
+    if not c.evidence and not c.failure_reasons and not c.audit_errors:
+        return f"{head}⚠️ audit_error: missing_constituent_record"
+    body = c.one_line_view
+    if c.audit_errors:
+        body = f"{body} ⚠️ {'; '.join(c.audit_errors)}"
+    return f"{head}{body}"
+
+
+def _render_inline_holdings_block(constituent_analyses: tuple) -> list[str]:
+    """Render the inline top-5 holdings block for a discipline row.
+
+    Returns empty list when `constituent_analyses == ()`. Always renders
+    the literal `持仓 (Top 5):` header even when N < 5 (per OQ4 lock).
+    """
+    if not constituent_analyses:
+        return []
+    ranked = _rank_constituents_by_weight(constituent_analyses)
+    top = ranked[:TOP_5_HOLDINGS_INLINE_CAP]
+    return [
+        f"  - {INLINE_HEADER_LITERAL}:",
+        *[_format_inline_constituent_line(c) for c in top],
+    ]
+
+
 def _render_thesis_evidence_bullets(thesis_evidence: tuple) -> list[str]:
     """Render top-3 nested thesis_evidence bullets for a discipline row.
 
@@ -153,6 +205,10 @@ def _render_section(title: str, rows: list[DisciplineRow]) -> str:
         )
         # Item 007 D3a: nested thesis_evidence bullets (top-3 via select_citations).
         lines.extend(_render_thesis_evidence_bullets(r.thesis_evidence))
+        # Item 007 D3b: inline top-5 holdings for active-fund rows.
+        lines.extend(_render_inline_holdings_block(
+            getattr(r, "constituent_analyses", ()),
+        ))
     lines.append("")
     return "\n".join(lines)
 

@@ -335,3 +335,91 @@ def test_render_section_nested_bullet_format() -> None:
     nested = re.search(r"^  - \[ref:[0-9a-f]{16}\] filing · akshare:filing:600519 · 2024-04-15$",
                        out, re.MULTILINE)
     assert nested is not None, f"locked format missed; got:\n{out}"
+
+
+# ── Item 007 D3b — inline top-5 holdings block ───────────────────────────────
+
+
+def _constituent(
+    *, symbol="600519", name_cn="贵州茅台", weight=8.2,
+    evidence=(), failure_reasons=(), one_line_view="持有头部白酒",
+    audit_errors=(),
+):
+    from irc.fundamentals.types import ConstituentAnalysis
+    return ConstituentAnalysis(
+        symbol=symbol, name_cn=name_cn, weight_pct=weight,
+        evidence=evidence, failure_reasons=failure_reasons,
+        one_line_view=one_line_view, audit_errors=audit_errors,
+    )
+
+
+def test_render_section_inline_top_5_holdings() -> None:
+    """AC16 — 8 constituents → exactly 5 inline holdings by weight desc."""
+    from irc.opportunity.report import _render_section
+    weights = [8.2, 7.1, 6.5, 5.0, 4.2, 3.8, 3.0, 2.5]
+    constituents = tuple(
+        _constituent(symbol=f"60{i:04d}", name_cn=f"股{i}",
+                     weight=w, evidence=(_evidence(constituent_key=f"60{i:04d}"),))
+        for i, w in enumerate(weights)
+    )
+    row = _discipline_row(constituent_analyses=constituents,
+                         thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    # Header `  - 持仓 (Top 5):` literal.
+    assert "  - 持仓 (Top 5):" in out
+    inline_bullets = re.findall(r"^    - 60\d{4} 股\d ", out, re.MULTILINE)
+    assert len(inline_bullets) == 5
+    # Tail 3 holdings (weight 3.8, 3.0, 2.5) are NOT in the inline block.
+    assert "权重 3.8%" not in out
+    assert "权重 3.0%" not in out
+    assert "权重 2.5%" not in out
+
+
+def test_render_section_inline_top_5_failure_reasons_rendering() -> None:
+    """AC17 — evidence==() AND failure_reasons!=() → `❌ {reasons}`."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(symbol="600519", name_cn="贵州茅台", weight=6.5,
+                     evidence=(), failure_reasons=("filing_fetch_failed:600519",),
+                     one_line_view="should not appear")
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "    - 600519 贵州茅台 (权重 6.5%): ❌ filing_fetch_failed:600519" in out
+    # one_line_view is suppressed when evidence == () and failure_reasons != ().
+    assert "should not appear" not in out
+
+
+def test_render_section_inline_top_5_audit_errors_appended() -> None:
+    """AC18 — audit_errors!=() with evidence!=() → `{one_line_view} ⚠️ {errors}`."""
+    from irc.opportunity.report import _render_section
+    c = _constituent(symbol="600519", name_cn="贵州茅台", weight=6.5,
+                     evidence=(_evidence(constituent_key="600519"),),
+                     audit_errors=("missing_constituent_record:600519",),
+                     one_line_view="持有头部白酒")
+    row = _discipline_row(constituent_analyses=(c,), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持有头部白酒 ⚠️ missing_constituent_record:600519" in out
+
+
+def test_render_section_no_inline_block_when_empty_constituents() -> None:
+    """Row with constituent_analyses==() emits no inline-5 block."""
+    from irc.opportunity.report import _render_section
+    row = _discipline_row(constituent_analyses=(), thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    assert "持仓 (Top 5)" not in out
+
+
+def test_render_section_inline_top_5_orders_by_weight_desc() -> None:
+    """Constituents render by weight_pct descending (rank 1 first)."""
+    from irc.opportunity.report import _render_section
+    constituents = (
+        _constituent(symbol="600003", weight=3.0, name_cn="低权"),
+        _constituent(symbol="600001", weight=8.0, name_cn="高权"),
+        _constituent(symbol="600002", weight=5.0, name_cn="中权"),
+    )
+    row = _discipline_row(constituent_analyses=constituents,
+                         thesis_evidence=())
+    out = _render_section("今日可定投", [row])
+    high_pos = out.index("高权")
+    mid_pos = out.index("中权")
+    low_pos = out.index("低权")
+    assert high_pos < mid_pos < low_pos
