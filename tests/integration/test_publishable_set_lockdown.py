@@ -122,7 +122,6 @@ def _preload_duckdb(root: Path, instrument_ids: list[str]) -> None:
     value and remove the structural evidence gaps (missing_valuation_data,
     missing_flow_or_return_data, missing_product_metadata).
     """
-    import duckdb as _ddb
     from irc.data.duckdb_helper import connect, ensure_schema
 
     db_path = root / "data" / "local.duckdb"
@@ -597,6 +596,8 @@ def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None
 
     assert "005827" in row_iids, "publishable iid missing from opportunity rows"
     assert "163417" not in row_iids, "gapped iid leaked into opportunity rows"
+    assert "005827" in card_iids, "publishable iid missing from thesis_cards"
+    assert "163417" not in card_iids, "gapped iid leaked into thesis_cards"
     assert "005827" in above, "publishable iid missing from discipline buckets"
     assert "163417" not in above, "gapped iid leaked into discipline buckets"
     assert "163417" in rej_iids, "gapped iid missing from rejections.json"
