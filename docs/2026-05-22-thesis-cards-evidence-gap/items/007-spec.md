@@ -142,6 +142,22 @@ Item 007 ships ZERO new audit logic. `find_uncited_conclusions`, `find_hallucina
 
 16. The `find_uncited_discipline_rows` gate from item 009 reads `DisciplineRow.thesis_evidence` (top-level fund evidence) AND `DisciplineRow.constituent_analyses[*].evidence` (per-constituent). Item 007's appendix renders ALL top-N (default 10), not just the inline-5 — the gate consequently checks all top-N. The renderer's job is to make this enforceable: every constituent in the appendix either shows ≥1 `[ref:...]` marker, OR shows the `❌`/`⚠️` failure/audit-error sentinel. Item 009's gate fires when a constituent appears in the appendix with NEITHER markers NOR sentinels — which item 007's render precedence rules above make structurally impossible (every code path produces one of the four formats).
 
+### Audit-gate parseable appendix contract (NEW — grill outcome)
+
+17. **Locked regex contract for appendix bullets.** Every line in a `## 持仓明细` subsection matches exactly one of the following regex shapes. Item 009's `find_uncited_discipline_rows` keys off these shapes for its appendix-parse pass; item 007 commits to the structural format here so item 009 cannot drift.
+
+    Where `SYM = [0-9A-Z]{4,6}`, `NM = .+?` (Chinese name, non-greedy), `WPCT = \d+(?:\.\d+)?`, `OLV = .+` (one_line_view), `REFS = ( \[ref:[0-9a-f]{16}\])+`, `FAIL = .+`:
+
+    - **Shape 1 — evidence + failures (partial success):** `^- {SYM} {NM} \(权重 {WPCT}%\): {OLV}{REFS} \({FAIL}\)$`
+    - **Shape 2 — failure only:** `^- {SYM} {NM} \(权重 {WPCT}%\): ❌ {FAIL}$`
+    - **Shape 3 — audit-error only:** `^- {SYM} {NM} \(权重 {WPCT}%\): ⚠️ audit_error: {FAIL}$`
+    - **Shape 4 — evidence only (canonical):** `^- {SYM} {NM} \(权重 {WPCT}%\): {OLV}{REFS}$`
+    - **Shape 5 — defensive fallback:** identical to Shape 3 (`missing_constituent_record` literal). Renderer emits this when `evidence == () AND failure_reasons == () AND audit_errors == ()` — see AC22 last bullet.
+
+    The inline top-5 block under a discipline-row line uses a SIMILAR but distinct format (single bullet with `audit_errors` appended after `one_line_view` via ` ⚠️ {errors}`, no separate audit-error-only line because the inline-5 ALWAYS shows weight + name first). Item 009 parses the appendix only — the inline-5 is for human readers, not for the audit gate.
+
+    **Verification.** Item 007's `tests/opportunity/test_report.py` exercises all five shapes against the 4 fixture cases in AC22 + AC29. The regex contract is captured as a module-level `_APPENDIX_LINE_RE` constant in `report.py` for cross-test reuse and for the eventual item 009 audit-gate parser.
+
 ## Out of scope
 
 - **`find_uncited_conclusions` body** (paragraph-level instrument/constituent reference detection, multi-owner disambiguation via section header, `kind="ambiguous_constituent_reference"` emission) — item 009. Item 007 only commits the empty-map RuntimeError + the alias-builder.
@@ -324,11 +340,75 @@ Item 007's tests do NOT verify the emission of this finding (that's item 009's E
 
 **Rationale.** The audit (item 009's `find_hallucinated_citations` + `find_uncited_conclusions`) matches `[ref:{citation_id}]` markers against `CitedMap` keyed by full 16-char ids. Truncating to 8 chars in the rendered output would force the audit to do prefix matching, which (a) is slower, (b) creates ambiguity if two ids share a prefix (2^32 collision space is small enough that this matters in practice). The 16-char visual cost in markdown is acceptable; markdown readers don't read the hex by hand.
 
+### Q8 — `ConstituentAliases` shape: `frozenset` with mandatory sort at traversal (locked — grill outcome)
+
+**Locked shape.** `dict[str, frozenset[tuple[str, str]]]`. The frozenset stores `(instrument_id, constituent_key)` tuples for every fund in the publishable set that holds the same stock. Storage is unordered; **any traversal that affects rendered output OR audit-finding emission MUST `sorted(fs)` first.** Canonical sort: `(instrument_id, constituent_key)` ascending. See [ADR 0004 §1](../../adr/0004-renderer-determinism-and-alias-policy.md).
+
+**Rationale.** Frozenset iteration order is hash-dependent, not insertion-dependent. The map is in-memory only — no serialisation round-trip would force a canonical storage order. Sort-at-traversal is the cheaper contract. Alternatives considered (sorted-tuple, list, dict-of-set) rejected — see ADR 0004 §1.
+
+**Item 007's responsibility.** Build the frozenset correctly. Item 007's renderer does NOT iterate `ConstituentAliases` (the renderer reads `OpportunityRow.constituent_analyses` directly). Item 009 owns the lookup site; its tests must include a multi-owner fixture and assert byte-stable finding emission across runs.
+
+### Q9 — Lookup signature for section-header disambiguation (locked — grill outcome)
+
+**Locked: item 007 ships the BUILDER ONLY. Item 009 ships the LOOKUP.** The proposed lookup signature for item 009 to consume:
+
+```python
+def lookup_constituent(
+    name_or_symbol: str,
+    constituent_aliases: ConstituentAliases,
+    *,
+    current_instrument_id: str | None = None,
+) -> str | frozenset[tuple[str, str]] | None:
+    """If the alias resolves to a single (instrument_id, constituent_key)
+    tuple, return that constituent_key directly. If multi-owner and
+    current_instrument_id matches one tuple, return that tuple's
+    constituent_key (disambiguated by section context). Otherwise return
+    the full frozenset (caller must emit `ambiguous_constituent_reference`).
+    Returns None when the name is not an alias.
+    """
+```
+
+Item 007 does NOT implement `lookup_constituent`. The signature is documented here so item 009's planner inherits the contract verbatim — the spec captures the disambiguation rule item 009 must implement.
+
+### Q10 — `compose_discipline_markdown` signature change for appendix wiring (locked — grill outcome)
+
+**Issue uncovered during code-grill.** The current signature is `compose_discipline_markdown(rows, date) -> str`. The new `## 持仓明细` appendix needs the pick-row order from `_build_pick_rows` (item 002) to satisfy Q3 / AC21 ("appendix subsection order = pick-row order first"). But `_build_pick_rows` lives in `memo_cmd.py` (memo pipeline), while `compose_discipline_markdown` is called from `opportunity_cmd.py::_write_opportunity_outputs` — a DIFFERENT pipeline entry point.
+
+**Locked solution.** Two-step:
+
+1. **Signature extension (item 007 commits):**
+   ```python
+   def compose_discipline_markdown(
+       rows: tuple[DisciplineRow, ...],
+       date: str,
+       *,
+       publishable_rows: tuple[OpportunityRow, ...] = (),
+       pick_order_iids: tuple[str, ...] = (),
+   ) -> str:
+   ```
+   New keyword-only params with empty defaults preserve backward compatibility. When BOTH are empty (legacy call), the appendix renders with `instrument_id` ascending order (no pick-row priority) — the renderer still produces a valid appendix, just with a less-ergonomic ordering.
+
+2. **Call-site wiring (item 007 commits in `opportunity_cmd.py::_write_opportunity_outputs`):** Compute `pick_order_iids` from the same `trade_plan.yaml` loader that `memo_cmd.py::run_memo` uses — `_load_trade_plan(repo_root)` returns the list of `(target, ...)` dicts; `pick_order_iids = tuple(t["target"] for t in trade_plan if t.get("target"))`. The trade plan is the single source of truth for pick order; both `memo_cmd` and `opportunity_cmd` read it.
+
+   `publishable_rows` is already in scope at the `compose_discipline_markdown` call site (line 1087 of `opportunity_cmd.py` — partitioned earlier in `_write_opportunity_outputs`).
+
+**Rationale.** The "pick-row order" is data, not coupling — pulling `_build_pick_rows` from `memo_cmd` into `opportunity_cmd` would create a memo→opportunity dependency that the architecture rejects (opportunity is upstream of memo). Reading the trade plan in both pipelines is the right factoring; it is already the case for `memo_cmd`. The renderer signature stays composable.
+
+**Alternative considered.** Defer the wiring to item 008 (E sweep) and ship the appendix in `instrument_id` ascending order only. Rejected — AC21 is testable as part of item 007; deferring would leave a load-bearing UX choice (pick-row order matches the operator's mental model) under-specified and require a follow-up PR.
+
 ## Open questions for the planner
 
-### OQ1 — `_evidence_from_dict` promotion
+### OQ1 — `_evidence_from_dict` promotion (sharpened post-grill)
 
-Item 002 lands `_evidence_from_dict` inside `memo_cmd.py` (private). Item 007's `build_evidence_pool` ALSO needs a JSON-dict → `ThesisEvidence` rebuilder (its caller `pipeline.py::run_memo` loads `opportunity_report.json` as a dict, then passes per-row dicts in; the renderer needs the dataclass form to call `select_citations`). Promote `_evidence_from_dict` to a `@classmethod ThesisEvidence.from_dict(d) -> ThesisEvidence` in `src/irc/opportunity/types.py` (per item 002's ADR 0001 §"Open follow-ups"). The planner picks the move/rename and ensures both consumers use the same classmethod.
+**Code-grill finding.** `_evidence_from_dict` already exists in TWO production locations:
+- `src/irc/fundamentals/snapshot_cache.py:148` (item 003's cache loader)
+- `src/irc/commands/memo_cmd.py:262` (item 002's `_build_pick_rows` consumer)
+
+Item 007 adds a THIRD consumer: `build_evidence_pool` (and its caller in the memo pipeline that must hand `select_citations` the dataclass form, not the dict form). Three copies of the same JSON→dataclass rebuilder is one too many — promotion is no longer "nice-to-have", it is a load-bearing dedup.
+
+**Locked direction.** Promote to `@classmethod ThesisEvidence.from_dict(d: dict) -> ThesisEvidence` in `src/irc/fundamentals/types.py` (where `ThesisEvidence` itself lives — not `src/irc/opportunity/types.py` which only re-exports it). Update both existing call sites (snapshot_cache.py:148, memo_cmd.py:262) AND the new item 007 call site to consume the classmethod. The planner picks the implementation order: ideally the classmethod lands FIRST (a single-commit dedup), then item 007's renderer changes consume it.
+
+**Why `irc.fundamentals.types`, not `irc.opportunity.types`.** `ThesisEvidence` is defined in `irc.fundamentals.types`; `irc.opportunity.types` re-exports it. The classmethod is the dataclass's own constructor — it belongs on the source-of-truth module. The re-export keeps consumers working unchanged.
 
 ### OQ2 — `ConstituentAnalysis.audit_errors` wiring
 
@@ -377,3 +457,29 @@ Reuse the canonical fixtures already established for items 002+003+005+006 where
 - **`active_fund_with_partial_success_constituent`** — 1 holding with `evidence=(e1,) AND failure_reasons=("broker_fetch_failed:600519",)`. Exercises mixed-success rendering.
 - **`multi_owner_constituent_universe`** — 2 funds A and B both holding `贵州茅台 (600519)`. Exercises `ConstituentAliases` multi-owner frozenset.
 - **`alias_collision_universe`** — 2 funds with the same `name_cn`. Exercises `InstrumentAliasCollisionError`.
+- **`hk_constituent_universe`** — 1 active fund with at least one HK 5-digit constituent (e.g. `00700 腾讯控股`). Exercises `[stock:00700]` tag emission (HK code passes through as `symbol` verbatim; no transformation).
+- **`empty_alias_map_universe`** — direct call `find_uncited_conclusions(prose=..., cited_map=..., instrument_aliases={}, constituent_aliases={}, constituent_cited_map=...)` — asserts the `RuntimeError` message. No upstream fixture needed.
+
+## Grill verdict
+
+**Verdict: PASS** (2026-05-23, grill-with-docs auto-accept mode against [ADR 0001](../../adr/0001-citation-data-model.md), [ADR 0002](../../adr/0002-active-fund-fetch-engine.md), [ADR 0003](../../adr/0003-failure-mode-policy-b.md), [ADR 0004](../../adr/0004-renderer-determinism-and-alias-policy.md), and `CONTEXT.md`).
+
+**Pre-grill state.** 7 internal Qs resolved; 4 OQs deferred to planner. Spec covered the renderer surfaces (D1a + D1c + D3a + D3b) and the alias-builder, but left 4 contracts under-specified that the grill surfaced:
+
+1. **G-Q3 (audit-gate parseable appendix contract).** Spec said "every constituent shows a `[ref:...]` or a `❌`/`⚠️` sentinel" — true, but not parseable. Item 009's `find_uncited_discipline_rows` needs a REGEX contract to lock against, not a prose contract. Added §17 + 5-shape regex + `_APPENDIX_LINE_RE` module-level constant for cross-test reuse.
+
+2. **G-Q2 + ADR 0004 §1 (frozenset determinism rule).** Spec used `frozenset` for multi-owner storage but didn't surface the trap: frozenset iteration is hash-order, not insertion. Added the "mandatory sort at traversal" rule to CONTEXT.md and ADR 0004 §1; locked the canonical sort key as `(instrument_id, constituent_key)` ascending. Item 009 inherits the contract.
+
+3. **G-Q10 + Q10 (compose_discipline_markdown wiring).** Code-grill discovered `compose_discipline_markdown(rows, date)` does NOT receive pick_rows — and the appendix ordering (AC21) requires pick-row order. Resolved by extending the signature with two keyword-only params (`publishable_rows`, `pick_order_iids`) and committing the trade-plan load in `opportunity_cmd.py::_write_opportunity_outputs`. Backward compatible (empty defaults render in `instrument_id` order).
+
+4. **OQ1 sharpening + ADR 0004 (`_evidence_from_dict` triplication).** Code-grill discovered the rebuilder exists in TWO production locations already (`snapshot_cache.py:148`, `memo_cmd.py:262`), and item 007 introduces a THIRD consumer. Promotion to `ThesisEvidence.from_dict` is now a load-bearing dedup, not a nice-to-have. Direction locked: classmethod lives in `irc.fundamentals.types` (where the dataclass is defined).
+
+**Most consequential clarification.** **G-Q2 / ADR 0004 §1 — frozenset iteration is hash-order, not insertion-order.** Without the "mandatory sort at traversal" rule, item 009's `ambiguous_constituent_reference` finding's `evidence_excerpt` field would render with non-deterministic ordering — two consecutive runs would emit byte-different findings, breaking the AC9 determinism contract. The grill caught this before item 009's plan phase locked it in incorrectly. Locked in ADR 0004 §1 + CONTEXT.md "Determinism rule" + Q8 of this spec.
+
+**Unresolved questions (none — all transferred to OQ list).** OQ1 (classmethod promotion), OQ2 (`ConstituentAnalysis.audit_errors` wiring), OQ3 (small_watch appendix coverage), OQ4 (`(Top 5)` literal vs adaptive) are the planner's territory. No further grill-level ambiguity.
+
+**Documentation updates committed in this grill pass.**
+- `CONTEXT.md` — new "Renderers + alias-builder" section (10 terms: `[ref:{citation_id}]` marker, `[stock:{symbol}]` marker, `持仓明细 appendix`, "Appendix line format precedence", SAME-3 invariant, `InstrumentAliases`, `ConstituentAliases`, `build_alias_maps`, `InstrumentAliasCollisionError`, `ambiguous_constituent_reference`, "Renderer tier-1 import contract").
+- `docs/adr/0004-renderer-determinism-and-alias-policy.md` — NEW. Locks (1) frozenset shape + sort-at-traversal, (2) builder-time collision raise, (3) SAME-3 invariant.
+- `docs/adr/0001-citation-data-model.md` — added cross-link to ADR 0004 in "Related ADRs".
+- `docs/2026-05-22-thesis-cards-evidence-gap/items/007-spec.md` — added §17 (audit-gate parseable appendix contract), Q8 (frozenset shape lock), Q9 (lookup signature for item 009), Q10 (compose_discipline_markdown wiring), sharpened OQ1, added 2 new test fixtures (`hk_constituent_universe`, `empty_alias_map_universe`), this Grill verdict section.

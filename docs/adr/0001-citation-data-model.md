@@ -85,3 +85,4 @@ These gates run immediately before `atomic_write_text` of `opportunity_report.js
 ## Related ADRs
 
 - [ADR 0002 — Active-fund fetch engine](0002-active-fund-fetch-engine.md): the runtime engine that emits `ThesisEvidence` with `scope="constituent"` for active-fund holdings. Adds the optional `holding_weight_pct` field (NOT part of the citation_id hash preimage; the contract in §2 of this ADR is unchanged).
+- [ADR 0004 — Renderer determinism + alias policy](0004-renderer-determinism-and-alias-policy.md): downstream consumer-side companion. Locks the SAME-3 invariant across the three rendering surfaces (picks-table, evidence-pool, discipline nested bullets) — all three call `select_citations` directly with no pre-filter so the deterministic selector contract in §3 of this ADR is preserved end-to-end.
