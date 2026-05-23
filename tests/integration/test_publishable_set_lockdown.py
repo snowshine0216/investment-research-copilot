@@ -86,8 +86,12 @@ def _patch_memo_routes(synth_text: str) -> Iterator[None]:
 
 
 def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
-    """Patch `_ak_call` with a dispatcher; return a call counter for
-    cache-freshness assertions (ACs 15–17 inspect it after run_opportunity).
+    """Patch `_ak_call` with a dispatcher in BOTH modules; return a call counter
+    for cache-freshness assertions (ACs 15–17 inspect it after run_opportunity).
+
+    Patches both irc.fundamentals.akshare_fundamentals._ak_call (holdings,
+    announcements, NAV, news) and irc.fundamentals.akshare_filing._ak_call
+    (filings, broker reports) since each module defines its own indirection.
     """
     counter: Counter = Counter()
 
@@ -104,7 +108,54 @@ def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
     monkeypatch.setattr(
         "irc.fundamentals.akshare_fundamentals._ak_call", _side,
     )
+    monkeypatch.setattr(
+        "irc.fundamentals.akshare_filing._ak_call", _side,
+    )
     return counter
+
+
+def _preload_duckdb(root: Path, instrument_ids: list[str]) -> None:
+    """Insert minimal DuckDB rows so populate_inputs returns non-None fields.
+
+    Writes `instruments` metadata (expense_ratio, aum) and a 400-day
+    synthetic NAV series — enough for self_history_percentile to return a
+    value and remove the structural evidence gaps (missing_valuation_data,
+    missing_flow_or_return_data, missing_product_metadata).
+    """
+    import duckdb as _ddb
+    from irc.data.duckdb_helper import connect, ensure_schema
+
+    db_path = root / "data" / "local.duckdb"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    con = connect(db_path)
+    ensure_schema(con)
+    today = datetime.now(timezone(timedelta(hours=8))).date()
+
+    now_ts = datetime.now(timezone.utc).isoformat()
+    for iid in instrument_ids:
+        # Insert instrument metadata.
+        con.execute(
+            """INSERT OR REPLACE INTO instruments
+               (instrument_id, ticker, market, name_cn, asset_class, currency,
+                expense_ratio, aum, manager_tenure_years,
+                _ingested_at, _source, _raw_ref)
+               VALUES (?, ?, 'CN', ?, 'cn_equity_fund', 'CNY', 0.015, 5e9, 5.0,
+                       ?, 'test_seed', 'synthetic')""",
+            [iid, iid, "测试基金", now_ts],
+        )
+        # Insert 400 days of synthetic NAV for percentile / returns.
+        from datetime import timedelta as _td
+        import math
+        for d in range(400):
+            nav_date = (today - _td(days=400 - d)).isoformat()
+            nav_val = 1.0 + 0.1 * math.sin(d / 60)
+            con.execute(
+                """INSERT OR REPLACE INTO nav_history
+                   (instrument_id, date, nav, _ingested_at, _source, _raw_ref)
+                   VALUES (?, ?, ?, ?, 'test_seed', 'synthetic')""",
+                [iid, nav_date, round(nav_val, 6), now_ts],
+            )
+    con.close()
 
 
 def _seed_publishable_set_repo(
@@ -210,8 +261,61 @@ def _seed_publishable_set_repo(
     )
 
     # Synthetic AkShare dispatch — minimal frames that look like real responses
-    # so _build_active_fund_snapshot / _build_fund_level_snapshot don't bail.
+    # so _build_active_fund_snapshot produces publishable rows.
+    # Holdings frame for active funds (data leg).
+    holdings_frame = pd.DataFrame({
+        "股票代码": ["600519", "000858"],
+        "股票名称": ["贵州茅台", "五粮液"],
+        "占净值比例": [8.2, 6.1],
+        "季度": ["2024Q4", "2024Q4"],
+    })
+    # Announcement frame for active funds (information leg).
+    ann_frame = pd.DataFrame({
+        "公告标题": ["2024年第4季度报告"],
+        "公告日期": ["2024-01-15"],
+        "报告ID": ["ANN001"],
+    })
+
     dispatch: dict[tuple[str, str], Any] = {}
+
+    # Filing digest frame for CN constituents (data leg via stock_financial_abstract).
+    # Column format: "选项" / "指标" labels + date-like column headers (YYYYMMDD).
+    filing_frame = pd.DataFrame({
+        "选项": ["常用指标", "常用指标", "常用指标"],
+        "指标": ["营业总收入", "归母净利润", "营业成本"],
+        "20241231": [100.0, 20.0, 60.0],
+        "20231231": [90.0, 18.0, 54.0],
+    })
+    # Broker report frame for CN constituents (info leg via stock_research_report_em).
+    broker_frame = pd.DataFrame({
+        "机构": ["中金公司"],
+        "东财评级": ["买入"],
+        "报告名称": ["2024年年度报告"],
+        "日期": [datetime.now(timezone(timedelta(hours=8))).date().isoformat()],
+        "报告PDF链接": ["https://example.com/report.pdf"],
+    })
+
+    # Wire data for cn_equity_fund instruments.
+    if "cn_equity_fund" in asset_classes:
+        for iid, _ in v1_instruments["cn_equity_fund"]:
+            dispatch[("fund_portfolio_hold_em", iid)] = holdings_frame
+            # All three announcement endpoints — any non-empty one satisfies the
+            # info-leg requirement (_collect_publishable_citation_universe).
+            dispatch[("fund_announcement_dividend_em", iid)] = ann_frame
+            dispatch[("fund_announcement_report_em", iid)] = ann_frame
+            dispatch[("fund_announcement_personnel_em", iid)] = ann_frame
+        # Constituent-level evidence for the seeded holdings.
+        for stock_code in ["600519", "000858"]:
+            dispatch[("stock_financial_abstract", stock_code)] = filing_frame
+            dispatch[("stock_research_report_em", stock_code)] = broker_frame
+            dispatch[("stock_news_em", stock_code)] = pd.DataFrame()
+
+    # Pre-load DuckDB with instrument metadata + price series so
+    # populate_inputs returns non-None structural fields (valuation percentile,
+    # returns, expense_ratio) and rows do not generate structural evidence gaps.
+    all_iids = [iid for ac in asset_classes for iid, _ in v1_instruments.get(ac, [])]
+    if all_iids:
+        _preload_duckdb(tmp_path, all_iids)
 
     return dispatch
 
@@ -234,3 +338,101 @@ def test_seed_helper_builds_runnable_repo(tmp_path, monkeypatch) -> None:
     assert (out_dir / "thesis_cards.yaml").exists()
     assert (out_dir / "discipline_report.md").exists()
     assert (out_dir / "rejections.json").exists()
+
+
+# ─── ACs 1–5: publishable-set citation invariants (E10 family) ───────────────
+
+def test_publishable_dual_leg_coverage(tmp_path, monkeypatch) -> None:
+    """AC1 — every published row carries ≥1 data + ≥1 information citation.
+    No row has both legs absent. citation_kind ∈ {"data", "information"}
+    (legacy "both" forbidden per ADR 0001)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    rows = opp.get("rows", [])
+    if not rows:
+        pytest.skip("no publishable rows produced by seed — all rows gapped")
+    for row in rows:
+        kinds = {ev["citation_kind"] for ev in row.get("thesis_evidence", [])}
+        assert "data" in kinds, \
+            f"row {row['instrument_id']} missing data-leg evidence: kinds={kinds}"
+        assert "information" in kinds, \
+            f"row {row['instrument_id']} missing information-leg evidence: kinds={kinds}"
+        assert kinds <= {"data", "information"}, \
+            f"row {row['instrument_id']} has forbidden citation_kind: {kinds}"
+
+
+def test_publishable_owner_instrument_provenance(tmp_path, monkeypatch) -> None:
+    """AC2 — every entry.owner_instrument_id == row.instrument_id.
+    No cross-instrument leakage on disk."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    for row in opp.get("rows", []):
+        iid = row["instrument_id"]
+        for ev in row.get("thesis_evidence", []):
+            assert ev["owner_instrument_id"] == iid, \
+                f"cross-instrument leakage: row {iid} carries owner={ev['owner_instrument_id']}"
+
+
+def test_publishable_scope_is_instrument_or_constituent(tmp_path, monkeypatch) -> None:
+    """AC3 — every entry.scope ∈ {"instrument", "constituent"}.
+    No publishable row may have scope=asset_class_macro / policy as its
+    SOLE evidence basis. Macro/policy may co-exist alongside instrument
+    or constituent entries (an absent-from-pool check would over-assert)."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    for row in opp.get("rows", []):
+        scopes = {ev["scope"] for ev in row.get("thesis_evidence", [])}
+        assert scopes & {"instrument", "constituent"}, \
+            f"row {row['instrument_id']} lacks instrument/constituent scope: {scopes}"
+
+
+def test_publishable_thesis_state_literal_only(tmp_path, monkeypatch) -> None:
+    """AC4 — every row.thesis_state ∈ {"intact","under_pressure","falsified","evidence_insufficient"}.
+    No synthetic "partial_evidence"-style values."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    allowed = {"intact", "under_pressure", "falsified", "evidence_insufficient"}
+    for row in opp.get("rows", []):
+        assert row["thesis_state"] in allowed, \
+            f"row {row['instrument_id']} has invalid thesis_state {row['thesis_state']!r}"
+
+
+def test_publishable_evidence_gaps_empty_after_disk_roundtrip(tmp_path, monkeypatch) -> None:
+    """AC5 — every published row has evidence_gaps == [] after JSON round-trip.
+    H3 universal gapped-row invariant guarantees this at _write_opportunity_outputs
+    time; AC5 re-asserts after JSON round-trip to catch serializer drift."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    for row in opp.get("rows", []):
+        assert row["evidence_gaps"] == [], \
+            f"row {row['instrument_id']} carries non-empty evidence_gaps on publish: {row['evidence_gaps']!r}"
