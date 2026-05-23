@@ -389,3 +389,52 @@ def test_discipline_row_from_passes_through_constituent_analyses():
     )
     drow = _discipline_row_from(row, PositionContext(0.05, 0.0, 0.30, None, True))
     assert drow.constituent_analyses == ()
+
+
+# ── Item 003: FetchPlan / FetchBudgetExceeded / compute_plan_hash ─────────────
+
+def test_fetch_plan_total_calls_active_fund_only() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=5, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+    )
+    # 5 × (1 + 10*3) = 5 × 31 = 155
+    assert plan.total_calls() == 155
+
+
+def test_fetch_plan_total_calls_with_stale_and_passive() -> None:
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=2, active_fund_stale=3,
+        passive_misses=4, passive_stale=1, top_n=10,
+    )
+    # (2 + 3) × 31 + 4×2 + 1×2 = 155 + 8 + 2 = 165
+    assert plan.total_calls() == 165
+
+
+def test_fetch_budget_exceeded_carries_breakdown() -> None:
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+    plan = FetchPlan(5, 0, 0, 0, 10)
+    exc = FetchBudgetExceeded(plan=plan, total=155, budget=10)
+    msg = str(exc)
+    assert "active_fund_misses=5" in msg
+    assert "cost=155" in msg
+    assert "budget=10" in msg
+
+
+def test_plan_hash_deterministic() -> None:
+    from irc.commands.opportunity_cmd import compute_plan_hash
+    h1 = compute_plan_hash("2026-05-22", ["005827", "501025"], 10)
+    h2 = compute_plan_hash("2026-05-22", ["501025", "005827"], 10)
+    assert h1 == h2  # sorted internally
+    assert len(h1) == 12
+    h3 = compute_plan_hash("2026-05-23", ["005827", "501025"], 10)
+    assert h3 != h1
+
+
+def test_plan_hash_includes_top_n() -> None:
+    from irc.commands.opportunity_cmd import compute_plan_hash
+    h1 = compute_plan_hash("2026-05-22", ["005827"], 10)
+    h2 = compute_plan_hash("2026-05-22", ["005827"], 15)
+    assert h1 != h2

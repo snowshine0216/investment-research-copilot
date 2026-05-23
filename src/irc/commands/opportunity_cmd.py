@@ -1,11 +1,23 @@
 from __future__ import annotations
 
+import hashlib
 import json
-from datetime import date, datetime, timedelta, timezone
+import os
+import sys
+import time
+from dataclasses import dataclass, replace
+from datetime import date as date_cls, datetime, timedelta, timezone
 from pathlib import Path
 
 import duckdb
 
+from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+from irc.fundamentals.snapshot import build_snapshot
+from irc.fundamentals.snapshot_cache import (
+    load_active_fund_cache,
+    write_active_fund_cache,
+)
+from irc.fundamentals.types import ActiveFundSnapshot
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
@@ -37,6 +49,218 @@ from irc.research.persistence import load_theme_reports
 from irc.research.theme_research import ThemeReport
 from irc.schemas.universe import Instrument, UniverseConfig
 
+
+# ── Item 003: constants + primitives ─────────────────────────────────────────
+
+TOP_N_DEFAULT = 10
+IRC_FETCH_BUDGET_DEFAULT = 2000
+IRC_CACHE_FRESHNESS_DAYS_DEFAULT = 7
+
+
+@dataclass(frozen=True)
+class FetchPlan:
+    active_fund_misses: int
+    active_fund_stale: int
+    passive_misses: int
+    passive_stale: int
+    top_n: int
+
+    def total_calls(self) -> int:
+        per_active = 1 + self.top_n * 3
+        return (
+            (self.active_fund_misses + self.active_fund_stale) * per_active
+            + self.passive_misses * 2
+            + self.passive_stale * 2
+        )
+
+
+class FetchBudgetExceeded(RuntimeError):
+    def __init__(self, plan: FetchPlan, total: int, budget: int) -> None:
+        super().__init__(
+            f"FetchBudgetExceeded: "
+            f"active_fund_misses={plan.active_fund_misses} "
+            f"active_fund_stale={plan.active_fund_stale} "
+            f"passive_misses={plan.passive_misses} "
+            f"passive_stale={plan.passive_stale} "
+            f"cost={total} budget={budget}"
+        )
+        self.plan = plan
+        self.total = total
+        self.budget = budget
+
+
+def compute_plan_hash(output_date: str, instrument_ids: list[str], top_n: int) -> str:
+    payload = f"{output_date}:{','.join(sorted(instrument_ids))}:{top_n}"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+# ── Item 003: fcntl.flock + state file ───────────────────────────────────────
+
+try:
+    import fcntl  # type: ignore[import-not-found]
+    _HAS_FCNTL = True
+except ImportError:
+    fcntl = None  # type: ignore[assignment]
+    _HAS_FCNTL = False
+    sys.stderr.write(
+        "WARNING: fcntl unavailable on this platform — "
+        "concurrent-run lock disabled.\n"
+    )
+
+
+class FetchLockBusy(RuntimeError):
+    """Raised when another process holds the fetch lock."""
+
+
+def _fetch_state_path(root_fundamentals: Path, plan_hash: str) -> Path:
+    return root_fundamentals / f".fetch_state_{plan_hash}.json"
+
+
+def load_fetch_state(root_fundamentals: Path, plan_hash: str) -> dict | None:
+    """Load state file if plan_hash matches; else None (caller starts fresh)."""
+    path = _fetch_state_path(root_fundamentals, plan_hash)
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(body, dict):
+        return None
+    if body.get("plan_hash") != plan_hash:
+        return None
+    return body
+
+
+def write_fetch_state(state: dict, root_fundamentals: Path, plan_hash: str) -> Path:
+    path = _fetch_state_path(root_fundamentals, plan_hash)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return path
+
+
+def acquire_fetch_lock(path: Path) -> int:
+    """Acquire an advisory exclusive lock; retry once after 100ms.
+
+    Returns the OS file descriptor on success. Raises `FetchLockBusy` after
+    second failure. Windows fallback: returns a sentinel fd, no real lock.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
+    if not _HAS_FCNTL:
+        return fd  # Windows fallback: no lock.
+    for attempt in (0, 1):
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if attempt == 0:
+                time.sleep(0.1)
+                continue
+            os.close(fd)
+            raise FetchLockBusy(
+                "concurrent run detected — set IRC_OPPORTUNITY_AUTOBUILD=0 "
+                "or wait for the other run"
+            )
+    return fd
+
+
+# ── Item 003: autobuild env var + freshness probe ─────────────────────────────
+
+def _is_active_fund_target_autobuild_on() -> bool:
+    return os.environ.get("IRC_OPPORTUNITY_AUTOBUILD", "1") != "0"
+
+
+def _freshness_days() -> int:
+    try:
+        return int(os.environ.get("IRC_CACHE_FRESHNESS_DAYS", IRC_CACHE_FRESHNESS_DAYS_DEFAULT))
+    except ValueError:
+        return IRC_CACHE_FRESHNESS_DAYS_DEFAULT
+
+
+def _fetch_budget() -> int:
+    try:
+        return int(os.environ.get("IRC_FETCH_BUDGET", IRC_FETCH_BUDGET_DEFAULT))
+    except ValueError:
+        return IRC_FETCH_BUDGET_DEFAULT
+
+
+def _is_stale(snap: ActiveFundSnapshot, *, today: date_cls, threshold_days: int) -> bool:
+    if not snap.cache_probed_at:
+        return True
+    try:
+        probed = date_cls.fromisoformat(snap.cache_probed_at)
+    except ValueError:
+        return True
+    return (today - probed).days > threshold_days
+
+
+def _maybe_freshness_probe(
+    snap: ActiveFundSnapshot,
+    *,
+    today: date_cls,
+    root: Path,
+) -> tuple[ActiveFundSnapshot, bool]:
+    """Probe and return (possibly-updated snapshot, schedule_full_refetch).
+
+    Fail-closed: any probe failure or empty result → schedule_full_refetch=True.
+    """
+    if not _is_stale(snap, today=today, threshold_days=_freshness_days()):
+        return snap, False
+    try:
+        probe = fetch_cn_etf_holdings(snap.fund_id, top_n=1)
+    except Exception:
+        return snap, True
+    if not probe.source_report_quarter or not probe.constituents:
+        return snap, True
+    if probe.source_report_quarter != snap.source_report_quarter:
+        return snap, True
+    updated = replace(snap, cache_probed_at=today.isoformat())
+    write_active_fund_cache(updated, root)
+    return updated, False
+
+
+def _load_latest_active_fund_cached(
+    fund_id: str, root: Path,
+) -> ActiveFundSnapshot | None:
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/active_fund/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_active_fund_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
+
+
+# ── Item 003: validate_cli_args ───────────────────────────────────────────────
+
+def validate_cli_args(
+    *,
+    output_dir: str | None,
+    limit: int | None,
+    rebuild_fundamentals: bool,
+    today: str,
+) -> None:
+    """Reject `--limit` on canonical `outputs/<today>/` paths (exit code 2)."""
+    if output_dir is None:
+        return
+    if limit is None:
+        return
+    canonical_suffix = f"outputs/{today}"
+    if output_dir.rstrip("/").endswith(canonical_suffix):
+        print(
+            "--limit is rejected on canonical output paths",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
