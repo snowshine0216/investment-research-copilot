@@ -38,7 +38,7 @@ from irc.opportunity.report import (
 )
 from irc.commands.theme_thesis import load_theme_thesis
 from irc.fundamentals.snapshot import load_latest_cached_snapshot
-from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.lookthrough import map_lookthrough, _QDII_US_KEYS, _QDII_HK_KEYS
 from irc.opportunity.selection import SelectionQuality, demote_unstable_active, reduce_same_theme
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import (
@@ -584,10 +584,26 @@ def _classify_active_fund_scores(
     return misses, stale
 
 
+def _is_qdii_bound_cn_etf(iid: str, instr_index: dict) -> bool:
+    """Return True if a cn_etf row routes to the zero-cost QDII sentinel.
+
+    A cn_etf whose tracked_index is in the QDII US or HK key sets dispatches
+    to `_build_qdii_sentinel_snapshot` (zero AkShare calls) rather than the
+    fund-level NAV+announcement engine. Counting such rows inflates the budget
+    estimate and can trigger spurious FetchBudgetExceeded.
+    """
+    instr = instr_index.get(iid)
+    if instr is None:
+        return False
+    tracked = (instr.tracked_index or "").strip().lower()
+    return bool(tracked) and (tracked in _QDII_US_KEYS or tracked in _QDII_HK_KEYS)
+
+
 def _classify_fund_level_scores(
     scores: list[dict],
     root: Path,
     *,
+    instr_index: dict | None = None,
     today: date_cls,
     threshold_days: int,
     rebuild_fundamentals: bool,
@@ -595,16 +611,21 @@ def _classify_fund_level_scores(
     """Count (misses, stale) among fund-level rows (gold/cn_bond_fund/cn_etf).
 
     QDII rows are NOT counted — they fire zero AkShare calls (sentinel).
+    cn_etf rows whose tracked_index routes to a QDII key are excluded.
     """
     misses = 0
     stale = 0
     seen: set[str] = set()
+    _instr_index: dict = instr_index or {}
     for score in scores:
         cls = score.get("asset_class")
         if cls not in ("gold", "cn_bond_fund", "cn_etf"):
             continue
         iid = score.get("instrument_id", "")
         if not iid or iid in seen:
+            continue
+        # cn_etf rows that map to a QDII kind cost zero AkShare calls — skip.
+        if cls == "cn_etf" and _is_qdii_bound_cn_etf(iid, _instr_index):
             continue
         seen.add(iid)
         if rebuild_fundamentals:
@@ -690,6 +711,7 @@ def _build_rows(
         )
         fl_misses, fl_stale = _classify_fund_level_scores(
             scores, root / "data",
+            instr_index=instr_index,
             today=today, threshold_days=_freshness_days(),
             rebuild_fundamentals=rebuild_fundamentals,
         )

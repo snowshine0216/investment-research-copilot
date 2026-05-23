@@ -229,3 +229,67 @@ def test_preflight_does_not_exceed_budget_for_v1_universe() -> None:
     )
     total = plan.total_calls()
     assert total < 2000, f"total={total} would exceed default budget"
+
+
+# ── F-FIX-1: QDII-bound cn_etf rows must NOT be counted in fund-level budget ──
+
+
+def test_classify_fund_level_scores_excludes_qdii_bound_cn_etf(tmp_path: Path) -> None:
+    """A cn_etf whose tracked_index maps to a QDII key (e.g. 513100 → nasdaq100)
+    must NOT be counted in the fund-level miss/stale budget because build_snapshot
+    dispatches it to the zero-cost QDII sentinel path."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_fund_level_scores
+    from irc.schemas.universe import Instrument
+
+    qdii_etf = Instrument(
+        instrument_id="513100",
+        name_cn="华夏纳斯达克100ETF",
+        ticker="513100",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        currency="cny",
+        venue_required=["A股交易"],
+        tracked_index="nasdaq100",  # maps to QDII US key → zero AkShare cost
+    )
+    instr_index = {"513100": qdii_etf}
+    scores = [{"instrument_id": "513100", "asset_class": "cn_etf"}]
+
+    misses, stale = _classify_fund_level_scores(
+        scores, tmp_path, instr_index=instr_index,
+        today=date(2026, 5, 23),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert misses == 0, f"QDII-bound cn_etf must not be counted as a miss; got {misses}"
+    assert stale == 0, f"QDII-bound cn_etf must not be counted as stale; got {stale}"
+
+
+def test_classify_fund_level_scores_counts_non_qdii_cn_etf(tmp_path: Path) -> None:
+    """A cn_etf whose tracked_index maps to a broad domestic index IS fund-level
+    and must be counted (no cached file → counted as a miss)."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_fund_level_scores
+    from irc.schemas.universe import Instrument
+
+    domestic_etf = Instrument(
+        instrument_id="510300",
+        name_cn="华泰柏瑞沪深300ETF",
+        ticker="510300",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        currency="cny",
+        venue_required=["A股交易"],
+        tracked_index="csi300",  # broad_index — does dispatch to fund-level engine
+    )
+    instr_index = {"510300": domestic_etf}
+    scores = [{"instrument_id": "510300", "asset_class": "cn_etf"}]
+
+    misses, stale = _classify_fund_level_scores(
+        scores, tmp_path, instr_index=instr_index,
+        today=date(2026, 5, 23),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert misses == 1, f"domestic cn_etf with no cache should be a miss; got {misses}"
+    assert stale == 0
