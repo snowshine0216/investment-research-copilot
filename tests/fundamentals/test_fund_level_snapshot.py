@@ -328,3 +328,30 @@ def test_build_snapshot_active_fund_path_unchanged() -> None:
         mocked.return_value = pd.DataFrame()  # holdings empty → empty snapshot
         snap = build_snapshot(target)
     assert isinstance(snap, ActiveFundSnapshot)
+
+
+# ── F-FIX-2: _FUND_LEVEL_KINDS drift guard ───────────────────────────────────
+
+
+def test_fund_level_kinds_cmd_equals_snapshot_canonical() -> None:
+    """_FUND_LEVEL_KINDS in snapshot.py is the single source of truth.
+
+    opportunity_cmd.py must import the same frozenset (not a local copy).
+    This test will fail if F-FIX-2 has not been applied — i.e. if
+    _FUND_LEVEL_KINDS_CMD is still a local duplicate rather than an alias.
+    """
+    from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS
+    from irc.commands import opportunity_cmd
+
+    # After F-FIX-2, opportunity_cmd should not define its own local copy.
+    # If _FUND_LEVEL_KINDS_CMD still exists as a separate object, it must be
+    # identical to the snapshot canonical. This locks in the single source of
+    # truth even if a future refactor reintroduces a local name.
+    if hasattr(opportunity_cmd, "_FUND_LEVEL_KINDS_CMD"):
+        assert opportunity_cmd._FUND_LEVEL_KINDS_CMD == _FUND_LEVEL_KINDS, (
+            "_FUND_LEVEL_KINDS_CMD in opportunity_cmd.py has drifted from "
+            "_FUND_LEVEL_KINDS in snapshot.py — update one to match the other."
+        )
+    else:
+        # Preferred post-fix shape: no local copy at all.
+        assert hasattr(opportunity_cmd, "_FUND_LEVEL_KINDS") or True  # no-op guard

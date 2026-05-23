@@ -12,7 +12,7 @@ from pathlib import Path
 import duckdb
 
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
-from irc.fundamentals.snapshot import build_snapshot
+from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
     load_nav_cache,
@@ -260,13 +260,7 @@ def _load_latest_active_fund_cached(
 
 
 # ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
-
-# Kinds that dispatch to the fund-level engine when provider_symbol is non-empty.
-# Mirrors `_FUND_LEVEL_KINDS` in snapshot.py — kept local here to avoid an
-# import cycle through commands.
-_FUND_LEVEL_KINDS_CMD: frozenset[str] = frozenset({
-    "gold", "bond", "broad_index", "sector_theme",
-})
+# _FUND_LEVEL_KINDS is imported from irc.fundamentals.snapshot (single source of truth).
 
 
 def _load_latest_nav_cached(
@@ -837,7 +831,7 @@ def _build_rows(
                     snapshot_cache[target.key] = snap_obj
             elif autobuild_on and (
                 target.kind in ("qdii_us", "qdii_hk", "qdii_global")
-                or (target.kind in _FUND_LEVEL_KINDS_CMD and target.provider_symbol)
+                or (target.kind in _FUND_LEVEL_KINDS and target.provider_symbol)
             ):
                 # ── Item 005: fund-level + QDII sentinel dispatch ──
                 cache_key = target.provider_symbol or target.key
