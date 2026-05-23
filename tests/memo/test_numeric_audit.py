@@ -129,3 +129,75 @@ def test_find_uncited_conclusions_empty_aliases_with_non_empty_prose_returns_emp
         constituent_aliases={},
         constituent_cited_map={},
     ) == []
+
+
+# ── Task 5: find_missing_pick_citations ──────────────────────────────────────
+
+def _ev_for_pick(
+    *, citation_kind="data", owner="005827",
+    constituent_key=None, scope="instrument", date="2024-04-15",
+    url="https://x",
+):
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type="filing", source="src", url=url, date=date,
+        summary="x", scope=scope, citation_kind=citation_kind,
+        owner_instrument_id=owner, parent_fund_id=None,
+        constituent_key=constituent_key, holding_weight_pct=None,
+    )
+
+
+def _pick(iid="005827", citations=()):
+    from irc.memo.picks_table import PickRow
+    return PickRow(
+        instrument_id=iid, name_cn="X", asset_class="cn_equity_fund",
+        role="core", target_weight=0.1, composite_score=70.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        citations=citations,
+    )
+
+
+def test_find_missing_pick_citations_dual_leg_present_returns_empty() -> None:
+    """AC2 — top-3 has both kinds → no finding."""
+    from irc.memo.numeric_audit import find_missing_pick_citations
+    data = _ev_for_pick(citation_kind="data")
+    info = _ev_for_pick(citation_kind="information", date="2024-04-16")
+    pick = _pick(citations=(data, info))
+    assert find_missing_pick_citations((pick,), {}) == []
+
+
+def test_find_missing_pick_citations_empty_citations_flagged() -> None:
+    """AC2 — empty citations tuple emits one `missing_pick_citations`."""
+    from irc.memo.numeric_audit import find_missing_pick_citations
+    pick = _pick(citations=())
+    findings = find_missing_pick_citations((pick,), {})
+    assert len(findings) == 1
+    assert findings[0].kind == "missing_pick_citations"
+    assert findings[0].instrument_id == "005827"
+
+
+def test_find_missing_pick_citations_data_only_flagged() -> None:
+    """AC2 — data-only pick row → one finding for missing info leg."""
+    from irc.memo.numeric_audit import find_missing_pick_citations
+    pick = _pick(citations=(_ev_for_pick(citation_kind="data"),))
+    findings = find_missing_pick_citations((pick,), {})
+    kinds = [f.kind for f in findings]
+    # Either explicit "missing_information_citation" OR the general
+    # "missing_pick_citations" — spec AC2 doesn't differentiate at the empty
+    # vs single-leg level, but the wrapper kind for completely empty is
+    # distinct. For single-leg, the test asserts the missing-info leg surfaces.
+    assert any(k in {"missing_pick_citations", "missing_information_citation"}
+               for k in kinds)
+
+
+def test_find_missing_pick_citations_wrong_instrument_flagged() -> None:
+    """AC2 — a citation pointing at a different owner_instrument_id is
+    a provenance leak from select_citations → `wrong_instrument_citation`."""
+    from irc.memo.numeric_audit import find_missing_pick_citations
+    leaked = _ev_for_pick(citation_kind="data", owner="OTHER_FUND")
+    info = _ev_for_pick(citation_kind="information", date="2024-04-16")
+    pick = _pick(iid="005827", citations=(leaked, info))
+    findings = find_missing_pick_citations((pick,), {})
+    kinds = [f.kind for f in findings]
+    assert "wrong_instrument_citation" in kinds

@@ -190,6 +190,125 @@ def find_uncited_conclusions(
     return []
 
 
+# ── Item 009 D2a — find_missing_pick_citations ──────────────────────────────
+# Structural per-pick dual-leg + owner-provenance check. Runs against the
+# pre-filtered top-3 citations returned by select_citations(cap=3).
+
+def find_missing_pick_citations(
+    pick_rows,
+    cited_map: dict,
+) -> list[NumericFinding]:
+    """Return findings for PickRows that fail the dual-leg or owner check.
+
+    Three failure modes:
+      - empty `pick_row.citations` → kind="missing_pick_citations" (single finding)
+      - non-empty but no `citation_kind == "data"` entry → "missing_data_citation"
+      - non-empty but no `citation_kind == "information"` entry → "missing_information_citation"
+      - any entry with `owner_instrument_id != pick_row.instrument_id` → "wrong_instrument_citation"
+    """
+    findings: list[NumericFinding] = []
+    for pick in pick_rows:
+        if not pick.citations:
+            findings.append(NumericFinding(
+                instrument_id=pick.instrument_id,
+                kind="missing_pick_citations",
+                prose_excerpt="citations=()",
+                evidence_excerpt=pick.opportunity_state,
+            ))
+            continue
+        for ev in pick.citations:
+            if ev.owner_instrument_id != pick.instrument_id:
+                findings.append(NumericFinding(
+                    instrument_id=pick.instrument_id,
+                    kind="wrong_instrument_citation",
+                    prose_excerpt=f"citation_id={ev.citation_id}",
+                    evidence_excerpt=(
+                        f"owner_instrument_id={ev.owner_instrument_id!r} "
+                        f"!= pick.instrument_id={pick.instrument_id!r}"
+                    ),
+                ))
+        kinds = {ev.citation_kind for ev in pick.citations
+                 if ev.owner_instrument_id == pick.instrument_id}
+        if "data" not in kinds:
+            findings.append(NumericFinding(
+                instrument_id=pick.instrument_id,
+                kind="missing_data_citation",
+                prose_excerpt="leg:data",
+                evidence_excerpt=pick.opportunity_state,
+            ))
+        if "information" not in kinds:
+            findings.append(NumericFinding(
+                instrument_id=pick.instrument_id,
+                kind="missing_information_citation",
+                prose_excerpt="leg:information",
+                evidence_excerpt=pick.opportunity_state,
+            ))
+    return findings
+
+
+# ── Item 009 D2a — find_uncited_discipline_rows ─────────────────────────────
+# Structural per-row dual-leg + owner + parent_fund check on DisciplineRow.
+# No [ref:...] marker check on note_cn — the structural check is authoritative.
+
+def find_uncited_discipline_rows(
+    discipline_rows,
+    cited_map: dict,
+) -> list[NumericFinding]:
+    """Return findings for DisciplineRows that fail dual-leg or provenance.
+
+    Per AC4:
+      (i) require ≥1 data + ≥1 information entry in `row.thesis_evidence`;
+      (ii) require `entry.owner_instrument_id == row.instrument_id`;
+           for constituent-scoped entries, also `entry.parent_fund_id == row.instrument_id`.
+    """
+    findings: list[NumericFinding] = []
+    for row in discipline_rows:
+        own_data_present = False
+        own_info_present = False
+        for ev in row.thesis_evidence:
+            if ev.owner_instrument_id != row.instrument_id:
+                findings.append(NumericFinding(
+                    instrument_id=row.instrument_id,
+                    kind="wrong_instrument_citation",
+                    prose_excerpt=f"citation_id={ev.citation_id}",
+                    evidence_excerpt=(
+                        f"owner_instrument_id={ev.owner_instrument_id!r} "
+                        f"!= row.instrument_id={row.instrument_id!r}"
+                    ),
+                ))
+                continue
+            if ev.scope == "constituent" and ev.parent_fund_id != row.instrument_id:
+                findings.append(NumericFinding(
+                    instrument_id=row.instrument_id,
+                    kind="wrong_instrument_citation",
+                    prose_excerpt=f"citation_id={ev.citation_id}",
+                    evidence_excerpt=(
+                        f"parent_fund_id={ev.parent_fund_id!r} "
+                        f"!= row.instrument_id={row.instrument_id!r}"
+                    ),
+                ))
+                continue
+            if ev.citation_kind == "data":
+                own_data_present = True
+            elif ev.citation_kind == "information":
+                own_info_present = True
+        if not own_data_present:
+            findings.append(NumericFinding(
+                instrument_id=row.instrument_id,
+                kind="missing_data_citation",
+                prose_excerpt="leg:data",
+                evidence_excerpt=row.opportunity_state,
+            ))
+        if not own_info_present:
+            findings.append(NumericFinding(
+                instrument_id=row.instrument_id,
+                kind="missing_information_citation",
+                prose_excerpt="leg:information",
+                evidence_excerpt=row.opportunity_state,
+            ))
+    return findings
+
+
 def render_findings_block(findings: list[NumericFinding]) -> str:
     """Render a markdown block to prepend to the auditor output. Returns the
     empty string when there are no findings (don't pollute the audit log).
