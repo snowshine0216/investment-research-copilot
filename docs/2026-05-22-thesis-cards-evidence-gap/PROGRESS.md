@@ -6,7 +6,7 @@
 | 002 | citation-data-model | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 003 | active-fund-constituent-layer | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 004 | live-verify-fund-announcement-em | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 005 | per-asset-class-citation-coverage | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 005 | per-asset-class-citation-coverage | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 006 | failure-mode-and-policy-b | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 007 | memo-and-discipline-renderers | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 008 | integration-test-sweep | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -14,6 +14,15 @@
 | 010 | duckdb-fund-holdings-ingest | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Legend: ⏳ = pending, 🔄 = in progress, ✅ = done, ⏭️ = skipped (mode / not applicable), ⚠️ = blocked.
+
+## Run status: PAUSED (item 005 impl — environmental stop)
+
+Implementation subagent dispatch for item 005 failed with: `API Error: Usage credits required for 1M context`. Per autodev stop-conditions, this is a legitimate halt (declared token-budget ceiling). To resume: top up 1M context credits OR switch to standard context, then say "continue from item 005 impl".
+
+State:
+- Sub-branch `autodev/thesis-evidence-005-per-asset-class-citation-coverage` cut locally, NOT pushed (no commits ahead).
+- spec/grill/plan/ADR-amendment all committed on feature branch.
+- Impl is a 15-task TDD plan at `items/005-plan.md`; resume by dispatching a Sonnet subagent against it.
 
 ## Notes on the `verify` column
 
