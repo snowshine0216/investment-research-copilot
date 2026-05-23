@@ -360,5 +360,39 @@ def fetch_hk_index_constituents(
     return _parse_hk_index_frame(df, top_n)
 
 
+def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
+    """Top-K most recent stock news items from EastMoney.
+
+    Returns () on adapter exception or empty frame.
+    """
+    try:
+        df = _ak_call("stock_news_em", symbol=stock)
+    except Exception:
+        return ()
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return ()
+    title_col = "新闻标题" if "新闻标题" in df.columns else None
+    date_col = "发布时间" if "发布时间" in df.columns else None
+    url_col = "新闻链接" if "新闻链接" in df.columns else None
+    summary_col = "新闻内容" if "新闻内容" in df.columns else None
+    if not (title_col and date_col):
+        return ()
+    sorted_df = df.sort_values(date_col, ascending=False).head(top_k)
+    out: list[NewsItem] = []
+    for _, row in sorted_df.iterrows():
+        raw_date = str(row[date_col])
+        # "2024-04-15 09:00:00" → "2024-04-15"
+        published = raw_date.split(" ")[0]
+        out.append(NewsItem(
+            symbol=stock,
+            title=str(row[title_col]),
+            url=str(row[url_col]) if url_col else "",
+            published_iso=published,
+            summary=str(row[summary_col]) if summary_col else "",
+            source="stock_news_em",
+        ))
+    return tuple(out)
+
+
 # Re-exports removed — import fetch_cn_broker_reports / fetch_cn_filing_digest
 # from irc.fundamentals.akshare_filing directly.

@@ -219,6 +219,56 @@ _HK_HOLDINGS_FRAME = pd.DataFrame({
 })
 
 
+# ── Item 003: fetch_cn_stock_news ─────────────────────────────────────────────
+
+from irc.fundamentals.akshare_fundamentals import fetch_cn_stock_news  # noqa: E402
+
+
+_CN_NEWS_FRAME = pd.DataFrame({
+    "关键词": ["茅台"] * 5,
+    "新闻标题": ["新品发布", "增持公告", "Q1业绩", "调研纪要", "回购"],
+    "新闻内容": ["a", "b", "c", "d", "e"],
+    "发布时间": [
+        "2024-04-15 09:00:00",
+        "2024-04-14 09:00:00",
+        "2024-04-13 09:00:00",
+        "2024-04-12 09:00:00",
+        "2024-04-11 09:00:00",
+    ],
+    "新闻链接": [f"https://example.com/{i}" for i in range(5)],
+    "文章来源": ["东财"] * 5,
+})
+
+
+def test_fetch_cn_stock_news_top_3_by_date_desc() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = _CN_NEWS_FRAME
+        out = fetch_cn_stock_news("600519", top_k=3)
+    assert mocked.call_args[0][0] == "stock_news_em"
+    assert mocked.call_args[1] == {"symbol": "600519"}
+    assert len(out) == 3
+    assert out[0].published_iso == "2024-04-15"
+    assert out[0].title == "新品发布"
+    assert out[0].symbol == "600519"
+    assert out[0].source == "stock_news_em"
+    assert out[1].published_iso == "2024-04-14"
+    assert out[2].published_iso == "2024-04-13"
+
+
+def test_fetch_cn_stock_news_empty_on_failure() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.side_effect = ConnectionError("dfcfw 502")
+        out = fetch_cn_stock_news("600519")
+    assert out == ()
+
+
+def test_fetch_cn_stock_news_empty_on_empty_frame() -> None:
+    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
+        mocked.return_value = pd.DataFrame()
+        out = fetch_cn_stock_news("600519")
+    assert out == ()
+
+
 def test_fetch_cn_etf_holdings_hk_and_bj_routing_without_market_column() -> None:
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.return_value = _HK_HOLDINGS_FRAME
