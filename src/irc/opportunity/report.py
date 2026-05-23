@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from irc.memo.citation_selector import select_citations
+from irc.opportunity.citation_selector import select_citations
 from irc.opportunity.types import (
     DisciplineRow,
     OpportunityRow,
