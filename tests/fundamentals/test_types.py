@@ -302,3 +302,76 @@ def test_fund_announcement_rejects_malformed_date() -> None:
             fund_id="518880", title="x", topic="dividend",
             date="20240101", report_id="AN1",  # missing hyphens
         )
+
+
+# ── Task 3: FundLevelSnapshot tests ──────────────────────────────────────────
+
+from irc.fundamentals.types import FundLevelSnapshot, ThesisEvidence
+
+
+def test_fund_level_snapshot_construction_minimal() -> None:
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+    )
+    assert snap.fund_id == "518880"
+    assert snap.fund_level_failure_reasons == ()
+    assert snap.evidence_gaps == ()
+
+
+def test_fund_level_snapshot_qdii_sentinel_shape() -> None:
+    snap = FundLevelSnapshot(
+        fund_id="qdii_us:sp500",
+        nav_report=None,
+        announcements=(),
+        evidence=(),
+        source_report_quarter="",
+        cache_probed_at="",
+        evidence_gaps=("qdii_information_unavailable",),
+    )
+    assert snap.evidence_gaps == ("qdii_information_unavailable",)
+    assert snap.nav_report is None
+
+
+def test_fund_level_snapshot_carries_evidence_tuple() -> None:
+    e = ThesisEvidence(
+        type="snapshot", source="518880", url="",
+        date="2026-03-15",
+        summary="NAV=4.5678 @ 2026-03-15",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id="518880",
+        parent_fund_id=None, constituent_key=None,
+    )
+    snap = FundLevelSnapshot(
+        fund_id="518880",
+        nav_report=None,
+        announcements=(),
+        evidence=(e,),
+        source_report_quarter="2026Q1",
+        cache_probed_at="2026-05-23",
+    )
+    assert len(snap.evidence) == 1
+    assert snap.evidence[0].citation_kind == "data"
+
+
+def test_fund_level_snapshot_rejects_empty_fund_id() -> None:
+    with pytest.raises(ValueError):
+        FundLevelSnapshot(
+            fund_id="",
+            nav_report=None,
+            announcements=(),
+            evidence=(),
+            source_report_quarter="",
+            cache_probed_at="",
+        )
+
+
+def test_fund_level_snapshot_in_all() -> None:
+    from irc.fundamentals import types as _t
+    assert "FundLevelSnapshot" in _t.__all__
+    assert "FundNavReport" in _t.__all__
+    assert "FundAnnouncement" in _t.__all__

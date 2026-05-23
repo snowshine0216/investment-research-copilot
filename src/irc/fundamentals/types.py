@@ -19,7 +19,10 @@ __all__ = [
     "ConstituentAnalysis",
     "ConstituentSnapshot",
     "FilingDigest",
+    "FundAnnouncement",
     "FundHolding",
+    "FundLevelSnapshot",
+    "FundNavReport",
     "HoldingsResult",
     "LookthroughKind",
     "LookthroughTarget",
@@ -265,3 +268,27 @@ class FundAnnouncement:
             raise ValueError(
                 f"FundAnnouncement.date must be ISO YYYY-MM-DD; got {self.date!r}"
             )
+
+
+@dataclass(frozen=True)
+class FundLevelSnapshot:
+    """Full per-fund result for non-active V1 asset classes (gold, cn_bond_fund,
+    cn_etf, tracked CN ETFs). Distinct from `ActiveFundSnapshot` (per-constituent
+    analyses) and `ConstituentSnapshot` (legacy display-only). The QDII sentinel
+    case sets `nav_report=None, announcements=(), evidence=(), evidence_gaps=
+    ("qdii_information_unavailable",)` and is NOT cached on disk (grill Q5).
+
+    See ADR 0002 §5 (Fund-level engine).
+    """
+    fund_id: str
+    nav_report: FundNavReport | None
+    announcements: tuple[FundAnnouncement, ...]
+    evidence: tuple[ThesisEvidence, ...]
+    source_report_quarter: str
+    cache_probed_at: str
+    fund_level_failure_reasons: tuple[str, ...] = ()
+    evidence_gaps: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.fund_id:
+            raise ValueError("FundLevelSnapshot.fund_id must be non-empty")
