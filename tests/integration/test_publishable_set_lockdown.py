@@ -94,11 +94,12 @@ def _install_ak_call_dispatch(monkeypatch, dispatch: dict) -> Counter:
     (filings, broker reports) since each module defines its own indirection.
 
     Unexpected keys (a `(fn_name, symbol)` pair not in `dispatch`) ALSO
-    increment the counter under a sentinel key `("__unexpected__", "<fn>:<sym>")`
-    so tests can `assert counter["__unexpected__:*"] == 0` and prove the
-    production code didn't silently dispatch to a function the seed doesn't
-    know about. Returns an empty DataFrame for those calls so tests don't
-    crash mid-arrange — but the unexpected counter is the actual signal.
+    increment the counter under a sentinel KEY-TUPLE `("__unexpected__", "<fn>:<sym>")`.
+    The correct assertion shape is `assert _unexpected_calls(counter) == []`
+    (NOT `counter["__unexpected__:*"]` — that's a Counter lookup of a string
+    key that's never stored, which always silently returns 0). Returns an
+    empty DataFrame for those calls so tests don't crash mid-arrange; the
+    unexpected counter is the actual signal that fails the assertion.
     """
     counter: Counter = Counter()
 
@@ -132,7 +133,41 @@ def _unexpected_calls(counter: Counter) -> list[str]:
     ]
 
 
+def _assert_h3_partition(
+    scored_iids: set[str],
+    row_iids: set[str],
+    rej_iids: set[str],
+) -> None:
+    """Lock the H3 universal invariant: every scored instrument lands in
+    EXACTLY one of (publishable rows, rejected rows). A row invisible to
+    both surfaces is a partition break (e.g. a silent drop by
+    `_apply_reduction` with no rejection record); a row in BOTH is a
+    Policy-B accounting bug. CONTEXT.md describes H3 as universal —
+    callers from any AC that runs `run_opportunity` should invoke this."""
+    missing = scored_iids - (row_iids | rej_iids)
+    overlap = row_iids & rej_iids
+    assert not missing, (
+        f"H3 completeness break: {missing} appear in scoring.json but in "
+        "NEITHER opportunity_report.json rows NOR rejections.json entries"
+    )
+    assert not overlap, (
+        f"H3 disjointness break: {overlap} appear in BOTH publishable "
+        "and rejected surfaces (Policy B accounting error)"
+    )
+
+
 _FIXED_INGESTED_AT = "2026-05-23T08:00:00+00:00"
+
+# Computed ONCE at module import so both `_seed_publishable_set_repo` calls
+# in AC22 see the same broker-report date (the value flows through
+# `BrokerReport.published_iso` → `ThesisEvidence.date` → the citation_id
+# preimage; any cross-call drift breaks AC22 byte-equality). 30 days < the
+# 90-day broker-freshness window in
+# `akshare_filing.fetch_recent_broker_reports`, so the date stays fresh
+# whenever the test runs.
+_BROKER_REPORT_DATE = (
+    datetime.now(timezone(timedelta(hours=8))).date() - timedelta(days=30)
+).isoformat()
 
 
 def _preload_duckdb(
@@ -359,11 +394,19 @@ def _seed_publishable_set_repo(
         "20231231": [90.0, 18.0, 54.0],
     })
     # Broker report frame for CN constituents (info leg via stock_research_report_em).
+    # `日期` reads from the module-level `_BROKER_REPORT_DATE` (computed once at
+    # import time): the value flows through `BrokerReport.published_iso` →
+    # `ThesisEvidence.date` → the citation_id sha256 preimage, so any cross-call
+    # drift between the two `_seed_publishable_set_repo` calls in AC22 would
+    # break byte-equality. Computing once at import + reusing avoids both the
+    # wall-clock midnight window AND the 90-day broker-freshness cutoff (a
+    # literal like "2024-12-31" silently gets dropped by the freshness gate
+    # over time).
     broker_frame = pd.DataFrame({
         "机构": ["中金公司"],
         "东财评级": ["买入"],
         "报告名称": ["2024年年度报告"],
-        "日期": [datetime.now(timezone(timedelta(hours=8))).date().isoformat()],
+        "日期": [_BROKER_REPORT_DATE],
         "报告PDF链接": ["https://example.com/report.pdf"],
     })
 
@@ -638,6 +681,10 @@ def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None
     rej_iids = {e["instrument_id"] for e in rej.get("entries", [])}
     md = (out_dir / "discipline_report.md").read_text(encoding="utf-8")
     failure_idx = md.find("## 证据不足")
+    # Guard against silent slice-direction inversion if the heading is ever
+    # renamed (md.find returns -1; `md[:-1]` would silently make the
+    # bucket-leakage assertion a near-false-negative).
+    assert failure_idx >= 0, "discipline failure heading '## 证据不足' missing"
     above = md[:failure_idx]
     below = md[failure_idx:]
 
@@ -650,18 +697,8 @@ def test_h3_partition_across_four_output_surfaces(tmp_path, monkeypatch) -> None
     assert "163417" in rej_iids, "gapped iid missing from rejections.json"
     assert "005827" not in rej_iids, "publishable iid leaked into rejections.json"
     assert "163417" in below, "gapped iid missing from discipline failure section"
-    # H3 completeness half — every scored iid lands in EXACTLY one of
-    # (row_iids, rej_iids); a row invisible to both surfaces is a partition
-    # break (e.g. silent drop by _apply_reduction with no rejection record).
     scored_iids = {s["instrument_id"] for s in scoring["scores"]}
-    assert row_iids | rej_iids >= scored_iids, (
-        f"H3 completeness: rows missing from BOTH publishable and rejections "
-        f"= {scored_iids - (row_iids | rej_iids)}"
-    )
-    assert not (row_iids & rej_iids), (
-        f"H3 disjointness: iids in BOTH publishable AND rejections = "
-        f"{row_iids & rej_iids}"
-    )
+    _assert_h3_partition(scored_iids, row_iids, rej_iids)
 
 
 # ─── AC11: Policy-B precedence ───────────────────────────────────────────────
@@ -710,7 +747,11 @@ def test_policy_b_precedence_qdii_over_policy_b_code(tmp_path, monkeypatch) -> N
         constituent_analyses=(),
     )
 
-    out_dir = tmp_path / "outputs" / _today_cn()
+    # Capture once — `_today_cn()` evaluated twice with a midnight crossing
+    # between the two calls would point out_dir at one date and the
+    # `today=` arg at another, writing artifacts where the test never reads.
+    today = _today_cn()
+    out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_opportunity_outputs(
         kept_rows=[qdii_row],
@@ -725,7 +766,7 @@ def test_policy_b_precedence_qdii_over_policy_b_code(tmp_path, monkeypatch) -> N
         roles={"004243": ""},
         holdings={},
         out_dir=out_dir,
-        today=_today_cn(),
+        today=today,
     )
 
     rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
@@ -781,7 +822,9 @@ def test_policy_b_precedence_holds_when_qdii_gap_is_not_first_in_tuple(
         constituent_analyses=(),
     )
 
-    out_dir = tmp_path / "outputs" / _today_cn()
+    # Capture once — midnight-skew guard, see sibling test for rationale.
+    today = _today_cn()
+    out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
     _write_opportunity_outputs(
         kept_rows=[qdii_row],
@@ -796,7 +839,7 @@ def test_policy_b_precedence_holds_when_qdii_gap_is_not_first_in_tuple(
         roles={"004243": ""},
         holdings={},
         out_dir=out_dir,
-        today=_today_cn(),
+        today=today,
     )
 
     rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
@@ -848,7 +891,9 @@ def test_fetch_budget_exhausted_fatal_at_write_time_via_run_opportunity(
         constituent_analyses=(),
     )
 
-    out_dir = tmp_path / "outputs" / _today_cn()
+    # Capture once — midnight-skew guard, same as the sibling AC11 tests.
+    today = _today_cn()
+    out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
     with pytest.raises(RuntimeError, match="fetch_budget_exhausted"):
         _write_opportunity_outputs(
@@ -864,7 +909,7 @@ def test_fetch_budget_exhausted_fatal_at_write_time_via_run_opportunity(
             roles={"005827": ""},
             holdings={},
             out_dir=out_dir,
-            today=_today_cn(),
+            today=today,
         )
 
     # No artifacts may exist after the fatal raise.
@@ -1303,11 +1348,15 @@ def test_multi_owner_constituent_keeps_separate_owner_instrument_id(
     # Pre-load DuckDB for the second fund so structural evidence gaps are avoided.
     _preload_duckdb(tmp_path, ["163417"])
 
-    # Both funds carry 600519 as a top holding.
+    # Both funds carry 600519 as a top holding. `季度` column matches the
+    # other holdings frames in this seed so the cache writes under the
+    # realistic `(fund_id, "2024Q4")` key instead of `(fund_id, "")`,
+    # keeping AC21 aligned with real AkShare response shape.
     same_holding_frame = pd.DataFrame({
         "股票代码": ["600519"],
         "股票名称": ["贵州茅台"],
         "占净值比例": [8.2],
+        "季度": ["2024年4季度"],
     })
     dispatch[("fund_portfolio_hold_em", "005827")] = same_holding_frame
     dispatch[("fund_portfolio_hold_em", "163417")] = same_holding_frame
