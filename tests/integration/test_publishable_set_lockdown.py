@@ -1003,3 +1003,46 @@ def test_snapshot_cache_probe_failure_fail_closed_refetch(tmp_path, monkeypatch)
         "probe failure did NOT trigger full re-fetch (silent-reuse leak): "
         f"only {probe_attempts} holdings call(s) observed"
     )
+
+
+# ─── AC18: E9 downstream propagation ─────────────────────────────────────────
+
+def test_empty_holdings_propagate_to_rejections_holdings_fetch_failed(
+    tmp_path, monkeypatch,
+) -> None:
+    """AC18 — empty AkShare holdings → failure_reasons_by_symbol populated
+    → row carries evidence_gaps containing 'holdings_fetch_failed' →
+    appears in rejections.json, NOT in thesis_cards.yaml."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",),
+    )
+    # Force empty holdings for 005827.
+    import pandas as pd
+    dispatch[("fund_portfolio_hold_em", "005827")] = pd.DataFrame()
+
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    cards_doc = yaml.safe_load((out_dir / "thesis_cards.yaml").read_text(encoding="utf-8")) or {}
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+
+    card_iids = {c["instrument_id"] for c in cards_doc.get("cards", [])}
+    assert "005827" not in card_iids, \
+        "fund with empty AkShare holdings leaked into thesis_cards.yaml"
+
+    entry = next(
+        (e for e in rej.get("entries", []) if e["instrument_id"] == "005827"),
+        None,
+    )
+    assert entry is not None, \
+        "fund with empty AkShare holdings missing from rejections.json"
+    # evidence_gaps either carries the canonical code OR is mapped to a
+    # rejection_reason that traces back to it. Check both surfaces.
+    gaps = entry.get("evidence_gaps", [])
+    reason = entry.get("rejection_reason", "")
+    assert "holdings_fetch_failed" in gaps or reason == "holdings_fetch_failed", \
+        f"expected holdings_fetch_failed in gaps or reason; got gaps={gaps!r} reason={reason!r}"
