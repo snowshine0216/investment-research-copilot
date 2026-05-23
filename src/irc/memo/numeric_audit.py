@@ -36,6 +36,36 @@ _EXPENSIVE_PHRASES: Final[tuple[str, ...]] = (
 _CHEAP_BUCKETS: Final[frozenset[str]] = frozenset({"cheap", "reasonable_low"})
 _EXPENSIVE_BUCKETS: Final[frozenset[str]] = frozenset({"expensive", "very_expensive"})
 
+# Item 009 v1: actionable-keyword set for find_uncited_conclusions paragraph audit.
+# Frozen list; v2 extension requires a producer-side change.
+_ACTIONABLE_KEYWORDS: Final[tuple[str, ...]] = (
+    "加速定投", "正常定投", "减速定投", "暂停加仓", "禁止买入",
+    "回避", "建仓", "加仓", "减仓", "止损",
+)
+
+# Asset-class section header → asset_class string. Used by AC8(c)/(d) only.
+_SECTION_HEADER_RE = re.compile(
+    r"^##\s+(?P<label>CN权益基金|CN债券基金|黄金|CN ETF|US\w*|HK\w*)\b",
+    re.MULTILINE,
+)
+_SECTION_LABEL_TO_ASSET_CLASS: Final[dict[str, str]] = {
+    "CN权益基金": "cn_equity_fund",
+    "CN债券基金": "cn_bond_fund",
+    "黄金": "gold",
+    "CN ETF": "cn_etf",
+}
+
+# Sub-section header that names an instrument_id explicitly:
+#   "### 易方达蓝筹精选 (005827)"
+# Used by AC19 for multi-owner constituent disambiguation.
+_SUBSECTION_INSTRUMENT_RE = re.compile(
+    r"^###\s+.+?\((?P<iid>[A-Za-z0-9_]{4,12})\)", re.MULTILINE,
+)
+
+_MARKER_RE = re.compile(r"\[ref:([0-9a-f]{16})\]")
+
+_PUBLISHABLE_SCOPES_MEMO: Final[frozenset[str]] = frozenset({"instrument", "constituent"})
+
 
 @dataclass(frozen=True)
 class NumericFinding:
@@ -159,35 +189,237 @@ def find_uncited_conclusions(
     instrument_aliases: dict,
     constituent_aliases: dict,
     constituent_cited_map: dict,
+    *,
+    strict_empty_alias_check: bool = False,
 ) -> list[NumericFinding]:
-    """Detect prose conclusions that reference an instrument/constituent
-    without a corresponding citation. Stub in item 007; body in item 009.
+    """Paragraph-level audit: every actionable conclusion must be cited.
 
-    Empty-map handling closes two failure modes:
+    Per AC3:
+      (a) instrument references → require dual-leg [ref:...] markers from
+          the same paragraph (or its immediate predecessor);
+      (b) multi-owner constituent references → resolve via the nearest
+          preceding `### {name} ({iid})` sub-header; emit
+          `ambiguous_constituent_reference` when unresolvable;
+      (c) actionable keyword with zero alias hits → asset-class section
+          context drives `uncited_portfolio_conclusion`;
+      (d) marker present but resolves to wrong owner_instrument_id →
+          `wrong_instrument_citation`.
 
-    1. **Wiring failure** — caller passes `instrument_aliases={}` because
-       `build_alias_maps` was forgotten. The audit would silent-no-op on
-       every paragraph (no aliases → no instrument references detected).
-       We raise to surface the bug.
-    2. **Legitimate empty publishable set** — all opportunity rows failed
-       Policy B, so `build_alias_maps(())` correctly returned `({}, {})`.
-       This is a valid pipeline state (e.g. a run where every active fund's
-       fetch timed out). Crashing the memo audit here would be wrong.
-
-    Discriminator: if prose is empty (or whitespace-only), there is nothing
-    to audit and we return early. If prose is non-empty but `instrument_aliases`
-    is empty, the most-defensive interpretation is "the publishable set is
-    genuinely empty" (the all-gapped case) — we still return `[]` rather
-    than raise, since item 009 will rewrite this body anyway and the
-    wiring-failure guard's strength comes from item 009 explicitly threading
-    aliases through `MemoInputs`. Item 007's irreducible contribution is
-    making the function callable; the strict guard is deferred to item 009
-    where it can also assert "no instrument aliases AND non-empty publishable
-    set in the upstream pipeline state".
+    `strict_empty_alias_check=True` (Q3) raises RuntimeError when
+    instrument_aliases is empty AND prose is non-empty — closes the wiring
+    bug where `build_alias_maps` was forgotten. Default False preserves the
+    all-gapped pipeline state semantic from item 007.
     """
     if not prose or not prose.strip():
         return []
-    return []
+    if strict_empty_alias_check and not instrument_aliases:
+        raise RuntimeError(
+            "empty instrument_aliases — D1c builder did not run; "
+            "check memo_cmd wiring"
+        )
+    if not instrument_aliases:
+        # Permissive path (item 007 all-gapped semantic): no aliases → no audit.
+        return []
+
+    paragraphs = prose.split("\n\n")
+    findings: list[NumericFinding] = []
+
+    # Pre-scan for section/sub-section context as cumulative state.
+    section_spans = _build_section_spans(prose)
+    subsection_spans = _build_subsection_spans(prose)
+
+    paragraph_offset = 0
+    prev_markers: tuple[str, ...] = ()
+    for para in paragraphs:
+        para_start = paragraph_offset
+        paragraph_offset += len(para) + 2  # +2 for the "\n\n" separator
+
+        if not any(kw in para for kw in _ACTIONABLE_KEYWORDS):
+            prev_markers = tuple(_MARKER_RE.findall(para))
+            continue
+
+        current_markers = tuple(_MARKER_RE.findall(para))
+        scope_markers = current_markers + prev_markers
+        asset_class = _section_at(section_spans, para_start)
+        owner_iid = _subsection_at(subsection_spans, para_start)
+
+        instrument_hits = _instrument_alias_hits(para, instrument_aliases)
+        constituent_hits = _constituent_alias_hits(para, constituent_aliases)
+
+        if not instrument_hits and not constituent_hits:
+            # AC8(d) — portfolio-class conclusion path.
+            if not scope_markers:
+                findings.append(NumericFinding(
+                    instrument_id=asset_class or "<portfolio>",
+                    kind="uncited_portfolio_conclusion",
+                    prose_excerpt=_excerpt(para),
+                    evidence_excerpt=asset_class or "<no_section>",
+                ))
+            prev_markers = current_markers
+            continue
+
+        for iid in sorted(instrument_hits):
+            findings.extend(_check_instrument_citation(
+                iid=iid, markers=scope_markers,
+                cited_map=cited_map, paragraph=para,
+            ))
+
+        for ck, owner_pairs in sorted(constituent_hits.items()):
+            if len(owner_pairs) > 1 and owner_iid not in {iid for iid, _ in owner_pairs}:
+                findings.append(NumericFinding(
+                    instrument_id="<ambiguous>",
+                    kind="ambiguous_constituent_reference",
+                    prose_excerpt=ck,
+                    evidence_excerpt=f"owners={sorted(owner_pairs)}",
+                ))
+                continue
+            # Resolved: either single-owner OR section header disambiguates.
+            resolved = next(
+                (pair for pair in owner_pairs if pair[0] == owner_iid),
+                next(iter(sorted(owner_pairs))),
+            )
+            iid, c_key = resolved
+            findings.extend(_check_constituent_citation(
+                iid=iid, c_key=c_key, markers=scope_markers,
+                constituent_cited_map=constituent_cited_map, paragraph=para,
+            ))
+
+        prev_markers = current_markers
+
+    return findings
+
+
+def _build_section_spans(prose: str) -> list[tuple[int, str]]:
+    """Return list of (offset, asset_class) sorted ascending by offset."""
+    spans: list[tuple[int, str]] = []
+    for m in _SECTION_HEADER_RE.finditer(prose):
+        label = m.group("label")
+        ac = _SECTION_LABEL_TO_ASSET_CLASS.get(label, label.lower())
+        spans.append((m.start(), ac))
+    return spans
+
+
+def _build_subsection_spans(prose: str) -> list[tuple[int, str]]:
+    """Return list of (offset, instrument_id) for `### {name} ({iid})` headers."""
+    return [
+        (m.start(), m.group("iid"))
+        for m in _SUBSECTION_INSTRUMENT_RE.finditer(prose)
+    ]
+
+
+def _section_at(spans: list[tuple[int, str]], offset: int) -> str | None:
+    """Return the asset_class of the most-recent section header before offset."""
+    current = None
+    for start, ac in spans:
+        if start <= offset:
+            current = ac
+        else:
+            break
+    return current
+
+
+def _subsection_at(spans: list[tuple[int, str]], offset: int) -> str | None:
+    current = None
+    for start, iid in spans:
+        if start <= offset:
+            current = iid
+        else:
+            break
+    return current
+
+
+def _instrument_alias_hits(paragraph: str, instrument_aliases: dict) -> set[str]:
+    return {
+        iid for alias, iid in instrument_aliases.items()
+        if alias and alias in paragraph
+    }
+
+
+def _constituent_alias_hits(
+    paragraph: str, constituent_aliases: dict,
+) -> dict[str, frozenset[tuple[str, str]]]:
+    return {
+        alias: owners
+        for alias, owners in constituent_aliases.items()
+        if alias and alias in paragraph
+    }
+
+
+def _check_instrument_citation(
+    *, iid: str, markers: tuple[str, ...], cited_map: dict, paragraph: str,
+) -> list[NumericFinding]:
+    """Return findings for the instrument-citation rule on one paragraph."""
+    findings: list[NumericFinding] = []
+    per_iid = cited_map.get(iid, {})
+    has_data = False
+    has_info = False
+    wrong_owner_seen = False
+    for cid in markers:
+        meta = per_iid.get(cid)
+        if meta is None:
+            # Try to find this cid under another owner — wrong instrument.
+            for owner, mp in cited_map.items():
+                if cid in mp and owner != iid:
+                    findings.append(NumericFinding(
+                        instrument_id=iid,
+                        kind="wrong_instrument_citation",
+                        prose_excerpt=_excerpt(paragraph),
+                        evidence_excerpt=(
+                            f"citation_id={cid} resolves to owner={owner!r}, "
+                            f"not {iid!r}"
+                        ),
+                    ))
+                    wrong_owner_seen = True
+                    break
+            continue
+        if meta.scope not in _PUBLISHABLE_SCOPES_MEMO:
+            continue
+        if meta.citation_kind == "data":
+            has_data = True
+        elif meta.citation_kind == "information":
+            has_info = True
+    if wrong_owner_seen:
+        # Wrong-owner finding is the dominant diagnosis; skip uncited duplication.
+        return findings
+    if not has_data or not has_info:
+        findings.append(NumericFinding(
+            instrument_id=iid,
+            kind="uncited_conclusion",
+            prose_excerpt=_excerpt(paragraph),
+            evidence_excerpt=(
+                f"has_data={has_data} has_info={has_info} "
+                f"markers={list(markers)}"
+            ),
+        ))
+    return findings
+
+
+def _check_constituent_citation(
+    *, iid: str, c_key: str, markers: tuple[str, ...],
+    constituent_cited_map: dict, paragraph: str,
+) -> list[NumericFinding]:
+    findings: list[NumericFinding] = []
+    per_iid = constituent_cited_map.get(iid, {})
+    per_c = per_iid.get(c_key, {})
+    has_data = any(
+        per_c.get(cid) and per_c[cid].citation_kind == "data" for cid in markers
+    )
+    has_info = any(
+        per_c.get(cid) and per_c[cid].citation_kind == "information" for cid in markers
+    )
+    if not has_data or not has_info:
+        findings.append(NumericFinding(
+            instrument_id=iid,
+            kind="uncited_conclusion",
+            prose_excerpt=f"constituent={c_key}",
+            evidence_excerpt=f"has_data={has_data} has_info={has_info}",
+        ))
+    return findings
+
+
+def _excerpt(paragraph: str, *, limit: int = 120) -> str:
+    s = paragraph.replace("\n", " ").strip()
+    return s[:limit]
 
 
 # ── Item 009 D2a — find_missing_pick_citations ──────────────────────────────

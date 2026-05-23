@@ -274,3 +274,214 @@ def test_find_uncited_discipline_rows_constituent_parent_check() -> None:
     findings = find_uncited_discipline_rows((row,), {})
     kinds = [f.kind for f in findings]
     assert "wrong_instrument_citation" in kinds
+
+
+# ── Task 7: find_uncited_conclusions body tests ──────────────────────────────
+
+_ACTIONABLE = "加仓"  # one of the 10 frozen keywords
+
+
+def _cited_map_single(iid="005827", *, kinds=("data", "information")):
+    """Build a CitedMap with one data and one information entry for `iid`."""
+    from irc.opportunity.types import CitationMeta
+    m = {}
+    for i, k in enumerate(kinds):
+        cid = f"{i:016x}"
+        m.setdefault(iid, {})[cid] = CitationMeta(
+            scope="instrument", citation_kind=k,
+            owner_instrument_id=iid, asset_class="cn_equity_fund",
+            parent_fund_id=None, constituent_key=None,
+        )
+    return m
+
+
+def test_find_uncited_conclusions_empty_prose_returns_empty() -> None:
+    """AC18 — empty/whitespace prose short-circuits regardless of other args."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    assert find_uncited_conclusions(
+        prose="", cited_map={}, instrument_aliases={},
+        constituent_aliases={}, constituent_cited_map={},
+    ) == []
+    assert find_uncited_conclusions(
+        prose="   \n  ", cited_map={}, instrument_aliases={},
+        constituent_aliases={}, constituent_cited_map={},
+    ) == []
+
+
+def test_find_uncited_conclusions_strict_empty_alias_check_raises() -> None:
+    """AC17 — strict_empty_alias_check=True AND empty aliases AND non-empty
+    prose → RuntimeError("empty instrument_aliases — D1c builder did not run")."""
+    import pytest
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    with pytest.raises(RuntimeError, match="empty instrument_aliases"):
+        find_uncited_conclusions(
+            prose="some prose 加仓",
+            cited_map={},
+            instrument_aliases={},
+            constituent_aliases={},
+            constituent_cited_map={},
+            strict_empty_alias_check=True,
+        )
+
+
+def test_find_uncited_conclusions_default_strict_false_no_raise() -> None:
+    """AC17 — default strict_empty_alias_check=False preserves item 007's
+    all-gapped pipeline-state semantic: returns [] without raising."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    result = find_uncited_conclusions(
+        prose="some prose 加仓",
+        cited_map={},
+        instrument_aliases={},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert result == []
+
+
+def test_find_uncited_conclusions_uncited_conclusion_emitted() -> None:
+    """AC8 (a) — paragraph mentions instrument + actionable keyword but has
+    no [ref:...] marker resolving to that instrument."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = f"## CN权益基金\n\n易方达蓝筹精选 (005827) {_ACTIONABLE}\n"
+    findings = find_uncited_conclusions(
+        prose=prose,
+        cited_map=_cited_map_single("005827"),
+        instrument_aliases={
+            "005827": "005827",
+            "易方达蓝筹精选": "005827",
+        },
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "uncited_conclusion" in kinds
+
+
+def test_find_uncited_conclusions_with_dual_leg_markers_passes() -> None:
+    """AC8 — paragraph with both data + information markers for the
+    referenced instrument → no finding."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = _cited_map_single("005827")
+    data_id, info_id = sorted(cited["005827"].keys())
+    prose = (
+        f"## CN权益基金\n\n"
+        f"易方达蓝筹精选 (005827) {_ACTIONABLE} "
+        f"[ref:{data_id}] [ref:{info_id}]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={
+            "005827": "005827", "易方达蓝筹精选": "005827",
+        },
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "uncited_conclusion" not in kinds
+
+
+def test_find_uncited_conclusions_wrong_instrument_citation() -> None:
+    """AC8 (b) — marker resolves to a different owner_instrument_id."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = {
+        "OTHER_FUND": {
+            "deadbeefdeadbeef": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="OTHER_FUND", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+    }
+    prose = (
+        f"## CN权益基金\n\n"
+        f"易方达蓝筹精选 (005827) {_ACTIONABLE} [ref:deadbeefdeadbeef]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={
+            "005827": "005827", "易方达蓝筹精选": "005827",
+        },
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "wrong_instrument_citation" in kinds
+
+
+def test_find_uncited_conclusions_ambiguous_constituent_reference() -> None:
+    """AC8 (e) + AC19 — constituent resolves to ≥2 owner pairs with no
+    section header → ambiguous_constituent_reference, no further checks
+    in this paragraph for this constituent."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = f"贵州茅台 {_ACTIONABLE}\n"
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"x": "x"},  # non-empty to bypass empty-map case
+        constituent_aliases={
+            "贵州茅台": frozenset({
+                ("005827", "600519"), ("163417", "600519"),
+            }),
+        },
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "ambiguous_constituent_reference" in kinds
+
+
+def test_find_uncited_conclusions_section_header_disambiguates_constituent() -> None:
+    """AC19 — section header (### iid in name) resolves the multi-owner."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    constituent_cited = {
+        "005827": {
+            "600519": {
+                "aaaaaaaaaaaaaaaa": CitationMeta(
+                    scope="constituent", citation_kind="data",
+                    owner_instrument_id="005827",
+                    asset_class="cn_equity_fund",
+                    parent_fund_id="005827", constituent_key="600519",
+                ),
+                "bbbbbbbbbbbbbbbb": CitationMeta(
+                    scope="constituent", citation_kind="information",
+                    owner_instrument_id="005827",
+                    asset_class="cn_equity_fund",
+                    parent_fund_id="005827", constituent_key="600519",
+                ),
+            },
+        },
+    }
+    prose = (
+        f"### 易方达蓝筹精选 (005827)\n\n"
+        f"贵州茅台 {_ACTIONABLE} [ref:aaaaaaaaaaaaaaaa] [ref:bbbbbbbbbbbbbbbb]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"005827": "005827"},
+        constituent_aliases={
+            "贵州茅台": frozenset({
+                ("005827", "600519"), ("163417", "600519"),
+            }),
+        },
+        constituent_cited_map=constituent_cited,
+    )
+    # Resolved cleanly under the header context — no ambiguous finding,
+    # no uncited finding (markers cover both legs).
+    kinds = [f.kind for f in findings]
+    assert "ambiguous_constituent_reference" not in kinds
+    assert "uncited_conclusion" not in kinds
+
+
+def test_find_uncited_conclusions_uncited_portfolio_conclusion() -> None:
+    """AC8 (d) — actionable keyword + zero alias hits + zero markers →
+    uncited_portfolio_conclusion."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = f"## CN权益基金\n\n本周 {_ACTIONABLE} 整个权益板块\n"
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"005827": "005827"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "uncited_portfolio_conclusion" in kinds
