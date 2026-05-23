@@ -1,0 +1,53 @@
+{
+  "summary": {
+    "fund_announcement_dividend_em": {
+      "518880": {
+        "rows": 4,
+        "status": "pass"
+      },
+      "000001": {
+        "rows": 15,
+        "status": "pass"
+      },
+      "005827": {
+        "rows": 1,
+        "status": "pass"
+      }
+    },
+    "fund_announcement_report_em": {
+      "518880": {
+        "rows": 94,
+        "status": "pass"
+      },
+      "000001": {
+        "rows": 100,
+        "status": "pass"
+      },
+      "005827": {
+        "rows": 50,
+        "status": "pass"
+      }
+    },
+    "fund_announcement_personnel_em": {
+      "518880": {
+        "rows": 2,
+        "status": "pass"
+      },
+      "000001": {
+        "rows": 14,
+        "status": "pass"
+      },
+      "005827": {
+        "rows": 2,
+        "status": "pass"
+      }
+    }
+  },
+  "symbol_covered": {
+    "518880": true,
+    "000001": true,
+    "005827": true
+  },
+  "captured_at": "2026-05-23T04:26:08Z",
+  "akshare_version": "1.18.63"
+}
