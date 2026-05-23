@@ -207,3 +207,46 @@ def test_row_to_dict_fetch_types_attempted_empty_default():
     d = _row_to_dict(row)
     loaded = _json.loads(_json.dumps(d, ensure_ascii=False))
     assert loaded["fetch_types_attempted"] == []
+
+
+# ── Item 003: _card_to_dict defensive citation_id check ──────────────────────
+
+def test_card_to_dict_raises_on_missing_nested_citation_id(monkeypatch) -> None:
+    import pytest
+    from unittest.mock import patch
+    from irc.opportunity.report import _card_to_dict
+    from irc.opportunity.types import ConstituentAnalysis, ThesisCard, ThesisEvidence
+    ev = ThesisEvidence(
+        type="filing", source="600519", url="https://x/a", date="2024-04-15",
+        summary="x", scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519",
+    )
+    c = ConstituentAnalysis("600519", "贵州茅台", 6.2, (ev,), (), "")
+    card = ThesisCard(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None, role="watchlist",
+        lookthrough_target="易方达蓝筹精选", entry_reason="",
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        dca_action="pause_dca", risk_action="none",
+        falsification_triggers=(), trim_triggers=(),
+        do_not_sell_just_because=(), review_cadence="weekly",
+        evidence_gaps=(), constituent_analyses=(c,),
+    )
+    d = _card_to_dict(card)
+    # Happy path: citation_id present.
+    assert d["constituent_analyses"][0]["evidence"][0]["citation_id"] != ""
+
+    # Now simulate a corrupted dict (manually blank the id).
+    with patch("irc.opportunity.report.asdict") as mocked_asdict:
+        bad = dict(d)
+        bad["constituent_analyses"] = [
+            {"evidence": [{"citation_id": ""}]},
+        ]
+        mocked_asdict.return_value = bad
+        with pytest.raises(RuntimeError, match="citation_id"):
+            _card_to_dict(card)
