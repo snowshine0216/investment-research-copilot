@@ -8,21 +8,26 @@
 | 004 | live-verify-fund-announcement-em | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 005 | per-asset-class-citation-coverage | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | 006 | failure-mode-and-policy-b | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| 007 | memo-and-discipline-renderers | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 007 | memo-and-discipline-renderers | ✅ | ✅ | ✅ | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 008 | integration-test-sweep | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 009 | citation-gate-block-mode | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 010 | duckdb-fund-holdings-ingest | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Legend: ⏳ = pending, 🔄 = in progress, ✅ = done, ⏭️ = skipped (mode / not applicable), ⚠️ = blocked.
 
-## Run status: PAUSED (item 005 impl — environmental stop)
+## Run status: item 007 impl complete; ready for drift phase
 
-Implementation subagent dispatch for item 005 failed with: `API Error: Usage credits required for 1M context`. Per autodev stop-conditions, this is a legitimate halt (declared token-budget ceiling). To resume: top up 1M context credits OR switch to standard context, then say "continue from item 005 impl".
+Item 007 (memo + discipline renderers + alias-builder) impl phase verified green:
+- 14 plan tasks committed (one per task per plan §"Task index").
+- 2 additional commits during Task 15 verification:
+  - `d01077f refactor(opportunity)`: relocated `citation_selector` from `irc.memo` to `irc.opportunity` to break a cycle (`opportunity → memo` via `report.py` calling `select_citations`, combined with pre-existing `memo → opportunity` edges via `picks_table` / `aliases`). Old import path preserved as a one-line re-export shim. ADR 0001 §3 amended to name the new canonical location.
+  - `fab3b08 style(tests)`: 14 ruff cleanups (E402 mid-file imports, E741 ambiguous `l`, F401 unused imports, F841 unused locals) on the item-007 test additions. Pre-existing `tests/memo/test_evidence_pool.py:86` E741 left untouched (out of scope).
+- Item 007 test scope (`tests/memo/`, `tests/opportunity/`, `tests/fundamentals/`, `tests/commands/test_memo_cmd.py`, `tests/commands/test_memo_cmd_aliases.py`, `tests/commands/test_opportunity_cmd.py`): 738 passed, 12 skipped, 0 failed.
+- `tests/evals/test_architecture.py::test_dag_acyclic_check_*`: PASS after the cycle fix.
+- Broader pytest sweep against the feature branch shows 5 pre-existing failures (integration + e2e tests requiring AkShare/manifest state); verified identical on the baseline branch — NOT regressions from item 007.
+- Sub-branch `autodev/thesis-evidence-007-memo-and-discipline-renderers` is 16 commits ahead of `autodev/thesis-cards-evidence-gap`, not pushed.
 
-State:
-- Sub-branch `autodev/thesis-evidence-005-per-asset-class-citation-coverage` cut locally, NOT pushed (no commits ahead).
-- spec/grill/plan/ADR-amendment all committed on feature branch.
-- Impl is a 15-task TDD plan at `items/005-plan.md`; resume by dispatching a Sonnet subagent against it.
+Next phase: drift check, then ship.
 
 ## Notes on the `verify` column
 
