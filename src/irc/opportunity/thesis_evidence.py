@@ -274,7 +274,7 @@ def _classify_state(
 
 
 NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
-    "gold", "cn_bond_fund", "cn_equity_fund", "qdii_global",
+    "gold", "cn_bond_fund", "qdii_global",
 })
 _NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
 

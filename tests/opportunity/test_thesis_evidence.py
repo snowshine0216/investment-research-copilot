@@ -2,6 +2,16 @@
 + ThemeReport. Replaces the prior table-based path with concrete fundamentals."""
 from __future__ import annotations
 
+# ── Item 003: NON_INDEXABLE_ASSET_CLASSES ───────────────────────────────────
+
+def test_non_indexable_asset_classes_excludes_cn_equity_fund() -> None:
+    from irc.opportunity.thesis_evidence import NON_INDEXABLE_ASSET_CLASSES
+    assert "cn_equity_fund" not in NON_INDEXABLE_ASSET_CLASSES
+    # Other non-indexable classes preserved.
+    assert "gold" in NON_INDEXABLE_ASSET_CLASSES
+    assert "cn_bond_fund" in NON_INDEXABLE_ASSET_CLASSES
+    assert "qdii_global" in NON_INDEXABLE_ASSET_CLASSES
+
 from irc.fundamentals.types import (
     BrokerReport,
     Constituent,
@@ -342,11 +352,15 @@ def test_refined_label_constituent_not_applicable_for_bond():
 
 
 def test_refined_label_constituent_not_applicable_for_active_fund():
+    # Item 003: cn_equity_fund is no longer NON_INDEXABLE; it now routes through
+    # the active-fund snapshot path. With None snapshot, it gets constituent_missing.
     _state, _reason, _ev, gaps = derive_thesis_from_evidence(
         None, _theme_report(), asset_class="cn_equity_fund",
         owner_instrument_id="510300",
     )
-    assert "constituent_not_applicable" in gaps
+    # constituent_not_applicable is gone; constituent_missing is the correct gap
+    assert "constituent_missing" in gaps
+    assert "constituent_not_applicable" not in gaps
 
 
 def test_refined_label_constituent_fetch_failed_when_snapshot_empty():
