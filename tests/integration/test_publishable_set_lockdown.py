@@ -199,8 +199,28 @@ def _seed_publishable_set_repo(
     for k, v in env.items():
         monkeypatch.setenv(k, v)
 
-    # Repo scaffold.
+    # Repo scaffold — creates all required YAML config files.
     run_init(str(tmp_path), force=False)
+
+    # Append test QDII instruments to universe YAMLs so instr_index can find
+    # them and map_lookthrough receives proper tracked_index context.
+    if include_qdii:
+        _qdii_us_entry = (
+            '  - { instrument_id: "004243", ticker: "004243",'
+            ' market: cn_off_exchange, name_cn: "易方达原油", asset_class: us_etf,'
+            ' currency: cny, tracked_index: "S&P 500", venue_required: [cmb_fund] }\n'
+        )
+        _qdii_hk_entry = (
+            '  - { instrument_id: "164906", ticker: "164906",'
+            ' market: cn_off_exchange, name_cn: "交银中证海外", asset_class: hk_etf,'
+            ' currency: cny, tracked_index: "hsi", venue_required: [cmb_fund] }\n'
+        )
+        qdii_us_path = tmp_path / "config" / "universe" / "qdii_us.yaml"
+        qdii_hk_path = tmp_path / "config" / "universe" / "qdii_hk.yaml"
+        with qdii_us_path.open("a", encoding="utf-8") as f:
+            f.write(_qdii_us_entry)
+        with qdii_hk_path.open("a", encoding="utf-8") as f:
+            f.write(_qdii_hk_entry)
 
     # Manifest (so ingest staleness gate passes).
     write_manifest(
@@ -224,10 +244,15 @@ def _seed_publishable_set_repo(
         "gold":           [("518880", "黄金ETF")],
         "cn_etf":         [("510300", "沪深300ETF")],
     }
+    # QDII instruments: use asset_class us_etf / hk_etf / qdii_global with
+    # tracked_index that routes them to the QDII sentinel via map_lookthrough.
+    # us_etf + tracked="S&P 500" → alias "sp500" → target.kind="qdii_us" ✓
+    # hk_etf + tracked="hsi"     → target.kind="qdii_hk" ✓
+    # qdii_global is handled by asset_class branch directly ✓
     qdii_instruments = [
-        ("004243", "qdii_us",     "易方达原油"),
-        ("164906", "qdii_hk",     "交银中证海外"),
-        ("100061", "qdii_global", "富国全球债"),
+        ("004243", "us_etf",      "易方达原油",    "S&P 500"),
+        ("164906", "hk_etf",      "交银中证海外",  "hsi"),
+        ("100061", "qdii_global", "富国全球债",    "global_equity"),
     ]
 
     scoring_rows = []
@@ -238,10 +263,11 @@ def _seed_publishable_set_repo(
                 "asset_class": ac, "composite_score": 70.0,
             })
     if include_qdii:
-        for iid, ac, name in qdii_instruments:
+        for iid, ac, name, tracked in qdii_instruments:
             scoring_rows.append({
                 "instrument_id": iid, "name_cn": name,
                 "asset_class": ac, "composite_score": 50.0,
+                "tracked_index": tracked,
             })
 
     (out_dir / "scoring.json").write_text(
@@ -436,3 +462,83 @@ def test_publishable_evidence_gaps_empty_after_disk_roundtrip(tmp_path, monkeypa
     for row in opp.get("rows", []):
         assert row["evidence_gaps"] == [], \
             f"row {row['instrument_id']} carries non-empty evidence_gaps on publish: {row['evidence_gaps']!r}"
+
+
+# ─── ACs 6–9: QDII exclusion invariants ──────────────────────────────────────
+
+_QDII_ASSET_CLASSES = {"qdii_us", "qdii_hk", "qdii_global", "us_etf", "hk_etf"}
+_QDII_IIDS = ("004243", "164906", "100061")
+
+
+def test_qdii_never_in_thesis_cards(tmp_path, monkeypatch) -> None:
+    """AC6 — no thesis_card has asset_class in {qdii_us,qdii_hk,qdii_global,us_etf,hk_etf}."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    cards_doc = yaml.safe_load((out_dir / "thesis_cards.yaml").read_text(encoding="utf-8")) or {}
+    cards = cards_doc.get("cards", [])
+    for card in cards:
+        assert card.get("asset_class") not in _QDII_ASSET_CLASSES, \
+            f"QDII asset_class leaked into thesis_cards.yaml: {card}"
+
+
+def test_qdii_never_in_opportunity_report_rows(tmp_path, monkeypatch) -> None:
+    """AC7 — same set check against opportunity_report.json rows array."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    for row in opp.get("rows", []):
+        assert row["asset_class"] not in _QDII_ASSET_CLASSES, \
+            f"QDII asset_class leaked into opportunity_report rows: {row}"
+        assert row["instrument_id"] not in _QDII_IIDS, \
+            f"QDII instrument_id leaked into opportunity_report rows: {row}"
+
+
+def test_qdii_appears_in_rejections_with_qdii_reason(tmp_path, monkeypatch) -> None:
+    """AC8 — every seeded QDII instrument in rejections.json with
+    rejection_reason == 'qdii_information_unavailable'."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    entries_by_iid = {e["instrument_id"]: e for e in rej.get("entries", [])}
+    for iid in _QDII_IIDS:
+        assert iid in entries_by_iid, \
+            f"QDII {iid} missing from rejections.json"
+        assert entries_by_iid[iid]["rejection_reason"] == "qdii_information_unavailable", \
+            f"QDII {iid} rejection_reason wrong: {entries_by_iid[iid]['rejection_reason']!r}"
+
+
+def test_qdii_appears_in_discipline_failure_section(tmp_path, monkeypatch) -> None:
+    """AC9 — every seeded QDII iid appears AFTER '## 证据不足' heading and
+    NOT in any bucket section above it. Failure-section heading locked by
+    tests/commands/test_opportunity_cmd_h3_invariant.py."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    dispatch = _seed_publishable_set_repo(tmp_path, monkeypatch=monkeypatch)
+    _install_ak_call_dispatch(monkeypatch, dispatch)
+    run_opportunity(repo_root=str(tmp_path))
+
+    out_dir = tmp_path / "outputs" / _today_cn()
+    md = (out_dir / "discipline_report.md").read_text(encoding="utf-8")
+    failure_idx = md.find("## 证据不足")
+    assert failure_idx >= 0, "discipline_report.md missing '## 证据不足' heading"
+    above, below = md[:failure_idx], md[failure_idx:]
+    for iid in _QDII_IIDS:
+        assert iid not in above, \
+            f"QDII {iid} appears in a bucket section above '## 证据不足'"
+        assert iid in below, \
+            f"QDII {iid} missing from failure section below '## 证据不足'"
