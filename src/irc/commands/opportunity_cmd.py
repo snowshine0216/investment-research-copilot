@@ -15,9 +15,11 @@ from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
+    load_nav_cache,
     write_active_fund_cache,
+    write_nav_cache,
 )
-from irc.fundamentals.types import ActiveFundSnapshot
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot, LookthroughTarget
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
@@ -249,6 +251,87 @@ def _load_latest_active_fund_cached(
         if loaded is not None:
             return loaded
     return None
+
+
+# ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
+
+# Kinds that dispatch to the fund-level engine when provider_symbol is non-empty.
+# Mirrors `_FUND_LEVEL_KINDS` in snapshot.py — kept local here to avoid an
+# import cycle through commands.
+_FUND_LEVEL_KINDS_CMD: frozenset[str] = frozenset({
+    "gold", "bond", "broad_index", "sector_theme",
+})
+
+
+def _load_latest_nav_cached(
+    fund_id: str, root: Path,
+) -> FundLevelSnapshot | None:
+    """Scan `root/fundamentals/*/nav/fund_{fund_id}.json`; return most-recent quarter."""
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/nav/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_nav_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
+
+
+def _is_nav_stale(
+    snap: FundLevelSnapshot, *, today: date_cls, threshold_days: int,
+) -> bool:
+    if not snap.cache_probed_at:
+        return True
+    try:
+        probed = date_cls.fromisoformat(snap.cache_probed_at)
+    except ValueError:
+        return True
+    days = (today - probed).days
+    if days < 0:
+        return True
+    return days > threshold_days
+
+
+def _resolve_fund_level_snapshot(
+    target: LookthroughTarget,
+    root: Path,
+    *,
+    rebuild: bool,
+    today: date_cls,
+) -> FundLevelSnapshot:
+    """Item 005 fund-level + QDII dispatch with cache reuse.
+
+    - QDII kinds: returns the in-process sentinel (never cached).
+    - Other fund-level kinds: load latest cached snapshot; if missing,
+      stale (per `IRC_CACHE_FRESHNESS_DAYS`), or `--rebuild-fundamentals`,
+      do a full refetch (no cheap probe per grill Q3) and write the cache.
+    """
+    if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
+        return build_snapshot(target)  # type: ignore[return-value]
+
+    fund_id = target.provider_symbol
+    cached = None if rebuild else _load_latest_nav_cached(fund_id, root)
+    if cached is not None and not _is_nav_stale(
+        cached, today=today, threshold_days=_freshness_days(),
+    ):
+        return cached
+
+    snap = build_snapshot(target)
+    assert isinstance(snap, FundLevelSnapshot)  # narrow for type-checkers
+    # Skip cache write for QDII sentinel (handled in write_nav_cache).
+    if "qdii_information_unavailable" not in snap.evidence_gaps and snap.source_report_quarter:
+        try:
+            write_nav_cache(replace(snap, cache_probed_at=today.isoformat()), root)
+        except Exception as cache_exc:
+            reason = f"nav_cache_write_failed:{fund_id}:{type(cache_exc).__name__}"
+            sys.stderr.write(reason + "\n")
+            snap = replace(
+                snap,
+                fund_level_failure_reasons=snap.fund_level_failure_reasons + (reason,),
+            )
+    return snap
 
 
 # ── Item 003: validate_cli_args ───────────────────────────────────────────────
@@ -683,6 +766,21 @@ def _build_rows(
                                 snap_obj = probed
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                     snapshot_cache[target.key] = snap_obj
+            elif autobuild_on and (
+                target.kind in ("qdii_us", "qdii_hk", "qdii_global")
+                or (target.kind in _FUND_LEVEL_KINDS_CMD and target.provider_symbol)
+            ):
+                # ── Item 005: fund-level + QDII sentinel dispatch ──
+                cache_key = target.provider_symbol or target.key
+                if cache_key in snapshot_cache:
+                    snap_obj = snapshot_cache[cache_key]
+                else:
+                    snap_obj = _resolve_fund_level_snapshot(
+                        target, root / "data",
+                        rebuild=rebuild_fundamentals,
+                        today=today,
+                    )
+                    snapshot_cache[cache_key] = snap_obj
             else:
                 target_name = target.display_cn
                 if target_name not in snapshot_cache:
