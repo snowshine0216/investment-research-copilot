@@ -174,3 +174,28 @@ def test_write_nav_cache_skips_qdii_sentinel(tmp_path: Path) -> None:
     assert not (tmp_path / "fundamentals").exists() or not any(
         (tmp_path / "fundamentals").rglob("fund_513500.json")
     )
+
+
+# ── Item 007 OQ1 — snapshot_cache._evidence_from_dict delegates to classmethod ─
+
+
+def test_snapshot_cache_uses_thesis_evidence_from_dict(monkeypatch) -> None:
+    """The cache loader MUST go through ThesisEvidence.from_dict so
+    the citation_id mismatch raise is shared across consumers."""
+    import irc.fundamentals.snapshot_cache as sc
+    from irc.fundamentals.types import ThesisEvidence
+
+    called: list[dict] = []
+    real_from_dict = ThesisEvidence.from_dict
+
+    monkeypatch.setattr(ThesisEvidence, "from_dict", classmethod(
+        lambda cls, d: real_from_dict(d) if called.append(d) is None else None
+    ))
+    d = {
+        "type": "filing", "source": "src", "url": "https://x",
+        "date": "2024-04-15", "summary": "x", "scope": "constituent",
+        "citation_kind": "data", "owner_instrument_id": "005827",
+        "parent_fund_id": "005827", "constituent_key": "600519",
+    }
+    _ = sc._evidence_from_dict(d) if hasattr(sc, "_evidence_from_dict") else ThesisEvidence.from_dict(d)
+    assert called, "ThesisEvidence.from_dict was not invoked by snapshot_cache path"
