@@ -1,4 +1,4 @@
-"""Acceptance criteria 11, 12, 16, 18, 21, 22, 23."""
+"""Acceptance criteria 11, 12, 16, 18, 19, 20, 21, 22, 23 + round-2 wiring."""
 from __future__ import annotations
 
 import json
@@ -238,3 +238,269 @@ def test_rebuild_fundamentals_bypasses_cache(tmp_path: Path, monkeypatch) -> Non
     assert "005827" in build_called, (
         "--rebuild-fundamentals should have bypassed cache and called build_snapshot"
     )
+
+
+# ── P0-1: budget gate wired into _build_rows ──────────────────────────────────
+
+def test_budget_exceeded_exits_code_3_before_any_fetch(tmp_path: Path, monkeypatch) -> None:
+    """Spec §16: IRC_FETCH_BUDGET=10 + 5 cold rows → exit 3, no .tmp files written."""
+    import irc.commands.opportunity_cmd as opp_mod
+
+    fund_ids = ["005827", "100032", "110022", "161725", "519674"]  # 5 cold funds
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "10")  # 5 × 31 = 155 > 10
+
+    # Track any build_snapshot call (should NEVER happen before budget check).
+    fetched: list[str] = []
+
+    def mock_build_snapshot(target, top_n=10):
+        fetched.append(target.provider_symbol)
+        from irc.fundamentals.types import ActiveFundSnapshot
+        return ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir(parents=True, exist_ok=True)
+
+    with pytest.raises(SystemExit) as exc_info:
+        opp_mod.run_opportunity(
+            repo_root=str(tmp_path),
+            output_dir=str(scratch),
+        )
+    assert exc_info.value.code == 3, f"expected exit 3, got {exc_info.value.code}"
+    # No build_snapshot calls fired before the gate raised.
+    assert fetched == [], f"build_snapshot called before budget gate: {fetched}"
+    # No .tmp files under scratch.
+    tmps = list(scratch.rglob("*.tmp*"))
+    assert tmps == [], f"tmp files found under scratch: {tmps}"
+
+
+# ── P0-2: lock wired into _build_rows ─────────────────────────────────────────
+
+def test_concurrent_run_exits_code_4(tmp_path: Path, monkeypatch) -> None:
+    """Spec §21: concurrent run → exit 4 with 'concurrent run detected'."""
+    import irc.commands.opportunity_cmd as opp_mod
+
+    fund_ids = ["005827"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    # Large budget so it doesn't trigger budget gate.
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "9999")
+
+    # Simulate lock already held by another process: ALL flock calls raise BlockingIOError.
+    import fcntl as fcntl_mod
+
+    def fake_flock(fd, flags, *args, **kwargs):
+        raise BlockingIOError("locked by concurrent process")
+
+    monkeypatch.setattr(fcntl_mod, "flock", fake_flock)
+
+    with pytest.raises(SystemExit) as exc_info:
+        opp_mod.run_opportunity(
+            repo_root=str(tmp_path),
+            output_dir=str(tmp_path / "scratch"),
+        )
+    assert exc_info.value.code == 4, f"expected exit 4, got {exc_info.value.code}"
+
+
+# ── P0-3: fetch state wired (resume + stale-hash discard) ─────────────────────
+
+def test_resumable_state_skips_completed_funds(tmp_path: Path, monkeypatch) -> None:
+    """Spec §19: state file with 1 complete fund → second run skips that fund."""
+    import irc.commands.opportunity_cmd as opp_mod
+    from irc.commands.opportunity_cmd import compute_plan_hash, write_fetch_state
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    fund_ids = ["005827", "100032"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "9999")
+
+    # Pre-write a state file marking 005827 as complete.
+    plan_hash = compute_plan_hash("2026-05-14", fund_ids, 10)
+    state = {
+        "plan_hash": plan_hash,
+        "started_at": "2026-05-14T09:00:00",
+        "items": [
+            {"fund_id": "005827", "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-14T09:05:00"},
+        ],
+    }
+    fundamentals_dir = tmp_path / "data" / "fundamentals"
+    fundamentals_dir.mkdir(parents=True, exist_ok=True)
+    write_fetch_state(state, fundamentals_dir, plan_hash)
+
+    fetched: list[str] = []
+
+    def mock_build_snapshot(target, top_n=10):
+        fetched.append(target.provider_symbol)
+        return ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    rc = opp_mod.run_opportunity(
+        repo_root=str(tmp_path),
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert rc == 0, f"run_opportunity returned {rc}"
+    # Only 100032 should be fetched (005827 was marked complete).
+    assert fetched == ["100032"], f"expected only 100032 fetched, got {fetched}"
+
+
+def test_stale_plan_hash_discarded(tmp_path: Path, monkeypatch) -> None:
+    """Spec §20: stale plan_hash in state file → silently ignored, fresh fetch."""
+    import irc.commands.opportunity_cmd as opp_mod
+    from irc.commands.opportunity_cmd import write_fetch_state
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    fund_ids = ["005827"]
+    _seed_repo_with_active_funds(tmp_path, fund_ids, date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_OPPORTUNITY_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "9999")
+
+    # Write a state file with a DIFFERENT plan_hash (different date).
+    old_hash = "deadbeef0000"
+    state = {
+        "plan_hash": old_hash,
+        "started_at": "2026-05-13T09:00:00",
+        "items": [
+            {"fund_id": "005827", "status": "complete",
+             "source_report_quarter": "2024Q1", "fetched_at": "2026-05-13T09:05:00"},
+        ],
+    }
+    fundamentals_dir = tmp_path / "data" / "fundamentals"
+    fundamentals_dir.mkdir(parents=True, exist_ok=True)
+    write_fetch_state(state, fundamentals_dir, old_hash)
+
+    fetched: list[str] = []
+
+    def mock_build_snapshot(target, top_n=10):
+        fetched.append(target.provider_symbol)
+        return ActiveFundSnapshot(
+            fund_id=target.provider_symbol,
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+            cache_probed_at="2026-05-14",
+            constituent_analyses=(),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(opp_mod, "build_snapshot", mock_build_snapshot)
+
+    rc = opp_mod.run_opportunity(
+        repo_root=str(tmp_path),
+        output_dir=str(tmp_path / "scratch"),
+    )
+    assert rc == 0, f"run_opportunity returned {rc}"
+    # 005827 must be fetched — stale state should have been discarded.
+    assert "005827" in fetched, f"expected 005827 fetched despite stale state, got {fetched}"
+
+
+# ── P0-4: validate_cli_args default-path + symlink ────────────────────────────
+
+def test_limit_rejected_on_default_canonical_path(tmp_path: Path, monkeypatch) -> None:
+    """Spec §18: --limit on default (output_dir=None) canonical path exits code 2."""
+    import irc.commands.opportunity_cmd as opp_mod
+
+    _seed_repo_with_active_funds(tmp_path, ["005827"], date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+
+    with pytest.raises(SystemExit) as exc_info:
+        opp_mod.run_opportunity(
+            repo_root=str(tmp_path),
+            limit=3,
+            # No output_dir → defaults to outputs/2026-05-14/ (canonical)
+        )
+    assert exc_info.value.code == 2, (
+        f"expected exit 2 for --limit on default canonical path, got {exc_info.value.code}"
+    )
+
+
+def test_limit_rejected_via_symlink_to_canonical(tmp_path: Path, monkeypatch) -> None:
+    """P0-4 symlink bypass: symlink pointing to outputs/<today>/ must also be rejected."""
+    import irc.commands.opportunity_cmd as opp_mod
+
+    _seed_repo_with_active_funds(tmp_path, ["005827"], date="2026-05-14")
+    monkeypatch.setattr(opp_mod, "_today", lambda: "2026-05-14")
+    monkeypatch.setenv("IRC_ALLOW_STALE", "1")
+
+    canonical = tmp_path / "outputs" / "2026-05-14"
+    canonical.mkdir(parents=True, exist_ok=True)
+    symlink_dir = tmp_path / "sym_out"
+    symlink_dir.symlink_to(canonical)
+
+    with pytest.raises(SystemExit) as exc_info:
+        validate_cli_args(
+            output_dir=str(symlink_dir),
+            limit=3, rebuild_fundamentals=False, today="2026-05-14",
+        )
+    assert exc_info.value.code == 2, (
+        f"symlink to canonical should exit 2, got {exc_info.value.code}"
+    )
+
+
+# ── P0-5: empty-quarter cache safety ──────────────────────────────────────────
+
+def test_empty_source_report_quarter_no_cache_written_stamps_failure_reason(tmp_path: Path) -> None:
+    """Spec §5: semi-annual quarter parse → no cache file, fund_level_failure_reasons stamped."""
+    from unittest.mock import patch
+    from irc.fundamentals.snapshot import _build_active_fund_snapshot
+    from irc.fundamentals.types import FundHolding, HoldingsResult, LookthroughTarget
+
+    target = LookthroughTarget(
+        kind="active_fund", key="fund_005827",
+        display_cn="易方达蓝筹精选", provider_symbol="005827",
+    )
+
+    # Holdings with empty source_report_quarter (simulates "2024年半年度" parse failure).
+    holdings_with_bad_quarter = HoldingsResult(
+        constituents=(
+            FundHolding(
+                symbol="600519", name_cn="贵州茅台",
+                weight_pct=6.2, exchange="SH", provider_symbol="600519",
+            ),
+        ),
+        source_report_date="",
+        source_report_quarter="",   # <-- key: quarter parse failed
+    )
+
+    with patch(
+        "irc.fundamentals.snapshot.fetch_cn_etf_holdings",
+        return_value=holdings_with_bad_quarter,
+    ):
+        snap = _build_active_fund_snapshot(target, top_n=10)
+
+    # Must stamp holdings_quarter_parse_failed.
+    assert any(
+        "holdings_quarter_parse_failed:005827" in r
+        for r in snap.fund_level_failure_reasons
+    ), f"expected holdings_quarter_parse_failed:005827 in {snap.fund_level_failure_reasons}"
+
+    # No cache file must exist under data/fundamentals/.
+    cache_files = list((tmp_path / "data").rglob("fund_005827.json")) if (tmp_path / "data").exists() else []
+    assert cache_files == [], f"cache file should NOT be written for empty quarter: {cache_files}"

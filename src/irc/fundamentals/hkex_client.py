@@ -135,18 +135,15 @@ def fetch_hk_filing_digest(symbol: str) -> FilingDigest | None:
 def fetch_hk_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
     """Top-K recent HK stock news via AkShare `stock_hk_news_em`.
 
-    On any adapter error (including `AttributeError` from AkShare versions
-    that don't ship the function) or empty frame, returns `()`. The caller
-    distinguishes "adapter missing" vs "empty result" by inspecting its own
-    failure-reason context (`hk_news_unsupported_adapter` vs `hk_news_empty`).
+    P1-c: exceptions propagate to the caller (snapshot.py catches them as
+    hk_news_fetch_failed). Returns () only on empty/malformed DataFrame.
+    The caller uses hk_news_adapter_available() to distinguish "adapter missing"
+    from "runtime exception" — do NOT call this function when the adapter is absent.
     """
     code = _normalize_hk_code(stock)
     if not code:
         return ()
-    try:
-        df = _ak_call("stock_hk_news_em", symbol=code)
-    except Exception:
-        return ()
+    df = _ak_call("stock_hk_news_em", symbol=code)
     if not isinstance(df, pd.DataFrame) or df.empty:
         return ()
     title_col = "标题" if "标题" in df.columns else None

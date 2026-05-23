@@ -363,12 +363,10 @@ def fetch_hk_index_constituents(
 def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
     """Top-K most recent stock news items from EastMoney.
 
-    Returns () on adapter exception or empty frame.
+    P1-c: exceptions propagate to the caller (snapshot.py catches them as
+    news_fetch_failed). Returns () only on empty/malformed DataFrame.
     """
-    try:
-        df = _ak_call("stock_news_em", symbol=stock)
-    except Exception:
-        return ()
+    df = _ak_call("stock_news_em", symbol=stock)
     if not isinstance(df, pd.DataFrame) or df.empty:
         return ()
     title_col = "新闻标题" if "新闻标题" in df.columns else None

@@ -591,3 +591,118 @@ def test_validate_output_dir_canonical_accepts_no_limit(tmp_path) -> None:
         output_dir=str(tmp_path / "outputs" / "2026-05-22"),
         limit=None, rebuild_fundamentals=False, today="2026-05-22",
     )
+
+
+# ── P0-4: validate_cli_args default (output_dir=None) covers canonical ─────────
+
+def test_validate_none_output_dir_with_limit_rejects(tmp_path) -> None:
+    """P0-4: output_dir=None + limit → treated as canonical path, exit 2."""
+    import pytest
+    from irc.commands.opportunity_cmd import validate_cli_args
+    with pytest.raises(SystemExit) as exc:
+        validate_cli_args(
+            output_dir=None, limit=3,
+            rebuild_fundamentals=False, today="2026-05-22",
+        )
+    assert exc.value.code == 2
+
+
+def test_validate_none_output_dir_no_limit_passes() -> None:
+    """P0-4: output_dir=None + no limit → fine."""
+    from irc.commands.opportunity_cmd import validate_cli_args
+    # Should not raise.
+    validate_cli_args(
+        output_dir=None, limit=None,
+        rebuild_fundamentals=False, today="2026-05-22",
+    )
+
+
+# ── P1-a: double-append prevention ────────────────────────────────────────────
+
+def test_evidence_routing_exception_no_double_append() -> None:
+    """P1-a: when adapter raises, only *_fetch_failed appended, NOT *_fetch_failed + *_empty."""
+    from unittest.mock import patch
+    from irc.fundamentals.snapshot import _evidence_for_constituent
+    from irc.fundamentals.types import FundHolding
+
+    holding = FundHolding(
+        symbol="600519", name_cn="贵州茅台",
+        weight_pct=6.2, exchange="SH", provider_symbol="600519",
+    )
+
+    def raise_exc(*a, **kw):
+        raise ConnectionError("network down")
+
+    with (
+        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", side_effect=raise_exc),
+        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", side_effect=raise_exc),
+        patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=raise_exc),
+    ):
+        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+
+    failure_codes = set(failures)
+    # Must have fetch_failed codes.
+    assert any("filing_fetch_failed" in f for f in failure_codes)
+    assert any("broker_fetch_failed" in f for f in failure_codes)
+    assert any("news_fetch_failed" in f for f in failure_codes)
+    # Must NOT have _empty codes when exceptions fired.
+    assert not any("filing_empty" in f for f in failure_codes), (
+        f"double-append: filing_empty should not appear when exception fired: {failure_codes}"
+    )
+    assert not any("broker_empty" in f for f in failure_codes), (
+        f"double-append: broker_empty should not appear when exception fired: {failure_codes}"
+    )
+    assert not any("news_empty" in f for f in failure_codes), (
+        f"double-append: news_empty should not appear when exception fired: {failure_codes}"
+    )
+
+
+# ── P1-c: news adapter re-raise ───────────────────────────────────────────────
+
+def test_cn_news_exception_propagates_to_caller() -> None:
+    """P1-c: fetch_cn_stock_news re-raises; caller catches it as news_fetch_failed."""
+    from unittest.mock import patch
+    from irc.fundamentals.snapshot import _evidence_for_constituent
+    from irc.fundamentals.types import FundHolding
+
+    holding = FundHolding(
+        symbol="600519", name_cn="贵州茅台",
+        weight_pct=6.2, exchange="SH", provider_symbol="600519",
+    )
+
+    with (
+        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", return_value=None),
+        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", return_value=()),
+        patch(
+            "irc.fundamentals.snapshot.fetch_cn_stock_news",
+            side_effect=ConnectionError("network"),
+        ),
+    ):
+        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+
+    assert any("news_fetch_failed:600519:ConnectionError" in f for f in failures), (
+        f"expected news_fetch_failed:600519:ConnectionError in failures: {failures}"
+    )
+    assert not any("news_empty:600519" in f for f in failures), (
+        f"news_empty should not appear when ConnectionError fired (P1-c regression): {failures}"
+    )
+
+
+# ── P1-h: clock-skew clamp in _is_stale ──────────────────────────────────────
+
+def test_is_stale_future_cache_probed_at_treated_as_stale() -> None:
+    """P1-h: if cache_probed_at is in the future (clock skew), treat as stale."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _is_stale
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="2099-01-01",  # far future
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+    )
+    result = _is_stale(snap, today=date(2026, 5, 22), threshold_days=7)
+    assert result is True, "future cache_probed_at (clock skew) should be treated as stale"

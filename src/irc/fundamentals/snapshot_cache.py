@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -212,7 +213,8 @@ def _active_fund_from_dict(body: dict[str, Any]) -> ActiveFundSnapshot | None:
 def write_active_fund_cache(snap: ActiveFundSnapshot, root: Path) -> Path:
     path = active_fund_cache_path(snap.fund_id, snap.source_report_quarter, root)
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
+    # P1-g: PID-qualified tmp suffix to avoid collisions between concurrent writers.
+    tmp = path.with_suffix(f".json.tmp.{os.getpid()}")
     tmp.write_text(
         json.dumps(_active_fund_to_dict(snap), ensure_ascii=False, indent=2),
         encoding="utf-8",

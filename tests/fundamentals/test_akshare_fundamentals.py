@@ -255,11 +255,14 @@ def test_fetch_cn_stock_news_top_3_by_date_desc() -> None:
     assert out[2].published_iso == "2024-04-13"
 
 
-def test_fetch_cn_stock_news_empty_on_failure() -> None:
+def test_fetch_cn_stock_news_raises_on_adapter_exception() -> None:
+    """P1-c: fetch_cn_stock_news re-raises adapter exceptions so callers can
+    classify them as news_fetch_failed (not news_empty)."""
+    import pytest
     with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
         mocked.side_effect = ConnectionError("dfcfw 502")
-        out = fetch_cn_stock_news("600519")
-    assert out == ()
+        with pytest.raises(ConnectionError):
+            fetch_cn_stock_news("600519")
 
 
 def test_fetch_cn_stock_news_empty_on_empty_frame() -> None:

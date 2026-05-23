@@ -208,40 +208,51 @@ def _evidence_for_constituent(
         holding_weight_pct=holding.weight_pct,
     )
     if holding.exchange in ("SH", "SZ", "BJ"):
+        # P1-a: use explicit else on the exception path so _fetch_failed and
+        # _empty are mutually exclusive (no double-append).
+        _filing_exc = False
         try:
             digest = fetch_cn_filing_digest(holding.symbol)
         except Exception as exc:
             failures.append(f"filing_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             digest = None
-        if digest is None:
-            failures.append(f"filing_empty:{holding.symbol}")
-        else:
-            evidence.append(ThesisEvidence(
-                type="filing", source=digest.symbol,
-                url=digest.source_url, date=digest.filed_at_iso,
-                summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
-                citation_kind="data", **common,
-            ))
+            _filing_exc = True
+        if not _filing_exc:
+            if digest is None:
+                failures.append(f"filing_empty:{holding.symbol}")
+            else:
+                evidence.append(ThesisEvidence(
+                    type="filing", source=digest.symbol,
+                    url=digest.source_url, date=digest.filed_at_iso,
+                    summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                    citation_kind="data", **common,
+                ))
+        _broker_exc = False
         try:
             brokers = fetch_cn_broker_reports(holding.symbol)
         except Exception as exc:
             failures.append(f"broker_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             brokers = ()
-        if not brokers:
-            failures.append(f"broker_empty:{holding.symbol}")
+            _broker_exc = True
+        if not _broker_exc:
+            if not brokers:
+                failures.append(f"broker_empty:{holding.symbol}")
         for r in brokers[:2]:
             evidence.append(ThesisEvidence(
                 type="broker", source=r.broker, url=r.source_url,
                 date=r.published_iso, summary=f"{r.broker} {r.rating}: {r.title}".strip(),
                 citation_kind="information", **common,
             ))
+        # P1-c: fetch_cn_stock_news now re-raises; the except here is the live catch.
         try:
             news = fetch_cn_stock_news(holding.symbol, top_k=3)
         except Exception as exc:
             failures.append(f"news_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             news = ()
-        if not news:
-            failures.append(f"news_empty:{holding.symbol}")
+        else:
+            # P1-a: only append news_empty when no exception fired.
+            if not news:
+                failures.append(f"news_empty:{holding.symbol}")
         for n in news:
             evidence.append(ThesisEvidence(
                 type="news", source=n.source, url=n.url,
@@ -249,32 +260,39 @@ def _evidence_for_constituent(
                 citation_kind="information", **common,
             ))
     elif holding.exchange == "HK":
+        # P1-a: same sentinel pattern for HK filing.
+        _hk_filing_exc = False
         try:
             digest = fetch_hk_filing_digest(holding.symbol)
         except Exception as exc:
             failures.append(f"filing_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             digest = None
-        if digest is None:
-            failures.append(f"filing_empty:{holding.symbol}")
-        else:
-            evidence.append(ThesisEvidence(
-                type="filing", source=digest.symbol,
-                url=digest.source_url, date=digest.filed_at_iso,
-                summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
-                citation_kind="data", **common,
-            ))
+            _hk_filing_exc = True
+        if not _hk_filing_exc:
+            if digest is None:
+                failures.append(f"filing_empty:{holding.symbol}")
+            else:
+                evidence.append(ThesisEvidence(
+                    type="filing", source=digest.symbol,
+                    url=digest.source_url, date=digest.filed_at_iso,
+                    summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                    citation_kind="data", **common,
+                ))
         # No HK broker adapter in V1.
+        news: tuple = ()
         if not hk_news_adapter_available():
             failures.append(f"hk_news_unsupported_adapter:{holding.symbol}")
-            news = ()
         else:
+            # P1-c: fetch_hk_stock_news now re-raises; the except here is live.
             try:
                 news = fetch_hk_stock_news(holding.symbol, top_k=3)
             except Exception as exc:
                 failures.append(f"hk_news_fetch_failed:{holding.symbol}:{type(exc).__name__}")
                 news = ()
-            if not news:
-                failures.append(f"hk_news_empty:{holding.symbol}")
+            else:
+                # P1-a: only append hk_news_empty when no exception fired.
+                if not news:
+                    failures.append(f"hk_news_empty:{holding.symbol}")
         for n in news:
             evidence.append(ThesisEvidence(
                 type="news", source=n.source, url=n.url,
@@ -326,6 +344,14 @@ def _build_active_fund_snapshot(
                 f"holdings_fetch_failed:{fund_id}:empty",
             ),
         )
+    # P0-5: if quarter parse failed (semi-annual or unparseable text), stamp the
+    # fund-level failure reason.  The snapshot is still returned for downstream
+    # visibility (item 006 reads fund_level_failure_reasons), but the caller in
+    # _build_rows must NOT write the cache when source_report_quarter is empty
+    # (to avoid path collapse: data/fundamentals//active_fund/fund_X.json).
+    fund_level_failures: list[str] = []
+    if not holdings.source_report_quarter:
+        fund_level_failures.append(f"holdings_quarter_parse_failed:{fund_id}")
     analyses: list[ConstituentAnalysis] = []
     fail_by_symbol: dict[str, tuple[str, ...]] = {}
     for h in holdings.constituents:
@@ -347,7 +373,7 @@ def _build_active_fund_snapshot(
         cache_probed_at="",
         constituent_analyses=tuple(analyses),
         failure_reasons_by_symbol=fail_by_symbol,
-        fund_level_failure_reasons=(),
+        fund_level_failure_reasons=tuple(fund_level_failures),
     )
 
 
