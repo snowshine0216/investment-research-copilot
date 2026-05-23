@@ -481,8 +481,8 @@ def fetch_fund_nav_report(fund_id: str) -> FundNavReport | None:
     (matches `fetch_cn_filing_digest`'s degrade-to-None contract).
 
     F5 invariant: this adapter consults ONLY `indicator="单位净值走势"`.
-    `基金概况` is NEVER consulted (would emit static metadata that must not
-    satisfy the information leg — see ADR 0002 §5).
+    The static-profile indicator is NEVER consulted (would emit static
+    metadata that must not satisfy the information leg — see ADR 0002 §5).
     """
     try:
         df = _ak_call(
