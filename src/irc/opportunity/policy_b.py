@@ -11,6 +11,8 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
 
 def MATERIAL_HOLDING_QUORUM(top_n: int) -> int:
     """Compute the material-holding quorum for a top-N constituent set.
@@ -45,9 +47,6 @@ class ConstituentCoverageEntry:
     information_kind_count: int
     failure_reasons: tuple[str, ...]
     audit_errors: tuple[str, ...]
-
-
-from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 
 
 _EXCHANGE_FROM_SYMBOL_PREFIX = {

@@ -725,9 +725,8 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
     import duckdb
 
     from irc.commands.opportunity_cmd import _build_rows
-    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+    from irc.fundamentals.types import ActiveFundSnapshot
     from irc.schemas.universe import Instrument
-    from irc.schemas.inputs import AccountFile
 
     # Build a single cn_equity_fund instrument.
     instr = Instrument(

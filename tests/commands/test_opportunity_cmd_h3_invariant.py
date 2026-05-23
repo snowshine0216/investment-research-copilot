@@ -5,7 +5,6 @@ Tests cover acceptance criteria 17, 20, 21, 22, 27.
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 import yaml

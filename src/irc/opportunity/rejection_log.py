@@ -9,10 +9,15 @@ failure taxonomy (`failure_reasons` / `evidence_gaps` / `audit_errors`).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Literal
 
-from irc.opportunity.policy_b import ConstituentCoverageEntry
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
+from irc.io_utils import atomic_write_text
+from irc.opportunity.policy_b import ConstituentCoverageEntry, PolicyBVerdict
+from irc.opportunity.types import OpportunityRow
 
 
 RejectionReasonCode = Literal[
@@ -53,9 +58,6 @@ class RejectionsDocument:
     entries: tuple[RejectionRecord, ...]
 
 
-from irc.opportunity.types import OpportunityRow
-
-
 _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "qdii_information_unavailable":         "qdii_information_unavailable",
     "holdings_fetch_failed":                "holdings_fetch_failed",
@@ -70,10 +72,6 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "missing_flow_or_return_data":          "incomplete_constituent_data",
     "missing_product_metadata":             "incomplete_constituent_record",
 }
-
-
-from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
-from irc.opportunity.policy_b import PolicyBVerdict
 
 
 def _decision_rule_for(
@@ -136,13 +134,6 @@ def record_fund_rejection(
         fetch_types_attempted=row.fetch_types_attempted,
         evidence_gaps=row.evidence_gaps,
     )
-
-
-import json
-from dataclasses import asdict
-from pathlib import Path
-
-from irc.io_utils import atomic_write_text
 
 
 def _record_sort_key(record: RejectionRecord) -> tuple[str, str]:
