@@ -28,6 +28,7 @@ RejectionReasonCode = Literal[
     "incomplete_constituent_coverage",
     "qdii_information_unavailable",
     "fund_nav_unavailable",
+    "fund_announcements_unavailable",
     "missing_us_news_adapter",
 ]
 
@@ -66,6 +67,9 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     "insufficient_info_coverage_top_half":  "insufficient_info_coverage_top_half",
     "incomplete_constituent_coverage":      "incomplete_constituent_coverage",
     "fund_nav_unavailable":                 "fund_nav_unavailable",
+    # FundLevelSnapshot information-leg failure: no announcements fetched.
+    # Identity mapping — the gap code IS the rejection reason.
+    "fund_announcements_unavailable":       "fund_announcements_unavailable",
     # Non-Policy-B evidence gaps emitted by states.py for data-poor instruments
     # (ETF/passive rows where constituent-level data is unavailable):
     "missing_valuation_data":               "incomplete_constituent_data",
@@ -185,9 +189,13 @@ def write_rejections_json(
 def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
     """Return the dominant RejectionReasonCode for a gapped row.
 
-    Precedence: iterates `row.evidence_gaps` in row order; the first gap that
-    matches a key in `_GAP_TO_REASON` (dict-literal insertion order) wins.
-    QDII precedes Policy B codes by construction.
+    Precedence: iterates `_GAP_TO_REASON` keys in dict-literal insertion order;
+    the first key that appears in `row.evidence_gaps` wins. QDII precedes Policy
+    B codes by construction (qdii_information_unavailable is the first key).
+
+    Iterating the dict rather than the row's evidence_gaps ensures that QDII
+    classification wins even when structural evidence gaps (missing_valuation_data
+    etc.) precede qdii_information_unavailable in the row's evidence_gaps tuple.
 
     Raises RuntimeError on unknown gap codes — defence against silent
     acceptance of new codes that bypass the rejection log (criterion 19).
@@ -195,15 +203,20 @@ def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
     with mixed known + unknown codes raises rather than silently returning
     the first-match.
     """
+    gap_set = set(row.evidence_gaps)
+    # Iterate the original tuple (not gap_set) so the unknown[0] reported
+    # below is deterministic; CPython set iteration is hash-randomized
+    # across processes, which made error messages flake under -O / different
+    # PYTHONHASHSEED values.
     unknown = [gap for gap in row.evidence_gaps if gap not in _GAP_TO_REASON]
     if unknown:
         raise RuntimeError(
             f"unknown evidence_gap code: {unknown[0]!r} not in _GAP_TO_REASON "
             f"(row {row.instrument_id}, all gaps: {row.evidence_gaps})"
         )
-    for gap in row.evidence_gaps:
-        if gap in _GAP_TO_REASON:
-            return _GAP_TO_REASON[gap]
+    for gap_key, reason in _GAP_TO_REASON.items():
+        if gap_key in gap_set:
+            return reason
     raise RuntimeError(
         f"row {row.instrument_id} carries unrecognised evidence_gaps: "
         f"{row.evidence_gaps}"

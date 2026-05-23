@@ -96,6 +96,32 @@ def test_classify_rejection_reason_qdii_first_precedence() -> None:
     assert _classify_rejection_reason(row) == "qdii_information_unavailable"
 
 
+def test_classify_rejection_reason_qdii_precedence_holds_when_qdii_gap_last() -> None:
+    """Regression — pre-item-008 the classifier iterated `evidence_gaps` tuple
+    order, so a structural gap appearing FIRST in the tuple wrongly won the
+    classification. The fix iterates `_GAP_TO_REASON.items()` (dict-literal
+    order) so QDII wins regardless of tuple ordering. Lock both tuple shapes."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    row = _row(evidence_gaps=(
+        "insufficient_info_coverage_top_half",
+        "qdii_information_unavailable",
+    ))
+    assert _classify_rejection_reason(row) == "qdii_information_unavailable"
+
+
+def test_gap_to_reason_first_key_locks_qdii_precedence() -> None:
+    """Structural invariant — the precedence semantics depend on
+    `qdii_information_unavailable` being the FIRST key in `_GAP_TO_REASON`'s
+    dict-literal insertion order. A contributor reordering the dict would
+    silently change precedence; lock this with a machine-checked assertion."""
+    from irc.opportunity.rejection_log import _GAP_TO_REASON
+    assert next(iter(_GAP_TO_REASON)) == "qdii_information_unavailable", (
+        "_GAP_TO_REASON insertion order MUST place qdii_information_unavailable "
+        "first — its precedence over Policy B / structural gaps is the contract "
+        "tested by the AC11 adversarial integration test"
+    )
+
+
 def test_classify_rejection_reason_holdings_fetch_failed() -> None:
     from irc.opportunity.rejection_log import _classify_rejection_reason
     row = _row(evidence_gaps=("holdings_fetch_failed",))
@@ -395,6 +421,9 @@ def test_classify_rejection_reason_mixed_known_and_unknown_raises(
     ("missing_broker_coverage",   "incomplete_constituent_data"),
     # L1 fix: forward-declared H4 systematic-exclusion code must resolve
     ("missing_us_news_adapter",   "missing_us_news_adapter"),
+    # Item 008 fix: fund_announcements_unavailable emitted by snapshot.py:223
+    # must resolve via the dict, else criterion-19 raises at runtime.
+    ("fund_announcements_unavailable", "fund_announcements_unavailable"),
 ])
 def test_classify_rejection_reason_handles_legacy_gap_codes(
     gap_code: str, expected_reason: str,
