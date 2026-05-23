@@ -233,3 +233,132 @@ def test_record_fund_rejection_uses_fund_level_failure_reasons_from_fund_level_s
         decision_rule="fund_nav_unavailable (non-active-fund row; no Policy B verdict)",
     )
     assert record.fund_level_failure_reasons == ("nav_fetch_failed:518880:Timeout",)
+
+
+def test_write_rejections_json_writes_file_with_full_schema(tmp_path) -> None:
+    """Criterion 4 + 26: atomic write, JSON has run_date/plan_hash/entries keys."""
+    from irc.opportunity.policy_b import ConstituentCoverageEntry
+    from irc.opportunity.rejection_log import (
+        RejectionRecord,
+        RejectionsDocument,
+        write_rejections_json,
+    )
+    coverage = (
+        ConstituentCoverageEntry(
+            symbol="600519", name_cn="贵州茅台", weight_pct=8.2, weight_rank=1,
+            in_material_top_half=True, exchange="SH",
+            has_data_leg=True, has_info_leg=True,
+            data_kind_count=1, information_kind_count=1,
+            failure_reasons=(), audit_errors=(),
+        ),
+    )
+    record = RejectionRecord(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        rejection_reason="insufficient_info_coverage_top_half",
+        decision_rule="info-leg quorum 5 of 10; 3 of material top-half satisfied",
+        rejection_at_stage="opportunity_write",
+        constituent_coverage=coverage,
+        fund_level_failure_reasons=(),
+        fetch_types_attempted=("filing", "broker", "news"),
+        evidence_gaps=("insufficient_info_coverage_top_half",),
+    )
+    doc = RejectionsDocument(
+        run_date="2026-05-23",
+        plan_hash="abc123",
+        entries=(record,),
+    )
+    out_dir = tmp_path / "outputs" / "2026-05-23"
+    write_rejections_json(doc, out_dir)
+    path = out_dir / "rejections.json"
+    assert path.exists()
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body["run_date"] == "2026-05-23"
+    assert body["plan_hash"] == "abc123"
+    assert len(body["entries"]) == 1
+    entry = body["entries"][0]
+    assert entry["instrument_id"] == "005827"
+    assert entry["rejection_reason"] == "insufficient_info_coverage_top_half"
+    assert entry["constituent_coverage"][0]["weight_rank"] == 1
+    assert entry["constituent_coverage"][0]["in_material_top_half"] is True
+
+
+def test_write_rejections_json_creates_parent_dir(tmp_path) -> None:
+    """Criterion 4: parent dir auto-created."""
+    from irc.opportunity.rejection_log import (
+        RejectionsDocument,
+        write_rejections_json,
+    )
+    out_dir = tmp_path / "deeply" / "nested" / "outputs"
+    doc = RejectionsDocument(run_date="2026-05-23", plan_hash="x", entries=())
+    write_rejections_json(doc, out_dir)
+    assert (out_dir / "rejections.json").exists()
+
+
+def test_write_rejections_json_empty_entries_still_writes(tmp_path) -> None:
+    """Criterion 6: empty-rejections case writes entries: []."""
+    from irc.opportunity.rejection_log import (
+        RejectionsDocument,
+        write_rejections_json,
+    )
+    out_dir = tmp_path
+    doc = RejectionsDocument(run_date="2026-05-23", plan_hash="x", entries=())
+    write_rejections_json(doc, out_dir)
+    body = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    assert body["entries"] == []
+
+
+def test_write_rejections_json_orders_entries_by_asset_class_then_id(tmp_path) -> None:
+    """Criterion 5: entries sorted (asset_class, instrument_id) ascending."""
+    from irc.opportunity.rejection_log import (
+        RejectionRecord,
+        RejectionsDocument,
+        write_rejections_json,
+    )
+    def _rec(iid, cls):
+        return RejectionRecord(
+            instrument_id=iid, name_cn=iid, asset_class=cls,
+            rejection_reason="qdii_information_unavailable",
+            decision_rule="x", rejection_at_stage="opportunity_write",
+            constituent_coverage=(), fund_level_failure_reasons=(),
+            fetch_types_attempted=(), evidence_gaps=("qdii_information_unavailable",),
+        )
+    doc = RejectionsDocument(
+        run_date="2026-05-23", plan_hash="x",
+        entries=(
+            _rec("Z", "qdii_us"),
+            _rec("A", "qdii_us"),
+            _rec("B", "cn_equity_fund"),
+        ),
+    )
+    write_rejections_json(doc, tmp_path)
+    body = json.loads((tmp_path / "rejections.json").read_text(encoding="utf-8"))
+    ordered = [(e["asset_class"], e["instrument_id"]) for e in body["entries"]]
+    assert ordered == [
+        ("cn_equity_fund", "B"),
+        ("qdii_us", "A"),
+        ("qdii_us", "Z"),
+    ]
+
+
+def test_write_rejections_json_byte_identical_two_runs(tmp_path) -> None:
+    """Criterion 5: two runs over the same fixture produce byte-identical JSON."""
+    import hashlib
+    from irc.opportunity.rejection_log import (
+        RejectionRecord,
+        RejectionsDocument,
+        write_rejections_json,
+    )
+    record = RejectionRecord(
+        instrument_id="005827", name_cn="易方达", asset_class="cn_equity_fund",
+        rejection_reason="holdings_fetch_failed",
+        decision_rule="r", rejection_at_stage="opportunity_write",
+        constituent_coverage=(), fund_level_failure_reasons=(),
+        fetch_types_attempted=(), evidence_gaps=("holdings_fetch_failed",),
+    )
+    doc = RejectionsDocument(run_date="2026-05-23", plan_hash="x", entries=(record,))
+    path = tmp_path / "rejections.json"
+    write_rejections_json(doc, tmp_path)
+    first = hashlib.sha256(path.read_bytes()).hexdigest()
+    write_rejections_json(doc, tmp_path)
+    second = hashlib.sha256(path.read_bytes()).hexdigest()
+    assert first == second

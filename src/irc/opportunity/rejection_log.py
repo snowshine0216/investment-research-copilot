@@ -133,6 +133,45 @@ def record_fund_rejection(
     )
 
 
+import json
+from dataclasses import asdict
+from pathlib import Path
+
+from irc.io_utils import atomic_write_text
+
+
+def _record_sort_key(record: RejectionRecord) -> tuple[str, str]:
+    return (record.asset_class, record.instrument_id)
+
+
+def write_rejections_json(
+    document: RejectionsDocument,
+    out_dir: Path,
+) -> None:
+    """Atomic write of `outputs/{date}/rejections.json`.
+
+    Parent dir auto-created. Empty-entries case writes `entries: []` rather
+    than skipping (stable presence is the monitoring signal). Determinism:
+    entries are sorted by `(asset_class, instrument_id)` ascending before
+    serialisation.
+
+    Uses `atomic_write_text` from `irc.io_utils` (the project I/O convention —
+    `tmpfile + os.replace + fsync`, identical to item 003's snapshot cache).
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    sorted_entries = tuple(sorted(document.entries, key=_record_sort_key))
+    sorted_doc = RejectionsDocument(
+        run_date=document.run_date,
+        plan_hash=document.plan_hash,
+        entries=sorted_entries,
+    )
+    payload = asdict(sorted_doc)
+    atomic_write_text(
+        out_dir / "rejections.json",
+        json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=False),
+    )
+
+
 def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
     """Return the dominant RejectionReasonCode for a gapped row.
 
