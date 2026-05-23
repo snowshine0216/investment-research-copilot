@@ -140,7 +140,7 @@ class PolicyBVerdict:
 
 6. **Publishable.** If none of rules 1–5 fired → `gap_codes=()`, `decision_rule=f"info-leg quorum {len(material)} of {top_n}; {satisfied} satisfied (publishable)"`.
 
-**Rule precedence:** Rules 1 → 2 → 3 → 5 → 4. (Rule 4 is the "info-leg quorum" gate; it must fire LAST so that data-leg failures and missing-record audit errors surface as their own gap codes — otherwise a fund with 3 holdings missing data + 0 info-leg coverage would be stamped `insufficient_info_coverage_top_half`, hiding the data failure.) **Locked test:** spec criterion 14 — "a fund with both a data-leg miss and an info-leg miss reports `incomplete_constituent_data` (not `insufficient_info_coverage_top_half`)".
+**Rule precedence (G-Q4, locked):** Rules **1 → 2 → 3 → 4 → 5**. Each rule short-circuits when it fires; the evaluator returns the verdict with the corresponding `gap_codes` immediately. Rationale: rule 1 first because nothing else is computable without holdings; rule 2 next because shape-corruption poisons downstream interpretation and the audit error is the most informative failure to surface; rule 3 next because data-leg is universally required (every holding); rule 4 fourth because info-leg is the weight-restricted gate (and drives the V1 systematic exclusion); rule 5 last as the leftover diagnostic for the mixed evidence+failure_reasons case that rule 3 doesn't catch. **Locked tests:** criterion 14 — "a fund with both a data-leg miss (rule 3) and an info-leg miss (rule 4) reports `incomplete_constituent_data` (not `insufficient_info_coverage_top_half`)"; criterion 12 — "a fund where every constituent has `evidence==() AND failure_reasons!=()` reports `incomplete_constituent_data` because rule 3 fires before rule 5". See [ADR 0003 §1](../../../adr/0003-failure-mode-policy-b.md).
 
 **Material-set tie rule (the boundary case):** suppose `top_n=10` and the sorted weights are `[8.2, 7.1, 6.5, 5.0, 4.2, 4.2, 3.8, ...]`. `ceil(10/2)=5`, so the initial cutoff is rank-5 (weight=4.2). Position 6 has weight=4.2 (tied at the cutoff) → include both positions 5 AND 6 in the material set (size 6). Tiebreaker between equal-weight symbols at non-boundary positions is `symbol` ascending (deterministic ordering for `constituent_coverage` output), but it does NOT shrink the material set.
 
@@ -224,13 +224,17 @@ def _write_opportunity_outputs(
     # ... atomic_write_text(out_dir / "thesis_cards.yaml", compose_thesis_cards_yaml(cards))
 
     # Step 4 — build rejections.json from gapped_rows.
+    # Policy B's PolicyBVerdict is available ONLY for active-fund rows (G-Q6).
+    # For FundLevelSnapshot rows (QDII sentinel / NAV-failed / etc.) and legacy
+    # ConstituentSnapshot rows, pending_verdicts has no entry → record_fund_rejection
+    # composes the decision_rule from row.evidence_gaps + snapshot.fund_level_failure_reasons.
     rejection_records = tuple(
         record_fund_rejection(
             row=r,
             snapshot=snapshot_cache.get(r.instrument_id),
-            verdict=(pending_verdicts or {}).get(r.instrument_id),
+            verdict=(pending_verdicts or {}).get(r.instrument_id),  # None for non-active-fund rows
             rejection_reason=_classify_rejection_reason(r),
-            decision_rule=(pending_verdicts or {}).get(r.instrument_id, _SENTINEL).decision_rule,
+            decision_rule=_decision_rule_for(r, (pending_verdicts or {}).get(r.instrument_id)),
         )
         for r in gapped_rows
     )
@@ -356,6 +360,29 @@ def _classify_rejection_reason(row: OpportunityRow) -> RejectionReasonCode:
 
 Unknown gap codes raise — defence against silent acceptance of new gap codes that bypass the rejection log. Adding a new gap code therefore REQUIRES adding it to `_GAP_TO_REASON` (locked by criterion 19).
 
+### H3 — `_decision_rule_for` helper (G-Q6 fallback)
+
+```python
+def _decision_rule_for(
+    row: OpportunityRow,
+    verdict: PolicyBVerdict | None,
+) -> str:
+    """Compose the decision_rule string for the rejection record.
+
+    Active-fund rows: use verdict.decision_rule (carries info-leg quorum math).
+    Non-active-fund rows (FundLevelSnapshot QDII sentinel / NAV-failed / legacy):
+    verdict is None → fall back to a stage-appropriate string composed from
+    the first gap code in evidence_gaps."""
+    if verdict is not None:
+        return verdict.decision_rule
+    # Non-active-fund fallback. evidence_gaps[0] is the dominant code per
+    # _classify_rejection_reason's iteration order; format a stable string.
+    first = row.evidence_gaps[0] if row.evidence_gaps else "unknown"
+    return f"{first} (non-active-fund row; no Policy B verdict)"
+```
+
+The fallback strings are template-format-locked (criterion 11 extends to cover this case) so they diff cleanly across runs.
+
 ## Out of scope
 
 - **Item 007 territory** — memo `evidence_pool` rendering with `[ref:{citation_id}]` markers, the `## 持仓明细` appendix, per-fund constituent inline bullets, `build_alias_maps`. Item 006 does NOT touch `memo_cmd.py` or `auditor.py`.
@@ -408,7 +435,7 @@ Each criterion is independently verifiable.
 
 11. **Position 7 has no data leg → blocked.** `gap_codes=("incomplete_constituent_data",)`, `decision_rule="data leg missing for 1 of 10 holdings: ['{symbol_7}']"`. Rule 3 fires before rule 4 → reason is `incomplete_constituent_data`, NOT `insufficient_info_coverage_top_half` (criterion 14).
 
-12. **All 10 with only `failure_reasons`, no evidence at all → blocked.** Rule 5 fires: `gap_codes=("incomplete_constituent_coverage",)`, `decision_rule="holdings with no evidence: 10 of 10"`. (Rule 3 also matches but rule 5 has higher precedence than rule 4 — see precedence list. Actually rule 3 fires FIRST because data-leg missing is detected before "no evidence at all". Resolution: rule 3 detects "any holding lacks data leg", which is true when `evidence==()`. Final precedence: 1 → 2 → 3 → 4 → 5. ADJUSTED: when `evidence==() AND failure_reasons != ()`, rule 3 catches it as data-leg missing → `incomplete_constituent_data`. **Locked**: the canonical "all 10 with only failure_reasons" case produces `incomplete_constituent_data` because every holding lacks a data leg. The `incomplete_constituent_coverage` gap fires when SOME holdings have no evidence AND OTHERS have partial evidence — i.e., the mixed case. Test must construct the mixed case to exercise rule 5.)
+12. **All 10 with only `failure_reasons`, no evidence at all → `incomplete_constituent_data`.** Locked under precedence **1 → 2 → 3 → 4 → 5**: rule 3 (per-holding data leg) detects "any holding lacks data leg", which is true for every holding when `evidence==()`. So `gap_codes=("incomplete_constituent_data",)`, `decision_rule="data leg missing for 10 of 10 holdings: [...]"`. The `incomplete_constituent_coverage` gap (rule 5) fires only in the **mixed case** — SOME holdings have evidence (with at least a data leg) AND OTHERS have `evidence==() AND failure_reasons!=()`. The plan-phase test must construct this mixed case to exercise rule 5.
 
 13. **Constituent with `evidence==() AND failure_reasons==()` → audit error.** `evaluate_policy_b` returns `gap_codes=("incomplete_constituent_record",)`, `audit_errors=("missing_constituent_record:<symbol>",)`. Rejection log entry's `constituent_coverage` includes the symbol with `audit_errors` populated. The `ConstituentCoverageEntry.audit_errors` field is non-empty for that row.
 
@@ -463,6 +490,47 @@ Each criterion is independently verifiable.
 - **`replace(c, audit_errors=...)` does NOT modify the cached snapshot.** The snapshot loaded from `data/fundamentals/{quarter}/active_fund/fund_{iid}.json` is frozen; `evaluate_policy_b` constructs a NEW `ConstituentCoverageEntry` carrying the audit_errors. The cached JSON on disk is byte-identical before and after `evaluate_policy_b`. Locked test: assert sha256 of cache file unchanged after evaluate.
 
 - **Multiple gap codes on a single row.** E.g., a row could acquire `incomplete_constituent_data` AND `insufficient_info_coverage_top_half` from a hypothetical future rule that doesn't short-circuit. Item 006 enforces short-circuit precedence (each rule returns immediately when it fires), so the verdict's `gap_codes` always has length ≤ 1 from Policy B's contribution. Items 003 + 005 may add additional gap codes (e.g. QDII sentinel) that combine with Policy B output via `row.evidence_gaps + verdict.gap_codes`. The rejection_log records all of them in the `evidence_gaps` mirror field.
+
+## Grill-phase locked decisions (auto-accepted 2026-05-23)
+
+The grill phase resolved six additional questions on top of the seven brainstorming Qs. Each is locked here; cross-refs to CONTEXT.md and [ADR 0003](../../../adr/0003-failure-mode-policy-b.md).
+
+### G-Q1 — `rejections.json` write timing: atomic write-at-end (NOT append-per-row)
+
+`RejectionsDocument` is built in-memory in `_write_opportunity_outputs` Step 4 from the partitioned `gapped_rows` + `pending_verdicts`. Then written ONCE via `write_rejections_json` using the existing `.tmp.{pid} → os.replace` pattern. Append-per-row is explicitly rejected — see ADR 0003 §4. The empty-rejections case still writes `entries: []` (stable presence is a greppable monitoring signal). Locked by criterion 6.
+
+### G-Q2 — `audit_errors` field placement: ConstituentAnalysis only (NOT OpportunityRow)
+
+`ConstituentAnalysis.audit_errors: tuple[str, ...] = ()` is the canonical store (already in §H2.v2 schema additions). `OpportunityRow` does NOT gain an `audit_errors` field. Row-level effects are captured by `evidence_gaps += ("incomplete_constituent_record",)` and surfaced in `RejectionRecord.constituent_coverage[*].audit_errors`. Rationale: the audit-error locus is the constituent symbol; denormalizing to the row would invite drift. See ADR 0003 §2.
+
+The boolean predicate `row.has_audit_errors()` is NOT introduced as a method — call sites that need it compute `any(ca.audit_errors for ca in snapshot.constituent_analyses)` directly. Methods on frozen dataclasses are not the project convention (per CLAUDE.md "Avoid Classes with Mutable State" — and even for read-only methods, free-functions are preferred).
+
+### G-Q3 — V1 systematic exclusions: item 006 computes AND renders the line
+
+`render_v1_systematic_exclusion_summary(records)` in `src/irc/opportunity/failure_renderer.py` (an item 006 module) computes the count `N` AND emits the once-per-run summary line. Item 007 does NOT recompute the tally — its territory is memo evidence_pool + per-fund constituent inline bullets + `## 持仓明细` appendix.
+
+`rejections.json` does NOT carry a pre-computed `v1_systematic_exclusion_count` field — the count is purely derived from `entries`, and duplicating it would invite drift. The renderer reads `RejectionRecord.rejection_reason` and `RejectionRecord.constituent_coverage[*].exchange` and computes N inline. Locked by criteria 24 + 25 + 27 and ADR 0003 §5.
+
+### G-Q4 — Policy B precedence: 1 → 2 → 3 → 4 → 5 (locked)
+
+See updated "Rule precedence" prose in §H2.v2 above. The previous spec draft alternated between two orderings in different paragraphs; the grill phase locks the order ONCE here. Cross-ref: ADR 0003 §1.
+
+### G-Q5 — `fetch_budget_exhausted` raise location: two distinct gates, two raise sites
+
+- **Item 003 preflight gate (production path):** `FetchBudgetExceeded` raised in `_build_rows` at line ~728 of `opportunity_cmd.py`, BEFORE the per-instrument loop. Caller at L1064 catches `FetchBudgetExceeded` and exits with code 3.
+- **Item 006 H3 Step 1 (defence-in-depth):** `RuntimeError` (distinct exception class) raised at the TOP of `_write_opportunity_outputs`, BEFORE the partition step. Message includes "row-level emission is a programming error" to distinguish from the preflight raise.
+
+They do not mask each other because they're in different call frames: a preflight `FetchBudgetExceeded` short-circuits before `_write_opportunity_outputs` is invoked at all. The H3 raise fires only if a future bug somehow injects `fetch_budget_exhausted` into a row's `evidence_gaps` despite the preflight gate. NOT in a separate `_validate_invariants` step — the Step 1 loop is already 3 lines and adding a function for a single check is over-engineering. Locked by criterion 20.
+
+### G-Q6 — Policy B applicability scope: ActiveFundSnapshot ONLY
+
+`evaluate_policy_b` is invoked ONLY when `lookthrough_target.kind == "active_fund"` AND `snap_obj` is `ActiveFundSnapshot`. For `FundLevelSnapshot` (gold/cn_bond_fund/cn_etf, tracked CN indices) and `ConstituentSnapshot` (legacy display-only), no Policy B evaluation runs. Rationale (already in spec "Notes for the grill phase" #4 — promoted to "In scope" prose):
+
+- `FundLevelSnapshot` has no `constituent_analyses` — the entire fund IS the row. Its citations are fund-level NAV + announcements, evaluated by item 009's dual-coverage gate.
+- `ConstituentSnapshot` carries no `ThesisEvidence` — `## 持仓明细` appendix only.
+- QDII sentinel emits `evidence_gaps=("qdii_information_unavailable",)` directly from item 005; Policy B has no role.
+
+`_classify_rejection_reason` (post-partition helper) handles ALL gap codes regardless of which engine stamped them, so the rejection log records every excluded fund. But the Policy B evaluator itself runs for active funds only. The `pending_verdicts` dict is empty for non-active-fund rows; `record_fund_rejection` handles `verdict=None` for those (the rejection record's `decision_rule` falls back to a stage-appropriate string like `"qdii_v1_excluded"` or `"holdings_fetch_failed:{reason}"`). See ADR 0003 §6.
 
 ## Open questions resolved during brainstorming
 
@@ -549,8 +617,8 @@ Item 009's `find_incomplete_constituent_analyses` reads BOTH `failure_reasons` a
 | `tests/opportunity/test_failure_renderer.py` (NEW) | Unit tests for criteria 17, 18, 21, 24, 25. |
 | `tests/commands/test_opportunity_cmd.py` | Add integration tests for criteria 17, 20, 21, 22, 26, 27. |
 | `docs/diagnosis-thesis-cards-evidence-gap.md` | Verify §1.2 footnote intact (criterion 23) — no edit unless regressed. |
-| `CONTEXT.md` | Append "Failure-mode + Policy B" glossary section (grill phase decides) with `Policy B`, `Material top-half quorum`, `audit_errors vs evidence_gaps vs failure_reasons`, `Rejection log`, `V1 systematic exclusion`. |
-| `docs/adr/0002-active-fund-fetch-engine.md` (optional) | §6 amendment OR new ADR 0003 — grill phase decides whether the failure-mode policy warrants a co-located decision or a standalone ADR. Lean toward §6 amendment ("Failure-mode evaluation policy") since Policy B operates on engine outputs. |
+| `CONTEXT.md` | Append "Failure-mode + audit policy" glossary section with `failure_reasons` / `evidence_gaps` / `audit_errors` taxonomy, `MATERIAL_HOLDING_QUORUM`, `Material top-half`, `Policy B (weight-aware quorum)`, `PolicyBVerdict`, `RejectionRecord`, `Rejection log (rejections.json)`, `H3 universal gapped-row invariant`, `fetch_budget_exhausted (run-level fatal sentinel)`, `V1 systematic exclusions`. **Done in grill phase.** |
+| `docs/adr/0003-failure-mode-policy-b.md` (NEW) | New ADR documenting Policy B v2 five-rule precedence, the three-field failure taxonomy, the H3 universal gapped-row invariant, atomic-write-once `rejections.json`, V1-systematic-exclusions-in-item-006 boundary, and the active-fund-only applicability scope. **Authored in grill phase.** |
 
 ## Dependencies on other items
 
@@ -569,9 +637,9 @@ Item 009's `find_incomplete_constituent_analyses` reads BOTH `failure_reasons` a
 
 ## Notes for the grill phase
 
-1. **ADR amendment vs. ADR 0003?** Policy B is a downstream consumer of the fetch engine's `ActiveFundSnapshot`, not a contract of the engine itself. Co-locating in ADR 0002 §6 ("Failure-mode evaluation policy") keeps the "fetch + evaluate" decision surface in one document. New ADR 0003 would be appropriate if the audit-policy layer grows beyond Policy B (e.g., adds memo-stage strict-mention enforcement). Lean toward §6 amendment for V1.
+1. **ADR resolved: ADR 0003 authored (not ADR 0002 amendment).** Grill phase verdict: Policy B is a downstream *consumer* of the fetch engine's `ActiveFundSnapshot`, not a contract of the engine itself — and the audit-policy decision surface (Policy B v2 precedence, three-field failure taxonomy, H3 invariant, V1 systematic exclusions boundary) is large enough to warrant its own ADR. ADR 0002 stays focused on "fetch engine contracts" (cache layout / freshness / budget / exchange routing); ADR 0003 carries "failure-mode + audit policy" (Policy B / rejection log / H3 / V1 exclusions).
 
-2. **CONTEXT.md additions auto-accepted under autonomy override 2026-05-23.** New glossary entries (grill phase commits these): `Policy B (weight-aware quorum)`, `Material top-half quorum`, `Rejection log`, `Audit error vs evidence gap vs failure reason`, `V1 systematic exclusion (US-heavy)`.
+2. **CONTEXT.md additions committed in grill phase.** New "Failure-mode + audit policy" glossary section adds: `failure_reasons`, `evidence_gaps`, `audit_errors` (three-field taxonomy), `MATERIAL_HOLDING_QUORUM`, `Material top-half`, `Policy B (weight-aware quorum)`, `PolicyBVerdict`, `RejectionRecord`, `Rejection log (rejections.json)`, `H3 universal gapped-row invariant`, `fetch_budget_exhausted (run-level fatal sentinel)`, `V1 systematic exclusions`.
 
 3. **`evaluate_policy_b` is a pure function on `ActiveFundSnapshot`** — does NOT call adapters, does NOT touch caches. Tests inject `ActiveFundSnapshot` directly. Item 003's snapshot construction is the upstream producer; item 006 is the consumer.
 
@@ -580,3 +648,12 @@ Item 009's `find_incomplete_constituent_analyses` reads BOTH `failure_reasons` a
 5. **Why is `pending_verdicts` necessary?** Without it, `_write_opportunity_outputs` would need to either (a) re-evaluate Policy B from scratch (re-loading snapshots from `snapshot_cache`, doubling compute) or (b) recover `decision_rule` and `material_symbols` from the row's `evidence_gaps` (which doesn't carry them — `evidence_gaps` is a flat tuple of code strings). The verdict object is the clean carrier for the cross-function context. Locked.
 
 6. **The "missing_constituent_record" audit error overlaps with item 009's `find_incomplete_constituent_analyses`.** Item 006 STAMPS the audit-error on the `ConstituentCoverageEntry` (read-only — derived from snapshot inspection). Item 009 RAISES on the same predicate (write-time blocking). The two are layered: item 006 documents the audit error in `rejections.json` so it's visible WITHOUT triggering item 009's block (because item 009 only runs on `publishable_rows`, and a fund with the audit error is gap-stamped → routed to `gapped_rows` → never seen by item 009). The item 009 raise is a defence-in-depth check for the case where Policy B failed to stamp the gap (programming error).
+
+## Grill verdict
+
+Auto-accepted under autonomy override 2026-05-23.
+
+- **CONTEXT.md additions:** 12 new terms in a new "Failure-mode + audit policy" section — `failure_reasons` (adapter-level), `evidence_gaps` (row-level), `audit_errors` (per-constituent shape-corruption), `MATERIAL_HOLDING_QUORUM`, `Material top-half`, `Policy B (weight-aware quorum)`, `PolicyBVerdict`, `RejectionRecord`, `Rejection log (rejections.json)`, `H3 universal gapped-row invariant`, `fetch_budget_exhausted (run-level fatal sentinel)`, `V1 systematic exclusions`.
+- **ADR authored:** [ADR 0003 — Failure-mode + Policy B + H3](../../../adr/0003-failure-mode-policy-b.md). Six sections: Policy B v2 five-rule precedence, three-field failure taxonomy, H3 universal gapped-row invariant, atomic write-once `rejections.json`, V1 systematic exclusions computed-and-rendered-by-item-006 boundary, Policy B active-fund-only applicability scope.
+- **Spec refinements:** Policy B rule precedence locked as **1 → 2 → 3 → 4 → 5** (the previous draft alternated between two orderings); criterion 12 prose locked to "rule 3 catches the canonical all-failure_reasons case"; `_decision_rule_for` helper added to handle `verdict=None` for non-active-fund rows; G-Q1 through G-Q6 each explicitly resolved in a new "Grill-phase locked decisions" section.
+- **Verdict: PASS** — the spec is plan-ready. Every load-bearing decision has a single, unambiguous answer cross-referenced in CONTEXT.md and ADR 0003. Downstream items 007 + 009 can read the locked contracts.
