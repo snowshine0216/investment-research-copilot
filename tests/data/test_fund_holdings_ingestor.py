@@ -239,3 +239,183 @@ def test_is_stale_uses_max_report_date_when_multiple_quarters(tmp_path: Path) ->
         assert is_stale(con, "005827", today_iso=today.isoformat()) is False
     finally:
         con.close()
+
+
+# ── Task 3: upsert_holdings ──────────────────────────────────────────────────
+
+import re
+
+
+def _make_row(*, iid="005827", report_date="2024-03-31",
+              ticker="600519", name="贵州茅台", weight=8.5,
+              source="active_fund_snapshot"):
+    from irc.data.fund_holdings_ingestor import HoldingRow
+    return HoldingRow(
+        instrument_id=iid, report_date=report_date,
+        holding_ticker=ticker, holding_name=name,
+        weight_pct=weight, source=source,
+    )
+
+
+def test_upsert_holdings_writes_rows(tmp_path: Path) -> None:
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    con = _connect_with_schema(tmp_path)
+    try:
+        rows = (
+            _make_row(ticker="600519", weight=10.0),
+            _make_row(ticker="601318", weight=8.0),
+        )
+        n = upsert_holdings(con, rows, now_iso="2026-05-24 00:00:00")
+        assert n == 2
+        count = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert count == 2
+    finally:
+        con.close()
+
+
+def test_upsert_holdings_uses_named_columns(tmp_path: Path) -> None:
+    """AC19 — SQL string carries the named-column block."""
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    captured: list[tuple[str, list]] = []
+
+    class _Spy:
+        def __init__(self, real):
+            self._real = real
+            self.executemany = self._spy_executemany
+            self.execute = real.execute
+
+        def _spy_executemany(self, sql, params):
+            captured.append((sql, list(params)))
+            return self._real.executemany(sql, params)
+
+    real_con = _connect_with_schema(tmp_path)
+    try:
+        spy = _Spy(real_con)
+        upsert_holdings(spy, (_make_row(),), now_iso="2026-05-24 00:00:00")
+        assert len(captured) == 1
+        sql = captured[0][0]
+        # Substring check matches AC19 lock exactly.
+        assert (
+            "INSERT OR REPLACE INTO fund_holdings (instrument_id, report_date, "
+            "holding_ticker, holding_name, weight_pct, _ingested_at, _source, "
+            "_raw_ref) VALUES"
+        ) in " ".join(sql.split())
+    finally:
+        real_con.close()
+
+
+def test_upsert_holdings_idempotent_via_primary_key(tmp_path: Path) -> None:
+    """Two upserts of the same rows → row count stays constant; PK dedup wins."""
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    con = _connect_with_schema(tmp_path)
+    try:
+        rows = (_make_row(), _make_row(ticker="601318", weight=8.0))
+        upsert_holdings(con, rows, now_iso="2026-05-24 00:00:00")
+        upsert_holdings(con, rows, now_iso="2026-05-24 01:00:00")
+        count = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert count == 2
+        # _ingested_at advances on the second write.
+        latest_ingest = con.execute(
+            "SELECT MAX(_ingested_at) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert str(latest_ingest).startswith("2026-05-24 01:00:00")
+    finally:
+        con.close()
+
+
+def test_upsert_holdings_raw_ref_pattern(tmp_path: Path) -> None:
+    """AC18 — _raw_ref is keyed on (source, fund_holdings, iid, report_date);
+    rows for the same (iid, report_date) share the same _raw_ref value."""
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    con = _connect_with_schema(tmp_path)
+    try:
+        rows = (_make_row(ticker="600519"), _make_row(ticker="601318", weight=8.0))
+        upsert_holdings(con, rows, now_iso="2026-05-24 00:00:00")
+        refs = [
+            r[0] for r in con.execute(
+                "SELECT _raw_ref FROM fund_holdings WHERE instrument_id='005827'"
+            ).fetchall()
+        ]
+        assert len(set(refs)) == 1, "all rows for same (iid, report_date) share _raw_ref"
+        assert re.fullmatch(
+            r"(active_fund_snapshot|akshare_cn_etf):fund_holdings:\d+:\d{4}-\d{2}-\d{2}",
+            refs[0],
+        )
+    finally:
+        con.close()
+
+
+def test_upsert_holdings_writes_source_column(tmp_path: Path) -> None:
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    con = _connect_with_schema(tmp_path)
+    try:
+        rows = (
+            _make_row(source="akshare_cn_etf", ticker="600519"),
+            _make_row(source="akshare_cn_etf", ticker="601318", weight=8.0),
+        )
+        upsert_holdings(con, rows, now_iso="2026-05-24 00:00:00")
+        sources = {
+            r[0] for r in con.execute(
+                "SELECT DISTINCT _source FROM fund_holdings WHERE instrument_id='005827'"
+            ).fetchall()
+        }
+        assert sources == {"akshare_cn_etf"}
+    finally:
+        con.close()
+
+
+def test_upsert_holdings_deterministic_row_order(tmp_path: Path) -> None:
+    """AC15 — rows inserted in (weight_pct DESC, holding_ticker ASC) order.
+
+    Two reruns on the same input produce byte-equal SELECT * ORDER BY rowid.
+    """
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    # Pass rows in arbitrary order; ingestor must sort before executemany.
+    shuffled = (
+        _make_row(ticker="ZZZ", weight=5.0),
+        _make_row(ticker="AAA", weight=10.0),
+        _make_row(ticker="MMM", weight=10.0),
+        _make_row(ticker="BBB", weight=7.5),
+    )
+
+    def _rowid_select(con):
+        return con.execute(
+            "SELECT rowid, holding_ticker, weight_pct FROM fund_holdings "
+            "WHERE instrument_id='005827' ORDER BY rowid"
+        ).fetchall()
+
+    # Run 1
+    con1 = _connect_with_schema(tmp_path)
+    try:
+        upsert_holdings(con1, shuffled, now_iso="2026-05-24 00:00:00")
+        order1 = [(r[1], r[2]) for r in _rowid_select(con1)]
+    finally:
+        con1.close()
+    # Run 2 (new DB, same input)
+    tmp2 = tmp_path / "rerun"
+    tmp2.mkdir()
+    con2 = _connect_with_schema(tmp2)
+    try:
+        upsert_holdings(con2, shuffled, now_iso="2026-05-24 00:00:00")
+        order2 = [(r[1], r[2]) for r in _rowid_select(con2)]
+    finally:
+        con2.close()
+    assert order1 == order2
+    # Locked sort: weight DESC then ticker ASC.
+    assert order1 == [
+        ("AAA", 10.0), ("MMM", 10.0), ("BBB", 7.5), ("ZZZ", 5.0),
+    ]
+
+
+def test_upsert_holdings_empty_iterable_is_noop(tmp_path: Path) -> None:
+    from irc.data.fund_holdings_ingestor import upsert_holdings
+    con = _connect_with_schema(tmp_path)
+    try:
+        n = upsert_holdings(con, (), now_iso="2026-05-24 00:00:00")
+        assert n == 0
+    finally:
+        con.close()

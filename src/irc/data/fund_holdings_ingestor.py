@@ -113,7 +113,35 @@ def upsert_holdings(
     *,
     now_iso: str,
 ) -> int:
-    raise NotImplementedError  # Task 3
+    """Atomic batch upsert via named-column INSERT OR REPLACE + executemany.
+
+    Rows are sorted (weight_pct DESC, holding_ticker ASC) before executemany
+    so DuckDB's row insertion order is reproducible (AC15). `_raw_ref` uses
+    build_ref_id(source, "fund_holdings", instrument_id, report_date) — shared
+    across all holdings rows for the same (iid, report_date) (AC18).
+    """
+    materialised = tuple(rows)
+    if not materialised:
+        return 0
+    ordered = sorted(
+        materialised,
+        key=lambda r: (-r.weight_pct, r.holding_ticker),
+    )
+    params = [
+        [
+            r.instrument_id,
+            r.report_date,
+            r.holding_ticker,
+            r.holding_name,
+            r.weight_pct,
+            now_iso,
+            r.source,
+            build_ref_id(r.source, "fund_holdings", r.instrument_id, r.report_date),
+        ]
+        for r in ordered
+    ]
+    con.executemany(_UPSERT_SQL, params)
+    return len(params)
 
 
 def collect_holding_rows(
