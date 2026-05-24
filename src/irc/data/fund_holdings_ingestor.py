@@ -150,7 +150,73 @@ def collect_holding_rows(
     *,
     data_root: Path,
 ) -> tuple[tuple[HoldingRow, ...], str, str]:
-    raise NotImplementedError  # Tasks 4-5
+    """Read holdings rows from item 003's ActiveFundSnapshot cache (primary)
+    or fetch_cn_etf_holdings AkShare adapter (fallback, cn_etf only).
+
+    Returns (rows, source, detail). detail values:
+      - "loaded:{quarter}"           when a non-empty snapshot was used
+      - "snapshot_empty"             when every available snapshot is empty
+      - "snapshot_missing"           when no cache exists for this iid
+      - "missing_report_date"        when snapshot.source_report_date is ""
+      - "akshare_empty"              when AkShare returned no data
+      - "fetched:{quarter}"          when AkShare returned valid data
+      - "akshare_raised:{ExcType}"   defensive per F5
+    """
+    base = data_root / "fundamentals"
+    candidates = sorted(base.glob(f"*/active_fund/fund_{instrument_id}.json"))
+    saw_any_snapshot = False
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        snap = load_active_fund_cache(instrument_id, quarter, data_root)
+        if snap is None:
+            continue
+        saw_any_snapshot = True
+        if not snap.constituent_analyses:
+            # Empty snapshot — keep looking for an older non-empty one.
+            continue
+        if not snap.source_report_date:
+            return (), "active_fund_snapshot", "missing_report_date"
+        rows = tuple(
+            HoldingRow(
+                instrument_id=instrument_id,
+                report_date=snap.source_report_date,
+                holding_ticker=c.symbol,
+                holding_name=c.name_cn,
+                weight_pct=c.weight_pct,
+                source="active_fund_snapshot",
+            )
+            for c in snap.constituent_analyses
+            if c.symbol
+        )
+        return rows, "active_fund_snapshot", f"loaded:{quarter}"
+    if saw_any_snapshot:
+        return (), "active_fund_snapshot", "snapshot_empty"
+    # No active-fund cache for this iid. cn_etf falls back to direct AkShare;
+    # cn_equity_fund does NOT (item 003 owns the active-fund holdings cache).
+    if asset_class != "cn_etf":
+        return (), "active_fund_snapshot", "snapshot_missing"
+    # F5: defensive try/except. fetch_cn_etf_holdings contract says it never
+    # raises, but propagating an unexpected exception would crash the whole
+    # ingest stage.
+    try:
+        result = fetch_cn_etf_holdings(instrument_id, top_n=10)
+    except Exception as exc:
+        return (), "akshare_cn_etf", f"akshare_raised:{type(exc).__name__}"
+    if not result.constituents or not result.source_report_date:
+        return (), "akshare_cn_etf", "akshare_empty"
+    rows = tuple(
+        HoldingRow(
+            instrument_id=instrument_id,
+            report_date=result.source_report_date,
+            holding_ticker=h.symbol,
+            holding_name=h.name_cn,
+            weight_pct=h.weight_pct,
+            source="akshare_cn_etf",
+        )
+        for h in result.constituents
+        if h.symbol
+    )
+    return rows, "akshare_cn_etf", f"fetched:{result.source_report_quarter}"
 
 
 def ingest_one(

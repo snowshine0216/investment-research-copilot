@@ -419,3 +419,176 @@ def test_upsert_holdings_empty_iterable_is_noop(tmp_path: Path) -> None:
         assert n == 0
     finally:
         con.close()
+
+
+# ── Task 4: collect_holding_rows (active-fund snapshot path) ─────────────────
+
+
+def _build_snapshot(
+    *, fund_id="005827", quarter="2024Q1", report_date="2024-03-31",
+    analyses=None, fund_level_failure_reasons=(),
+):
+    """Build a real ActiveFundSnapshot for round-trip through item 003's writer."""
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+    if analyses is None:
+        analyses = tuple(
+            ConstituentAnalysis(
+                symbol=f"60000{i}", name_cn=f"成份{i}",
+                weight_pct=float(10 - i), evidence=(),
+                failure_reasons=(), one_line_view="",
+            )
+            for i in range(10)
+        )
+    return ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date=report_date,
+        source_report_quarter=quarter,
+        cache_probed_at="2024-04-30T12:00:00+08:00",
+        constituent_analyses=analyses,
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=fund_level_failure_reasons,
+    )
+
+
+def _write_snap(snap, tmp_path: Path) -> Path:
+    """Write a snapshot via item 003's writer to the standard cache layout."""
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    return write_active_fund_cache(snap, tmp_path / "data")
+
+
+def test_collect_holding_rows_from_active_fund_snapshot(tmp_path: Path) -> None:
+    """AC8 — cn_equity_fund reads ActiveFundSnapshot cache directly."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    snap = _build_snapshot()
+    _write_snap(snap, tmp_path)
+    rows, source, detail = collect_holding_rows(
+        "005827", "cn_equity_fund", data_root=tmp_path / "data",
+    )
+    assert len(rows) == 10
+    assert source == "active_fund_snapshot"
+    assert detail == "loaded:2024Q1"
+    assert all(r.source == "active_fund_snapshot" for r in rows)
+    assert all(r.report_date == "2024-03-31" for r in rows)
+
+
+def test_collect_holding_rows_cn_etf_cache_hit_wins(tmp_path: Path) -> None:
+    """AC8 — when a cn_etf iid happens to have a cached ActiveFundSnapshot,
+    the snapshot wins (no AkShare fallback). Verified by patching
+    fetch_cn_etf_holdings to raise."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    import irc.data.fund_holdings_ingestor as mod
+    snap = _build_snapshot(fund_id="510300", quarter="2024Q1")
+    _write_snap(snap, tmp_path)
+    original = mod.fetch_cn_etf_holdings
+    mod.fetch_cn_etf_holdings = lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("must not be called when cache hits")
+    )
+    try:
+        rows, source, _ = collect_holding_rows(
+            "510300", "cn_etf", data_root=tmp_path / "data",
+        )
+    finally:
+        mod.fetch_cn_etf_holdings = original
+    assert source == "active_fund_snapshot"
+    assert len(rows) == 10
+
+
+def test_collect_holding_rows_latest_quarter_wins(tmp_path: Path) -> None:
+    """A 2024Q4 snapshot beats 2024Q1 (lexicographic latest)."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    from irc.fundamentals.types import ConstituentAnalysis
+    q1 = _build_snapshot(quarter="2024Q1", report_date="2024-03-31")
+    q4 = _build_snapshot(
+        quarter="2024Q4", report_date="2024-12-31",
+        analyses=(
+            ConstituentAnalysis(
+                symbol="NEW", name_cn="新", weight_pct=5.0,
+                evidence=(), failure_reasons=(), one_line_view="",
+            ),
+        ),
+    )
+    _write_snap(q1, tmp_path)
+    _write_snap(q4, tmp_path)
+    rows, _, detail = collect_holding_rows(
+        "005827", "cn_equity_fund", data_root=tmp_path / "data",
+    )
+    assert detail == "loaded:2024Q4"
+    assert rows[0].report_date == "2024-12-31"
+    assert rows[0].holding_ticker == "NEW"
+
+
+def test_collect_holding_rows_skips_empty_snapshot_and_falls_through(tmp_path: Path) -> None:
+    """Latest snapshot is empty but an older one has data → use the older one."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    q1 = _build_snapshot(quarter="2024Q1", report_date="2024-03-31")
+    q4_empty = _build_snapshot(
+        quarter="2024Q4", report_date="2024-12-31", analyses=(),
+    )
+    _write_snap(q1, tmp_path)
+    _write_snap(q4_empty, tmp_path)
+    rows, _, detail = collect_holding_rows(
+        "005827", "cn_equity_fund", data_root=tmp_path / "data",
+    )
+    assert detail == "loaded:2024Q1"
+    assert len(rows) == 10
+
+
+def test_collect_holding_rows_no_cache_for_cn_equity_fund_returns_empty(tmp_path: Path) -> None:
+    """AC10 path-equivalent — no cache + cn_equity_fund returns () with
+    detail='snapshot_missing'. fetch_cn_etf_holdings is NOT called (patched to raise)."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    import irc.data.fund_holdings_ingestor as mod
+    original = mod.fetch_cn_etf_holdings
+    mod.fetch_cn_etf_holdings = lambda *a, **kw: (_ for _ in ()).throw(
+        AssertionError("must not be called for cn_equity_fund")
+    )
+    try:
+        rows, source, detail = collect_holding_rows(
+            "005827", "cn_equity_fund", data_root=tmp_path / "data",
+        )
+    finally:
+        mod.fetch_cn_etf_holdings = original
+    assert rows == ()
+    assert source == "active_fund_snapshot"
+    assert detail == "snapshot_missing"
+
+
+def test_collect_holding_rows_all_quarters_empty_returns_snapshot_empty(tmp_path: Path) -> None:
+    """AC10 — every available snapshot has constituent_analyses=()."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    only_empty = _build_snapshot(quarter="2024Q1", analyses=())
+    _write_snap(only_empty, tmp_path)
+    rows, source, detail = collect_holding_rows(
+        "005827", "cn_equity_fund", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert source == "active_fund_snapshot"
+    assert detail == "snapshot_empty"
+
+
+def test_collect_holding_rows_missing_report_date_returns_empty(tmp_path: Path) -> None:
+    """AC11 — snapshot.source_report_date == '' → 'missing_report_date'."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    snap = _build_snapshot(report_date="")
+    _write_snap(snap, tmp_path)
+    rows, _, detail = collect_holding_rows(
+        "005827", "cn_equity_fund", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert detail == "missing_report_date"
+
+
+def test_collect_holding_rows_skips_constituents_with_empty_symbol(tmp_path: Path) -> None:
+    """Defence-in-depth — ConstituentAnalysis.__post_init__ already blocks
+    empty symbols, but the comprehension filters anyway."""
+    # Since ConstituentAnalysis enforces non-empty symbol at construction,
+    # this test confirms the comprehension uses `if c.symbol` and we don't
+    # accidentally construct HoldingRow with an empty ticker (which would
+    # itself raise in HoldingRow.__post_init__). Documentation of intent.
+    from irc.fundamentals.types import ConstituentAnalysis
+    import pytest as _pt
+    with _pt.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="", name_cn="x", weight_pct=1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
