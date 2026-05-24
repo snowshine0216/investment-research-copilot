@@ -71,3 +71,37 @@ def test_ensure_schema_rolls_back_on_ddl_error(tmp_path: Path, monkeypatch: pyte
     actual = {r[0] for r in rows}
     assert actual.isdisjoint(EXPECTED_TABLES)
     con.close()
+
+
+def test_fund_holdings_ddl_is_byte_equal_to_locked_baseline() -> None:
+    """AC1 — item 010 must NOT mutate the fund_holdings DDL. The locked
+    baseline below is the captured pre-item-010 string. If this test fails,
+    either: (a) the schema was intentionally changed (update the baseline
+    and the spec), or (b) the change was accidental — revert it."""
+    from irc.data.duckdb_helper import _DDL_STATEMENTS, _PROVENANCE_COLS
+    expected = (
+        f"""CREATE TABLE IF NOT EXISTS fund_holdings (
+        instrument_id     VARCHAR NOT NULL,
+        report_date       DATE    NOT NULL,
+        holding_ticker    VARCHAR NOT NULL,
+        holding_name      VARCHAR,
+        weight_pct        DOUBLE  NOT NULL,
+        {_PROVENANCE_COLS},
+        PRIMARY KEY (instrument_id, report_date, holding_ticker)
+    )"""
+    )
+    matches = [
+        s for s in _DDL_STATEMENTS
+        if "CREATE TABLE IF NOT EXISTS fund_holdings" in s
+    ]
+    assert len(matches) == 1, "exactly one fund_holdings DDL expected"
+    assert matches[0] == expected, (
+        "fund_holdings DDL drift detected — locked by AC1.\n"
+        f"expected:\n{expected!r}\nactual:\n{matches[0]!r}"
+    )
+
+
+def test_fund_holdings_remains_in_expected_tables() -> None:
+    """AC1 corollary — fund_holdings is still listed in EXPECTED_TABLES."""
+    from irc.data.duckdb_helper import EXPECTED_TABLES
+    assert "fund_holdings" in EXPECTED_TABLES
