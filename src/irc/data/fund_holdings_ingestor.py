@@ -82,7 +82,21 @@ def is_stale(
     today_iso: str,
     threshold_days: int = 30,
 ) -> bool:
-    raise NotImplementedError  # Task 2
+    """Returns True iff fund_holdings has no rows for instrument_id OR the
+    latest report_date is older than (today_iso - threshold_days) days.
+
+    `today_iso` is wall-clock CST from `_china_today()` at the wire-in site
+    (F1 / AC20); test callers pass an explicit ISO string. Pure DuckDB read.
+    """
+    result = con.execute(
+        "SELECT MAX(report_date) FROM fund_holdings WHERE instrument_id = ?",
+        [instrument_id],
+    ).fetchone()
+    if result is None or result[0] is None:
+        return True
+    latest = result[0]
+    age = (date.fromisoformat(today_iso) - latest).days
+    return age > threshold_days
 
 
 _UPSERT_SQL = (
