@@ -592,3 +592,122 @@ def test_collect_holding_rows_skips_constituents_with_empty_symbol(tmp_path: Pat
             symbol="", name_cn="x", weight_pct=1.0,
             evidence=(), failure_reasons=(), one_line_view="",
         )
+
+
+# ── Task 5: collect_holding_rows cn_etf AkShare fallback ─────────────────────
+
+
+def _fake_holdings_result(
+    *, source_report_date="2024-03-31",
+    source_report_quarter="2024Q1", n=10,
+):
+    from irc.fundamentals.types import FundHolding, HoldingsResult
+    return HoldingsResult(
+        constituents=tuple(
+            FundHolding(
+                symbol=f"60000{i}", name_cn=f"成份{i}",
+                weight_pct=float(10 - i),
+                exchange="SH", provider_symbol=f"60000{i}",
+            )
+            for i in range(n)
+        ),
+        source_report_date=source_report_date,
+        source_report_quarter=source_report_quarter,
+    )
+
+
+def test_collect_holding_rows_cn_etf_fallback_to_akshare(tmp_path, monkeypatch) -> None:
+    """AC9 — no cache + cn_etf → fetch_cn_etf_holdings called once, source='akshare_cn_etf'."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    calls: list[tuple[str, int]] = []
+
+    def _fake(iid, *, top_n=10, **kw):
+        calls.append((iid, top_n))
+        return _fake_holdings_result()
+
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings", _fake
+    )
+    rows, source, detail = collect_holding_rows(
+        "510300", "cn_etf", data_root=tmp_path / "data",
+    )
+    assert calls == [("510300", 10)]
+    assert source == "akshare_cn_etf"
+    assert detail == "fetched:2024Q1"
+    assert len(rows) == 10
+    assert all(r.source == "akshare_cn_etf" for r in rows)
+    assert all(r.report_date == "2024-03-31" for r in rows)
+
+
+def test_collect_holding_rows_cn_etf_fallback_empty_result(tmp_path, monkeypatch) -> None:
+    """AkShare returned an empty HoldingsResult → 'akshare_empty', no rows."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    from irc.fundamentals.types import HoldingsResult
+
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: HoldingsResult((), "", ""),
+    )
+    rows, source, detail = collect_holding_rows(
+        "510300", "cn_etf", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert source == "akshare_cn_etf"
+    assert detail == "akshare_empty"
+
+
+def test_collect_holding_rows_cn_etf_fallback_missing_report_date(tmp_path, monkeypatch) -> None:
+    """AkShare returned constituents but no source_report_date → 'akshare_empty'."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: _fake_holdings_result(
+            source_report_date="", source_report_quarter="",
+        ),
+    )
+    rows, _, detail = collect_holding_rows(
+        "510300", "cn_etf", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert detail == "akshare_empty"
+
+
+def test_collect_holding_rows_cn_etf_fallback_handles_raise(tmp_path, monkeypatch) -> None:
+    """F5 defensive — fetch_cn_etf_holdings raises → 'akshare_raised:ConnectionError'.
+    Never propagates the exception out of collect_holding_rows."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+
+    def _boom(*a, **kw):
+        raise ConnectionError("simulated")
+
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings", _boom
+    )
+    rows, source, detail = collect_holding_rows(
+        "510300", "cn_etf", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert source == "akshare_cn_etf"
+    assert detail == "akshare_raised:ConnectionError"
+
+
+def test_collect_holding_rows_cn_etf_fallback_skips_when_snapshot_empty_only(
+    tmp_path, monkeypatch,
+) -> None:
+    """When an empty snapshot exists, the fallback does NOT fire — snapshot_empty
+    short-circuits before falling through to AkShare."""
+    from irc.data.fund_holdings_ingestor import collect_holding_rows
+    only_empty = _build_snapshot(fund_id="510300", quarter="2024Q1", analyses=())
+    _write_snap(only_empty, tmp_path)
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("must not be called when snapshot exists but is empty")
+        ),
+    )
+    rows, source, detail = collect_holding_rows(
+        "510300", "cn_etf", data_root=tmp_path / "data",
+    )
+    assert rows == ()
+    assert source == "active_fund_snapshot"
+    assert detail == "snapshot_empty"
