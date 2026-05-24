@@ -729,3 +729,218 @@ def test_collect_holding_rows_glob_pattern_matches_cache_path(tmp_path: Path) ->
     assert canonical in matches, (
         f"glob pattern drift detected: canonical={canonical} not in {matches}"
     )
+
+
+# ── Task 7: ingest_one orchestrator ──────────────────────────────────────────
+
+
+def test_ingest_one_writes_when_stale(tmp_path: Path) -> None:
+    """AC3 — empty table + populated cache → status='wrote', rows_written=10."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    snap = _build_snapshot()
+    _write_snap(snap, tmp_path)
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "wrote"
+        assert out.rows_written == 10
+        assert out.report_date == "2024-03-31"
+        count = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert count == 10
+    finally:
+        con.close()
+
+
+def test_ingest_one_idempotent_with_fresh_report(tmp_path: Path) -> None:
+    """AC4 — with a report_date 5 days ago, second call returns skipped_fresh
+    with rows_written=0 (no additional rows inserted, confirmed via COUNT)."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    today = date(2026, 5, 24)
+    recent = (today - timedelta(days=5)).isoformat()
+    snap = _build_snapshot(report_date=recent, quarter="2026Q2")
+    _write_snap(snap, tmp_path)
+    con = _connect_with_schema(tmp_path)
+    try:
+        # First call writes rows.
+        ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso=today.isoformat(),
+            now_iso="2026-05-24 00:00:00",
+        )
+        count_after_first = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        # Second call should skip (data is fresh).
+        out2 = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso=today.isoformat(),
+            now_iso="2026-05-24 01:00:00",
+        )
+        count_after_second = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert out2.status == "skipped_fresh"
+        assert out2.rows_written == 0
+        # Row count unchanged — no additional INSERT was made.
+        assert count_after_first == count_after_second == 10
+    finally:
+        con.close()
+
+
+def test_ingest_one_force_bypasses_staleness(tmp_path: Path) -> None:
+    """AC5 — force=True re-writes even on a fresh table."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    today = date(2026, 5, 24)
+    recent = (today - timedelta(days=5)).isoformat()
+    snap = _build_snapshot(report_date=recent, quarter="2026Q2")
+    _write_snap(snap, tmp_path)
+    con = _connect_with_schema(tmp_path)
+    try:
+        ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso=today.isoformat(),
+            now_iso="2026-05-24 00:00:00",
+        )
+        out2 = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso=today.isoformat(),
+            now_iso="2026-05-24 01:00:00",
+            force=True,
+        )
+        assert out2.status == "wrote"
+        assert out2.rows_written == 10
+        # Row count stays 10 (PK dedup).
+        count = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert count == 10
+    finally:
+        con.close()
+
+
+def test_ingest_one_asset_class_filter_gold(tmp_path: Path) -> None:
+    """AC7 — asset_class='gold' returns 'skipped_no_data'; no DuckDB touched."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "AU9999", "gold",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "skipped_no_data"
+        assert out.detail == "asset_class_not_eligible:gold"
+        assert out.rows_written == 0
+        # No rows in fund_holdings.
+        n = con.execute("SELECT COUNT(*) FROM fund_holdings").fetchone()[0]
+        assert n == 0
+    finally:
+        con.close()
+
+
+@pytest.mark.parametrize("ac", [
+    "cn_bond_fund", "us_etf", "hk_etf",
+    "qdii_us", "qdii_hk", "qdii_global",
+])
+def test_ingest_one_asset_class_filter_other(tmp_path, ac) -> None:
+    """AC7 — every non-eligible class returns 'skipped_no_data'."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "XYZ", ac,
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "skipped_no_data"
+        assert out.detail == f"asset_class_not_eligible:{ac}"
+    finally:
+        con.close()
+
+
+def test_ingest_one_active_fund_cache_wins_over_akshare(tmp_path, monkeypatch) -> None:
+    """AC8 — single source of truth. Snapshot wins; fetch_cn_etf_holdings
+    must not be called for cn_equity_fund."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    snap = _build_snapshot()
+    _write_snap(snap, tmp_path)
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: (_ for _ in ()).throw(
+            AssertionError("must not be called")
+        ),
+    )
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "wrote"
+    finally:
+        con.close()
+
+
+def test_ingest_one_snapshot_empty_preserves_existing_rows(tmp_path: Path) -> None:
+    """AC10 — pre-existing rows + later empty snapshot → no delete; outcome
+    is 'skipped_no_data' (detail='snapshot_empty')."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    today = date(2026, 5, 24)
+    # Seed an old Q1 row in DuckDB.
+    con = _connect_with_schema(tmp_path)
+    try:
+        _insert_holding(
+            con, iid="005827",
+            report_date=today - timedelta(days=200),
+            ticker="OLD_HOLDING",
+        )
+        # Write an EMPTY snapshot under a NEW (later) quarter, no non-empty one.
+        empty_snap = _build_snapshot(quarter="2026Q1", analyses=())
+        _write_snap(empty_snap, tmp_path)
+        before = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso=today.isoformat(),
+            now_iso="2026-05-24 00:00:00",
+        )
+        after = con.execute(
+            "SELECT COUNT(*) FROM fund_holdings WHERE instrument_id='005827'"
+        ).fetchone()[0]
+        assert out.status == "skipped_no_data"
+        assert out.detail == "snapshot_empty"
+        assert before == after == 1, "no delete on empty snapshot"
+    finally:
+        con.close()
+
+
+def test_ingest_one_missing_report_date(tmp_path: Path) -> None:
+    """AC11 — snapshot has source_report_date='' → 'missing_report_date'."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    snap = _build_snapshot(report_date="")
+    _write_snap(snap, tmp_path)
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "skipped_no_data"
+        assert out.detail == "missing_report_date"
+        assert out.rows_written == 0
+    finally:
+        con.close()

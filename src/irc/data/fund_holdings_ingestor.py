@@ -230,7 +230,47 @@ def ingest_one(
     threshold_days: int = 30,
     force: bool = False,
 ) -> IngestOutcome:
-    raise NotImplementedError  # Task 7
+    """I/O orchestration boundary: staleness check → collect → upsert.
+
+    Pre-condition: caller MUST invoke ensure_schema(con) first (F6).
+    ingest_one does not call it itself.
+
+    Idempotent on same-day reruns (returns 'skipped_fresh' with rows_written=0
+    when not stale). Never raises — failures are captured in IngestOutcome.
+    `today_iso` is wall-clock CST (`_china_today()`); see AC20 / F1.
+    """
+    if asset_class not in _ELIGIBLE_ASSET_CLASSES:
+        return IngestOutcome(
+            instrument_id=instrument_id,
+            status="skipped_no_data",
+            report_date="",
+            rows_written=0,
+            detail=f"asset_class_not_eligible:{asset_class}",
+        )
+    if not force and not is_stale(
+        con, instrument_id,
+        today_iso=today_iso, threshold_days=threshold_days,
+    ):
+        return IngestOutcome(
+            instrument_id=instrument_id, status="skipped_fresh",
+            report_date="", rows_written=0, detail="fresh_within_threshold",
+        )
+    rows, _source, detail = collect_holding_rows(
+        instrument_id, asset_class, data_root=data_root,
+    )
+    if not rows:
+        status: Literal["skipped_no_data", "failed"] = (
+            "failed" if detail.startswith("akshare_raised:") else "skipped_no_data"
+        )
+        return IngestOutcome(
+            instrument_id=instrument_id, status=status,
+            report_date="", rows_written=0, detail=detail,
+        )
+    n = upsert_holdings(con, rows, now_iso=now_iso)
+    return IngestOutcome(
+        instrument_id=instrument_id, status="wrote",
+        report_date=rows[0].report_date, rows_written=n, detail="",
+    )
 
 
 def ingest_many(
