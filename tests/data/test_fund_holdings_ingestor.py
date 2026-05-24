@@ -1066,3 +1066,58 @@ def test_ingest_many_empty_targets_returns_empty(tmp_path: Path) -> None:
         assert outcomes == ()
     finally:
         con.close()
+
+
+# ── Task 9: Scoring integration round-trip (AC12) ────────────────────────────
+
+
+def test_scoring_metrics_reads_ingested_holdings(tmp_path: Path) -> None:
+    """AC12 — after ingest_one writes holdings whose weights sum to 45.0,
+    load_scoring_metrics returns holdings_concentration_top10 == 0.45."""
+    from irc.data.fund_holdings_ingestor import ingest_one
+    from irc.fundamentals.types import ConstituentAnalysis
+    from irc.scoring.metrics_loader import load_scoring_metrics
+
+    # Three holdings summing to 45.0% (20 + 15 + 10).
+    analyses = (
+        ConstituentAnalysis(
+            symbol="H1", name_cn="一", weight_pct=20.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        ),
+        ConstituentAnalysis(
+            symbol="H2", name_cn="二", weight_pct=15.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        ),
+        ConstituentAnalysis(
+            symbol="H3", name_cn="三", weight_pct=10.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        ),
+    )
+    snap = _build_snapshot(
+        fund_id="005827", quarter="2024Q1",
+        report_date="2024-03-31", analyses=analyses,
+    )
+    _write_snap(snap, tmp_path)
+
+    # Seed the instruments row so load_scoring_metrics produces a non-empty DF.
+    con = _connect_with_schema(tmp_path)
+    try:
+        ingested = "2026-05-24 00:00:00"
+        con.execute(
+            "INSERT INTO instruments VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ["005827", "005827", "cn_off_exchange", "易方达蓝筹精选", None,
+             "cn_equity_fund", "cny", None, 0.015, 1e10, None, 5.0,
+             ingested, "test", "ref_inst_005827"],
+        )
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso=ingested,
+        )
+        assert out.status == "wrote"
+        metrics = load_scoring_metrics(con, ["005827"])
+        row = metrics.iloc[0].to_dict()
+        assert row["holdings_concentration_top10"] == 0.45
+    finally:
+        con.close()
