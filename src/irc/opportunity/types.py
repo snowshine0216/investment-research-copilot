@@ -3,6 +3,36 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
+from irc.fundamentals.types import (
+    CitationKind,
+    CitationScope,
+    ConstituentAnalysis,
+    LookthroughKind,
+    LookthroughTarget,
+    ThesisEvidence,
+)
+
+__all__ = [
+    "CitationKind",
+    "CitationMeta",
+    "CitationScope",
+    "CitedMap",
+    "ConstituentAnalysis",
+    "ConstituentCitedMap",
+    "DcaAction",
+    "DisciplineRow",
+    "LookthroughKind",
+    "LookthroughTarget",
+    "OpportunityInput",
+    "OpportunityRow",
+    "OpportunityState",
+    "ProductQualityState",
+    "RiskAction",
+    "ThesisCard",
+    "ThesisEvidence",
+    "ThesisState",
+    "ValuationState",
+]
 
 VALUATION_STATES: tuple[str, ...] = (
     "cheap", "reasonable_low", "fair", "expensive", "very_expensive", "evidence_insufficient",
@@ -34,18 +64,6 @@ ProductQualityState = Literal["strong", "acceptable", "weak", "poor", "evidence_
 OpportunityState = Literal["core_dca", "small_watch", "pause_wait", "exclude"]
 DcaAction = Literal["accelerate_dca", "normal_dca", "slow_dca", "pause_dca", "do_not_buy"]
 RiskAction = Literal["none", "review_required", "trim_review", "exit_review"]
-
-
-LookthroughKind = Literal[
-    "broad_index", "sector_theme", "qdii_us", "qdii_hk", "bond", "gold", "active_fund",
-]
-
-
-@dataclass(frozen=True)
-class LookthroughTarget:
-    kind: LookthroughKind
-    key: str
-    display_cn: str
 
 
 @dataclass(frozen=True)
@@ -96,22 +114,29 @@ class OpportunityInput:
     real_yield_10y: float | None = None
 
 
-ThesisEvidenceKind = Literal["filing", "broker", "news", "policy", "snapshot"]
-
-
 @dataclass(frozen=True)
-class ThesisEvidence:
-    """Primary-source citation backing a `thesis_state`.
+class CitationMeta:
+    """Per-citation metadata indexed by `citation_id` in `CitedMap`.
 
-    `type` distinguishes the evidence shape: a filing digest, a broker report,
-    a news article, a policy statement, or a snapshot summary line. Renderers
-    can group by type; consumers should not infer state directly from `summary`.
+    `asset_class` is the asset class of the row whose `instrument_id ==
+    owner_instrument_id` at `build_cited_map` time. Required because the
+    portfolio-section audit (item 007/009) rejects scope-mismatched citations
+    from `CitationMeta.asset_class` alone, without alias lookup.
     """
-    type: ThesisEvidenceKind
-    source: str
-    url: str
-    date: str
-    summary: str
+    scope: CitationScope
+    citation_kind: CitationKind
+    owner_instrument_id: str
+    asset_class: str
+    parent_fund_id: str | None
+    constituent_key: str | None
+
+
+# Type aliases consumed by build_cited_map and downstream audit gates (item 009).
+CitedMap = dict[str, dict[str, CitationMeta]]
+"""instrument_id → {citation_id: CitationMeta}"""
+
+ConstituentCitedMap = dict[str, dict[str, dict[str, CitationMeta]]]
+"""instrument_id → constituent_key → {citation_id: CitationMeta}"""
 
 
 @dataclass(frozen=True)
@@ -130,6 +155,12 @@ class OpportunityRow:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    contributing_dimensions: frozenset[str] = field(default_factory=frozenset)
+    # Item 002: fetch pipeline diagnostics — mirrors DisciplineRow.fetch_types_attempted.
+    # Serialized by _row_to_dict so render_failure_sections can populate 已尝试:.
+    fetch_types_attempted: tuple[str, ...] = ()
+    # Item 003: per-constituent structured evidence for active-fund rows.
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -155,6 +186,8 @@ class ThesisCard:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    # Item 003: per-constituent structured evidence (threaded from OpportunityRow).
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -167,3 +200,9 @@ class DisciplineRow:
     dca_action: DcaAction
     risk_action: RiskAction
     note_cn: str
+    # Item 002: gap state and provenance carried through to renderers.
+    # Item 003: `constituent_analyses` narrowed from `tuple[object, ...]` to typed.
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
+    evidence_gaps: tuple[str, ...] = ()
+    fetch_types_attempted: tuple[str, ...] = ()

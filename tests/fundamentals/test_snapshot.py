@@ -22,6 +22,7 @@ from irc.fundamentals.types import (
     ConstituentSnapshot,
     FilingDigest,
 )
+from irc.opportunity.types import LookthroughTarget
 
 
 # ---------- registry / build_snapshot ----------
@@ -61,7 +62,7 @@ def test_build_snapshot_cn_index_dispatches_to_akshare(monkeypatch, cn_target_re
         snapshot, "fetch_cn_broker_reports",
         lambda sym, **_: (report,) if sym == "600519.SH" else (),
     )
-    snap = build_snapshot("白酒指数", top_n=2, as_of_iso="2026-05-15")
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "白酒指数"), top_n=2, as_of_iso="2026-05-15")
     assert isinstance(snap, ConstituentSnapshot)
     assert snap.lookthrough_target == "白酒指数"
     assert snap.as_of_iso == "2026-05-15"
@@ -73,7 +74,7 @@ def test_build_snapshot_cn_index_dispatches_to_akshare(monkeypatch, cn_target_re
 
 
 def test_build_snapshot_unknown_target_returns_empty_with_failure_reason() -> None:
-    snap = build_snapshot("never-seen-target", top_n=5, as_of_iso="2026-05-15")
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "never-seen-target"), top_n=5, as_of_iso="2026-05-15")
     assert snap.constituents == ()
     assert snap.filings == ()
     assert snap.broker_reports == ()
@@ -94,7 +95,8 @@ def test_build_snapshot_us_symbols_dispatches_to_edgar(monkeypatch):
         snapshot, "fetch_us_filing_digest_diag",
         lambda sym: (aapl_digest, None) if sym == "AAPL" else (None, "network"),
     )
-    snap = build_snapshot("Mag7", as_of_iso="2026-05-15")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "Mag7"), as_of_iso="2026-05-15")
     assert snap.constituents == (
         Constituent(symbol="AAPL", name="AAPL", weight=0.0, market="us"),
         Constituent(symbol="MSFT", name="MSFT", weight=0.0, market="us"),
@@ -118,7 +120,8 @@ def test_build_snapshot_hk_symbols_dispatches_to_hkex(monkeypatch):
         snapshot, "fetch_hk_filing_digest",
         lambda sym: tencent_digest if sym == "0700.HK" else None,
     )
-    snap = build_snapshot("HK-Tech", as_of_iso="2026-05-15")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_hk now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "HK-Tech"), as_of_iso="2026-05-15")
     assert snap.filings == (tencent_digest,)
     assert snap.broker_reports == ()
 
@@ -146,7 +149,8 @@ def test_build_snapshot_hk_index_dispatches_to_hk_constituents(monkeypatch):
         lambda sym: digest if sym == "00700.HK" else None,
     )
 
-    snap = build_snapshot("HSI-test", top_n=2, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_hk now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "x", "HSI-test"), top_n=2, as_of_iso="2026-05-16")
 
     assert snap.lookthrough_target == "HSI-test"
     assert snap.constituents == constituents
@@ -263,7 +267,8 @@ def test_build_us_snapshot_tags_each_failure_with_error_code(monkeypatch) -> Non
         snapshot, "fetch_us_filing_digest_diag",
         lambda sym: (None, "missing_email"),
     )
-    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert snap.lookthrough_target == "纳斯达克100"
     assert snap.filings == ()
     per_symbol = [r for r in snap.failure_reasons if r.startswith("missing filing digest:")]
@@ -285,7 +290,8 @@ def test_build_us_snapshot_mixed_failures_omit_summary(monkeypatch) -> None:
             return None, "http_4xx"
         return None, "missing_email"
     monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
-    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert any("(http_4xx)" in r for r in snap.failure_reasons)
     assert any("(missing_email)" in r for r in snap.failure_reasons)
     assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)
@@ -307,7 +313,98 @@ def test_build_us_snapshot_partial_success(monkeypatch) -> None:
             return good, None
         return None, "http_4xx"
     monkeypatch.setattr(snapshot, "fetch_us_filing_digest_diag", fake_fetch)
-    snap = build_snapshot("纳斯达克100", top_n=10, as_of_iso="2026-05-16")
+    # Use broad_index kind (no provider_symbol) to route through legacy registry — qdii_us now sentinels (item 005 F4).
+    snap = build_snapshot(LookthroughTarget("broad_index", "nasdaq100", "纳斯达克100"), top_n=10, as_of_iso="2026-05-16")
     assert snap.filings == (good,)
     assert any(r == "missing filing digest: MSFT (http_4xx)" for r in snap.failure_reasons)
     assert not any(r.startswith("all US fetches failed:") for r in snap.failure_reasons)
+
+
+# ── Item 003: active-fund snapshot tests ──────────────────────────────────────
+
+from irc.fundamentals.types import (  # noqa: E402
+    ActiveFundSnapshot, FundHolding, HoldingsResult,
+)
+
+
+def _holdings_result_cn(symbols=("600519", "000333")):
+    return HoldingsResult(
+        constituents=tuple(
+            FundHolding(symbol=s, name_cn=s, weight_pct=10.0 - i,
+                        exchange="SH" if s.startswith("6") else "SZ",
+                        provider_symbol=s)
+            for i, s in enumerate(symbols)
+        ),
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+    )
+
+
+def test_build_snapshot_active_fund_dispatch(monkeypatch) -> None:
+    """Active-fund target returns ActiveFundSnapshot via _build_active_fund_snapshot."""
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: _holdings_result_cn(),
+    )
+    monkeypatch.setattr(snapshot, "fetch_cn_filing_digest", lambda s: None)
+    monkeypatch.setattr(snapshot, "fetch_cn_broker_reports", lambda s: ())
+    monkeypatch.setattr(snapshot, "fetch_cn_stock_news", lambda s, top_k=3: ())
+    target = LookthroughTarget("active_fund", "fund_005827", "易方达蓝筹精选", "005827")
+    out = build_snapshot(target, top_n=10)
+    assert isinstance(out, ActiveFundSnapshot)
+    assert out.fund_id == "005827"
+    assert out.source_report_quarter == "2024Q1"
+    assert len(out.constituent_analyses) == 2
+
+
+def test_build_snapshot_legacy_string_target_still_works(monkeypatch) -> None:
+    """build_snapshot still accepts LookthroughTarget for legacy kinds."""
+    target = LookthroughTarget("broad_index", "csi300", "never-seen-target")
+    snap = build_snapshot(target, top_n=5, as_of_iso="2026-05-15")
+    # Unknown legacy display_cn → failure reason path.
+    assert snap.lookthrough_target == "never-seen-target"
+    assert snap.failure_reasons
+
+
+def test_build_snapshot_active_fund_empty_holdings_records_fund_level_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_etf_holdings",
+        lambda sym, top_n=10: HoldingsResult((), "", ""),
+    )
+    target = LookthroughTarget("active_fund", "fund_005827", "易方达蓝筹精选", "005827")
+    out = build_snapshot(target, top_n=10)
+    assert isinstance(out, ActiveFundSnapshot)
+    assert out.constituent_analyses == ()
+    assert any(r.startswith("holdings_fetch_failed:005827") for r in out.fund_level_failure_reasons)
+
+
+def test_build_snapshot_active_fund_routes_hk_through_hk_adapters(monkeypatch) -> None:
+    """HK holdings call fetch_hk_filing_digest + fetch_hk_stock_news; NEVER fetch_cn_broker_reports."""
+    hk_only = HoldingsResult(
+        constituents=(FundHolding("00700", "腾讯", 9.0, "HK", "00700"),),
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+    )
+    monkeypatch.setattr(snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: hk_only)
+    cn_broker_called = []
+    monkeypatch.setattr(
+        snapshot, "fetch_cn_broker_reports",
+        lambda s: cn_broker_called.append(s) or (),
+    )
+    monkeypatch.setattr(snapshot, "fetch_hk_filing_digest", lambda s: None)
+    monkeypatch.setattr(snapshot, "fetch_hk_stock_news", lambda s, top_k=3: ())
+    target = LookthroughTarget("active_fund", "fund_x", "x", "x")
+    build_snapshot(target, top_n=1)
+    assert cn_broker_called == []  # never called for HK constituents
+
+
+def test_build_snapshot_active_fund_records_us_unsupported(monkeypatch) -> None:
+    us_only = HoldingsResult(
+        constituents=(FundHolding("AAPL", "Apple", 9.0, "US", "AAPL"),),
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+    )
+    monkeypatch.setattr(snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: us_only)
+    target = LookthroughTarget("active_fund", "fund_x", "x", "x")
+    out = build_snapshot(target, top_n=1)
+    assert isinstance(out, ActiveFundSnapshot)
+    assert "us_evidence_unsupported:AAPL" in out.failure_reasons_by_symbol["AAPL"]

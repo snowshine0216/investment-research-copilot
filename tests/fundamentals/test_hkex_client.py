@@ -104,3 +104,77 @@ def test_fetch_hk_filing_digest_returns_none_when_empty() -> None:
     with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
         mocked.return_value = pd.DataFrame()
         assert fetch_hk_filing_digest("0700.HK") is None
+
+
+# ── Item 003: fetch_hk_stock_news ─────────────────────────────────────────────
+
+from irc.fundamentals.hkex_client import fetch_hk_stock_news  # noqa: E402
+
+
+_HK_NEWS_FRAME = pd.DataFrame({
+    "发布时间": [
+        "2024-04-15 09:00:00",
+        "2024-04-14 09:00:00",
+        "2024-04-13 09:00:00",
+        "2024-04-12 09:00:00",
+        "2024-04-11 09:00:00",
+    ],
+    "标题": ["t1", "t2", "t3", "t4", "t5"],
+    "内容摘要": ["a", "b", "c", "d", "e"],
+    "新闻链接": [f"https://hk-news.example/{i}" for i in range(5)],
+})
+
+
+def test_fetch_hk_stock_news_top_3_by_date_desc() -> None:
+    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
+        mocked.return_value = _HK_NEWS_FRAME
+        out = fetch_hk_stock_news("00700", top_k=3)
+    assert mocked.call_args[0][0] == "stock_hk_news_em"
+    assert mocked.call_args[1] == {"symbol": "00700"}
+    assert len(out) == 3
+    assert out[0].published_iso == "2024-04-15"
+    assert out[0].source == "stock_hk_news_em"
+    assert out[0].symbol == "00700"
+
+
+def test_fetch_hk_stock_news_unsupported_adapter_raises() -> None:
+    """P1-c: AttributeError (missing adapter) propagates so callers can classify it."""
+    import pytest
+    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
+        mocked.side_effect = AttributeError("module 'akshare' has no attribute 'stock_hk_news_em'")
+        with pytest.raises(AttributeError):
+            fetch_hk_stock_news("00700")
+
+
+def test_fetch_hk_stock_news_empty_frame_returns_empty() -> None:
+    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
+        mocked.return_value = pd.DataFrame()
+        out = fetch_hk_stock_news("00700")
+    assert out == ()
+
+
+def test_fetch_hk_stock_news_connection_error_raises() -> None:
+    """P1-c: ConnectionError propagates so callers can classify it as hk_news_fetch_failed."""
+    import pytest
+    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
+        mocked.side_effect = ConnectionError("hk dfcfw 502")
+        with pytest.raises(ConnectionError):
+            fetch_hk_stock_news("00700")
+
+
+def test_hk_news_adapter_available_true(monkeypatch) -> None:
+    import sys
+    import types
+    fake_ak = types.SimpleNamespace(stock_hk_news_em=lambda **kw: None)
+    monkeypatch.setitem(sys.modules, "akshare", fake_ak)
+    from irc.fundamentals.hkex_client import hk_news_adapter_available
+    assert hk_news_adapter_available() is True
+
+
+def test_hk_news_adapter_available_false_when_missing(monkeypatch) -> None:
+    import sys
+    import types
+    fake_ak = types.SimpleNamespace()  # no stock_hk_news_em attribute
+    monkeypatch.setitem(sys.modules, "akshare", fake_ak)
+    from irc.fundamentals.hkex_client import hk_news_adapter_available
+    assert hk_news_adapter_available() is False

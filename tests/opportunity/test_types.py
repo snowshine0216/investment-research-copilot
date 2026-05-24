@@ -4,11 +4,9 @@ from dataclasses import FrozenInstanceError
 
 from irc.opportunity.types import (
     LookthroughTarget,
-    OpportunityInput,
     OpportunityRow,
     ThesisCard,
     ThesisEvidence,
-    DisciplineRow,
     VALUATION_STATES,
     HEAT_STATES,
     THESIS_STATES,
@@ -76,6 +74,9 @@ def test_thesis_evidence_is_frozen_dataclass():
         url="http://www.cninfo.com.cn/foo",
         date="2026-04-28",
         summary="中芯国际 2026Q1 营收同比 +18%。",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None, constituent_key=None,
     )
     assert ev.type == "filing"
     with pytest.raises(FrozenInstanceError):
@@ -85,7 +86,12 @@ def test_thesis_evidence_is_frozen_dataclass():
 def test_thesis_evidence_type_must_be_known_kind():
     """Allowed kinds: filing | broker | news | policy | snapshot."""
     for kind in ("filing", "broker", "news", "policy", "snapshot"):
-        ev = ThesisEvidence(type=kind, source="s", url="u", date="d", summary="x")
+        ev = ThesisEvidence(
+            type=kind, source="s", url="u", date="d", summary="x",
+            scope="instrument", citation_kind="data",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key=None,
+        )
         assert ev.type == kind
 
 
@@ -118,7 +124,7 @@ def test_thesis_card_defaults_immutable_collections():
 def _row(**over):
     base = dict(
         instrument_id="X", name_cn="X", asset_class="gold", theme=None,
-        lookthrough_target=LookthroughTarget(kind="index", key="GOLD", display_cn="GOLD"),
+        lookthrough_target=LookthroughTarget(kind="gold", key="gold", display_cn="GOLD"),
         valuation_state="neutral", heat_state="neutral", thesis_state="evidence_insufficient",
         product_quality_state="ok", opportunity_state="small_watch", opportunity_reason="r",
         evidence_gaps=(),
@@ -135,3 +141,309 @@ def test_opportunity_row_has_expected_omissions_default_empty():
 def test_opportunity_row_accepts_expected_omissions_kwarg():
     r = _row(expected_omissions=("constituent_not_applicable",))
     assert r.expected_omissions == ("constituent_not_applicable",)
+
+
+def _evidence_kwargs(**over):
+    """Helper: minimal valid kwargs for ThesisEvidence. Override per test."""
+    base = dict(
+        type="filing",
+        source="600519",
+        url="https://example.com/foo",
+        date="2026-04-28",
+        summary="x",
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id="510300",
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    base.update(over)
+    return base
+
+
+def test_thesis_evidence_rejects_empty_owner_instrument_id():
+    with pytest.raises(ValueError, match="owner_instrument_id"):
+        ThesisEvidence(**_evidence_kwargs(owner_instrument_id=""))
+
+
+def test_thesis_evidence_rejects_invalid_citation_kind():
+    with pytest.raises(ValueError, match="citation_kind"):
+        ThesisEvidence(**_evidence_kwargs(citation_kind="both"))  # type: ignore[arg-type]
+
+
+def test_thesis_evidence_rejects_invalid_scope():
+    with pytest.raises(ValueError, match="scope"):
+        ThesisEvidence(**_evidence_kwargs(scope="random"))  # type: ignore[arg-type]
+
+
+def test_thesis_evidence_rejects_empty_type_source_date():
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(type=""))  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(source=""))
+    with pytest.raises(ValueError, match="type/source/date"):
+        ThesisEvidence(**_evidence_kwargs(date=""))
+
+
+def test_thesis_evidence_accepts_none_for_fund_level_optional_fields():
+    """parent_fund_id and constituent_key may be None for fund-level evidence."""
+    ev = ThesisEvidence(**_evidence_kwargs(parent_fund_id=None, constituent_key=None))
+    assert ev.parent_fund_id is None
+    assert ev.constituent_key is None
+
+
+def test_citation_id_is_deterministic_for_identical_preimage():
+    """Same inputs → same 16-hex citation_id. Content-addressed invariant."""
+    kwargs = _evidence_kwargs()
+    a = ThesisEvidence(**kwargs)
+    b = ThesisEvidence(**kwargs)
+    assert a.citation_id == b.citation_id
+    assert len(a.citation_id) == 16
+    assert all(c in "0123456789abcdef" for c in a.citation_id)
+
+
+def test_citation_id_differs_across_owner_instruments():
+    """Same type/source/date/url but different owner_instrument_id → different id."""
+    a = ThesisEvidence(**_evidence_kwargs(owner_instrument_id="510300"))
+    b = ThesisEvidence(**_evidence_kwargs(owner_instrument_id="163417"))
+    assert a.citation_id != b.citation_id
+
+
+def test_citation_id_differs_across_constituents_under_same_fund():
+    """Same type/source/date/url/owner_instrument_id but different constituent_key → different id."""
+    a = ThesisEvidence(**_evidence_kwargs(
+        scope="constituent", owner_instrument_id="005827",
+        parent_fund_id="005827", constituent_key="600519",
+    ))
+    b = ThesisEvidence(**_evidence_kwargs(
+        scope="constituent", owner_instrument_id="005827",
+        parent_fund_id="005827", constituent_key="000858",
+    ))
+    assert a.citation_id != b.citation_id
+
+
+from irc.opportunity.types import CitationMeta, CitedMap, ConstituentCitedMap  # noqa: E402
+
+
+def test_citation_meta_is_frozen_dataclass():
+    m = CitationMeta(
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id="510300",
+        asset_class="cn_etf",
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    assert m.asset_class == "cn_etf"
+    with pytest.raises(FrozenInstanceError):
+        m.asset_class = "x"  # type: ignore[misc]
+
+
+def test_cited_map_type_alias_is_importable():
+    """CitedMap / ConstituentCitedMap are type aliases — import smoke test."""
+    assert CitedMap is not None
+    assert ConstituentCitedMap is not None
+
+
+def test_discipline_row_has_new_evidence_fields_with_empty_defaults():
+    """DisciplineRow gains thesis_evidence, constituent_analyses, evidence_gaps,
+    fetch_types_attempted (all defaulted to empty tuples so existing test
+    constructors still work)."""
+    from irc.opportunity.types import DisciplineRow as _DR
+    r = _DR(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+    )
+    assert r.thesis_evidence == ()
+    assert r.constituent_analyses == ()
+    assert r.evidence_gaps == ()
+    assert r.fetch_types_attempted == ()
+
+
+def test_discipline_row_accepts_evidence_gaps_kwarg():
+    from irc.opportunity.types import DisciplineRow as _DR
+    r = _DR(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+        evidence_gaps=("holdings_fetch_failed",),
+        fetch_types_attempted=("filing", "broker", "news"),
+    )
+    assert r.evidence_gaps == ("holdings_fetch_failed",)
+    assert r.fetch_types_attempted == ("filing", "broker", "news")
+
+
+def test_opportunity_row_has_fetch_types_attempted_with_empty_default():
+    """OpportunityRow gains fetch_types_attempted (tuple[str, ...] = ()) so that
+    _row_to_dict can serialize it and render_failure_sections can render 已尝试:."""
+    from irc.opportunity.types import LookthroughTarget
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="reasonable_low", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=(),
+    )
+    assert row.fetch_types_attempted == ()
+
+
+def test_opportunity_row_accepts_fetch_types_attempted_kwarg():
+    """OpportunityRow.fetch_types_attempted can be set to a non-empty tuple."""
+    from irc.opportunity.types import LookthroughTarget
+    row = OpportunityRow(
+        instrument_id="510300", name_cn="x", asset_class="cn_etf", theme=None,
+        lookthrough_target=LookthroughTarget("broad_index", "csi300", "沪深300"),
+        valuation_state="reasonable_low", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="core_dca", opportunity_reason="r",
+        evidence_gaps=(),
+        fetch_types_attempted=("filing", "broker"),
+    )
+    assert row.fetch_types_attempted == ("filing", "broker")
+
+
+def test_citation_id_uses_summary_fallback_when_url_empty():
+    """When url='', summary[:64] is mixed into the preimage so two empty-URL
+    filings with different content but same source/date/instrument get distinct ids."""
+    a = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q3 营收 +12%"))
+    b = ThesisEvidence(**_evidence_kwargs(url="", summary="FY24-Q4 营收 -5%"))
+    assert a.citation_id != b.citation_id
+
+
+# ── Item 003: LookthroughTarget.provider_symbol tests ────────────────────────
+
+# ── Item 003: ThesisCard.constituent_analyses + DisciplineRow narrowing ───────
+
+def test_thesis_card_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import ThesisCard
+    card = ThesisCard(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None, role="watchlist",
+        lookthrough_target="易方达蓝筹精选", entry_reason="",
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        dca_action="pause_dca", risk_action="none",
+        falsification_triggers=(), trim_triggers=(),
+        do_not_sell_just_because=(), review_cadence="weekly",
+        evidence_gaps=(),
+    )
+    assert card.constituent_analyses == ()
+
+
+def test_discipline_row_constituent_analyses_typed() -> None:
+    from irc.opportunity.types import ConstituentAnalysis, DisciplineRow
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=6.2,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+    row = DisciplineRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+        constituent_analyses=(c,),
+    )
+    assert row.constituent_analyses[0].symbol == "600519"
+
+
+def test_lookthrough_target_provider_symbol_default_empty() -> None:
+    t = LookthroughTarget("broad_index", "csi300", "沪深300")
+    assert t.provider_symbol == ""
+
+
+def test_lookthrough_target_provider_symbol_explicit() -> None:
+    t = LookthroughTarget(
+        kind="active_fund", key="fund_005827",
+        display_cn="易方达蓝筹精选", provider_symbol="005827",
+    )
+    assert t.provider_symbol == "005827"
+
+
+# ── Item 003: ConstituentAnalysis + OpportunityRow.constituent_analyses ───────
+
+def test_constituent_analysis_construction() -> None:
+    from irc.opportunity.types import ConstituentAnalysis
+    c = ConstituentAnalysis(
+        symbol="600519",
+        name_cn="贵州茅台",
+        weight_pct=6.2,
+        evidence=(),
+        failure_reasons=("filing_empty:600519",),
+        one_line_view="证据获取失败",
+    )
+    assert c.symbol == "600519"
+    assert c.weight_pct == 6.2
+
+
+def test_constituent_analysis_rejects_negative_weight() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="600519", name_cn="贵州茅台", weight_pct=-1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+def test_constituent_analysis_rejects_empty_symbol() -> None:
+    import pytest
+    from irc.opportunity.types import ConstituentAnalysis
+    with pytest.raises(ValueError):
+        ConstituentAnalysis(
+            symbol="", name_cn="x", weight_pct=1.0,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+
+
+# ── Item 003: ThesisEvidence.holding_weight_pct ───────────────────────────────
+
+def test_thesis_evidence_holding_weight_pct_default_none() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    e = ThesisEvidence(
+        type="filing", source="600519", url="", date="2024-04-15",
+        summary="x", scope="instrument", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id=None, constituent_key=None,
+    )
+    assert e.holding_weight_pct is None
+
+
+def test_thesis_evidence_holding_weight_pct_not_in_citation_id_preimage() -> None:
+    from irc.opportunity.types import ThesisEvidence
+    common = dict(
+        type="filing", source="600519", url="https://example.com/a",
+        date="2024-04-15", summary="贵州茅台 24Q1 营收 +18%",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519",
+    )
+    e1 = ThesisEvidence(**common, holding_weight_pct=None)
+    e2 = ThesisEvidence(**common, holding_weight_pct=3.46)
+    e3 = ThesisEvidence(**common, holding_weight_pct=99.0)
+    # holding_weight_pct excluded from preimage => same citation_id.
+    assert e1.citation_id == e2.citation_id == e3.citation_id
+    assert e2.holding_weight_pct == 3.46
+
+
+def test_opportunity_row_has_constituent_analyses_default_empty() -> None:
+    from irc.opportunity.types import (
+        LookthroughTarget, OpportunityRow,
+    )
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", "fund_005827", "易方达蓝筹精选", "005827",
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="", evidence_gaps=(),
+    )
+    assert row.constituent_analyses == ()

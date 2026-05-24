@@ -1,8 +1,13 @@
 from __future__ import annotations
+
+import json
+import re
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-import json
+
 import yaml
+
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
@@ -13,10 +18,20 @@ from irc.memo.diagnostics import (
     compose_fx_qdii_lines,
     compose_role_bucket_banner,
 )
+from irc.memo.aliases import build_alias_maps
 from irc.memo.evidence_pool import build_evidence_pool
-from irc.memo.picks_table import PickRow, render_picks_table
+from irc.memo.citation_selector import select_citations
+from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
+from irc.opportunity.types import ThesisEvidence
+from irc.commands.opportunity_cmd import (
+    _is_canonical_out_dir,
+    _resolve_enforce_mode,
+    _write_citation_audit_shadow_log,
+)
+from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
+from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
 
 _DEFAULT_TIMELINESS_NOTE = (
@@ -233,38 +248,150 @@ def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -
     return tuple(lines)
 
 
+_VENUE_SUFFIX_RE = re.compile(r"\.[A-Z]{2,3}$")
+
+
+def _strip_venue_suffix(iid: str) -> str:
+    """Strip a trailing `.SH` / `.SZ` / `.OF` / `.HK` venue suffix if present,
+    and a single leading letter prefix (e.g. `A` in `A510300.SH` → `510300`).
+
+    Conservative: only strips suffixes matching `\\.[A-Z]{2,3}$` and a leading
+    single uppercase letter followed by digits. Canonical iids in
+    `config/universe/*.yaml` are 6-digit bare codes (e.g. `510300`, `005827`)
+    and venue proxies like `cmb_paper_gold` carry no dot — both pass through
+    unchanged.
+    """
+    stripped = _VENUE_SUFFIX_RE.sub("", iid)
+    # Strip leading single letter prefix (A-share proxy: A510300 → 510300).
+    if len(stripped) >= 2 and stripped[0].isalpha() and stripped[1:].isdigit():
+        return stripped[1:]
+    return stripped
+
+
+def _evidence_from_dict(d: dict) -> ThesisEvidence:
+    """Deprecated shim — delegates to ThesisEvidence.from_dict."""
+    return ThesisEvidence.from_dict(d)
+
+
+def _reconstruct_opportunity_rows(
+    rebuilt_op_rows: list[dict],
+) -> tuple:
+    """Reconstruct OpportunityRow dataclasses from rebuilt dict-form rows
+    for the alias-builder. Publishable rows only (evidence_gaps == ()).
+
+    Best-effort — fields not strictly needed by build_alias_maps default
+    to neutral placeholders so the function never raises on a partial dict.
+    """
+    from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+
+    rows: list = []
+    for r in rebuilt_op_rows:
+        if (r.get("evidence_gaps") or ()):
+            continue
+        constituent_analyses = tuple(
+            ConstituentAnalysis(
+                symbol=c.get("symbol", ""),
+                name_cn=c.get("name_cn", ""),
+                weight_pct=float(c.get("weight_pct", 0.0)),
+                evidence=tuple(
+                    ThesisEvidence.from_dict(e) for e in c.get("evidence", [])
+                ),
+                failure_reasons=tuple(c.get("failure_reasons", ())),
+                one_line_view=c.get("one_line_view", ""),
+                audit_errors=tuple(c.get("audit_errors", ())),
+            )
+            for c in (r.get("constituent_analyses") or [])
+            if c.get("symbol")
+        )
+        lt = LookthroughTarget(
+            kind=r.get("lookthrough_kind", "broad_index"),
+            key=r.get("lookthrough_key", r["instrument_id"]),
+            display_cn=r.get("lookthrough_target", ""),
+            provider_symbol="",
+        )
+        rows.append(OpportunityRow(
+            instrument_id=r["instrument_id"],
+            name_cn=r.get("name_cn", ""),
+            asset_class=r.get("asset_class", ""),
+            theme=r.get("theme"),
+            lookthrough_target=lt,
+            valuation_state=r.get("valuation_state", "evidence_insufficient"),
+            heat_state=r.get("heat_state", "evidence_insufficient"),
+            thesis_state=r.get("thesis_state", "evidence_insufficient"),
+            product_quality_state=r.get("product_quality_state", "evidence_insufficient"),
+            opportunity_state=r.get("opportunity_state", "small_watch"),
+            opportunity_reason=r.get("opportunity_reason", ""),
+            evidence_gaps=tuple(r.get("evidence_gaps", ())),
+            thesis_evidence=r["thesis_evidence"]
+                if isinstance(r.get("thesis_evidence"), tuple)
+                else tuple(r.get("thesis_evidence") or ()),
+            constituent_analyses=constituent_analyses,
+        ))
+    return tuple(rows)
+
+
 def _build_pick_rows(
     trades: list[dict],
     opportunity: dict,
     scoring: dict,
     extra_names: dict[str, str] | None = None,
-) -> list[PickRow]:
-    op_by_id = {r["instrument_id"]: r for r in (opportunity.get("rows") or [])}
+) -> tuple[list[PickRow], list[dict], list[dict]]:
+    """Classify each trade target into one of three buckets:
+
+    - `pick_rows`: trade target whose opportunity row has `evidence_gaps == ()`.
+    - `absent_targets`: trade target whose iid is NOT in `opportunity["rows"]`
+      after venue-proxy suffix strip. Memo renders an absence sub-block.
+    - `gapped_targets`: trade target whose op row has `evidence_gaps != ()`.
+      Memo renders a gap sub-block (no conclusions emitted).
+
+    Each `gapped_targets` entry is enriched with `_matched_row` so the renderer
+    can reach the op row's name and gap labels.
+    """
+    rows_list = opportunity.get("rows") or []
+    rows_by_id = {r["instrument_id"]: r for r in rows_list}
     score_by_id = {s["instrument_id"]: s for s in (scoring.get("scores") or [])}
     extra_names = extra_names or {}
-    rows: list[PickRow] = []
-    seen: set[str] = set()  # Canonical dedup; render_picks_table has a safety-net guard.
+
+    pick_rows: list[PickRow] = []
+    absent: list[dict] = []
+    gapped: list[dict] = []
+    seen: set[str] = set()
+
     for t in trades:
-        iid = t.get("target")
-        if not iid or iid in seen:
+        iid_raw = t.get("target")
+        if not iid_raw or iid_raw in seen:
             continue
-        seen.add(iid)
-        op = op_by_id.get(iid) or {}
-        sc = score_by_id.get(iid) or {}
-        # Sanitize: strip newlines before the string enters the LLM skeleton.
-        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace("\n", " ").strip()
+        seen.add(iid_raw)
+
+        # Resolution: direct hit, else venue-proxy suffix strip, else absent.
+        op = rows_by_id.get(iid_raw) or rows_by_id.get(_strip_venue_suffix(iid_raw))
+        if op is None:
+            absent.append(t)
+            continue
+        if op.get("evidence_gaps"):
+            gapped.append({**t, "_matched_row": op})
+            continue
+
+        # Eligible: build PickRow with citations.
+        raw_evidence = tuple(
+            _evidence_from_dict(d) for d in (op.get("thesis_evidence") or [])
+        )
+        citations = select_citations(raw_evidence, cap=3)
+
+        sc = score_by_id.get(iid_raw) or {}
+        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace(
+            "\n", " ").strip()
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
-               "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(opp_state, "slow_dca")
-        # Trade plan carries composite_score directly; prefer it so venue
-        # proxies (whose target id isn't in scoring.json) still show the
-        # underlying instrument's score instead of 0.0.
+               "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(
+                   opp_state, "slow_dca")
         score = t.get("composite_score")
         if score is None:
             score = sc.get("composite_score") or 0.0
-        name = op.get("name_cn") or extra_names.get(str(iid)) or iid
-        rows.append(PickRow(
-            instrument_id=iid,
+        name = op.get("name_cn") or extra_names.get(str(iid_raw)) or iid_raw
+        pick_rows.append(PickRow(
+            instrument_id=iid_raw,
             name_cn=name,
             asset_class=op.get("asset_class") or t.get("asset_class", ""),
             role=t.get("role") or "",
@@ -274,8 +401,10 @@ def _build_pick_rows(
             dca_action=dca,
             risk_action="none",
             one_line_reason=reason or "—",
+            citations=citations,
         ))
-    return rows
+
+    return pick_rows, absent, gapped
 
 
 def run_memo(repo_root: str) -> int:
@@ -313,20 +442,56 @@ def run_memo(repo_root: str) -> int:
         **_names_from_watchlist_csv(out_today),
         **_names_from_universes(bundle),
     }
-    pick_rows = _build_pick_rows(trades, opportunity, scoring, fallback_names)
-    picks_table_md = render_picks_table(pick_rows)
+    pick_rows, absent_targets, gapped_targets = _build_pick_rows(
+        trades, opportunity, scoring, fallback_names,
+    )
+    picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
+        absent_targets, gapped_targets, fallback_names,
+    )
 
     gold_regime = {
         "regime": gold.get("regime", "unknown"),
         "zone": gold.get("zone", "unknown"),
         "tilt": alloc.get("gold_tilt", "neutral"),
     }
+    # Item 007 D1a: reconstruct ThesisEvidence dataclasses from the JSON
+    # dict form so build_evidence_pool can pass them through select_citations
+    # without a third-call-site _evidence_from_dict copy.
+    raw_op_rows = list(opportunity.get("rows") or [])
+    rebuilt_op_rows: list[dict] = []
+    for row in raw_op_rows:
+        ev_tuple = tuple(
+            ThesisEvidence.from_dict(d) for d in (row.get("thesis_evidence") or [])
+        )
+        rebuilt_op_rows.append({**row, "thesis_evidence": ev_tuple})
+
     raw_ref_pool = build_evidence_pool(
-        opportunity_rows=list(opportunity.get("rows") or []),
+        opportunity_rows=rebuilt_op_rows,
         scoring_rows=list(scoring.get("scores") or []),
         plan_trades=trades,
         gold_regime=gold_regime,
     )
+
+    # Item 007 D1c: build alias maps from publishable rows. Item 009's
+    # find_uncited_conclusions consumes these via the audit-gate wiring;
+    # item 007 ships only the producer side. Wrap the call so an
+    # `InstrumentAliasCollisionError` surfaces as a user-readable ERROR
+    # line (not a Python traceback) — production data has occasionally
+    # produced duplicate `name_cn` strings across share-class variants of
+    # the same parent fund family.
+    from irc.memo.aliases import InstrumentAliasCollisionError
+    publishable_rows_for_aliases = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    try:
+        _instrument_aliases, _constituent_aliases = build_alias_maps(
+            publishable_rows_for_aliases,
+        )
+    except InstrumentAliasCollisionError as exc:
+        print(
+            f"ERROR: alias-builder collision while preparing memo: {exc}\n"
+            "Investigate opportunity_report.json for duplicate `name_cn` "
+            "or shared `lookthrough_target.key` across publishable rows."
+        )
+        return 1
 
     tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
 
@@ -408,6 +573,105 @@ def run_memo(repo_root: str) -> int:
         for reason in block_reasons:
             print(f"  - {reason}")
         return 2
+
+    # ── Item 009 — memo-stage citation gate ───────────────────────────────────
+    # Q7 + F1 lock: use out_dir (write path), NOT out_today (read path).
+    publishable_rows_for_gate = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    cited_map_for_gate = build_cited_map(tuple(publishable_rows_for_gate))
+    constituent_cited_for_gate = build_constituent_cited_map(
+        tuple(publishable_rows_for_gate),
+    )
+    pick_findings = find_missing_pick_citations(pick_rows, cited_map_for_gate)
+    prose_findings = find_uncited_conclusions(
+        output.draft,
+        cited_map=cited_map_for_gate,
+        instrument_aliases=_instrument_aliases,
+        constituent_aliases=_constituent_aliases,
+        constituent_cited_map=constituent_cited_for_gate,
+        strict_empty_alias_check=bool(rebuilt_op_rows),
+    )
+    memo_findings = pick_findings + prose_findings
+    enforce_mode = _resolve_enforce_mode(out_dir, today)
+
+    # RMW the shared shadow log: read whatever the opportunity stage wrote,
+    # overlay memo_findings + summary.
+    audit_path = out_dir / "citation_audit.json"
+    if audit_path.exists():
+        shadow: dict = json.loads(audit_path.read_text(encoding="utf-8"))
+    else:
+        # Fallback when memo runs standalone (no opportunity stage). Compute
+        # `canonical_path` from the actual `out_dir` instead of hardcoding
+        # False — production runs always have a canonical out_dir, so the
+        # previous False default mislabeled the shadow log (code-reviewer P1.5).
+        shadow = {
+            "run_date": today,
+            "enforce_mode": enforce_mode,
+            "canonical_path": _is_canonical_out_dir(out_dir),
+            "out_dir": str(out_dir.resolve()),
+            "opportunity_findings": [],
+            "constituent_findings": [],
+            "discipline_findings": [],
+            "memo_findings": [],
+            "summary": {"total": 0, "blocking": False},
+        }
+    shadow["memo_findings"] = [
+        {
+            "instrument_id": f.instrument_id,
+            "kind": f.kind,
+            "prose_excerpt": f.prose_excerpt,
+            "evidence_excerpt": f.evidence_excerpt,
+        }
+        for f in memo_findings
+    ]
+    shadow["summary"]["total"] = (
+        len(shadow.get("opportunity_findings", []))
+        + len(shadow.get("constituent_findings", []))
+        + len(shadow.get("discipline_findings", []))
+        + len(memo_findings)
+    )
+    shadow["summary"]["blocking"] = shadow["summary"].get("blocking", False) or (
+        enforce_mode == "block" and bool(memo_findings)
+    )
+    # Wrap shadow log write so an OSError doesn't suppress the gate's
+    # subsequent block/warn decision (silent-failure P0.2 parallel to the
+    # opportunity-stage wrapper).
+    try:
+        _write_citation_audit_shadow_log(out_dir, shadow)
+    except OSError as exc:
+        print(
+            f"WARN: citation_audit.json write failed ({exc!r}); "
+            "memo gate verdict still applies",
+            file=sys.stderr,
+        )
+
+    if memo_findings and enforce_mode == "block":
+        reasons = [f"{f.instrument_id}:{f.kind}" for f in memo_findings]
+        block_header = (
+            "# 备忘录发布被引用审核拒绝\n\n"
+            "Item 009 citation gate flagged missing citations on picks/prose; "
+            "see citation_audit.json for details.\n\n"
+            "## 阻断原因\n\n"
+            + "\n".join(f"- {r}" for r in reasons)
+            + "\n\n---\n\n"
+        )
+        atomic_write_text(out_dir / "memo_blocked.md", block_header + output.draft)
+        memo_path = out_dir / "memo.md"
+        if memo_path.exists():
+            memo_path.unlink()
+        print(
+            "memo BLOCKED by citation gate: see "
+            f"{out_dir / 'memo_blocked.md'} and {out_dir / 'citation_audit.json'}"
+        )
+        for r in reasons:
+            print(f"  - {r}")
+        return 2
+    if memo_findings and enforce_mode == "warn":
+        print(
+            "WARN citation-audit (memo): "
+            + "; ".join(f"{f.instrument_id}:{f.kind}" for f in memo_findings),
+            file=sys.stderr,
+        )
+
     atomic_write_text(out_dir / "memo.md", output.draft)
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"

@@ -86,12 +86,18 @@ def test_card_propagates_thesis_evidence():
             url="https://example.com/filing/600519",
             date="2026-04-28",
             summary="600519 营收同比 +12%",
+            scope="constituent", citation_kind="data",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
         ThesisEvidence(
             type="broker", source="中信证券",
             url="https://example.com/broker/600519",
             date="2026-05-02",
             summary="维持买入",
+            scope="constituent", citation_kind="information",
+            owner_instrument_id="510300",
+            parent_fund_id=None, constituent_key="600519",
         ),
     )
     row = _row(thesis_evidence=evidence)
@@ -107,3 +113,26 @@ def test_card_dca_and_risk_actions_match_state():
         role="x", entry_reason="x",
     )
     assert card.dca_action in ("pause_dca", "slow_dca")
+
+
+# ── Item 003: ThesisCard.constituent_analyses threading ──────────────────────
+
+def test_build_thesis_card_threads_constituent_analyses() -> None:
+    from irc.opportunity.types import ConstituentAnalysis, LookthroughTarget, OpportunityRow
+    c = ConstituentAnalysis("600519", "贵州茅台", 6.2, (), (), "")
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        lookthrough_target=LookthroughTarget(
+            "active_fund", "fund_005827", "易方达蓝筹精选", "005827",
+        ),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="exclude",
+        opportunity_reason="", evidence_gaps=(),
+        constituent_analyses=(c,),
+    )
+    card = build_thesis_card(row, PositionContext(None, None, None, None, False), "watchlist", "")
+    assert card.constituent_analyses == (c,)

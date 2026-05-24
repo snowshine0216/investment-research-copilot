@@ -5,6 +5,94 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] — 2026-05-24
+
+### Added — `thesis-cards-evidence-gap` remediation (10-item autodev run)
+
+Ten-item end-to-end fix for the discovery that `thesis_cards.yaml` / `memo.md`
+/ `discipline_report.md` were emitting conclusions without verifiable per-row
+evidence. Run dir: `docs/2026-05-22-thesis-cards-evidence-gap/`.
+
+- **Item 001 — `OpportunityRow.contributing_dimensions`** (PR #55). New
+  `frozenset[str]` field populated by the scoring engine with the sub-states
+  driving `opportunity_state`. Downstream V1 + V2 audit gates check
+  per-dimension citation binding.
+- **Item 002 — Unified citation data model** (PR #56, ADR 0001). New
+  `CitationMeta` schema, `build_cited_map` provenance builder,
+  `select_citations` deterministic selector (SAME-3 invariant), `citation_id`
+  as 16-hex-char SHA256 prefix. `[ref:{citation_id}]` marker grammar locked.
+- **Item 003 — Active-fund constituent layer** (PR #57, ADR 0002). New
+  `ActiveFundSnapshot` cache, `LookthroughTarget("active_fund", ...)`
+  routing, top-N constituent dispatch with cache-probe + budget +
+  resumable state. Per-stock evidence aggregation.
+- **Item 004 — Live `fund_announcement_em` verification** (PR #58). Test-only
+  PR that locked AkShare 1.18.63 support via 3 topic-specific endpoints
+  (`fund_announcement_dividend_em` / `_report_em` / `_personnel_em`); uses
+  `报告ID` as opaque citation key.
+- **Item 005 — Per-asset-class citation coverage** (PR #59). `cn_etf`, gold,
+  cn_bond, tracked CN indices route to fund-level NAV + announcement;
+  `qdii_*` reclassified as V1-excluded (info-leg blocker). New
+  `FundLevelSnapshot` / `FundNavReport` / `FundAnnouncement` dataclasses.
+- **Item 006 — Failure-mode + Policy B v2** (PR #60, ADR 0003). Weight-aware
+  top-half info quorum, structured `rejections.json` with deterministic
+  precedence, H3 universal gapped-row invariant, atomic write-at-end.
+- **Item 007 — Memo + discipline renderers + alias-builder** (PR #61,
+  ADR 0004). `[stock:{symbol}] [ref:{citation_id}]` markers in evidence
+  pool, nested `thesis_evidence` bullets + inline top-5 holdings + full
+  `## 持仓明细` appendix in discipline_report.md. `build_alias_maps` with
+  collision invariant.
+- **Item 008 — Publishable-set lockdown** (PR #62). 24-test integration
+  suite locking 23 ACs end-to-end before item 009 flips the citation gate.
+  Two-run byte equality, H3 partition completeness, snapshot-cache
+  freshness, QDII exclusion across all four output surfaces. Production
+  fix: `_classify_rejection_reason` iterates `_GAP_TO_REASON` key order
+  (not `evidence_gaps` tuple order) so QDII precedence holds regardless
+  of structural-gap ordering.
+- **Item 009 — Citation gate (default `block`)** (PR #63). New
+  `IRC_CITATION_ENFORCE_MODE = {off, warn, block}` env var (canonical
+  `outputs/YYYY-MM-DD/` paths force `block` regardless). Four audit
+  functions: `find_uncited_opportunity_rows`,
+  `find_incomplete_constituent_analyses`, `find_missing_pick_citations`,
+  `find_uncited_discipline_rows`, plus filled-in `find_uncited_conclusions`
+  body. Shadow log `outputs/<date>/citation_audit.json` written in all
+  modes including `block`. New gap code `citation_gate_blocked`.
+- **Item 010 — DuckDB `fund_holdings` ingest** (PR #64). New
+  `src/irc/data/fund_holdings_ingestor.py` with 30-day staleness gate,
+  asset-class filter, idempotent batch upsert wrapped in
+  `BEGIN`/`COMMIT`/`ROLLBACK`. Wired into `run_ingest` as best-effort
+  enrichment so the long-empty `fund_holdings` DuckDB table now feeds
+  `scoring/metrics_loader._latest_holdings_concentration` real data
+  instead of NaN.
+
+### Changed
+
+- `_GAP_TO_REASON` keys iterate in dict-literal insertion order with
+  `qdii_information_unavailable` first (locked by structural unit test).
+- `_write_opportunity_outputs` returns a 7-tuple after Policy B v2
+  refactor; `_discipline_row_from` consumers receive the same.
+- `compose_discipline_markdown` signature gains
+  `publishable_rows` + `pick_order_iids` keyword-only kwargs
+  (backward-compatible — defaults to empty tuples).
+- `_evidence_from_dict` promoted to `ThesisEvidence.from_dict` classmethod;
+  the legacy shims at `snapshot_cache.py` + `memo_cmd.py` delegate
+  unchanged for back-compat.
+- `irc.memo.citation_selector` relocated to `irc.opportunity.citation_selector`
+  to break a `opportunity ↔ memo` cycle introduced by item 007; old path
+  preserved as a one-line re-export shim.
+
+### Fixed
+
+- `fund_announcements_unavailable` gap code was emitted by snapshot.py but
+  missing from `_GAP_TO_REASON`, causing `RuntimeError` at runtime
+  (closed inline as part of item 008).
+
+### Known follow-up
+
+- Pre-existing DAG cycle introduced by item 009 (`opportunity/auditor.py`
+  imports `irc.memo`) — `test_dag_acyclic_check_*` fails since item 009
+  on the base branch as well. Flagged for follow-up before the next
+  item-009-touching change.
+
 ## [0.8.7] — 2026-05-21
 
 ### Added

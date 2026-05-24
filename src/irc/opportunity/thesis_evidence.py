@@ -16,11 +16,13 @@ Pure function. The rules implement the May-14 spec's deterministic table:
 from __future__ import annotations
 
 from irc.fundamentals.types import (
+    ActiveFundSnapshot,
     BrokerReport,
     ConstituentSnapshot,
     FilingDigest,
+    FundLevelSnapshot,
 )
-from irc.opportunity.types import ThesisEvidence, ThesisState
+from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence, ThesisState
 from irc.research.theme_research import ThemeReport
 
 
@@ -69,8 +71,18 @@ def _yoy_split(filings: tuple[FilingDigest, ...]) -> tuple[int, int, int]:
     return pos, neg, total
 
 
-def _filing_evidence(filings: tuple[FilingDigest, ...]) -> tuple[ThesisEvidence, ...]:
-    """Up to N filings with the most extreme YoY moves (largest magnitude first)."""
+def _filing_evidence(
+    filings: tuple[FilingDigest, ...],
+    *,
+    owner_instrument_id: str,
+) -> tuple[ThesisEvidence, ...]:
+    """Up to N filings with the most extreme YoY moves (largest magnitude first).
+
+    NOTE (item 002): These V1 helpers iterate aggregate-per-fund snapshots
+    rather than per-constituent fetches. Until item 003 rewires them, they
+    carry `scope="instrument"` and `constituent_key=None`. Item 003 will
+    change `scope` to `"constituent"` and populate `constituent_key=f.symbol`.
+    """
     scored = [
         (abs(f.revenue_yoy), f) for f in filings if f.revenue_yoy is not None
     ]
@@ -83,12 +95,25 @@ def _filing_evidence(filings: tuple[FilingDigest, ...]) -> tuple[ThesisEvidence,
             url=f.source_url,
             date=f.filed_at_iso,
             summary=f"{f.symbol} {f.fiscal_period} 营收同比 {f.revenue_yoy:+.1%}。",
+            scope="instrument",            # item 003 rewires to "constituent"
+            citation_kind="data",
+            owner_instrument_id=owner_instrument_id,
+            parent_fund_id=None,            # item 003 sets to owner_instrument_id
+            constituent_key=None,           # item 003 sets to f.symbol
         ))
     return tuple(out)
 
 
-def _broker_evidence(reports: tuple[BrokerReport, ...]) -> tuple[ThesisEvidence, ...]:
-    """Up to N most recent broker reports."""
+def _broker_evidence(
+    reports: tuple[BrokerReport, ...],
+    *,
+    owner_instrument_id: str,
+) -> tuple[ThesisEvidence, ...]:
+    """Up to N most recent broker reports.
+
+    NOTE (item 002): V1 carries `scope="instrument"` per the same rationale
+    as `_filing_evidence`.
+    """
     recent = sorted(reports, key=lambda r: r.published_iso, reverse=True)
     out: list[ThesisEvidence] = []
     for r in recent[:_MAX_BROKER_EVIDENCE]:
@@ -98,11 +123,27 @@ def _broker_evidence(reports: tuple[BrokerReport, ...]) -> tuple[ThesisEvidence,
             url=r.source_url,
             date=r.published_iso,
             summary=f"{r.broker} {r.rating}: {r.title}".strip(),
+            scope="instrument",
+            citation_kind="information",
+            owner_instrument_id=owner_instrument_id,
+            parent_fund_id=None,
+            constituent_key=None,
         ))
     return tuple(out)
 
 
-def _news_evidence(report: ThemeReport | None) -> tuple[ThesisEvidence, ...]:
+def _news_evidence(
+    report: ThemeReport | None,
+    *,
+    owner_instrument_id: str,
+) -> tuple[ThesisEvidence, ...]:
+    """Theme-report (macro/sector) citations.
+
+    Carry `scope="asset_class_macro"` and `owner_instrument_id` = the row
+    being built. These won't satisfy the dual-coverage gate's
+    `scope in {"instrument", "constituent"}` predicate — intentional;
+    macro citations are supplemental context only.
+    """
     if report is None or not report.citations:
         return ()
     out: list[ThesisEvidence] = []
@@ -113,6 +154,11 @@ def _news_evidence(report: ThemeReport | None) -> tuple[ThesisEvidence, ...]:
             url=c.url,
             date=c.published_iso,
             summary=c.title,
+            scope="asset_class_macro",
+            citation_kind="information",
+            owner_instrument_id=owner_instrument_id,
+            parent_fund_id=None,
+            constituent_key=None,
         ))
     return tuple(out)
 
@@ -177,6 +223,8 @@ def _count_trusted_citations(report: ThemeReport) -> int:
 
 def _thesis_from_theme_report(
     report: ThemeReport,
+    *,
+    owner_instrument_id: str,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...]]:
     """Rule: report with ≥3 citations AND ≥1 trusted-tier citation
     → intact (research-backed). Otherwise evidence_insufficient."""
@@ -188,13 +236,13 @@ def _thesis_from_theme_report(
             "evidence_insufficient",
             f"主题研究 {len(report.citations)} 条引用全部来自次级转载源，"
             f"未达到一级新闻/研究层级，长期逻辑暂不可背书。",
-            _news_evidence(report),
+            _news_evidence(report, owner_instrument_id=owner_instrument_id),
         )
     return (
         "intact",
         f"长期逻辑由主题研究背书（citations={len(report.citations)}，"
         f"其中一级来源 {trusted} 条），暂未触发证伪。",
-        _news_evidence(report),
+        _news_evidence(report, owner_instrument_id=owner_instrument_id),
     )
 
 
@@ -228,8 +276,27 @@ def _classify_state(
 
 
 NON_INDEXABLE_ASSET_CLASSES: frozenset[str] = frozenset({
-    "gold", "cn_bond_fund", "cn_equity_fund", "qdii_global",
+    "gold", "cn_bond_fund", "qdii_global",
 })
+
+# ── Item 003: flatten ordering (spec Q-J) ─────────────────────────────────────
+
+_TYPE_RANK: dict[str, int] = {"filing": 0, "broker": 1, "news": 2}
+
+
+def _flatten_analyses(
+    analyses: tuple[ConstituentAnalysis, ...],
+) -> tuple[ThesisEvidence, ...]:
+    """Flatten per-spec Q-J: (weight_pct desc, type_rank asc, citation_id asc)."""
+    entries: list[ThesisEvidence] = []
+    for c in analyses:
+        entries.extend(c.evidence)
+    entries.sort(key=lambda e: e.citation_id)
+    entries.sort(key=lambda e: _TYPE_RANK.get(e.type, 99))
+    entries.sort(
+        key=lambda e: -(e.holding_weight_pct if e.holding_weight_pct is not None else 0.0),
+    )
+    return tuple(entries)
 _NON_INDEXABLE_ASSET_CLASSES = NON_INDEXABLE_ASSET_CLASSES  # backward-compat alias
 
 
@@ -260,20 +327,81 @@ def _classify_constituent_gap(
 
 
 def derive_thesis_from_evidence(
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | FundLevelSnapshot | None,
+    theme_report: ThemeReport | None,
+    *,
+    asset_class: str | None = None,
+    owner_instrument_id: str,
+) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...], tuple[ConstituentAnalysis, ...]]:
+    """Derive (state, reason, evidence, gap_labels, constituent_analyses) from
+    concrete sources.
+
+    Active-fund branch returns analyses + flattened evidence.
+    Legacy `ConstituentSnapshot` branch returns the same first-4-slot tuple
+    plus an empty analyses tuple at slot 5.
+
+    `owner_instrument_id` is the instrument id of the row being built; it is
+    stamped on every emitted `ThesisEvidence` so `build_cited_map` can verify
+    `e.owner_instrument_id == row.instrument_id`.
+    """
+    if isinstance(snapshot, FundLevelSnapshot):
+        # Item 005: fund-level evidence is already composed by
+        # _build_fund_level_snapshot (or zero-fetch QDII sentinel).
+        evidence = snapshot.evidence
+        gaps = snapshot.evidence_gaps
+        if not evidence:
+            return (
+                "evidence_insufficient",
+                "QDII: 境外数据不可用。" if gaps else "基金层级证据未能加载。",
+                evidence, gaps, (),
+            )
+        # Heuristic: if both legs present, thesis stays intact (downstream
+        # gate validates per-driver coverage).
+        has_data = any(e.citation_kind == "data" for e in evidence)
+        has_info = any(e.citation_kind == "information" for e in evidence)
+        if has_data and has_info:
+            return (
+                "intact",
+                "基金层级 NAV 与公告证据完整。",
+                evidence, gaps, (),
+            )
+        return (
+            "evidence_insufficient",
+            "基金层级仅获取到部分证据。",
+            evidence, gaps, (),
+        )
+
+    if isinstance(snapshot, ActiveFundSnapshot):
+        analyses = snapshot.constituent_analyses
+        flattened = _flatten_analyses(analyses)
+        # Item 003: do NOT stamp evidence_gaps yet; item 006 H2 owns that.
+        gaps: tuple[str, ...] = ()
+        if flattened:
+            state: ThesisState = "intact"
+            reason = (
+                f"主动基金 {len(analyses)} 个核心持仓的成分股证据已收集。"
+            )
+        else:
+            state = "evidence_insufficient"
+            reason = "主动基金未能收集到任何成分股证据。"
+        return state, reason, flattened, gaps, tuple(analyses)  # type: ignore[return-value]
+
+    # Legacy path: unchanged behaviour, plus empty 5th slot.
+    state_l, reason_l, evidence_l, gaps_l = _derive_legacy(
+        snapshot, theme_report,
+        asset_class=asset_class, owner_instrument_id=owner_instrument_id,
+    )
+    return state_l, reason_l, evidence_l, gaps_l, ()
+
+
+def _derive_legacy(
     snapshot: ConstituentSnapshot | None,
     theme_report: ThemeReport | None,
     *,
     asset_class: str | None = None,
+    owner_instrument_id: str,
 ) -> tuple[ThesisState, str, tuple[ThesisEvidence, ...], tuple[str, ...]]:
-    """Derive (state, reason, evidence, gap_labels) from concrete sources.
-
-    Pure: no I/O, no time-of-day dependence. The caller decides what to do
-    with `gap_labels` — typically merge into `OpportunityRow.evidence_gaps`.
-
-    When `asset_class` is provided, a refined constituent-gap label is appended
-    to the legacy `missing_constituent_snapshot` label so consumers can
-    distinguish 'not applicable' from 'fetch failed' from 'missing target'.
-    """
+    """Original derive_thesis_from_evidence body (4-tuple return)."""
     gaps: list[str] = []
 
     snapshot_usable = snapshot is not None and bool(snapshot.filings)
@@ -287,37 +415,34 @@ def derive_thesis_from_evidence(
             gaps.append("news_search_empty")
         elif news_status == "llm_failed":
             gaps.append("news_llm_failed")
-        # else 'usable' → no gap added
 
     refined = _classify_constituent_gap(snapshot, asset_class)
     if refined is not None and refined not in gaps:
         gaps.append(refined)
 
-    # Path A: snapshot present and usable → constituent-driven thesis (authoritative)
     if snapshot_usable:
         pos, neg, total = _yoy_split(snapshot.filings)
         if total == 0:
-            # Snapshot exists but no YoY data → fall through to theme_report path
             gaps.append("missing_constituent_snapshot")
         else:
             if not snapshot.broker_reports:
                 gaps.append("missing_broker_coverage")
             consensus = _broker_consensus(snapshot.broker_reports)
             evidence = (
-                _filing_evidence(snapshot.filings)
-                + _broker_evidence(snapshot.broker_reports)
-                + _news_evidence(theme_report)
+                _filing_evidence(snapshot.filings,
+                                 owner_instrument_id=owner_instrument_id)
+                + _broker_evidence(snapshot.broker_reports,
+                                   owner_instrument_id=owner_instrument_id)
+                + _news_evidence(theme_report,
+                                 owner_instrument_id=owner_instrument_id)
             )
             state, reason = _classify_state(pos / total, neg / total, consensus)
             return (state, reason, evidence, tuple(gaps))
 
-    # Path B: no usable snapshot → try theme_report-only thesis
     if theme_report is not None and _theme_report_usable(theme_report):
-        state, reason, evidence = _thesis_from_theme_report(theme_report)
-        # A non-empty reason means Path B reached a definite verdict —
-        # either intact (research-backed) or a specific
-        # evidence_insufficient ruling (e.g. all-republisher tier). The
-        # empty-reason case is the legacy "no opinion, fall through".
+        state, reason, evidence = _thesis_from_theme_report(
+            theme_report, owner_instrument_id=owner_instrument_id,
+        )
         if reason:
             return state, reason, evidence, tuple(gaps)
 

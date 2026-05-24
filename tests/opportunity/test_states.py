@@ -467,5 +467,110 @@ def test_real_gaps_stay_in_evidence_gaps_for_indexable_asset_class():
     assert "constituent_not_applicable" not in row.evidence_gaps
 
 
+# ── Item 003: build_opportunity_row with ActiveFundSnapshot ───────────────────
+
+def test_build_opportunity_row_populates_constituent_analyses_for_active_fund() -> None:
+    from irc.fundamentals.types import ActiveFundSnapshot
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import (
+        ConstituentAnalysis, OpportunityInput, ThesisEvidence,
+    )
+    ev = ThesisEvidence(
+        type="filing", source="600519", url="https://x/a",
+        date="2024-04-15", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519", holding_weight_pct=6.2,
+    )
+    c = ConstituentAnalysis("600519", "贵州茅台", 6.2, (ev,), (), "")
+    snap = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="", source_report_quarter="2024Q1",
+        cache_probed_at="", constituent_analyses=(c,),
+        failure_reasons_by_symbol={},
+    )
+    inp = OpportunityInput(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    assert row.constituent_analyses == (c,)
+    assert row.thesis_evidence == (ev,)
+
+
 def test_expected_omission_codes_constant_documented():
     assert "constituent_not_applicable" in EXPECTED_OMISSION_CODES
+
+
+# ---------------------------------------------------------------------------
+# derive_contributing_dimensions — branch-table enumeration (Slice A0)
+# ---------------------------------------------------------------------------
+
+from irc.opportunity.states import derive_contributing_dimensions
+
+
+@pytest.mark.parametrize(
+    "valuation,heat,thesis,product,opportunity_state,expected",
+    [
+        # exclude branch — thesis and/or product trigger
+        ("cheap", "cold", "falsified", "acceptable", "exclude", frozenset({"thesis"})),
+        ("cheap", "cold", "intact", "poor", "exclude", frozenset({"product_quality"})),
+        ("cheap", "cold", "falsified", "poor", "exclude", frozenset({"thesis", "product_quality"})),
+        # core_dca branch — all four dimensions are drivers
+        (
+            "cheap", "normal", "intact", "strong", "core_dca",
+            frozenset({"valuation", "heat", "thesis", "product_quality"}),
+        ),
+        # pause_wait branch — subset of {valuation, heat}
+        ("expensive", "normal", "intact", "acceptable", "pause_wait", frozenset({"valuation"})),
+        ("cheap", "crowded", "intact", "acceptable", "pause_wait", frozenset({"heat"})),
+        (
+            "expensive", "overheated", "intact", "acceptable", "pause_wait",
+            frozenset({"valuation", "heat"}),
+        ),
+        # small_watch branch — priority chain: product_quality → thesis → valuation → heat → conflict
+        ("fair", "normal", "intact", "weak", "small_watch", frozenset({"product_quality"})),
+        (
+            "fair", "normal", "evidence_insufficient", "acceptable", "small_watch",
+            frozenset({"thesis"}),
+        ),
+        (
+            "evidence_insufficient", "normal", "intact", "acceptable", "small_watch",
+            frozenset({"valuation"}),
+        ),
+        (
+            "fair", "evidence_insufficient", "intact", "acceptable", "small_watch",
+            frozenset({"heat"}),
+        ),
+        # small_watch conflict — no single weak link
+        ("fair", "normal", "intact", "acceptable", "small_watch", frozenset()),
+    ],
+)
+def test_derive_contributing_dimensions_branch_table(
+    valuation, heat, thesis, product, opportunity_state, expected,
+):
+    result = derive_contributing_dimensions(
+        valuation, heat, thesis, product, opportunity_state,
+    )
+    assert result == expected
+
+
+def test_derive_contributing_dimensions_returns_frozenset_not_set():
+    """AC #6: equality is blind to set-vs-frozenset because `set({"a"}) ==
+    frozenset({"a"})` is True. OpportunityRow is a frozen dataclass, so a
+    mutable set field would silently break hashability."""
+    result = derive_contributing_dimensions(
+        "cheap", "normal", "intact", "strong", "core_dca",
+    )
+    assert isinstance(result, frozenset)
+
+
+def test_build_opportunity_row_populates_contributing_dimensions_for_core_dca():
+    """AC #5: end-to-end propagation through build_opportunity_row. A clean
+    core_dca input must surface all four dimensions."""
+    inp = _make_full_input(valuation_percentile_self=0.15)  # cheap → core_dca
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert row.opportunity_state == "core_dca"
+    assert row.contributing_dimensions == frozenset(
+        {"valuation", "heat", "thesis", "product_quality"},
+    )
+    assert isinstance(row.contributing_dimensions, frozenset)

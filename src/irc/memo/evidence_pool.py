@@ -2,6 +2,40 @@ from __future__ import annotations
 
 from typing import Any
 
+from irc.fundamentals.types import ThesisEvidence
+from irc.memo.citation_selector import select_citations
+from irc.memo.markers import format_combined_marker
+
+
+def _format_citation_line(ev: ThesisEvidence) -> str:
+    """Render one citation as `[stock:{symbol}] [ref:{citation_id}] {type} · {source} · {date}: {summary} ({url})`.
+
+    - `[stock:{symbol}]` emitted ONLY when `ev.scope == "constituent"`
+      (uses `ev.constituent_key` as the symbol; omitted entirely otherwise).
+    - ` ({url})` parenthetical omitted when `ev.url == ""`.
+    """
+    symbol = ev.constituent_key if ev.scope == "constituent" else None
+    marker = format_combined_marker(ev.citation_id, symbol)
+    body = f"{ev.type} · {ev.source} · {ev.date}: {ev.summary}"
+    if ev.url:
+        return f"{marker} {body} ({ev.url})"
+    return f"{marker} {body}"
+
+
+def _format_citation_lines_for_row(op: dict[str, Any]) -> list[str]:
+    """Apply select_citations(cap=3) and emit one citation line per pick.
+
+    Pure function over `op["thesis_evidence"]` which must already be a
+    `tuple[ThesisEvidence, ...]` (the caller handles JSON→dataclass).
+    """
+    evidence = op.get("thesis_evidence") or ()
+    if not isinstance(evidence, tuple):
+        evidence = tuple(evidence)
+    if not evidence:
+        return []
+    selected = select_citations(evidence, cap=3)
+    return [_format_citation_line(ev) for ev in selected]
+
 
 def _format_instrument_evidence(
     op_row: dict[str, Any],
@@ -90,6 +124,7 @@ def build_evidence_pool(
         if op is None:
             continue
         pool.append(_format_instrument_evidence(op, score_by_id.get(iid), t))
+        pool.extend(_format_citation_lines_for_row(op))
 
     for op in opportunity_rows:
         iid = op.get("instrument_id")
@@ -102,5 +137,6 @@ def build_evidence_pool(
             continue
         seen_ids.add(iid)
         pool.append(_format_instrument_evidence(op, score_by_id.get(iid), None))
+        pool.extend(_format_citation_lines_for_row(op))
 
     return pool
