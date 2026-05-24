@@ -497,6 +497,58 @@ def test_build_opportunity_row_populates_constituent_analyses_for_active_fund() 
     assert row.thesis_evidence == (ev,)
 
 
+def test_build_opportunity_row_records_active_fund_fetch_types_attempted() -> None:
+    """Rejected active-fund rows must not render as 已尝试: (none) when the
+    snapshot proves holdings, filing, broker, and news fetch paths ran."""
+    from irc.fundamentals.types import ActiveFundSnapshot
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import (
+        ConstituentAnalysis, OpportunityInput, ThesisEvidence,
+    )
+    ev = ThesisEvidence(
+        type="filing", source="300903", url="https://x/a",
+        date="2026-03-31", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="001877", parent_fund_id="001877",
+        constituent_key="300903", holding_weight_pct=5.72,
+    )
+    c = ConstituentAnalysis(
+        "300903", "科翔股份", 5.72, (ev,),
+        ("broker_empty:300903", "news_fetch_failed:300903:ArrowInvalid"),
+        "300903.SZ 2026Q1 revenue",
+    )
+    snap = ActiveFundSnapshot(
+        fund_id="001877", source_report_date="2026-03-31",
+        source_report_quarter="2026Q1", cache_probed_at="2026-05-24",
+        constituent_analyses=(c,), failure_reasons_by_symbol={},
+    )
+    inp = OpportunityInput(
+        instrument_id="001877", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="宝盈国家安全沪港深股票A",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    assert row.fetch_types_attempted == ("holdings", "filing", "broker", "news")
+
+
+def test_build_opportunity_row_records_holdings_fetch_attempt_on_empty_active_snapshot() -> None:
+    from irc.fundamentals.types import ActiveFundSnapshot
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import OpportunityInput
+
+    snap = ActiveFundSnapshot(
+        fund_id="004814", source_report_date="", source_report_quarter="",
+        cache_probed_at="2026-05-24", constituent_analyses=(),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=("holdings_fetch_failed:004814:empty",),
+    )
+    inp = OpportunityInput(
+        instrument_id="004814", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="中欧红利优享混合A",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    assert row.fetch_types_attempted == ("holdings",)
+
+
 def test_expected_omission_codes_constant_documented():
     assert "constituent_not_applicable" in EXPECTED_OMISSION_CODES
 

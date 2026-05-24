@@ -380,6 +380,85 @@ def test_find_uncited_conclusions_with_dual_leg_markers_passes() -> None:
     assert "uncited_conclusion" not in kinds
 
 
+def test_find_uncited_conclusions_audits_markdown_table_rows_independently() -> None:
+    """A picks table is one markdown block, but each row carries citations for
+    a different instrument. The prose auditor must not pool markers across
+    table rows and then report wrong-instrument citations."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = {
+        "A001": {
+            "aaaaaaaaaaaaaaaa": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="A001", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+            "bbbbbbbbbbbbbbbb": CitationMeta(
+                scope="instrument", citation_kind="information",
+                owner_instrument_id="A001", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+        "B002": {
+            "cccccccccccccccc": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="B002", asset_class="cn_bond_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+            "dddddddddddddddd": CitationMeta(
+                scope="instrument", citation_kind="information",
+                owner_instrument_id="B002", asset_class="cn_bond_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+    }
+    prose = (
+        "| 代码 | 本期行动 | 证据 |\n"
+        "|---|---|---|\n"
+        "| A001 | 减速定投 | [ref:aaaaaaaaaaaaaaaa] [ref:bbbbbbbbbbbbbbbb] |\n"
+        "| B002 | 减速定投 | [ref:cccccccccccccccc] [ref:dddddddddddddddd] |\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={"A001": "A001", "B002": "B002"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert findings == []
+
+
+def test_find_uncited_conclusions_ignores_raw_evidence_appendix() -> None:
+    """The raw evidence appendix is a traceability dump, not synthesized prose.
+    It intentionally contains many instruments and refs in one block."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = {
+        "A001": {
+            "aaaaaaaaaaaaaaaa": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="A001", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+            "bbbbbbbbbbbbbbbb": CitationMeta(
+                scope="instrument", citation_kind="information",
+                owner_instrument_id="A001", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+    }
+    prose = (
+        "## 附录·原始证据 (Raw Evidence)\n\n"
+        "- B002 暂停加仓 [ref:aaaaaaaaaaaaaaaa] [ref:bbbbbbbbbbbbbbbb]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={"B002": "B002"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert findings == []
+
+
 def test_find_uncited_conclusions_wrong_instrument_citation() -> None:
     """AC8 (b) — marker resolves to a different owner_instrument_id."""
     from irc.opportunity.types import CitationMeta
@@ -472,6 +551,64 @@ def test_find_uncited_conclusions_section_header_disambiguates_constituent() -> 
     assert "uncited_conclusion" not in kinds
 
 
+def test_find_uncited_conclusions_instrument_mention_disambiguates_constituent() -> None:
+    """When a paragraph names both the parent fund and a multi-owner holding,
+    the fund mention is enough context to resolve the constituent owner."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = {
+        "519770": {
+            "aaaaaaaaaaaaaaaa": CitationMeta(
+                scope="constituent", citation_kind="data",
+                owner_instrument_id="519770",
+                asset_class="cn_equity_fund",
+                parent_fund_id="519770", constituent_key="300308",
+            ),
+            "bbbbbbbbbbbbbbbb": CitationMeta(
+                scope="constituent", citation_kind="information",
+                owner_instrument_id="519770",
+                asset_class="cn_equity_fund",
+                parent_fund_id="519770", constituent_key="300308",
+            ),
+        },
+    }
+    constituent_cited = {
+        "519770": {
+            "300308": {
+                "aaaaaaaaaaaaaaaa": CitationMeta(
+                    scope="constituent", citation_kind="data",
+                    owner_instrument_id="519770",
+                    asset_class="cn_equity_fund",
+                    parent_fund_id="519770", constituent_key="300308",
+                ),
+                "bbbbbbbbbbbbbbbb": CitationMeta(
+                    scope="constituent", citation_kind="information",
+                    owner_instrument_id="519770",
+                    asset_class="cn_equity_fund",
+                    parent_fund_id="519770", constituent_key="300308",
+                ),
+            },
+        },
+    }
+    prose = (
+        "519770 交银优择回报持有 300308，中际旭创作为底层证据支持观察，"
+        f"{_ACTIONABLE} [ref:aaaaaaaaaaaaaaaa] [ref:bbbbbbbbbbbbbbbb]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={"519770": "519770", "交银优择回报": "519770"},
+        constituent_aliases={
+            "300308": frozenset({
+                ("519770", "300308"), ("000390", "300308"),
+            }),
+        },
+        constituent_cited_map=constituent_cited,
+    )
+    kinds = [f.kind for f in findings]
+    assert "ambiguous_constituent_reference" not in kinds
+    assert "uncited_conclusion" not in kinds
+
+
 def test_find_uncited_conclusions_uncited_portfolio_conclusion() -> None:
     """AC8 (d) — actionable keyword + zero alias hits + zero markers →
     uncited_portfolio_conclusion."""
@@ -485,3 +622,19 @@ def test_find_uncited_conclusions_uncited_portfolio_conclusion() -> None:
     )
     kinds = [f.kind for f in findings]
     assert "uncited_portfolio_conclusion" in kinds
+
+
+def test_find_uncited_conclusions_ignores_execution_mode_labels() -> None:
+    """`建仓模式` / `建仓方式` are labels, not standalone actionable conclusions."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    findings = find_uncited_conclusions(
+        prose=(
+            "- 建仓模式：build（按节奏定投，不一次性投入）。\n"
+            "- **519770 交银优择回报灵活配置混合A** | 建仓方式 small_account_anchor\n"
+        ),
+        cited_map=_cited_map_single("519770"),
+        instrument_aliases={"519770": "519770", "交银优择回报灵活配置混合A": "519770"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert findings == []

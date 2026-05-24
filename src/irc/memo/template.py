@@ -27,6 +27,11 @@ _LEGACY_EXECUTION_PLACEHOLDER = "<!-- 由AI合成器填充 -->"
 # prompt explicitly instructs the LLM to copy the section verbatim.
 EXECUTION_SECTION_MARKER = "<!-- IRC_EXECUTION_LINES_BEGIN -->"
 EXECUTION_SECTION_MARKER_END = "<!-- IRC_EXECUTION_LINES_END -->"
+_COMPLIANCE_STATEMENT = (
+    "【合规声明】本备忘录所有内容（含宏观判断、标的评分、目标权重、执行触发条件）"
+    "均基于内部模型及截至证据池日期的有限数据生成，仅供内部参考，"
+    "不构成任何形式的投资建议或收益承诺。投资者须自行承担投资决策风险。"
+)
 
 
 def _section(n: int, title: str, body: str) -> str:
@@ -47,7 +52,7 @@ def render_skeleton(inputs: MemoInputs) -> str:
     risks_md = "\n".join(f"- {r}" for r in inputs.risk_notes) or "（待填写）"
     tldr_md = "\n".join(f"- {t}" for t in inputs.tldr_lines) or "（待填写）"
     sections = [
-        f"# 投资决策备忘录 {inputs.date_str}\n",
+        f"# 投资决策备忘录 {inputs.date_str}\n\n{_COMPLIANCE_STATEMENT}\n",
         _section(1, "TL;DR", tldr_md),
         _section(2, "宏观环境", inputs.macro_summary),
         _section(3, "黄金视角",

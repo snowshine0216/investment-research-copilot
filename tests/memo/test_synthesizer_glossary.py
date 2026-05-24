@@ -67,3 +67,23 @@ def test_synthesize_memo_prompt_forbids_qdii_premium_conclusion_without_data() -
     # Must forbid the specific conclusion, not just warn:
     assert "敞口可接受" in user_msg
     assert "禁止" in user_msg
+
+
+def test_synthesize_memo_prompt_balances_positive_logic_with_negative_signals() -> None:
+    """Audit 2026-05-24 — positive bottom-up evidence must be paired with
+    valuation/heat/product-quality negatives, and raw revenue_yoy decimals
+    must not be copied as ambiguous prose."""
+    user_msg = _capture_user_prompt()
+    assert "正面逻辑" in user_msg
+    assert "very_expensive" in user_msg
+    assert "overheated" in user_msg
+    assert "weak" in user_msg
+    assert "revenue_yoy" in user_msg
+    assert "百分比" in user_msg or "百分数" in user_msg
+
+
+def test_synthesize_memo_prompt_requires_refs_on_instrument_conclusions() -> None:
+    user_msg = _capture_user_prompt()
+    assert "[ref:" in user_msg
+    assert "具体标的" in user_msg
+    assert "同一段" in user_msg or "同一行" in user_msg

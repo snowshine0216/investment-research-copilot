@@ -32,7 +32,12 @@ from irc.fundamentals.snapshot_cache import (
     write_active_fund_cache,
     write_nav_cache,
 )
-from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot, LookthroughTarget
+from irc.fundamentals.types import (
+    ActiveFundSnapshot,
+    ConstituentAnalysis,
+    FundLevelSnapshot,
+    LookthroughTarget,
+)
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
@@ -229,6 +234,22 @@ def _is_stale(snap: ActiveFundSnapshot, *, today: date_cls, threshold_days: int)
     return days > threshold_days
 
 
+def _constituent_has_data_leg(analysis: ConstituentAnalysis) -> bool:
+    return any(e.citation_kind == "data" for e in analysis.evidence)
+
+
+def _active_snapshot_has_required_data_leg_gap(snap: ActiveFundSnapshot) -> bool:
+    """Return True when a cached active-fund snapshot cannot satisfy Policy B.
+
+    Policy B requires a data leg for every top-N holding. A cache that is
+    date-fresh but missing any constituent data leg should be retried before it
+    is allowed to reject the fund again from stale evidence.
+    """
+    if not snap.constituent_analyses:
+        return False
+    return any(not _constituent_has_data_leg(c) for c in snap.constituent_analyses)
+
+
 def _maybe_freshness_probe(
     snap: ActiveFundSnapshot,
     *,
@@ -239,6 +260,8 @@ def _maybe_freshness_probe(
 
     Fail-closed: any probe failure or empty result → schedule_full_refetch=True.
     """
+    if _active_snapshot_has_required_data_leg_gap(snap):
+        return snap, True
     if not _is_stale(snap, today=today, threshold_days=_freshness_days()):
         return snap, False
     try:
@@ -656,6 +679,8 @@ def _classify_active_fund_scores(
         cached = _load_latest_active_fund_cached(iid, root)
         if cached is None:
             misses += 1
+        elif _active_snapshot_has_required_data_leg_gap(cached):
+            stale += 1
         elif _is_stale(cached, today=today, threshold_days=threshold_days):
             stale += 1
     return misses, stale

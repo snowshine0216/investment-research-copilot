@@ -46,8 +46,9 @@ _DEFAULT_TIMELINESS_NOTE = (
 _MACRO_SUMMARY = (
     "实际利率与美元走向通常被视为黄金定价的重要参考变量之一；"
     "地缘风险、央行购金行为等其他因素同样可能对金价产生显著影响。"
-    "A 股宽基估值百分位以证据池中的具体读数为准，本节不做定性结论。"
-    "数据请以证据池中的具体数字为准，不要自行编造。"
+    "本期 A 股宽基估值数据采集不完整：仅对证据池已覆盖的标的作有限披露，"
+    "其余宽基指数估值百分位未采集，相关宏观判断存在数据缺口，"
+    "不要自行编造、补足或外推。"
 )
 
 
@@ -88,6 +89,8 @@ def _format_trigger(trigger: dict) -> str:
 def _compose_execution_lines(
     trades: list[dict],
     opportunity_rows: list[dict],
+    extra_names: dict[str, str] | None = None,
+    require_opportunity_row: bool = False,
 ) -> tuple[str, ...]:
     """Build one bullet per trade row for memo section 7.
 
@@ -99,14 +102,28 @@ def _compose_execution_lines(
     Multi-trigger trades render with a 满足任一 (any-of / OR) marker —
     triggers in the plan are independent by construction
     (see ``src/irc/trades/triggers.py:emit_triggers_for_trade``).
+
+    In production memo rendering, ``require_opportunity_row=True`` marks trade
+    targets missing from opportunity_report.json as suspended instead of
+    emitting actionable triggers from incomplete opportunity data.
     """
+    extra_names = extra_names or {}
     name_by_id = {str(r.get("instrument_id")): r.get("name_cn", "")
                   for r in opportunity_rows}
     lines: list[str] = []
     for t in trades:
         iid = str(t.get("target", ""))
-        name = name_by_id.get(iid, "")
+        resolved_iid = iid if iid in name_by_id else _strip_venue_suffix(iid)
+        name = str(name_by_id.get(resolved_iid) or extra_names.get(iid) or "")
         weight = float(t.get("target_weight") or 0.0)
+        label = f"{iid} {name}".strip()
+        venue_note = str(t.get("venue_note", ""))
+        if require_opportunity_row and resolved_iid not in name_by_id:
+            lines.append(
+                f"**{label}** | 目标权重 ≤ {weight*100:.1f}% | "
+                f"暂缓执行·待机会数据补充 | 渠道 {venue_note}"
+            )
+            continue
         raw_triggers = list(t.get("triggers") or [])
         formatted = [_format_trigger(tr) for tr in raw_triggers]
         formatted = [f for f in formatted if f]
@@ -116,9 +133,8 @@ def _compose_execution_lines(
             triggers = formatted[0]
         else:
             triggers = "满足任一：" + "；".join(formatted)
-        venue_note = str(t.get("venue_note", ""))
         bullet = (
-            f"**{iid} {name}** | 目标权重 ≤ {weight*100:.1f}% | "
+            f"**{label}** | 目标权重 ≤ {weight*100:.1f}% | "
             f"建仓方式 {t.get('buy_method', 'unknown')} ({t.get('granularity', 'default')}) | "
             f"触发 {triggers} | 渠道 {venue_note}"
         )
@@ -144,7 +160,8 @@ def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
             "节假日/停牌将进一步延长。所有数值不代表实时市场状态，执行前须自行核实。"
         )
     return (
-        "实际利率上行风险：实际利率反弹会压制金价。",
+        "实际利率风险：历史上实际利率上行通常对金价形成压制，"
+        "但具体影响程度受多重因素影响；本期实际利率数据缺失，该风险敞口暂无法量化。",
         "估值压力：宽基ETF在估值百分位偏高时回撤风险加大。",
         "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
         timeliness,
@@ -519,7 +536,11 @@ def run_memo(repo_root: str) -> int:
     role_lines = compose_role_bucket_banner(diag_rows)
     if role_lines:
         risk_notes = tuple(role_lines) + risk_notes
-    execution_lines = _compose_execution_lines(trades, opportunity.get("rows") or [])
+    execution_lines = _compose_execution_lines(
+        trades, opportunity.get("rows") or [],
+        extra_names=fallback_names,
+        require_opportunity_row=True,
+    )
 
     inputs = MemoInputs(
         date_str=today,
@@ -629,8 +650,13 @@ def run_memo(repo_root: str) -> int:
         + len(shadow.get("discipline_findings", []))
         + len(memo_findings)
     )
-    shadow["summary"]["blocking"] = shadow["summary"].get("blocking", False) or (
-        enforce_mode == "block" and bool(memo_findings)
+    shadow["summary"]["blocking"] = bool(shadow.get("constituent_findings", [])) or (
+        enforce_mode == "block"
+        and bool(
+            shadow.get("opportunity_findings", [])
+            or shadow.get("discipline_findings", [])
+            or memo_findings
+        )
     )
     # Wrap shadow log write so an OSError doesn't suppress the gate's
     # subsequent block/warn decision (silent-failure P0.2 parallel to the
@@ -673,6 +699,9 @@ def run_memo(repo_root: str) -> int:
         )
 
     atomic_write_text(out_dir / "memo.md", output.draft)
+    blocked_path = out_dir / "memo_blocked.md"
+    if blocked_path.exists():
+        blocked_path.unlink()
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"
         f"{output.traceability['n_refs_provided']} refs quoted verbatim "

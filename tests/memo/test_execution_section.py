@@ -64,6 +64,33 @@ def test_compose_execution_lines_picks_name_from_opportunity_rows():
     assert "direct match" in lines[0]
 
 
+def test_compose_execution_lines_suspends_trade_without_opportunity_row():
+    """Production memo output must not give actionable triggers to a trade
+    target missing from opportunity_report.json."""
+    trades = [{
+        "target": "017641",
+        "target_weight": 0.0667,
+        "buy_method": "small_account_anchor",
+        "granularity": "default",
+        "triggers": [{
+            "name": "vix_high",
+            "data_field": "macro.vix",
+            "comparator": ">",
+            "threshold": 25.0,
+        }],
+        "venue_note": "direct match",
+    }]
+    lines = _compose_execution_lines(
+        trades, [],
+        extra_names={"017641": "摩根标普500指数(QDII)人民币A"},
+        require_opportunity_row=True,
+    )
+    assert len(lines) == 1
+    assert "017641 摩根标普500指数(QDII)人民币A" in lines[0]
+    assert "暂缓执行·待机会数据补充" in lines[0]
+    assert "vix_high" not in lines[0]
+
+
 def test_compose_execution_lines_renders_trigger_data_field_comparator_threshold():
     """Audit P4 — render each trigger as `name (data_field comparator threshold)`
     so the bare code is not the only thing executors see."""
