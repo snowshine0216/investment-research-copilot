@@ -5,6 +5,10 @@ written via item 003's write_active_fund_cache. No mocks, no live network.
 """
 from __future__ import annotations
 
+import re
+from datetime import date, timedelta
+from pathlib import Path
+
 import pytest
 
 
@@ -142,9 +146,6 @@ def test_module_exports_public_surface() -> None:
 
 # ── Task 2: is_stale ─────────────────────────────────────────────────────────
 
-from datetime import date, timedelta
-from pathlib import Path
-
 
 def _connect_with_schema(tmp_path: Path):
     """Open a fresh DuckDB at tmp_path/local.duckdb with schema applied."""
@@ -242,8 +243,6 @@ def test_is_stale_uses_max_report_date_when_multiple_quarters(tmp_path: Path) ->
 
 
 # ── Task 3: upsert_holdings ──────────────────────────────────────────────────
-
-import re
 
 
 def _make_row(*, iid="005827", report_date="2024-03-31",
