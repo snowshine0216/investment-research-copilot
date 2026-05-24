@@ -378,9 +378,14 @@ def _check_instrument_citation(
             has_data = True
         elif meta.citation_kind == "information":
             has_info = True
-    if wrong_owner_seen:
-        # Wrong-owner finding is the dominant diagnosis; skip uncited duplication.
-        return findings
+    # Don't short-circuit on first wrong-owner marker — a paragraph with N
+    # markers may have one wrong-owner AND legitimate dual-leg coverage in
+    # the others. Both findings can co-exist; emit `wrong_instrument_citation`
+    # for the misplaced one(s) AND `uncited_conclusion` only if the remaining
+    # correct-owner markers fail to satisfy the dual-leg requirement.
+    # (Closes silent-failure P1.2 — first wrong-owner used to suppress all
+    # subsequent dual-leg checks, silently dropping a legitimate uncited
+    # finding when the only correct marker covered only one leg.)
     if not has_data or not has_info:
         findings.append(NumericFinding(
             instrument_id=iid,

@@ -26,6 +26,7 @@ from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
 from irc.commands.opportunity_cmd import (
+    _is_canonical_out_dir,
     _resolve_enforce_mode,
     _write_citation_audit_shadow_log,
 )
@@ -598,10 +599,14 @@ def run_memo(repo_root: str) -> int:
     if audit_path.exists():
         shadow: dict = json.loads(audit_path.read_text(encoding="utf-8"))
     else:
+        # Fallback when memo runs standalone (no opportunity stage). Compute
+        # `canonical_path` from the actual `out_dir` instead of hardcoding
+        # False — production runs always have a canonical out_dir, so the
+        # previous False default mislabeled the shadow log (code-reviewer P1.5).
         shadow = {
             "run_date": today,
             "enforce_mode": enforce_mode,
-            "canonical_path": False,
+            "canonical_path": _is_canonical_out_dir(out_dir),
             "out_dir": str(out_dir.resolve()),
             "opportunity_findings": [],
             "constituent_findings": [],
@@ -627,7 +632,17 @@ def run_memo(repo_root: str) -> int:
     shadow["summary"]["blocking"] = shadow["summary"].get("blocking", False) or (
         enforce_mode == "block" and bool(memo_findings)
     )
-    _write_citation_audit_shadow_log(out_dir, shadow)
+    # Wrap shadow log write so an OSError doesn't suppress the gate's
+    # subsequent block/warn decision (silent-failure P0.2 parallel to the
+    # opportunity-stage wrapper).
+    try:
+        _write_citation_audit_shadow_log(out_dir, shadow)
+    except OSError as exc:
+        print(
+            f"WARN: citation_audit.json write failed ({exc!r}); "
+            "memo gate verdict still applies",
+            file=sys.stderr,
+        )
 
     if memo_findings and enforce_mode == "block":
         reasons = [f"{f.instrument_id}:{f.kind}" for f in memo_findings]

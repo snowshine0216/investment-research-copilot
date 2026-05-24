@@ -440,9 +440,18 @@ def _resolve_enforce_mode(out_dir: Path, today: str) -> str:  # noqa: ARG001
     `today` is unused for canonical-path detection (date is read from
     `out_dir.name`) but accepted for forward-compat / call-site clarity.
     """
-    if _is_canonical_out_dir(out_dir):
-        return "block"
     raw = os.environ.get("IRC_CITATION_ENFORCE_MODE", "block")
+    if _is_canonical_out_dir(out_dir):
+        # Canonical-path override is silently invisible by default. Emit a
+        # stderr warning so an operator who set warn/off and wonders why the
+        # gate still fired sees the explicit override (silent-failure P1.1).
+        if raw != "block":
+            print(
+                f"WARN citation-audit: canonical output path detected; "
+                f"IRC_CITATION_ENFORCE_MODE={raw!r} ignored, enforcing 'block'",
+                file=sys.stderr,
+            )
+        return "block"
     if raw in _VALID_ENFORCE_MODES:
         return raw
     print(
@@ -1157,33 +1166,75 @@ def _write_opportunity_outputs(
     publishable_rows = [r for r in kept_rows if not r.evidence_gaps]
     gapped_rows = [r for r in kept_rows if r.evidence_gaps]
 
-    # ── Item 009 Step 2a — opportunity-row citation gate ─────────────────────
+    # ── Item 009 Steps 2a/2b/2c — citation gate (fix-round closes the 8
+    # findings from PR #63's post-ship review).
+    #
+    # ORDERING: Step 2b (constituent pure-failure) runs on the FULL publishable
+    # set BEFORE Step 2a's demotion — otherwise a row with both a citation
+    # violation AND a pure-failure constituent would have its constituent gap
+    # silently dropped (silent-failure-hunter P0.3). Step 2b is also the
+    # unconditional-fatal gate so it sets the strictest floor.
     cited_map = build_cited_map(tuple(publishable_rows))
     op_findings = find_uncited_opportunity_rows(publishable_rows, cited_map)
+    constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    enforce_mode = _resolve_enforce_mode(out_dir, today)
+
+    # Step 2a demotion is now CONDITIONAL on enforce_mode. In `warn`/`off`
+    # mode, op-row findings are logged (or silent) but the rows STAY in
+    # publishable — matching operator expectations and closing the
+    # code-reviewer's P1.4 "warn silently demotes" finding.
     blocked_iids = {f.instrument_id for f in op_findings}
-    if blocked_iids:
+    if blocked_iids and enforce_mode == "block":
         kept_publishable: list[OpportunityRow] = []
         for r in publishable_rows:
             if r.instrument_id in blocked_iids:
+                # APPEND the gap code instead of REPLACING the tuple
+                # (code-reviewer P0.1). Currently safe per H3 (publishable
+                # rows have empty evidence_gaps), but append preserves any
+                # future invariant change.
                 gapped_rows.append(
-                    replace(r, evidence_gaps=("citation_gate_blocked",))
+                    replace(
+                        r,
+                        evidence_gaps=tuple(r.evidence_gaps) + ("citation_gate_blocked",),
+                    )
                 )
             else:
                 kept_publishable.append(r)
         publishable_rows = kept_publishable
 
-    # ── Item 009 Step 2b — pure-failure constituent gate (unconditional) ─────
-    constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
-
-    # ── Item 009 Step 2c — discipline-row citation gate ──────────────────────
+    # Step 2c — discipline rows computed AFTER Step 2a's potential demotion
+    # so demoted rows don't show up in the discipline auditor.
     discipline_rows = [
         _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
     ]
     discipline_findings = find_uncited_discipline_rows(discipline_rows, cited_map)
 
-    # ── Item 009 — resolve mode + write shadow log BEFORE any potential raise ─
-    out_dir.mkdir(parents=True, exist_ok=True)
-    enforce_mode = _resolve_enforce_mode(out_dir, today)
+    # Step 2c demotion (parallel to Step 2a) — in block mode, discipline-
+    # findings rows are also demoted with `citation_gate_blocked`. Closes
+    # the adversarial-review 2a-pass/2c-fail asymmetry where a provenance
+    # mismatch in warn/off mode silently emitted the row.
+    disc_blocked_iids = {f.instrument_id for f in discipline_findings}
+    if disc_blocked_iids and enforce_mode == "block":
+        kept_publishable = []
+        for r in publishable_rows:
+            if r.instrument_id in disc_blocked_iids:
+                gapped_rows.append(
+                    replace(
+                        r,
+                        evidence_gaps=tuple(r.evidence_gaps) + ("citation_gate_blocked",),
+                    )
+                )
+            else:
+                kept_publishable.append(r)
+        publishable_rows = kept_publishable
+        # Recompute discipline_rows after demotion so the renderer sees
+        # only publishable rows.
+        discipline_rows = [
+            _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
+        ]
+
     blocking_findings = bool(op_findings) or bool(discipline_findings)
     shadow_payload: dict = {
         "run_date": today,
@@ -1228,7 +1279,17 @@ def _write_opportunity_outputs(
             ),
         },
     }
-    _write_citation_audit_shadow_log(out_dir, shadow_payload)
+    # Wrap shadow log write so an OSError (disk full, permissions) doesn't
+    # swallow the gate raise that should follow. Logs the I/O error to
+    # stderr but does NOT suppress the gate verdict (silent-failure P0.1).
+    try:
+        _write_citation_audit_shadow_log(out_dir, shadow_payload)
+    except OSError as exc:
+        print(
+            f"WARN: citation_audit.json write failed ({exc!r}); "
+            "gate verdict still applies",
+            file=sys.stderr,
+        )
 
     # Step 2b raise: pure-failure constituent is unconditional fatal.
     if constituent_findings:
