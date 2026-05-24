@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sys
 import time
 from dataclasses import dataclass, replace
@@ -58,6 +59,12 @@ from irc.opportunity.types import (
     OpportunityInput,
     OpportunityRow,
 )
+from irc.opportunity.auditor import (
+    find_incomplete_constituent_analyses,
+    find_uncited_opportunity_rows,
+)
+from irc.opportunity.citation_map import build_cited_map
+from irc.memo.numeric_audit import find_uncited_discipline_rows
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
 from irc.research.theme_research import ThemeReport
@@ -403,6 +410,66 @@ def _reject_limit_on_canonical(resolved: Path | None, today: str) -> None:
 
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+
+
+# ── Item 009: citation audit enforce-mode helpers ─────────────────────────────
+
+_CANONICAL_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_VALID_ENFORCE_MODES: tuple[str, ...] = ("off", "warn", "block")
+
+
+def _is_canonical_out_dir(out_dir: Path) -> bool:
+    """Per AC11 / Q2: canonical IFF parent is 'outputs' AND name matches YYYY-MM-DD."""
+    try:
+        resolved = out_dir.resolve()
+    except (OSError, RuntimeError):
+        return False
+    if resolved.parent.name != "outputs":
+        return False
+    return bool(_CANONICAL_DATE_RE.fullmatch(resolved.name))
+
+
+def _resolve_enforce_mode(out_dir: Path, today: str) -> str:  # noqa: ARG001
+    """Resolve the IRC_CITATION_ENFORCE_MODE for the given output dir.
+
+    Per AC11 / Q2:
+      - Canonical path (outputs/YYYY-MM-DD) → 'block' (env var ignored).
+      - Non-canonical → honour env var, default 'block'.
+      - Unknown env value → 'block' with stderr warning.
+
+    `today` is unused for canonical-path detection (date is read from
+    `out_dir.name`) but accepted for forward-compat / call-site clarity.
+    """
+    raw = os.environ.get("IRC_CITATION_ENFORCE_MODE", "block")
+    if _is_canonical_out_dir(out_dir):
+        # Canonical-path override is silently invisible by default. Emit a
+        # stderr warning so an operator who set warn/off and wonders why the
+        # gate still fired sees the explicit override (silent-failure P1.1).
+        if raw != "block":
+            print(
+                f"WARN citation-audit: canonical output path detected; "
+                f"IRC_CITATION_ENFORCE_MODE={raw!r} ignored, enforcing 'block'",
+                file=sys.stderr,
+            )
+        return "block"
+    if raw in _VALID_ENFORCE_MODES:
+        return raw
+    print(
+        f"WARN citation-audit: unknown IRC_CITATION_ENFORCE_MODE={raw!r}; "
+        f"falling back to 'block'",
+        file=sys.stderr,
+    )
+    return "block"
+
+
+def _write_citation_audit_shadow_log(out_dir: Path, payload: dict) -> None:
+    """Atomic write of the shared shadow log per AC13. Same atomicity as
+    every other artifact in this module."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(
+        out_dir / "citation_audit.json",
+        json.dumps(payload, ensure_ascii=False, indent=2),
+    )
 
 
 def _locate_scoring(root: Path, today: str) -> Path | None:
@@ -1099,6 +1166,151 @@ def _write_opportunity_outputs(
     publishable_rows = [r for r in kept_rows if not r.evidence_gaps]
     gapped_rows = [r for r in kept_rows if r.evidence_gaps]
 
+    # ── Item 009 Steps 2a/2b/2c — citation gate (fix-round closes the 8
+    # findings from PR #63's post-ship review).
+    #
+    # ORDERING: Step 2b (constituent pure-failure) runs on the FULL publishable
+    # set BEFORE Step 2a's demotion — otherwise a row with both a citation
+    # violation AND a pure-failure constituent would have its constituent gap
+    # silently dropped (silent-failure-hunter P0.3). Step 2b is also the
+    # unconditional-fatal gate so it sets the strictest floor.
+    cited_map = build_cited_map(tuple(publishable_rows))
+    op_findings = find_uncited_opportunity_rows(publishable_rows, cited_map)
+    constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    enforce_mode = _resolve_enforce_mode(out_dir, today)
+
+    # Step 2a demotion is now CONDITIONAL on enforce_mode. In `warn`/`off`
+    # mode, op-row findings are logged (or silent) but the rows STAY in
+    # publishable — matching operator expectations and closing the
+    # code-reviewer's P1.4 "warn silently demotes" finding.
+    blocked_iids = {f.instrument_id for f in op_findings}
+    if blocked_iids and enforce_mode == "block":
+        kept_publishable: list[OpportunityRow] = []
+        for r in publishable_rows:
+            if r.instrument_id in blocked_iids:
+                # APPEND the gap code instead of REPLACING the tuple
+                # (code-reviewer P0.1). Currently safe per H3 (publishable
+                # rows have empty evidence_gaps), but append preserves any
+                # future invariant change.
+                gapped_rows.append(
+                    replace(
+                        r,
+                        evidence_gaps=tuple(r.evidence_gaps) + ("citation_gate_blocked",),
+                    )
+                )
+            else:
+                kept_publishable.append(r)
+        publishable_rows = kept_publishable
+
+    # Step 2c — discipline rows computed AFTER Step 2a's potential demotion
+    # so demoted rows don't show up in the discipline auditor.
+    discipline_rows = [
+        _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
+    ]
+    discipline_findings = find_uncited_discipline_rows(discipline_rows, cited_map)
+
+    # Step 2c demotion (parallel to Step 2a) — in block mode, discipline-
+    # findings rows are also demoted with `citation_gate_blocked`. Closes
+    # the adversarial-review 2a-pass/2c-fail asymmetry where a provenance
+    # mismatch in warn/off mode silently emitted the row.
+    disc_blocked_iids = {f.instrument_id for f in discipline_findings}
+    if disc_blocked_iids and enforce_mode == "block":
+        kept_publishable = []
+        for r in publishable_rows:
+            if r.instrument_id in disc_blocked_iids:
+                gapped_rows.append(
+                    replace(
+                        r,
+                        evidence_gaps=tuple(r.evidence_gaps) + ("citation_gate_blocked",),
+                    )
+                )
+            else:
+                kept_publishable.append(r)
+        publishable_rows = kept_publishable
+        # Recompute discipline_rows after demotion so the renderer sees
+        # only publishable rows.
+        discipline_rows = [
+            _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
+        ]
+
+    blocking_findings = bool(op_findings) or bool(discipline_findings)
+    shadow_payload: dict = {
+        "run_date": today,
+        "enforce_mode": enforce_mode,
+        "canonical_path": _is_canonical_out_dir(out_dir),
+        "out_dir": str(out_dir.resolve()),
+        "opportunity_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in op_findings
+        ],
+        "constituent_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in constituent_findings
+        ],
+        "discipline_findings": [
+            {
+                "instrument_id": f.instrument_id,
+                "kind": f.kind,
+                "prose_excerpt": f.prose_excerpt,
+                "evidence_excerpt": f.evidence_excerpt,
+            }
+            for f in discipline_findings
+        ],
+        "memo_findings": [],
+        "summary": {
+            "total": (
+                len(op_findings) + len(constituent_findings) + len(discipline_findings)
+            ),
+            "blocking": (
+                bool(constituent_findings)
+                or (enforce_mode == "block" and blocking_findings)
+            ),
+        },
+    }
+    # Wrap shadow log write so an OSError (disk full, permissions) doesn't
+    # swallow the gate raise that should follow. Logs the I/O error to
+    # stderr but does NOT suppress the gate verdict (silent-failure P0.1).
+    try:
+        _write_citation_audit_shadow_log(out_dir, shadow_payload)
+    except OSError as exc:
+        print(
+            f"WARN: citation_audit.json write failed ({exc!r}); "
+            "gate verdict still applies",
+            file=sys.stderr,
+        )
+
+    # Step 2b raise: pure-failure constituent is unconditional fatal.
+    if constituent_findings:
+        raise RuntimeError(
+            "constituent_failure_in_publishable_row: "
+            + "; ".join(f.prose_excerpt for f in constituent_findings)
+        )
+
+    # Step 2a/2c dispatch by enforce mode.
+    if blocking_findings:
+        msg_parts = [
+            f"{f.instrument_id}:{f.kind}"
+            for f in (op_findings + discipline_findings)
+        ]
+        msg = "citation_gate_blocked: " + "; ".join(msg_parts)
+        if enforce_mode == "block":
+            raise RuntimeError(msg)
+        if enforce_mode == "warn":
+            print(f"WARN citation-audit: {msg}", file=sys.stderr)
+        # off: silent
+
     # Step 3 — emit thesis_cards.yaml + opportunity_report.json from publishable only.
     cards = [
         build_thesis_card(
@@ -1110,10 +1322,6 @@ def _write_opportunity_outputs(
         for r in publishable_rows
         if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
     ]
-    discipline_rows = [
-        _discipline_row_from(r, positions[r.instrument_id]) for r in publishable_rows
-    ]
-    out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(
         out_dir / "opportunity_report.json",
         json.dumps(

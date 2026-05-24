@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -24,6 +25,13 @@ from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
+from irc.commands.opportunity_cmd import (
+    _is_canonical_out_dir,
+    _resolve_enforce_mode,
+    _write_citation_audit_shadow_log,
+)
+from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
+from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
 
 _DEFAULT_TIMELINESS_NOTE = (
@@ -565,6 +573,105 @@ def run_memo(repo_root: str) -> int:
         for reason in block_reasons:
             print(f"  - {reason}")
         return 2
+
+    # ── Item 009 — memo-stage citation gate ───────────────────────────────────
+    # Q7 + F1 lock: use out_dir (write path), NOT out_today (read path).
+    publishable_rows_for_gate = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    cited_map_for_gate = build_cited_map(tuple(publishable_rows_for_gate))
+    constituent_cited_for_gate = build_constituent_cited_map(
+        tuple(publishable_rows_for_gate),
+    )
+    pick_findings = find_missing_pick_citations(pick_rows, cited_map_for_gate)
+    prose_findings = find_uncited_conclusions(
+        output.draft,
+        cited_map=cited_map_for_gate,
+        instrument_aliases=_instrument_aliases,
+        constituent_aliases=_constituent_aliases,
+        constituent_cited_map=constituent_cited_for_gate,
+        strict_empty_alias_check=bool(rebuilt_op_rows),
+    )
+    memo_findings = pick_findings + prose_findings
+    enforce_mode = _resolve_enforce_mode(out_dir, today)
+
+    # RMW the shared shadow log: read whatever the opportunity stage wrote,
+    # overlay memo_findings + summary.
+    audit_path = out_dir / "citation_audit.json"
+    if audit_path.exists():
+        shadow: dict = json.loads(audit_path.read_text(encoding="utf-8"))
+    else:
+        # Fallback when memo runs standalone (no opportunity stage). Compute
+        # `canonical_path` from the actual `out_dir` instead of hardcoding
+        # False — production runs always have a canonical out_dir, so the
+        # previous False default mislabeled the shadow log (code-reviewer P1.5).
+        shadow = {
+            "run_date": today,
+            "enforce_mode": enforce_mode,
+            "canonical_path": _is_canonical_out_dir(out_dir),
+            "out_dir": str(out_dir.resolve()),
+            "opportunity_findings": [],
+            "constituent_findings": [],
+            "discipline_findings": [],
+            "memo_findings": [],
+            "summary": {"total": 0, "blocking": False},
+        }
+    shadow["memo_findings"] = [
+        {
+            "instrument_id": f.instrument_id,
+            "kind": f.kind,
+            "prose_excerpt": f.prose_excerpt,
+            "evidence_excerpt": f.evidence_excerpt,
+        }
+        for f in memo_findings
+    ]
+    shadow["summary"]["total"] = (
+        len(shadow.get("opportunity_findings", []))
+        + len(shadow.get("constituent_findings", []))
+        + len(shadow.get("discipline_findings", []))
+        + len(memo_findings)
+    )
+    shadow["summary"]["blocking"] = shadow["summary"].get("blocking", False) or (
+        enforce_mode == "block" and bool(memo_findings)
+    )
+    # Wrap shadow log write so an OSError doesn't suppress the gate's
+    # subsequent block/warn decision (silent-failure P0.2 parallel to the
+    # opportunity-stage wrapper).
+    try:
+        _write_citation_audit_shadow_log(out_dir, shadow)
+    except OSError as exc:
+        print(
+            f"WARN: citation_audit.json write failed ({exc!r}); "
+            "memo gate verdict still applies",
+            file=sys.stderr,
+        )
+
+    if memo_findings and enforce_mode == "block":
+        reasons = [f"{f.instrument_id}:{f.kind}" for f in memo_findings]
+        block_header = (
+            "# 备忘录发布被引用审核拒绝\n\n"
+            "Item 009 citation gate flagged missing citations on picks/prose; "
+            "see citation_audit.json for details.\n\n"
+            "## 阻断原因\n\n"
+            + "\n".join(f"- {r}" for r in reasons)
+            + "\n\n---\n\n"
+        )
+        atomic_write_text(out_dir / "memo_blocked.md", block_header + output.draft)
+        memo_path = out_dir / "memo.md"
+        if memo_path.exists():
+            memo_path.unlink()
+        print(
+            "memo BLOCKED by citation gate: see "
+            f"{out_dir / 'memo_blocked.md'} and {out_dir / 'citation_audit.json'}"
+        )
+        for r in reasons:
+            print(f"  - {r}")
+        return 2
+    if memo_findings and enforce_mode == "warn":
+        print(
+            "WARN citation-audit (memo): "
+            + "; ".join(f"{f.instrument_id}:{f.kind}" for f in memo_findings),
+            file=sys.stderr,
+        )
+
     atomic_write_text(out_dir / "memo.md", output.draft)
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"

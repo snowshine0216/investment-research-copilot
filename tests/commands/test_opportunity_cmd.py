@@ -833,6 +833,12 @@ def test_run_opportunity_threads_plan_hash_and_snapshot_cache_to_rejections(
     from irc.fundamentals.types import ActiveFundSnapshot
     from irc.opportunity.discipline import PositionContext
 
+    # Item 009 fix: citation gate now active; this test is about rejections
+    # plan_hash threading, not citation coverage. Disable gate for isolation.
+    import irc.commands.opportunity_cmd as _opp_mod_patch
+    monkeypatch.setattr(_opp_mod_patch, "_is_canonical_out_dir", lambda _p: False)
+    monkeypatch.setenv("IRC_CITATION_ENFORCE_MODE", "off")
+
     _seed_minimal_repo(tmp_path)
     monkeypatch.setattr("irc.commands.opportunity_cmd._today", lambda: "2026-05-14")
 
@@ -1012,9 +1018,11 @@ def test_stamp_audit_errors_no_op_when_coverage_empty() -> None:
 # ── Item 007 Q10 — _write_opportunity_outputs loads trade_plan for pick order ─
 
 
-def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> None:
+def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path, monkeypatch) -> None:
     """Q10 — _write_opportunity_outputs computes pick_order_iids from
     trade_plan.yaml so the appendix ordering matches the memo pick-table."""
+    # Item 009 fix: rows lack thesis evidence; disable citation gate for isolation.
+    monkeypatch.setenv("IRC_CITATION_ENFORCE_MODE", "off")
     import yaml
     from irc.commands.opportunity_cmd import _write_opportunity_outputs
     from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget
@@ -1034,6 +1042,23 @@ def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> 
     )
 
     def _row(iid: str, name: str):
+        from irc.fundamentals.types import ThesisEvidence
+        evs = (
+            ThesisEvidence(
+                type="filing", source="src", url=f"https://x/{iid}/d",
+                date="2024-04-15", summary="x", scope="instrument",
+                citation_kind="data", owner_instrument_id=iid,
+                parent_fund_id=None, constituent_key=None,
+                holding_weight_pct=None,
+            ),
+            ThesisEvidence(
+                type="filing", source="src", url=f"https://x/{iid}/i",
+                date="2024-04-16", summary="x", scope="instrument",
+                citation_kind="information", owner_instrument_id=iid,
+                parent_fund_id=None, constituent_key=None,
+                holding_weight_pct=None,
+            ),
+        )
         return OpportunityRow(
             instrument_id=iid, name_cn=name, asset_class="cn_equity_fund",
             theme=None,
@@ -1043,7 +1068,7 @@ def test_write_opportunity_outputs_loads_trade_plan_for_pick_order(tmp_path) -> 
             ),
             valuation_state="fair", heat_state="normal", thesis_state="intact",
             product_quality_state="strong", opportunity_state="core_dca",
-            opportunity_reason="", evidence_gaps=(), thesis_evidence=(),
+            opportunity_reason="", evidence_gaps=(), thesis_evidence=evs,
             constituent_analyses=(c,),
         )
 

@@ -30,6 +30,7 @@ RejectionReasonCode = Literal[
     "fund_nav_unavailable",
     "fund_announcements_unavailable",
     "missing_us_news_adapter",
+    "citation_gate_blocked",  # Item 009 Q4 — set by opportunity-stage citation gate.
 ]
 
 
@@ -89,6 +90,11 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     # H4 systematic-exclusion forward-declaration: US-news adapter absent.
     # Identity mapping — the gap code IS the rejection reason (closes L1 latent crash).
     "missing_us_news_adapter":              "missing_us_news_adapter",
+    # Item 009 Q4: opportunity-stage citation gate stamp.
+    # Identity mapping (gap code IS the rejection reason). Appended LAST so
+    # existing precedence (qdii first, etc.) is unchanged. Item 008 AC11's
+    # hard-coded "qdii_information_unavailable" string stays valid.
+    "citation_gate_blocked":                "citation_gate_blocked",
 }
 
 

@@ -432,3 +432,57 @@ def test_classify_rejection_reason_handles_legacy_gap_codes(
     from irc.opportunity.rejection_log import _classify_rejection_reason
     row = _row(evidence_gaps=(gap_code,))
     assert _classify_rejection_reason(row) == expected_reason
+
+
+# ── Item 009 Q4 — citation_gate_blocked ──────────────────────────────────────
+
+def test_rejection_reason_code_includes_citation_gate_blocked() -> None:
+    """Item 009 Q4 — citation_gate_blocked is a first-class RejectionReasonCode."""
+    from irc.opportunity.rejection_log import RejectionReasonCode
+    # typing.Literal exposes __args__ at runtime.
+    args = set(RejectionReasonCode.__args__)
+    assert "citation_gate_blocked" in args
+
+
+def test_gap_to_reason_maps_citation_gate_blocked_to_self() -> None:
+    """Item 009 Q4 — identity mapping (same shape as qdii_information_unavailable)."""
+    from irc.opportunity.rejection_log import _GAP_TO_REASON
+    assert _GAP_TO_REASON["citation_gate_blocked"] == "citation_gate_blocked"
+
+
+def test_gap_to_reason_citation_gate_blocked_is_last_entry() -> None:
+    """Item 009 Q4 — appended at end to preserve existing precedence.
+
+    Item 008 AC11 hard-codes `qdii_information_unavailable` precedence over
+    other gaps; that ordering must NOT change."""
+    from irc.opportunity.rejection_log import _GAP_TO_REASON
+    keys = list(_GAP_TO_REASON.keys())
+    assert keys[-1] == "citation_gate_blocked"
+    # First entry stays qdii_information_unavailable (item 008 AC11 contract).
+    assert keys[0] == "qdii_information_unavailable"
+
+
+def test_classify_rejection_reason_handles_citation_gate_blocked() -> None:
+    """A row with only the new gap classifies cleanly (no RuntimeError)."""
+    from irc.opportunity.rejection_log import _classify_rejection_reason
+    from irc.opportunity.types import LookthroughTarget, OpportunityRow
+    row = OpportunityRow(
+        instrument_id="005827",
+        name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key="005827",
+            display_cn="易方达蓝筹精选", provider_symbol="",
+        ),
+        valuation_state="fair",
+        heat_state="normal",
+        thesis_state="intact",
+        product_quality_state="strong",
+        opportunity_state="core_dca",
+        opportunity_reason="",
+        evidence_gaps=("citation_gate_blocked",),
+        thesis_evidence=(),
+        constituent_analyses=(),
+    )
+    assert _classify_rejection_reason(row) == "citation_gate_blocked"

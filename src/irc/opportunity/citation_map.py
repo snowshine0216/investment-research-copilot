@@ -10,7 +10,7 @@ path — that wire-up is item 009's responsibility per ADR 0001 §4.
 """
 from __future__ import annotations
 
-from irc.opportunity.types import CitationMeta, CitedMap, OpportunityRow
+from irc.opportunity.types import CitationMeta, CitedMap, ConstituentCitedMap, OpportunityRow
 
 
 def build_cited_map(rows: tuple[OpportunityRow, ...]) -> CitedMap:
@@ -50,4 +50,40 @@ def build_cited_map(rows: tuple[OpportunityRow, ...]) -> CitedMap:
                 parent_fund_id=ev.parent_fund_id,
                 constituent_key=ev.constituent_key,
             )
+    return cited
+
+
+def build_constituent_cited_map(
+    rows: tuple[OpportunityRow, ...],
+) -> ConstituentCitedMap:
+    """Walk every row's `constituent_analyses[*].evidence`, validate
+    provenance, and build the constituent-cited map.
+
+    Item 009 D2b prerequisite: memo-stage `find_uncited_conclusions` keys
+    constituent dual-leg lookup off `(instrument_id, constituent_key)`.
+
+    Raises:
+      RuntimeError: if any evidence's `owner_instrument_id != row.instrument_id`.
+    """
+    cited: ConstituentCitedMap = {}
+    for row in rows:
+        for c in row.constituent_analyses:
+            for ev in c.evidence:
+                if ev.owner_instrument_id != row.instrument_id:
+                    raise RuntimeError(
+                        f"provenance mismatch in constituent evidence: "
+                        f"owner_instrument_id={ev.owner_instrument_id!r} "
+                        f"but row.instrument_id={row.instrument_id!r} "
+                        f"(citation_id={ev.citation_id!r})"
+                    )
+                cited.setdefault(row.instrument_id, {}).setdefault(
+                    c.symbol, {},
+                )[ev.citation_id] = CitationMeta(
+                    scope=ev.scope,
+                    citation_kind=ev.citation_kind,
+                    owner_instrument_id=ev.owner_instrument_id,
+                    asset_class=row.asset_class,
+                    parent_fund_id=ev.parent_fund_id,
+                    constituent_key=ev.constituent_key,
+                )
     return cited
