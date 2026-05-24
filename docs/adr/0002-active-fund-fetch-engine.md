@@ -100,7 +100,7 @@ data/fundamentals/{source_report_quarter}/nav/fund_{fund_id}.json
 
 Parallel to `active_fund/`. `source_report_quarter` for fund-level snapshots is derived from `FundNavReport.latest_nav_date` via the existing `infer_quarter` helper (calendar-quarter rule — NAV is a daily series, the provider does not declare a fiscal disclosure quarter for NAV the way it does for holdings). Atomic write uses the same `.tmp.{pid} → os.replace` pattern as `active_fund/`.
 
-The legacy `ConstituentSnapshot` cache layout under `data/fundamentals/{calendar_quarter}/{display_cn}.json` is **left untouched** — it now serves only the raw-index display path (`_TARGET_REGISTRY` keyed by `display_cn`). Three cache code paths coexist until item 010 unifies them.
+The legacy `ConstituentSnapshot` cache layout under `data/fundamentals/{calendar_quarter}/{display_cn}.json` is **left untouched** — it now serves only the raw-index display path (`_TARGET_REGISTRY` keyed by `display_cn`). Three cache code paths coexist until item 010 unifies them. Item 010 (`src/irc/data/fund_holdings_ingestor.py`) is the downstream consumer of this cache for DuckDB `fund_holdings` persistence — it reads the active-fund snapshot for `cn_equity_fund` (and `cn_etf` cache-hits), falling back to `fetch_cn_etf_holdings` only for `cn_etf` cache-misses; no duplicate AkShare calls.
 
 **Freshness probe (extends §2):**
 

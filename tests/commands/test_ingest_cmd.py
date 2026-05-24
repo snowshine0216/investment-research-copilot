@@ -1060,3 +1060,134 @@ def test_run_ingest_zero_success_writes_sidecar(repo: Path, monkeypatch):
     assert reason.stats.get("price_successes", -1) == 0
     assert reason.first_error  # non-empty
     assert "ConnectionResetError" in (reason.first_error or ""), "first_error must be exception text, not instrument ID"
+
+
+# ── Task 10: Wire-in tests (ACs 14, 16, 17, 20) ──────────────────────────────
+
+
+def test_run_ingest_wires_holdings_step(repo: Path, monkeypatch) -> None:
+    """AC14 + AC20 — run_ingest calls ingest_fund_holdings once with eligible
+    targets in universe order and today_iso == _china_today()."""
+    captured: dict = {}
+
+    def _spy_ingest(con, targets, *, data_root, today_iso, now_iso,
+                    threshold_days=30, force=False):
+        captured["targets"] = tuple(targets)
+        captured["today_iso"] = today_iso
+        captured["threshold_days"] = threshold_days
+        from irc.data.fund_holdings_ingestor import IngestOutcome
+        return tuple(
+            IngestOutcome(
+                instrument_id=iid, status="skipped_no_data",
+                report_date="", rows_written=0, detail="snapshot_missing",
+            )
+            for iid, _ in captured["targets"]
+        )
+
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd.ingest_fund_holdings", _spy_ingest
+    )
+    # Force _china_today to a deterministic value so AC20 is locked.
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd._china_today",
+        lambda: "2026-05-24",
+    )
+
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series",
+              return_value=pd.DataFrame({"date": [date(2026, 5, 6)], "value": [4.0]})),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+
+    assert rc == 0
+    assert "targets" in captured
+    eligible_acs = {"cn_equity_fund", "cn_etf"}
+    assert all(ac in eligible_acs for _, ac in captured["targets"])
+    assert captured["today_iso"] == "2026-05-24"
+    assert captured["threshold_days"] == 30
+
+
+def test_run_ingest_holdings_failure_not_fatal(repo: Path, monkeypatch) -> None:
+    """AC16 — every holdings target fails → run_ingest exits 0; no halt."""
+    def _all_fail(con, targets, **kw):
+        from irc.data.fund_holdings_ingestor import IngestOutcome
+        return tuple(
+            IngestOutcome(
+                instrument_id=iid, status="failed",
+                report_date="", rows_written=0,
+                detail="akshare_raised:ConnectionError",
+            )
+            for iid, _ in tuple(targets)
+        )
+
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd.ingest_fund_holdings", _all_fail
+    )
+
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series",
+              return_value=pd.DataFrame({"date": [date(2026, 5, 6)], "value": [4.0]})),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+    assert rc == 0
+    # No halt sidecar.
+    halt_sidecar = repo / "outputs" / _china_today() / ".halt_reason.json"
+    assert not halt_sidecar.exists()
+
+
+def test_run_ingest_holdings_count_in_manifest(repo: Path, monkeypatch) -> None:
+    """AC17 — manifest's akshare entry carries record_counts['fund_holdings']."""
+    def _spy_writes(con, targets, **kw):
+        from irc.data.fund_holdings_ingestor import IngestOutcome
+        materialised = tuple(targets)
+        return tuple(
+            IngestOutcome(
+                instrument_id=iid, status="wrote",
+                report_date="2024-03-31", rows_written=10, detail="",
+            )
+            for iid, _ in materialised
+        )
+
+    monkeypatch.setattr(
+        "irc.commands.ingest_cmd.ingest_fund_holdings", _spy_writes
+    )
+
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series",
+              return_value=pd.DataFrame({"date": [date(2026, 5, 6)], "value": [4.0]})),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+    assert rc == 0
+    from irc.data.manifest import read_manifest
+    m = read_manifest(repo / "data", "akshare")
+    assert m is not None
+    assert "fund_holdings" in m.record_counts
+    # Sum equals 10 * number of eligible targets.
+    assert m.record_counts["fund_holdings"] >= 10
