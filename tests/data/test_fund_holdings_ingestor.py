@@ -565,8 +565,13 @@ def test_collect_holding_rows_all_quarters_empty_returns_snapshot_empty(tmp_path
     assert detail == "snapshot_empty"
 
 
-def test_collect_holding_rows_missing_report_date_returns_empty(tmp_path: Path) -> None:
-    """AC11 — snapshot.source_report_date == '' → 'missing_report_date'."""
+def test_collect_holding_rows_missing_report_date_falls_through_to_snapshot_empty(tmp_path: Path) -> None:
+    """AC11 (post-fix-round) — snapshot with empty source_report_date is
+    treated like an empty-constituents snapshot: the candidate loop continues
+    rather than abandoning the whole iid. With only one snapshot available
+    (and it has no usable date), the result is `snapshot_empty` — caller can
+    still try the AkShare fallback path for cn_etf.
+    """
     from irc.data.fund_holdings_ingestor import collect_holding_rows
     snap = _build_snapshot(report_date="")
     _write_snap(snap, tmp_path)
@@ -574,7 +579,7 @@ def test_collect_holding_rows_missing_report_date_returns_empty(tmp_path: Path) 
         "005827", "cn_equity_fund", data_root=tmp_path / "data",
     )
     assert rows == ()
-    assert detail == "missing_report_date"
+    assert detail == "snapshot_empty"
 
 
 def test_collect_holding_rows_skips_constituents_with_empty_symbol(tmp_path: Path) -> None:
@@ -926,8 +931,10 @@ def test_ingest_one_snapshot_empty_preserves_existing_rows(tmp_path: Path) -> No
         con.close()
 
 
-def test_ingest_one_missing_report_date(tmp_path: Path) -> None:
-    """AC11 — snapshot has source_report_date='' → 'missing_report_date'."""
+def test_ingest_one_missing_report_date_falls_through_to_snapshot_empty(tmp_path: Path) -> None:
+    """AC11 (post-fix-round) — snapshot with missing report_date no longer
+    short-circuits; it propagates through as `snapshot_empty` (the same code
+    path as a snapshot with empty `constituent_analyses`)."""
     from irc.data.fund_holdings_ingestor import ingest_one
     snap = _build_snapshot(report_date="")
     _write_snap(snap, tmp_path)
@@ -939,7 +946,47 @@ def test_ingest_one_missing_report_date(tmp_path: Path) -> None:
             today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
         )
         assert out.status == "skipped_no_data"
-        assert out.detail == "missing_report_date"
+        assert out.detail == "snapshot_empty"
+        assert out.rows_written == 0
+    finally:
+        con.close()
+
+
+def test_ingest_one_nan_weight_propagates_as_failed_not_unhandled_exception(
+    tmp_path: Path,
+) -> None:
+    """Regression — post-ship review BREAKS verdict: `ConstituentAnalysis`
+    only checks `weight_pct < 0` so NaN passes validation; the downstream
+    `HoldingRow.__post_init__` range check (`0.0 <= nan <= 100.0`) is
+    False for NaN, raising `ValueError`. Prior code propagated that through
+    `ingest_one` and crashed the entire ingest stage. Lock the
+    boundary-catch: `ingest_one` must return `status='failed'` with the
+    exception detail, NEVER raise."""
+    import math
+    from dataclasses import replace
+    from irc.data.fund_holdings_ingestor import ingest_one
+    from irc.fundamentals.types import ConstituentAnalysis
+
+    snap = _build_snapshot()
+    # Smuggle a NaN past ConstituentAnalysis's __post_init__ via direct
+    # construction (mirrors the real failure mode where a broker-report
+    # parser emits NaN and ConstituentAnalysis's `< 0` check lets it through).
+    bad_c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台",
+        weight_pct=float("nan") if math.isnan(float("nan")) else 0.0,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+    poisoned = replace(snap, constituent_analyses=(bad_c,))
+    _write_snap(poisoned, tmp_path)
+    con = _connect_with_schema(tmp_path)
+    try:
+        out = ingest_one(
+            con, "005827", "cn_equity_fund",
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert out.status == "failed"
+        assert "exception:" in out.detail
         assert out.rows_written == 0
     finally:
         con.close()

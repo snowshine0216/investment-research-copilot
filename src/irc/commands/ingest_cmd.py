@@ -621,6 +621,16 @@ def run_ingest(repo_root: str) -> int:
         for outcome in holdings_outcomes:
             holdings_counts[outcome.status] += 1
             ak_counts["fund_holdings"] += outcome.rows_written
+        # Failed outcomes log UNCONDITIONALLY at WARN level so ops can see
+        # WHICH instrument failed and WHY without re-running in debug.
+        # (Closes silent-failure P0.2: prior code only logged at INFO inside
+        # the _verbose gate, so failures were summarised but never per-iid.)
+        for o in holdings_outcomes:
+            if o.status == "failed":
+                _log.warning(
+                    "fund_holdings %s FAILED: %s",
+                    o.instrument_id, o.detail,
+                )
         if _verbose:
             for o in holdings_outcomes:
                 _log.info(

@@ -140,7 +140,19 @@ def upsert_holdings(
         ]
         for r in ordered
     ]
-    con.executemany(_UPSERT_SQL, params)
+    # Wrap executemany in an explicit transaction. DuckDB's default autocommit
+    # commits each row independently — a mid-batch failure would leave rows
+    # 0..N-1 durably written, and `is_stale` would then see the partial set as
+    # fresh on rerun (skipping the rest of the holdings forever). BEGIN +
+    # COMMIT (with ROLLBACK on exception) makes the upsert atomic at the
+    # batch boundary. (Closes silent-failure P1.4.)
+    con.execute("BEGIN")
+    try:
+        con.executemany(_UPSERT_SQL, params)
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     return len(params)
 
 
@@ -175,7 +187,11 @@ def collect_holding_rows(
             # Empty snapshot — keep looking for an older non-empty one.
             continue
         if not snap.source_report_date:
-            return (), "active_fund_snapshot", "missing_report_date"
+            # Data-quality defect: snapshot has constituents but no report
+            # date. Keep looking for an older valid snapshot rather than
+            # abandoning ingestion entirely (closes code-reviewer P1.2 —
+            # the prior early-return short-circuited the candidate loop).
+            continue
         rows = tuple(
             HoldingRow(
                 instrument_id=instrument_id,
@@ -247,30 +263,46 @@ def ingest_one(
             rows_written=0,
             detail=f"asset_class_not_eligible:{asset_class}",
         )
-    if not force and not is_stale(
-        con, instrument_id,
-        today_iso=today_iso, threshold_days=threshold_days,
-    ):
+    # Wrap the entire pipeline in try/except so this function meets its
+    # documented "never raises" contract. Without the wrapper a DuckDB
+    # exception, a `HoldingRow.__post_init__` validation failure (e.g. NaN
+    # weight from a malformed snapshot), or any unexpected error from
+    # `collect_holding_rows` propagates through `ingest_many` and crashes
+    # the entire ingest stage — opposite of the partial-failure-isolation
+    # contract. (Closes code-reviewer P0, silent-failure P0, adversarial
+    # BREAKS: NaN weight in ConstituentAnalysis bypasses `< 0` check then
+    # explodes inside `HoldingRow.__post_init__`'s range guard.)
+    try:
+        if not force and not is_stale(
+            con, instrument_id,
+            today_iso=today_iso, threshold_days=threshold_days,
+        ):
+            return IngestOutcome(
+                instrument_id=instrument_id, status="skipped_fresh",
+                report_date="", rows_written=0, detail="fresh_within_threshold",
+            )
+        rows, _source, detail = collect_holding_rows(
+            instrument_id, asset_class, data_root=data_root,
+        )
+        if not rows:
+            status: Literal["skipped_no_data", "failed"] = (
+                "failed" if detail.startswith("akshare_raised:") else "skipped_no_data"
+            )
+            return IngestOutcome(
+                instrument_id=instrument_id, status=status,
+                report_date="", rows_written=0, detail=detail,
+            )
+        n = upsert_holdings(con, rows, now_iso=now_iso)
         return IngestOutcome(
-            instrument_id=instrument_id, status="skipped_fresh",
-            report_date="", rows_written=0, detail="fresh_within_threshold",
+            instrument_id=instrument_id, status="wrote",
+            report_date=rows[0].report_date, rows_written=n, detail="",
         )
-    rows, _source, detail = collect_holding_rows(
-        instrument_id, asset_class, data_root=data_root,
-    )
-    if not rows:
-        status: Literal["skipped_no_data", "failed"] = (
-            "failed" if detail.startswith("akshare_raised:") else "skipped_no_data"
-        )
+    except Exception as exc:  # noqa: BLE001 — defensive boundary per docstring
         return IngestOutcome(
-            instrument_id=instrument_id, status=status,
-            report_date="", rows_written=0, detail=detail,
+            instrument_id=instrument_id, status="failed",
+            report_date="", rows_written=0,
+            detail=f"exception:{type(exc).__name__}:{exc}",
         )
-    n = upsert_holdings(con, rows, now_iso=now_iso)
-    return IngestOutcome(
-        instrument_id=instrument_id, status="wrote",
-        report_date=rows[0].report_date, rows_written=n, detail="",
-    )
 
 
 def ingest_many(
