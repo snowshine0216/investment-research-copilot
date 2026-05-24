@@ -711,3 +711,21 @@ def test_collect_holding_rows_cn_etf_fallback_skips_when_snapshot_empty_only(
     assert rows == ()
     assert source == "active_fund_snapshot"
     assert detail == "snapshot_empty"
+
+
+# ── Task 6: Q6 glob-pattern regression ───────────────────────────────────────
+
+
+def test_collect_holding_rows_glob_pattern_matches_cache_path(tmp_path: Path) -> None:
+    """Q6 regression — the ingestor's internal multi-quarter scan glob must
+    match paths constructed via item 003's active_fund_cache_path. If item 003
+    moves the cache layout, this test fails first."""
+    from irc.fundamentals.snapshot_cache import active_fund_cache_path
+    data_root = tmp_path / "data"
+    canonical = active_fund_cache_path("005827", "2024Q1", data_root)
+    canonical.parent.mkdir(parents=True, exist_ok=True)
+    canonical.write_text("{}")
+    matches = sorted((data_root / "fundamentals").glob("*/active_fund/fund_005827.json"))
+    assert canonical in matches, (
+        f"glob pattern drift detected: canonical={canonical} not in {matches}"
+    )
