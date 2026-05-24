@@ -20,6 +20,7 @@ from irc.data.akshare_client import (
     fetch_fund_nav_history,
 )
 from irc.data.duckdb_helper import connect, ensure_schema
+from irc.data.fund_holdings_ingestor import ingest_many as ingest_fund_holdings
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
@@ -452,7 +453,11 @@ def run_ingest(repo_root: str) -> int:
         ensure_schema(con)
         start, end = _date_window()
         ob_counts: dict[str, int] = {"prices": 0, "macro_series": 0, "instruments": 0}
-        ak_counts: dict[str, int] = {"prices": 0, "nav_history": 0}
+        ak_counts: dict[str, int] = {"prices": 0, "nav_history": 0, "fund_holdings": 0}
+        holdings_counts: dict[str, int] = {
+            "wrote": 0, "skipped_fresh": 0,
+            "skipped_no_data": 0, "failed": 0,
+        }
 
         all_instruments = [
             *bundle.universe_qdii_us.instruments,
@@ -593,6 +598,36 @@ def run_ingest(repo_root: str) -> int:
                 return 1
             nav_successes += 1
 
+        # ── Item 010 D B2 — fund_holdings ingest (best-effort enrichment) ────
+        # Reads item 003's ActiveFundSnapshot cache as single source of truth;
+        # falls back to fetch_cn_etf_holdings ONLY for cn_etf cache-misses.
+        # Failures are non-fatal — losing holdings degrades scoring quality
+        # (concentration falls back to 0.30 in scoring/pipeline.py) but does
+        # not invalidate the pipeline. today_iso is wall-clock _china_today()
+        # (per F1 / AC20); NEVER a pipeline seed_date.
+        eligible_targets = tuple(
+            (i.instrument_id, i.asset_class)
+            for i in all_instruments
+            if i.asset_class in ("cn_equity_fund", "cn_etf")
+        )
+        holdings_outcomes = ingest_fund_holdings(
+            con,
+            eligible_targets,
+            data_root=root / "data",
+            today_iso=today_iso,
+            now_iso=_now_iso(),
+            threshold_days=30,
+        )
+        for outcome in holdings_outcomes:
+            holdings_counts[outcome.status] += 1
+            ak_counts["fund_holdings"] += outcome.rows_written
+        if _verbose:
+            for o in holdings_outcomes:
+                _log.info(
+                    "fund_holdings %s: status=%s rows=%d %s",
+                    o.instrument_id, o.status, o.rows_written, o.detail,
+                )
+
     finally:
         con.close()
 
@@ -643,6 +678,12 @@ def run_ingest(repo_root: str) -> int:
     halted_path = root / "outputs" / today_iso / "PIPELINE_HALTED.md"
     halted_path.unlink(missing_ok=True)
     print(f"ingest OK: openbb={ob_counts}, akshare={ak_counts}")
+    print(
+        f"  fund_holdings: wrote={holdings_counts['wrote']} "
+        f"fresh={holdings_counts['skipped_fresh']} "
+        f"no_data={holdings_counts['skipped_no_data']} "
+        f"failed={holdings_counts['failed']}"
+    )
     if price_failures or nav_failures:
         print(
             f"  skipped due to upstream errors — prices: {price_failures or 'none'}; "
