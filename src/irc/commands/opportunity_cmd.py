@@ -63,7 +63,7 @@ from irc.opportunity.auditor import (
     find_incomplete_constituent_analyses,
     find_uncited_opportunity_rows,
 )
-from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
+from irc.opportunity.citation_map import build_cited_map
 from irc.memo.numeric_audit import find_uncited_discipline_rows
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
