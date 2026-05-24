@@ -944,3 +944,125 @@ def test_ingest_one_missing_report_date(tmp_path: Path) -> None:
         assert out.rows_written == 0
     finally:
         con.close()
+
+
+# ── Task 8: ingest_many orchestrator ─────────────────────────────────────────
+
+
+def test_ingest_many_preserves_input_order(tmp_path, monkeypatch) -> None:
+    """AC14 — ingest_many returns one IngestOutcome per target, in input order."""
+    from irc.data.fund_holdings_ingestor import ingest_many
+    # Seed snapshots for 2 of 3 funds; the third has no cache.
+    _write_snap(_build_snapshot(fund_id="005827", quarter="2024Q1"), tmp_path)
+    _write_snap(_build_snapshot(fund_id="000961", quarter="2024Q1"), tmp_path)
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: _fake_holdings_result(),
+    )
+    con = _connect_with_schema(tmp_path)
+    try:
+        targets = (
+            ("005827", "cn_equity_fund"),
+            ("XXXXX", "cn_equity_fund"),         # no cache, no fallback
+            ("000961", "cn_equity_fund"),
+            ("510300", "cn_etf"),                # cache-miss → AkShare fallback
+        )
+        outcomes = ingest_many(
+            con, targets,
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert len(outcomes) == 4
+        assert [o.instrument_id for o in outcomes] == [
+            "005827", "XXXXX", "000961", "510300",
+        ]
+        assert outcomes[0].status == "wrote"
+        assert outcomes[1].status == "skipped_no_data"
+        assert outcomes[2].status == "wrote"
+        assert outcomes[3].status == "wrote"
+    finally:
+        con.close()
+
+
+def test_ingest_many_isolates_per_target_failures(tmp_path, monkeypatch) -> None:
+    """AC13 — middle target's AkShare call raises; other 4 succeed; batch
+    does NOT raise."""
+    from irc.data.fund_holdings_ingestor import ingest_many
+
+    call_count = {"n": 0}
+
+    def _flaky(iid, *, top_n=10, **kw):
+        call_count["n"] += 1
+        if iid == "FAIL_ETF":
+            raise ConnectionError("boom")
+        return _fake_holdings_result()
+
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings", _flaky
+    )
+    con = _connect_with_schema(tmp_path)
+    try:
+        targets = (
+            ("510300", "cn_etf"),
+            ("510500", "cn_etf"),
+            ("FAIL_ETF", "cn_etf"),
+            ("159915", "cn_etf"),
+            ("588000", "cn_etf"),
+        )
+        outcomes = ingest_many(
+            con, targets,
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert len(outcomes) == 5
+        statuses = [o.status for o in outcomes]
+        assert statuses == ["wrote", "wrote", "failed", "wrote", "wrote"]
+        failed = outcomes[2]
+        assert failed.instrument_id == "FAIL_ETF"
+        assert failed.detail == "akshare_raised:ConnectionError"
+    finally:
+        con.close()
+
+
+def test_ingest_many_filter_then_collect(tmp_path, monkeypatch) -> None:
+    """Mixed asset classes — only cn_equity_fund + cn_etf processed; others
+    return skipped_no_data with asset_class_not_eligible."""
+    from irc.data.fund_holdings_ingestor import ingest_many
+    _write_snap(_build_snapshot(fund_id="005827", quarter="2024Q1"), tmp_path)
+    monkeypatch.setattr(
+        "irc.data.fund_holdings_ingestor.fetch_cn_etf_holdings",
+        lambda *a, **kw: _fake_holdings_result(),
+    )
+    con = _connect_with_schema(tmp_path)
+    try:
+        targets = (
+            ("005827", "cn_equity_fund"),
+            ("AU9999", "gold"),
+            ("510300", "cn_etf"),
+            ("BOND01", "cn_bond_fund"),
+        )
+        outcomes = ingest_many(
+            con, targets,
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        statuses = [o.status for o in outcomes]
+        assert statuses == ["wrote", "skipped_no_data", "wrote", "skipped_no_data"]
+        assert outcomes[1].detail == "asset_class_not_eligible:gold"
+        assert outcomes[3].detail == "asset_class_not_eligible:cn_bond_fund"
+    finally:
+        con.close()
+
+
+def test_ingest_many_empty_targets_returns_empty(tmp_path: Path) -> None:
+    from irc.data.fund_holdings_ingestor import ingest_many
+    con = _connect_with_schema(tmp_path)
+    try:
+        outcomes = ingest_many(
+            con, (),
+            data_root=tmp_path / "data",
+            today_iso="2026-05-24", now_iso="2026-05-24 00:00:00",
+        )
+        assert outcomes == ()
+    finally:
+        con.close()

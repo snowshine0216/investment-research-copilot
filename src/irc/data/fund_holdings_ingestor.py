@@ -283,4 +283,16 @@ def ingest_many(
     threshold_days: int = 30,
     force: bool = False,
 ) -> tuple[IngestOutcome, ...]:
-    raise NotImplementedError  # Task 8
+    """Iterate ingest_one across targets. Never raises (per-target failures
+    captured in IngestOutcome.status='failed'). Returns one IngestOutcome per
+    input target, in input order (AC14).
+    """
+    return tuple(
+        ingest_one(
+            con, iid, ac,
+            data_root=data_root,
+            today_iso=today_iso, now_iso=now_iso,
+            threshold_days=threshold_days, force=force,
+        )
+        for iid, ac in targets
+    )
