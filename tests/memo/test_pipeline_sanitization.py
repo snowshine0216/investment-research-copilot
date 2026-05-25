@@ -5,6 +5,8 @@ from irc.memo.pipeline import (
     check_inputs_same_date,
     MixedDateWarning,
     _render_evidence_appendix,
+    sanitize_compliance_phrasing,
+    sanitize_unverified_revenue_yoy,
 )
 from irc.memo.traceability import check_traceability
 
@@ -51,10 +53,103 @@ def test_evidence_appendix_keeps_every_ref_verbatim():
     assert "## 附录·原始证据" in final
 
 
+def test_evidence_appendix_adds_revenue_yoy_caveat_after_verbatim_ref():
+    ref = (
+        "[stock:300308] [ref:abc] filing · 300308.SZ · 2026-03-31: "
+        "300308.SZ 2026Q1 revenue_yoy=1.921169094232574"
+    )
+    out = _render_evidence_appendix([ref])
+    assert ref in out
+    assert "合规警示" in out
+    assert "字段含义及换算口径未经核实" in out
+    assert "不得作为业绩依据引用" in out
+    assert out.index("合规警示") < out.index("revenue_yoy=")
+
+
+def test_evidence_appendix_adds_score_caveat_for_insufficient_valuation_ref():
+    ref = (
+        "[511220 城投债ETF海富通] 状态=evidence_insufficient/normal/intact/weak "
+        "score=75.6 cost_grade=95"
+    )
+    out = _render_evidence_appendix([ref])
+    assert ref in out
+    assert "综合分不具备横向比较效力" in out
+    assert "仅作模型输出存档" in out
+
+
 def test_evidence_appendix_handles_empty_pool():
     """Empty ref pool must produce empty appendix (no heading) so we don't
     pollute the memo with a dangling section."""
     assert _render_evidence_appendix([]) == ""
+
+
+def test_sanitize_unverified_revenue_yoy_removes_active_percentage_conversion():
+    draft = (
+        "filing 中披露 2026Q1 revenue_yoy=1.921169094232574"
+        "（原始小数值，换算为约 192.1% 同比增速，口径待核实）"
+    )
+    out = sanitize_unverified_revenue_yoy(draft)
+    assert "192.1%" not in out
+    assert "换算为约" not in out
+    assert "1.921169094232574" not in out
+    assert (
+        "财务数据字段含义及换算口径待核实，不得直接引用为业绩依据"
+    ) in out
+
+
+def test_sanitize_unverified_revenue_yoy_removes_original_field_value_form():
+    draft = (
+        "卖方研报关注底层个股，"
+        "revenue_yoy=原始字段值 1.921169094232574，"
+        "具体含义及换算口径待核实，不得直接引用为业绩依据。"
+    )
+    out = sanitize_unverified_revenue_yoy(draft)
+    assert "1.921169094232574" not in out
+    assert "revenue_yoy=" not in out
+    assert "财务数据字段含义及换算口径待核实" in out
+
+
+def test_sanitize_compliance_phrasing_softens_directional_risk_claims():
+    draft = (
+        "估值压力：宽基ETF在估值百分位偏高时回撤风险加大。\n"
+        "维持现有敞口、等待估值回落。"
+    )
+    out = sanitize_compliance_phrasing(draft)
+    assert "宽基ETF在估值百分位偏高时回撤风险加大" not in out
+    assert "等待估值回落" not in out
+    assert "不构成对未来走势的预测" in out
+    assert "按既定规则重新评估" in out
+
+
+def test_sanitize_compliance_phrasing_qualifies_qdii_target_weight_band():
+    draft = (
+        "QDII 敞口：合计目标权重上限 25.0%，落在配置区间 [25%, 45%] 下沿。"
+        "本期 QDII 溢价/折价数据未采集，敞口是否可接受暂无法确认，"
+        "须在交易前查阅二级市场溢价后方可执行。"
+    )
+    out = sanitize_compliance_phrasing(draft)
+    assert "实际可执行敞口可能显著低于目标上限" in out
+    assert "确认后方可操作" in out
+
+
+def test_sanitize_compliance_phrasing_unifies_revenue_yoy_caveat():
+    draft = "300308.SZ 2026Q1 filing 中 财务数据字段含义及换算口径待核实，不得直接引用为业绩依据。"
+    out = sanitize_compliance_phrasing(draft)
+    assert "未经核实（详见附录原始证据合规注释）" in out
+    assert "数值不得直接引用为业绩依据" in out
+
+
+def test_sanitize_compliance_phrasing_removes_history_and_cash_audit_phrases():
+    draft = (
+        "根据历史经验，实际利率与金价存在阶段性反向关联，"
+        "但该关系并非稳定规律，不构成对未来走势的预测。\n"
+        "须在后续周期通过补足精选标的或开通缺失渠道逐步释放。"
+    )
+    out = sanitize_compliance_phrasing(draft)
+    assert "根据历史经验" not in out
+    assert "后续周期" not in out
+    assert "相关分析不展开" in out
+    assert "2 个审核周期内" in out
 
 
 def test_check_inputs_same_date_warns_on_mixed_dates():

@@ -21,6 +21,13 @@ def test_render_contains_date():
     assert "2026-05-08" in md
 
 
+def test_render_skeleton_includes_global_compliance_statement_before_tldr():
+    md = render_skeleton(_inputs())
+    assert "【合规声明】" in md
+    assert "不构成任何形式的投资建议或收益承诺" in md
+    assert md.index("【合规声明】") < md.index("## 1. TL;DR")
+
+
 def test_render_top_picks_listed():
     md = render_skeleton(_inputs())
     assert "518880" in md

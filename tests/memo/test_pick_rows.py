@@ -77,6 +77,35 @@ def test_build_pick_rows_clean_target_builds_pick_with_citations():
     assert pr.citations[0].citation_id == ev_dict["citation_id"]
 
 
+def test_build_pick_rows_preserves_trade_venue_note_for_table_action():
+    trades = [{
+        "target": "511220",
+        "target_weight": 0.04,
+        "venue_note": "venue mismatch and no proxy available",
+    }]
+    opportunity = {"rows": [_op_row(iid="511220", opportunity_state="small_watch")]}
+    pick_rows, absent, gapped = _build_pick_rows(trades, opportunity, {"scores": []})
+    assert absent == []
+    assert gapped == []
+    assert pick_rows[0].venue_note == "venue mismatch and no proxy available"
+
+
+def test_build_pick_rows_explicitly_names_expensive_and_hot_states_in_reason():
+    trades = [{"target": "519770", "target_weight": 0.1}]
+    opportunity = {"rows": [_op_row(
+        iid="519770",
+        opportunity_state="small_watch",
+        opportunity_reason="估值偏高或热度偏高，暂停加仓等待回落。",
+        valuation_state="very_expensive",
+        heat_state="overheated",
+    )]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, {"scores": []})
+    reason = pick_rows[0].one_line_reason
+    assert "估值=very_expensive" in reason
+    assert "热度=overheated" in reason
+    assert "等待回落" not in reason
+
+
 def test_build_pick_rows_venue_proxy_strip_falls_back_to_canonical():
     """A trade target like `A510300.SH` should match op row `510300` after
     suffix strip."""

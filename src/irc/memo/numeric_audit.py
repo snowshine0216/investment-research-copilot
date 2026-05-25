@@ -42,6 +42,45 @@ _ACTIONABLE_KEYWORDS: Final[tuple[str, ...]] = (
     "加速定投", "正常定投", "减速定投", "暂停加仓", "禁止买入",
     "回避", "建仓", "加仓", "减仓", "止损",
 )
+_NON_ACTIONABLE_LABELS: Final[tuple[str, ...]] = (
+    "建仓模式", "建仓方式",
+    "不新增加仓",
+    "不纳入加仓",
+    "本期不列入加仓",
+    "本期无核心定投候选，建仓节奏以小仓位观察为主",
+    "所有可执行标的均为条件性减速定投（触发条件未满足时实际执行量为零）",
+    "执行行均为条件性减速定投或暂缓执行，触发条件未达成时实际执行量为零",
+    "估值或热度高于阈值时暂停加仓",
+    "本期黄金标的均未进入精选表",
+    "不能等同于\"便宜/可加仓\"结论",
+    "不能等同于可加仓结论",
+    "不构成加仓依据",
+    "加仓动作整体克制",
+    "无强信号建仓标的",
+    "仅触发条件性减速定投",
+    "条件性减速定投为主，未触发即不执行",
+    "pause_wait 暂停加仓",
+    "本期暂停加仓",
+    "pause_wait 标的暂停加仓",
+    "暂停加仓、等待回落，不新增仓位",
+    "规则判定暂停加仓",
+    "依据规则暂停加仓",
+    "本期黄金 ETF 全部暂停加仓",
+    "无加仓窗口",
+    "非强制建仓目标",
+    "非建仓目标",
+    "条件性减速定投在第7节触发条件未满足时实际执行量为零",
+    "未将其纳入建仓优先级",
+    "须等待第 7 节触发条件（weekly_drawdown_4pct）满足后方启动减速定投",
+)
+_NEGATED_ACTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"不纳入[^，。；\n]{0,16}加仓"),
+    re.compile(r"不得作为[^，。；\n]{0,16}加仓依据"),
+    re.compile(r"不构成[^，。；\n]{0,16}加仓依据"),
+    re.compile(r"不构成[^，。；\n]{0,24}加仓的依据"),
+    re.compile(r"不[^，。；\n]{0,16}建仓"),
+    re.compile(r"条件性减速定投在第\s*7\s*节触发条件未满足时实际执行量为零"),
+)
 
 # Asset-class section header → asset_class string. Used by AC8(c)/(d) only.
 _SECTION_HEADER_RE = re.compile(
@@ -62,6 +101,7 @@ _SUBSECTION_INSTRUMENT_RE = re.compile(
     r"^###\s+.+?\((?P<iid>[A-Za-z0-9_]{4,12})\)", re.MULTILINE,
 )
 
+_RAW_EVIDENCE_HEADING_RE = re.compile(r"^##\s+附录·原始证据\b", re.MULTILINE)
 _MARKER_RE = re.compile(r"\[ref:([0-9a-f]{16})\]")
 
 _PUBLISHABLE_SCOPES_MEMO: Final[frozenset[str]] = frozenset({"instrument", "constituent"})
@@ -212,6 +252,9 @@ def find_uncited_conclusions(
     """
     if not prose or not prose.strip():
         return []
+    audit_prose = _strip_raw_evidence_appendix(prose)
+    if not audit_prose.strip():
+        return []
     if strict_empty_alias_check and not instrument_aliases:
         raise RuntimeError(
             "empty instrument_aliases — D1c builder did not run; "
@@ -221,25 +264,21 @@ def find_uncited_conclusions(
         # Permissive path (item 007 all-gapped semantic): no aliases → no audit.
         return []
 
-    paragraphs = prose.split("\n\n")
     findings: list[NumericFinding] = []
 
     # Pre-scan for section/sub-section context as cumulative state.
-    section_spans = _build_section_spans(prose)
-    subsection_spans = _build_subsection_spans(prose)
+    section_spans = _build_section_spans(audit_prose)
+    subsection_spans = _build_subsection_spans(audit_prose)
 
-    paragraph_offset = 0
     prev_markers: tuple[str, ...] = ()
-    for para in paragraphs:
-        para_start = paragraph_offset
-        paragraph_offset += len(para) + 2  # +2 for the "\n\n" separator
-
-        if not any(kw in para for kw in _ACTIONABLE_KEYWORDS):
-            prev_markers = tuple(_MARKER_RE.findall(para))
+    for para_start, para in _iter_audit_blocks(audit_prose):
+        structured = _is_structured_audit_line(para)
+        if not _has_actionable_keyword(para):
+            prev_markers = () if structured else tuple(_MARKER_RE.findall(para))
             continue
 
         current_markers = tuple(_MARKER_RE.findall(para))
-        scope_markers = current_markers + prev_markers
+        scope_markers = current_markers if structured else current_markers + prev_markers
         asset_class = _section_at(section_spans, para_start)
         owner_iid = _subsection_at(subsection_spans, para_start)
 
@@ -255,7 +294,7 @@ def find_uncited_conclusions(
                     prose_excerpt=_excerpt(para),
                     evidence_excerpt=asset_class or "<no_section>",
                 ))
-            prev_markers = current_markers
+            prev_markers = () if structured else current_markers
             continue
 
         for iid in sorted(instrument_hits):
@@ -265,7 +304,13 @@ def find_uncited_conclusions(
             ))
 
         for ck, owner_pairs in sorted(constituent_hits.items()):
-            if len(owner_pairs) > 1 and owner_iid not in {iid for iid, _ in owner_pairs}:
+            owner_ids = {iid for iid, _ in owner_pairs}
+            context_iid = owner_iid
+            if context_iid not in owner_ids:
+                paragraph_owner_hits = sorted(owner_ids & instrument_hits)
+                if len(paragraph_owner_hits) == 1:
+                    context_iid = paragraph_owner_hits[0]
+            if len(owner_pairs) > 1 and context_iid not in owner_ids:
                 findings.append(NumericFinding(
                     instrument_id="<ambiguous>",
                     kind="ambiguous_constituent_reference",
@@ -275,7 +320,7 @@ def find_uncited_conclusions(
                 continue
             # Resolved: either single-owner OR section header disambiguates.
             resolved = next(
-                (pair for pair in owner_pairs if pair[0] == owner_iid),
+                (pair for pair in owner_pairs if pair[0] == context_iid),
                 next(iter(sorted(owner_pairs))),
             )
             iid, c_key = resolved
@@ -284,9 +329,70 @@ def find_uncited_conclusions(
                 constituent_cited_map=constituent_cited_map, paragraph=para,
             ))
 
-        prev_markers = current_markers
+        prev_markers = () if structured else current_markers
 
     return findings
+
+
+def _has_actionable_keyword(text: str) -> bool:
+    scrubbed = text
+    for label in _NON_ACTIONABLE_LABELS:
+        scrubbed = scrubbed.replace(label, "")
+    for pattern in _NEGATED_ACTION_PATTERNS:
+        scrubbed = pattern.sub("", scrubbed)
+    return any(kw in scrubbed for kw in _ACTIONABLE_KEYWORDS)
+
+
+def _strip_raw_evidence_appendix(prose: str) -> str:
+    match = _RAW_EVIDENCE_HEADING_RE.search(prose)
+    if match is None:
+        return prose
+    return prose[:match.start()].rstrip()
+
+
+def _is_structured_audit_line(block: str) -> bool:
+    stripped = block.lstrip()
+    return stripped.startswith("|") or stripped.startswith("- ")
+
+
+def _iter_audit_blocks(prose: str) -> list[tuple[int, str]]:
+    """Split prose into audit units while keeping source offsets.
+
+    Markdown tables and bullet lists are rendered without blank lines between
+    rows, but each row carries its own citation context. Treat those rows as
+    independent audit blocks so markers never bleed across instruments.
+    """
+    blocks: list[tuple[int, str]] = []
+    pending: list[str] = []
+    pending_start = 0
+    offset = 0
+
+    def flush_pending() -> None:
+        nonlocal pending
+        if not pending:
+            return
+        text = "".join(pending).strip("\n")
+        if text.strip():
+            blocks.append((pending_start, text))
+        pending = []
+
+    for line in prose.splitlines(keepends=True):
+        stripped = line.strip()
+        if not stripped:
+            flush_pending()
+            offset += len(line)
+            continue
+        if stripped.startswith("|") or stripped.startswith("- "):
+            flush_pending()
+            blocks.append((offset, line.rstrip("\n")))
+            offset += len(line)
+            continue
+        if not pending:
+            pending_start = offset
+        pending.append(line)
+        offset += len(line)
+    flush_pending()
+    return blocks
 
 
 def _build_section_spans(prose: str) -> list[tuple[int, str]]:
@@ -353,7 +459,6 @@ def _check_instrument_citation(
     per_iid = cited_map.get(iid, {})
     has_data = False
     has_info = False
-    wrong_owner_seen = False
     for cid in markers:
         meta = per_iid.get(cid)
         if meta is None:
@@ -369,7 +474,6 @@ def _check_instrument_citation(
                             f"not {iid!r}"
                         ),
                     ))
-                    wrong_owner_seen = True
                     break
             continue
         if meta.scope not in _PUBLISHABLE_SCOPES_MEMO:

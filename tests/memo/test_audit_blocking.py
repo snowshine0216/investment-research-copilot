@@ -1,8 +1,6 @@
 """Audit-blocking gate (item 009, 2026-05-19)."""
 from __future__ import annotations
 
-import pytest
-
 from irc.memo.auditor import audit_blocks_publish
 
 
@@ -26,6 +24,20 @@ def test_audit_failed_token_blocks() -> None:
     )
     assert blocked
     assert any("审核未通过" in r for r in reasons)
+
+
+def test_audit_not_directly_passed_blocks() -> None:
+    blocked, reasons = audit_blocks_publish(
+        "最终结论：本备忘录不予直接通过，需按A-1项完成修改后重新提交审核。"
+    )
+    assert blocked
+    assert any("不予直接通过" in r for r in reasons)
+
+
+def test_audit_requires_resubmission_blocks() -> None:
+    blocked, reasons = audit_blocks_publish("审核结论：需修订后重新提交。")
+    assert blocked
+    assert any("需修订后重新提交" in r for r in reasons)
 
 
 def test_p_tier_table_row_blocks() -> None:

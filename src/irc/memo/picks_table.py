@@ -8,7 +8,7 @@ from irc.opportunity.types import ThesisEvidence
 _ACTION_CN: dict[str, str] = {
     "accelerate_dca": "加速定投",
     "normal_dca": "正常定投",
-    "slow_dca": "减速定投",
+    "slow_dca": "条件性减速定投（触发条件见第7节；未触发则不执行）",
     "pause_dca": "暂停加仓",
     "do_not_buy": "禁止买入",
 }
@@ -25,8 +25,11 @@ _RISK_CN: dict[str, str] = {
 # Single-line footnote keeps the table compact while satisfying the
 # transparency requirement and carrying the load-bearing disclaimer.
 _SCORING_FOOTNOTE = (
-    "> 综合分由内部多因子模型生成（估值百分位 / 热度 / 长期逻辑 / 产品质量 / 宏观契合度 /"
-    " 持有成本），仅作为辅助参考，不构成投资建议。详见评分体系说明文档。"
+    "> *综合分由内部多因子模型生成（估值百分位 / 热度 / 长期逻辑 / 产品质量 / 宏观契合度 /"
+    " 持有成本），仅作为辅助参考，不构成投资建议。表中权重均为上限约束（≤），"
+    "非强制建仓目标；条件性减速定投在第7节触发条件未满足时实际执行量为零。"
+    "估值维度缺失的综合分不得单独依据分值高低作为配置优先级依据。"
+    "详见评分体系说明文档。"
 )
 
 
@@ -42,15 +45,23 @@ class PickRow:
     dca_action: str
     risk_action: str
     one_line_reason: str
+    valuation_state: str = ""
+    venue_note: str = ""
     citations: tuple[ThesisEvidence, ...] = field(default_factory=tuple)
 
 
 def _action_cn(row: PickRow) -> str:
     base = _ACTION_CN.get(row.dca_action, row.dca_action)
     suffix = _RISK_CN.get(row.risk_action, "")
+    action = f"{base}{suffix}"
+    if "venue mismatch" in row.venue_note and "no proxy" in row.venue_note:
+        return (
+            f"{action}（渠道不匹配，当前无法执行；"
+            "触发条件满足后亦须待渠道开通方可执行）"
+        )
     if row.target_weight <= 0 and row.opportunity_state == "small_watch":
         return f"仅观察{suffix}"
-    return f"{base}{suffix}"
+    return action
 
 
 def _format_citation(ev: ThesisEvidence) -> str:
@@ -66,6 +77,13 @@ def _format_citations_cell(citations: tuple[ThesisEvidence, ...]) -> str:
     return "<br>".join(_format_citation(c) for c in citations)
 
 
+def _format_score(row: PickRow) -> str:
+    score = f"{row.composite_score:.1f}"
+    if row.valuation_state == "evidence_insufficient":
+        return f"{score}（估值维度缺失，不得用于优先级比较）"
+    return score
+
+
 def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
     # Safety-net dedup; canonical dedup is performed by callers
     # (e.g. _build_pick_rows).
@@ -78,13 +96,13 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
         unique.append(r)
 
     header = (
-        "| 代码 | 名称 | 角色 | 目标权重 | 综合分 | 状态 | 本期行动 | 主要理由 | 证据 |\n"
+        "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 机会状态 | 本期行动 | 主要理由 | 证据 |\n"
         "|---|---|---|---|---|---|---|---|---|"
     )
     lines = [header]
     for r in unique:
         weight_str = f"{r.target_weight * 100:.1f}%"
-        score_str = f"{r.composite_score:.1f}"
+        score_str = _format_score(r)
         citations_cell = _format_citations_cell(r.citations)
         lines.append(
             f"| {r.instrument_id} | {r.name_cn} | {r.role} | "

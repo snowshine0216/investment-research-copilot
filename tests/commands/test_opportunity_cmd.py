@@ -570,6 +570,65 @@ def test_freshness_probe_failure_is_fail_closed(monkeypatch, tmp_path) -> None:
     assert refresh is True  # fail-closed
 
 
+def test_freshness_probe_refetches_active_cache_with_missing_data_leg(tmp_path) -> None:
+    """A fresh-by-date active-fund cache is not reusable when Policy B's
+    required per-constituent data leg is missing."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _maybe_freshness_probe
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-22",
+        constituent_analyses=(
+            ConstituentAnalysis(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                evidence=(), failure_reasons=("filing_empty:600519",),
+                one_line_view="证据获取失败",
+            ),
+        ),
+        failure_reasons_by_symbol={},
+    )
+
+    fresh, refresh = _maybe_freshness_probe(
+        cached, today=date(2026, 5, 22), root=tmp_path,
+    )
+
+    assert fresh == cached
+    assert refresh is True
+
+
+def test_classify_active_fund_scores_counts_missing_data_leg_cache_as_stale(tmp_path) -> None:
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_active_fund_scores
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2024-03-31",
+        source_report_quarter="2024Q1", cache_probed_at="2026-05-22",
+        constituent_analyses=(
+            ConstituentAnalysis(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                evidence=(), failure_reasons=("filing_empty:600519",),
+                one_line_view="证据获取失败",
+            ),
+        ),
+        failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(cached, tmp_path)
+
+    misses, stale = _classify_active_fund_scores(
+        [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}],
+        tmp_path,
+        today=date(2026, 5, 22),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+
+    assert (misses, stale) == (0, 1)
+
+
 # ── Item 003: validate_cli_args (--limit canonical rejection) ─────────────────
 
 def test_validate_output_dir_canonical_rejects_limit(tmp_path) -> None:

@@ -2,7 +2,11 @@ from __future__ import annotations
 
 import math
 
-from irc.fundamentals.types import ActiveFundSnapshot, ConstituentSnapshot
+from irc.fundamentals.types import (
+    ActiveFundSnapshot,
+    ConstituentSnapshot,
+    FundLevelSnapshot,
+)
 from irc.opportunity.lookthrough import map_lookthrough
 from irc.opportunity.thesis_evidence import (
     NON_INDEXABLE_ASSET_CLASSES,
@@ -42,6 +46,76 @@ def _partition_gaps(
         else:
             real.append(g)
     return tuple(real), tuple(expected)
+
+
+_FETCH_TYPE_ORDER: tuple[str, ...] = (
+    "holdings", "nav", "announcements", "filing", "broker", "news",
+)
+
+
+def _fetch_type_from_failure(reason: str) -> str | None:
+    if reason.startswith("holdings_"):
+        return "holdings"
+    if reason.startswith("fund_nav_"):
+        return "nav"
+    if reason.startswith("fund_announcements_"):
+        return "announcements"
+    if reason.startswith("filing_"):
+        return "filing"
+    if reason.startswith("broker_"):
+        return "broker"
+    if reason.startswith(("news_", "hk_news_")):
+        return "news"
+    return None
+
+
+def _ordered_fetch_types(types: set[str]) -> tuple[str, ...]:
+    return tuple(t for t in _FETCH_TYPE_ORDER if t in types)
+
+
+def derive_fetch_types_attempted(
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | FundLevelSnapshot | None,
+) -> tuple[str, ...]:
+    """Infer fetch-path provenance from a snapshot without mutating it."""
+    if snapshot is None:
+        return ()
+    attempted: set[str] = set()
+    if isinstance(snapshot, ActiveFundSnapshot):
+        attempted.add("holdings")
+        for reason in snapshot.fund_level_failure_reasons:
+            fetch_type = _fetch_type_from_failure(reason)
+            if fetch_type is not None:
+                attempted.add(fetch_type)
+        for analysis in snapshot.constituent_analyses:
+            attempted.update(e.type for e in analysis.evidence)
+            for reason in analysis.failure_reasons:
+                fetch_type = _fetch_type_from_failure(reason)
+                if fetch_type is not None:
+                    attempted.add(fetch_type)
+        return _ordered_fetch_types(attempted)
+    if isinstance(snapshot, FundLevelSnapshot):
+        if "qdii_information_unavailable" in snapshot.evidence_gaps:
+            return ()
+        attempted.update(
+            "nav" if e.type == "snapshot" else e.type
+            for e in snapshot.evidence
+        )
+        for reason in snapshot.fund_level_failure_reasons:
+            fetch_type = _fetch_type_from_failure(reason)
+            if fetch_type is not None:
+                attempted.add(fetch_type)
+        return _ordered_fetch_types(attempted)
+    if isinstance(snapshot, ConstituentSnapshot):
+        if snapshot.filings:
+            attempted.add("filing")
+        if snapshot.broker_reports:
+            attempted.add("broker")
+        for reason in snapshot.failure_reasons:
+            fetch_type = _fetch_type_from_failure(reason)
+            if fetch_type is not None:
+                attempted.add(fetch_type)
+        return _ordered_fetch_types(attempted)
+    return ()
 
 
 # ---------------------------------------------------------------------------
@@ -333,7 +407,7 @@ def compose_opportunity_state(
         return "core_dca", "估值便宜、热度可控、长期逻辑完好、产品质量合格，适合定投。"
 
     if expensive or hot_heat:
-        return "pause_wait", "估值偏高或热度偏高，暂停加仓等待回落。"
+        return "pause_wait", "估值或热度高于规则阈值，暂停加仓；如估值或热度回到规则阈值内再评估。"
 
     label = _weak_link_label(valuation, heat, thesis, product_quality)
     return (
@@ -478,5 +552,6 @@ def build_opportunity_row(
         expected_omissions=expected_omissions,
         thesis_evidence=evidence,
         contributing_dimensions=dimensions,
+        fetch_types_attempted=derive_fetch_types_attempted(snapshot),
         constituent_analyses=constituent_analyses,
     )

@@ -1,8 +1,6 @@
 """Role-bucket failure banner (item 010, 2026-05-19)."""
 from __future__ import annotations
 
-import pytest
-
 from irc.memo.diagnostics import compose_role_bucket_banner
 
 
@@ -34,6 +32,8 @@ def test_failed_role_emits_banner_with_role_names() -> None:
     ]
     banner = compose_role_bucket_banner(rows)
     assert len(banner) == 2
+    assert banner[0].startswith("数据覆盖不完整提示")
+    assert "覆盖警告" not in banner[0]
     assert "2/3" in banner[0]
     assert "satellite_cn_tech" in banner[0]
     assert "hedge_low_correlation" in banner[0]
