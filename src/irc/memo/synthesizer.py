@@ -30,6 +30,13 @@ _GLOSSARY = (
 #       co-existing in one paragraph with no data backing.
 # - P6: '敞口可接受' was claimed in §4 while §6 said the underlying
 #       QDII premium/discount data was never collected.
+# Rules 8-10 added 2026-05-25 in response to the citation-gate halts:
+# - LLM produced a multi-ETF summary paragraph with zero [ref:...] markers
+#   ("证据池中五只黄金 ETF（518880、159937、159934、518800、518850）..." → 5×
+#   `uncited_conclusion` findings, blocking publication).
+# - LLM keeps paraphrasing TL;DR portfolio summaries with action keywords
+#   ('暂停加仓', '减速定投') in novel phrasings the audit exemption list
+#   doesn't recognize → `uncited_portfolio_conclusion`.
 # The synthesizer must read these rules before drafting any section.
 _GUARDRAILS = (
     "撰写规则（硬性约束，违反将被审核拒绝）：\n"
@@ -48,9 +55,32 @@ _GUARDRAILS = (
     "遇到 revenue_yoy 原始小数值时，不得主动换算为百分比/百分数；如必须提及，只能写"
     "'revenue_yoy=原始字段值（具体含义及换算口径待核实，不得直接引用为业绩依据）'。\n"
     "6. 凡是对具体标的、基金代码、ETF、底层持仓或组合权重作出状态/行动/风险结论，"
-    "必须在同一段或同一行放入对应证据的 [ref:...] 标记；不要把多个标的混在同一段里共用引用。"
+    "必须在同一段或同一行放入对应证据的 [ref:...] 标记；不要把多个标的混在同一段里共用引用。\n"
     "7. 所有 target_weight/目标权重 均必须写作'权重上限'或'上限约束'，非强制建仓目标；"
-    "条件性定投/减速定投在触发条件未满足时实际执行量为零。"
+    "条件性定投/减速定投在触发条件未满足时实际执行量为零。\n"
+    "8. 多个标的（如多只黄金 ETF、多只宽基 ETF）必须按「每只一行 bullet」展开，"
+    "每行 bullet 末尾放入该标的对应的 [ref:...] 标记。**禁止**写成"
+    "'证据池中 N 只 X（A、B、C、D、E）状态均为...' 这类**无 [ref:...] 标记**的"
+    "聚合段落——这会触发每个标的的 `uncited_conclusion`。\n"
+    "正确示例（黄金 ETF 段落）：\n"
+    "  - 518880 黄金ETF华安：状态=expensive/normal/intact/strong，"
+    "opportunity=pause_wait [ref:abc1234567890def]\n"
+    "  - 159937 黄金ETF博时：状态=expensive/normal/intact/strong，"
+    "opportunity=pause_wait [ref:def0987654321abc]\n"
+    "9. TL;DR（第 1 节）的组合层结论涉及 core_dca/small_watch/pause_wait 桶计数或"
+    "条件性减速定投执行模式时，**必须**使用以下任一固定措辞（已通过审核白名单），"
+    "不要自创新表达：\n"
+    "  - '所有可执行标的均为条件性减速定投（触发条件未满足时实际执行量为零）'\n"
+    "  - '本期无核心定投候选，建仓节奏以小仓位观察为主'\n"
+    "  - '执行行均为条件性减速定投或暂缓执行，触发条件未达成时实际执行量为零'\n"
+    "  - '估值或热度高于阈值时暂停加仓'\n"
+    "  - '本期黄金 ETF 全部暂停加仓'\n"
+    "  - '条件性减速定投在第 7 节触发条件未满足时实际执行量为零'\n"
+    "  禁止使用'暂不主动加仓'、'本期无主动加仓信号'、'5 个标的列入...暂停加仓'"
+    "这类需要审核员逐一新增白名单的变体。\n"
+    "10. 任何提及具体基金代码（≥4 位数字 ID）的段落都必须以 [ref:...] 结尾，"
+    "即便是「描述性」表述（如「状态分布」「估值分桶」）。规则 6 的同段引用要求"
+    "适用于一切提及标的代码的段落，不区分章节。"
 )
 
 

@@ -95,3 +95,41 @@ def test_synthesize_memo_prompt_requires_refs_on_instrument_conclusions() -> Non
     assert "[ref:" in user_msg
     assert "具体标的" in user_msg
     assert "同一段" in user_msg or "同一行" in user_msg
+
+
+def test_synthesize_memo_prompt_forbids_multi_instrument_uncited_summary() -> None:
+    """Rule 8 (2026-05-25): the LLM was generating multi-ETF summary
+    paragraphs like '证据池中五只黄金 ETF（518880、…）状态均为...' with no
+    [ref:...] markers, triggering 5× uncited_conclusion findings. The
+    prompt must explicitly forbid this pattern and require per-instrument
+    bullets with per-instrument citations."""
+    user_msg = _capture_user_prompt()
+    assert "每只一行 bullet" in user_msg
+    assert "证据池中 N 只 X" in user_msg or "无 [ref:...] 标记" in user_msg
+    # Concrete example must be present so the LLM has a template to copy.
+    assert "518880" in user_msg
+    assert "159937" in user_msg
+
+
+def test_synthesize_memo_prompt_lists_canonical_tldr_phrasings() -> None:
+    """Rule 9 (2026-05-25): TL;DR portfolio-level statements containing
+    action keywords (暂停加仓 / 减速定投) must use one of the audit-whitelist
+    phrasings. The prompt must list them verbatim so the LLM has a fixed
+    vocabulary instead of inventing novel paraphrases."""
+    user_msg = _capture_user_prompt()
+    assert "本期黄金 ETF 全部暂停加仓" in user_msg
+    assert "所有可执行标的均为条件性减速定投" in user_msg
+    # The forbidden-paraphrase list closes the gap that caused the
+    # 2026-05-25 halt cycle.
+    assert "暂不主动加仓" in user_msg or "本期无主动加仓信号" in user_msg
+
+
+def test_synthesize_memo_prompt_requires_refs_on_any_instrument_id_mention() -> None:
+    """Rule 10 (2026-05-25): the per-instrument [ref:...] requirement of
+    Rule 6 must apply to ANY paragraph mentioning a fund/ETF code, not
+    just to conclusion paragraphs. Description-style prose ('状态分布',
+    '估值分桶') must also carry the [ref:...] marker."""
+    user_msg = _capture_user_prompt()
+    assert "提及具体基金代码" in user_msg
+    assert "描述性" in user_msg
+    assert "状态分布" in user_msg or "估值分桶" in user_msg
