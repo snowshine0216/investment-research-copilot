@@ -26,12 +26,16 @@ def audit_memo(draft: str, route: ResolvedRoute) -> ChatResponse:
 # 审核未通过 with 3 P-tier 高风险 findings but the memo was committed
 # anyway. The audit must be a publish-blocker.
 _P_TIER_LINE_RE = re.compile(r"^\|\s*P\d+\b")
-_AUDIT_FAILED_TOKEN = "审核未通过"
+_AUDIT_REJECT_TOKENS: tuple[str, ...] = (
+    "审核未通过", "不予直接通过", "需修订后重新提交",
+)
 _AUDIT_PASSED_TOKEN = "审核通过"
 
 
 _VERDICT_TOKENS: tuple[tuple[str, str], ...] = (
     ("审核未通过", "审核未通过"),
+    ("不予直接通过", "审核未通过"),
+    ("需修订后重新提交", "审核未通过"),
     ("条件通过", "条件通过"),
     ("审核通过", "审核通过"),
 )
@@ -97,8 +101,10 @@ def audit_blocks_publish(audit_text: str) -> tuple[bool, tuple[str, ...]]:
     if not audit_text:
         return False, ()
     reasons: list[str] = []
-    if _AUDIT_FAILED_TOKEN in audit_text:
-        reasons.append(f"审核报告含 '{_AUDIT_FAILED_TOKEN}' 明确否决")
+    for reject_token in _AUDIT_REJECT_TOKENS:
+        if reject_token in audit_text:
+            reasons.append(f"审核报告含 '{reject_token}' 明确否决")
+            break
     p_tier_lines = [
         line.strip()
         for line in audit_text.splitlines()

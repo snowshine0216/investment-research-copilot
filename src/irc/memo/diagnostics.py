@@ -122,7 +122,7 @@ def compose_role_bucket_banner(
         return ()
     failed_unique = list(dict.fromkeys(failed))
     header = (
-        f"发现层覆盖警告：{len(failed_unique)}/{total_roles} 角色桶本期未召回"
+        f"数据覆盖不完整提示：{len(failed_unique)}/{total_roles} 角色桶本期未召回"
         f"任何候选 — {'、'.join(failed_unique)}。"
     )
     caveat = (
@@ -194,4 +194,3 @@ def _compose_hedge_line(policy: str | None, tolerance_state: str) -> str:
             )
         return "对冲成本：未对冲（政策允许——未配置 USD 容忍带，无法核对敞口）。"
     return "对冲成本：未对冲——未配置 FX 对冲数据。"
-

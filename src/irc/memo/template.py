@@ -32,6 +32,11 @@ _COMPLIANCE_STATEMENT = (
     "均基于内部模型及截至证据池日期的有限数据生成，仅供内部参考，"
     "不构成任何形式的投资建议或收益承诺。投资者须自行承担投资决策风险。"
 )
+_EXECUTION_PREAMBLE = (
+    "触发条件为纪律性执行阈值，反映在价格回落时分批执行的规则；"
+    "不构成对标的价格走势的预测或判断。\n"
+    "QDII标的执行前须查阅二级市场溢价/折价；溢价过高时暂缓执行。"
+)
 
 
 def _section(n: int, title: str, body: str) -> str:
@@ -42,7 +47,10 @@ def _render_execution_section(lines: tuple[str, ...]) -> str:
     if not lines:
         return _LEGACY_EXECUTION_PLACEHOLDER
     body = "\n".join(f"- {line}" for line in lines)
-    return f"{EXECUTION_SECTION_MARKER}\n{body}\n{EXECUTION_SECTION_MARKER_END}"
+    return (
+        f"{EXECUTION_SECTION_MARKER}\n{_EXECUTION_PREAMBLE}\n{body}\n"
+        f"{EXECUTION_SECTION_MARKER_END}"
+    )
 
 
 def render_skeleton(inputs: MemoInputs) -> str:
@@ -60,7 +68,7 @@ def render_skeleton(inputs: MemoInputs) -> str:
                  f"- 价格区间：{inputs.gold_zone}\n"
                  f"- 仓位倾斜：{inputs.gold_tilt}"),
         _section(4, "资产配置", f"- 建仓模式：{inputs.allocation_mode}"),
-        _section(5, "精选标的", picks_section),
+        _section(5, "精选标的（含观察标的）", picks_section),
         _section(6, "风险提示", risks_md),
         _section(7, "执行要点", _render_execution_section(inputs.execution_lines)),
     ]

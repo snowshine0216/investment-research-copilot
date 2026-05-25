@@ -32,12 +32,20 @@ def test_section7_renders_each_execution_line_as_bullet():
     assert "IRC_EXECUTION_LINES_BEGIN" in out
     assert "IRC_EXECUTION_LINES_END" in out
     assert "由AI合成器填充" not in out  # placeholder replaced
+    assert "触发条件为纪律性执行阈值" in out
+    assert "不构成对标的价格走势的预测或判断" in out
+    assert "QDII标的执行前须查阅二级市场溢价/折价" in out
 
 
 def test_section7_falls_back_to_placeholder_when_no_execution_lines():
     out = render_skeleton(_inputs(()))
     assert "由AI合成器填充" in out
     assert "IRC_EXECUTION_LINES_BEGIN" not in out
+
+
+def test_section5_title_discloses_observation_rows():
+    out = render_skeleton(_inputs(()))
+    assert "## 5. 精选标的（含观察标的）" in out
 
 
 def test_compose_execution_lines_picks_name_from_opportunity_rows():
@@ -89,6 +97,25 @@ def test_compose_execution_lines_suspends_trade_without_opportunity_row():
     assert "017641 摩根标普500指数(QDII)人民币A" in lines[0]
     assert "暂缓执行·待机会数据补充" in lines[0]
     assert "vix_high" not in lines[0]
+
+
+def test_compose_execution_lines_removes_proxy_from_suspended_trade():
+    trades = [{
+        "target": "000297",
+        "target_weight": 0.035,
+        "buy_method": "small_account_anchor",
+        "granularity": "default",
+        "triggers": [],
+        "venue_note": "venue mismatch; proxy via 000297 (鹏华可转债债券A) [cn_bond_fund]",
+    }]
+    lines = _compose_execution_lines(
+        trades, [],
+        extra_names={"000297": "鹏华可转债债券A"},
+        require_opportunity_row=True,
+    )
+    assert "暂缓执行·待机会数据补充" in lines[0]
+    assert "proxy via" not in lines[0]
+    assert "无可用代理渠道" in lines[0]
 
 
 def test_compose_execution_lines_renders_trigger_data_field_comparator_threshold():

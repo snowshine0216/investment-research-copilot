@@ -11,5 +11,13 @@ def test_macro_summary_discloses_incomplete_a_share_valuation_collection() -> No
 def test_risk_notes_use_conditional_real_yield_language() -> None:
     notes = "\n".join(_compose_risk_notes("2026-05-22"))
     assert "实际利率反弹会压制金价" not in notes
-    assert "通常对金价形成压制" in notes
+    assert "在部分历史时期" in notes
+    assert "并非稳定规律" in notes
     assert "本期实际利率数据缺失" in notes
+
+
+def test_risk_notes_use_conditional_valuation_pressure_language() -> None:
+    notes = "\n".join(_compose_risk_notes("2026-05-22"))
+    assert "回撤风险加大" not in notes
+    assert "估值百分位偏高时曾出现较大回撤" in notes
+    assert "不构成对未来走势的预测" in notes

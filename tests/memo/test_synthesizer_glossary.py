@@ -79,7 +79,15 @@ def test_synthesize_memo_prompt_balances_positive_logic_with_negative_signals() 
     assert "overheated" in user_msg
     assert "weak" in user_msg
     assert "revenue_yoy" in user_msg
-    assert "百分比" in user_msg or "百分数" in user_msg
+    assert "不得直接引用为业绩依据" in user_msg
+    assert "必须换算为百分比" not in user_msg
+
+
+def test_synthesize_memo_prompt_treats_target_weight_as_cap() -> None:
+    user_msg = _capture_user_prompt()
+    assert "权重上限" in user_msg
+    assert "非强制建仓目标" in user_msg
+    assert "触发条件未满足时实际执行量为零" in user_msg
 
 
 def test_synthesize_memo_prompt_requires_refs_on_instrument_conclusions() -> None:

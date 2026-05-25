@@ -407,7 +407,7 @@ def compose_opportunity_state(
         return "core_dca", "估值便宜、热度可控、长期逻辑完好、产品质量合格，适合定投。"
 
     if expensive or hot_heat:
-        return "pause_wait", "估值偏高或热度偏高，暂停加仓等待回落。"
+        return "pause_wait", "估值或热度高于规则阈值，暂停加仓；如估值或热度回到规则阈值内再评估。"
 
     label = _weak_link_label(valuation, heat, thesis, product_quality)
     return (

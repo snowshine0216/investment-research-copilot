@@ -30,8 +30,9 @@ def test_render_picks_table_dedupes_and_lists_action_and_rationale():
     assert "518880" in md and "华安黄金ETF" in md
     assert md.count("006075") == 1, "duplicate instrument_id must be deduped"
     # Header columns
-    for col in ("代码", "名称", "角色", "目标权重", "状态", "本期行动", "主要理由"):
+    for col in ("代码", "名称", "角色", "权重上限", "机会状态", "本期行动", "主要理由"):
         assert col in md
+    assert "综合分*" in md
     # Action labels expanded into Chinese
     assert "正常定投" in md  # normal_dca
     assert "减速定投" in md  # slow_dca
@@ -60,6 +61,45 @@ def test_render_picks_table_appends_scoring_methodology_footnote():
     assert ("估值" in md and "热度" in md) or "多因子" in md
 
 
+def test_render_picks_table_marks_scores_with_incomplete_valuation_data():
+    row = PickRow(
+        instrument_id="511010", name_cn="国债ETF国泰", asset_class="bond",
+        role="defensive_bond", target_weight=0.1, composite_score=75.6,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="估值数据缺失，列入观察",
+        valuation_state="evidence_insufficient",
+    )
+    md = render_picks_table([row])
+    assert "75.6（估值维度缺失，不得用于优先级比较）" in md
+    assert "N/A（估值维度数据缺失，分值无效，不得用于优先级比较）" not in md
+
+
+def test_render_picks_table_slow_dca_is_conditionally_worded():
+    row = PickRow(
+        instrument_id="519770", name_cn="交银优择回报灵活配置混合A",
+        asset_class="active_fund", role="satellite", target_weight=0.1,
+        composite_score=74.2, opportunity_state="small_watch",
+        dca_action="slow_dca", risk_action="none",
+        one_line_reason="等待回撤触发",
+    )
+    md = render_picks_table([row])
+    assert "条件性减速定投（触发条件见第7节；未触发则不执行）" in md
+
+
+def test_render_picks_table_footnote_defines_weight_as_cap_and_score_limits():
+    row = PickRow(
+        instrument_id="511220", name_cn="城投债ETF海富通", asset_class="bond",
+        role="defensive_bond", target_weight=0.04, composite_score=75.6,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="估值数据缺失",
+        valuation_state="evidence_insufficient",
+    )
+    md = render_picks_table([row])
+    assert "权重均为上限约束" in md
+    assert "非强制建仓目标" in md
+    assert "不得单独依据分值高低" in md
+
+
 def test_render_picks_table_footnote_only_once_even_with_many_rows():
     """Two rows in, one footnote out — footnote must not be duplicated per row."""
     rows = [
@@ -76,6 +116,19 @@ def test_render_picks_table_footnote_only_once_even_with_many_rows():
     ]
     md = render_picks_table(rows)
     assert md.count("不构成投资建议") == 1
+
+
+def test_render_picks_table_marks_no_proxy_venue_as_currently_unexecutable():
+    row = PickRow(
+        instrument_id="511220", name_cn="城投债ETF海富通", asset_class="bond",
+        role="defensive_bond", target_weight=0.04, composite_score=75.6,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="估值数据缺失",
+        venue_note="venue mismatch and no proxy available",
+    )
+    md = render_picks_table([row])
+    assert "渠道不匹配，当前无法执行" in md
+    assert "待渠道开通方可执行" in md
 
 
 def test_render_picks_table_footnote_emitted_even_when_no_rows():

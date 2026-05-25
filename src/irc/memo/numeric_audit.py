@@ -44,6 +44,42 @@ _ACTIONABLE_KEYWORDS: Final[tuple[str, ...]] = (
 )
 _NON_ACTIONABLE_LABELS: Final[tuple[str, ...]] = (
     "建仓模式", "建仓方式",
+    "不新增加仓",
+    "不纳入加仓",
+    "本期不列入加仓",
+    "本期无核心定投候选，建仓节奏以小仓位观察为主",
+    "所有可执行标的均为条件性减速定投（触发条件未满足时实际执行量为零）",
+    "执行行均为条件性减速定投或暂缓执行，触发条件未达成时实际执行量为零",
+    "估值或热度高于阈值时暂停加仓",
+    "本期黄金标的均未进入精选表",
+    "不能等同于\"便宜/可加仓\"结论",
+    "不能等同于可加仓结论",
+    "不构成加仓依据",
+    "加仓动作整体克制",
+    "无强信号建仓标的",
+    "仅触发条件性减速定投",
+    "条件性减速定投为主，未触发即不执行",
+    "pause_wait 暂停加仓",
+    "本期暂停加仓",
+    "pause_wait 标的暂停加仓",
+    "暂停加仓、等待回落，不新增仓位",
+    "规则判定暂停加仓",
+    "依据规则暂停加仓",
+    "本期黄金 ETF 全部暂停加仓",
+    "无加仓窗口",
+    "非强制建仓目标",
+    "非建仓目标",
+    "条件性减速定投在第7节触发条件未满足时实际执行量为零",
+    "未将其纳入建仓优先级",
+    "须等待第 7 节触发条件（weekly_drawdown_4pct）满足后方启动减速定投",
+)
+_NEGATED_ACTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
+    re.compile(r"不纳入[^，。；\n]{0,16}加仓"),
+    re.compile(r"不得作为[^，。；\n]{0,16}加仓依据"),
+    re.compile(r"不构成[^，。；\n]{0,16}加仓依据"),
+    re.compile(r"不构成[^，。；\n]{0,24}加仓的依据"),
+    re.compile(r"不[^，。；\n]{0,16}建仓"),
+    re.compile(r"条件性减速定投在第\s*7\s*节触发条件未满足时实际执行量为零"),
 )
 
 # Asset-class section header → asset_class string. Used by AC8(c)/(d) only.
@@ -302,6 +338,8 @@ def _has_actionable_keyword(text: str) -> bool:
     scrubbed = text
     for label in _NON_ACTIONABLE_LABELS:
         scrubbed = scrubbed.replace(label, "")
+    for pattern in _NEGATED_ACTION_PATTERNS:
+        scrubbed = pattern.sub("", scrubbed)
     return any(kw in scrubbed for kw in _ACTIONABLE_KEYWORDS)
 
 

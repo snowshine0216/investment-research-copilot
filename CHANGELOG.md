@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Memo publish now treats explicit audit veto variants such as
+  `不予直接通过` and `需修订后重新提交` as blocking, not only the exact
+  phrase `审核未通过`.
+- Reduced citation-gate false positives for conservative/no-add disclosures
+  such as grouped `pause_wait` summaries, rule-based `暂停加仓`, and
+  target-weight disclaimers, while preserving blocking behavior for real
+  uncited actionable conclusions.
+- Hardened memo compliance sanitization around ambiguous `revenue_yoy` raw
+  fields, valuation-risk phrasing, QDII execution caveats, and
+  evidence-insufficient scoring notes.
+- Discipline reports now carry attempted evidence fetch types from
+  opportunity snapshots, so rows such as `001877 宝盈国家安全沪港深股票A`
+  show concrete attempts (`holdings, filing, broker, news`) instead of
+  `(none)`.
+
 ## [0.9.0] — 2026-05-24
 
 ### Added — `thesis-cards-evidence-gap` remediation (10-item autodev run)

@@ -86,6 +86,12 @@ def _format_trigger(trigger: dict) -> str:
     return f"{name} ({data_field} {comparator} {threshold})"
 
 
+def _format_suspended_venue_note(venue_note: str) -> str:
+    if "proxy via" in venue_note:
+        return "venue mismatch；无可用代理渠道，暂缓执行，待渠道开通后重新评估"
+    return venue_note
+
+
 def _compose_execution_lines(
     trades: list[dict],
     opportunity_rows: list[dict],
@@ -119,9 +125,10 @@ def _compose_execution_lines(
         label = f"{iid} {name}".strip()
         venue_note = str(t.get("venue_note", ""))
         if require_opportunity_row and resolved_iid not in name_by_id:
+            suspended_venue = _format_suspended_venue_note(venue_note)
             lines.append(
                 f"**{label}** | 目标权重 ≤ {weight*100:.1f}% | "
-                f"暂缓执行·待机会数据补充 | 渠道 {venue_note}"
+                f"暂缓执行·待机会数据补充 | 渠道 {suspended_venue}"
             )
             continue
         raw_triggers = list(t.get("triggers") or [])
@@ -160,9 +167,11 @@ def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
             "节假日/停牌将进一步延长。所有数值不代表实时市场状态，执行前须自行核实。"
         )
     return (
-        "实际利率风险：历史上实际利率上行通常对金价形成压制，"
-        "但具体影响程度受多重因素影响；本期实际利率数据缺失，该风险敞口暂无法量化。",
-        "估值压力：宽基ETF在估值百分位偏高时回撤风险加大。",
+        "实际利率风险：在部分历史时期，实际利率上行曾对金价形成压制，"
+        "但该关系并非稳定规律，不构成对未来走势的预测；"
+        "本期实际利率数据缺失，该风险敞口暂无法量化。",
+        "估值压力：在部分历史时期，宽基ETF估值百分位偏高时曾出现较大回撤，"
+        "但该关系并非稳定规律，不构成对未来走势的预测；执行前须自行核实风险承受能力。",
         "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
         timeliness,
     )
@@ -285,6 +294,16 @@ def _strip_venue_suffix(iid: str) -> str:
     return stripped
 
 
+def _format_pick_reason(op: dict) -> str:
+    reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace(
+        "\n", " ").strip()
+    valuation = str(op.get("valuation_state") or "")
+    heat = str(op.get("heat_state") or "")
+    if valuation in {"expensive", "very_expensive"} or heat in {"crowded", "overheated"}:
+        return f"估值={valuation or 'unknown'}、热度={heat or 'unknown'}，暂停加仓；详见本节补充披露。"
+    return reason or "—"
+
+
 def _evidence_from_dict(d: dict) -> ThesisEvidence:
     """Deprecated shim — delegates to ThesisEvidence.from_dict."""
     return ThesisEvidence.from_dict(d)
@@ -397,8 +416,7 @@ def _build_pick_rows(
         citations = select_citations(raw_evidence, cap=3)
 
         sc = score_by_id.get(iid_raw) or {}
-        reason = (op.get("opportunity_reason") or "").split(" | ")[0].replace(
-            "\n", " ").strip()
+        reason = _format_pick_reason(op)
         opp_state = op.get("opportunity_state", "small_watch")
         dca = {"core_dca": "normal_dca", "small_watch": "slow_dca",
                "pause_wait": "pause_dca", "exclude": "do_not_buy"}.get(
@@ -417,7 +435,9 @@ def _build_pick_rows(
             opportunity_state=opp_state,
             dca_action=dca,
             risk_action="none",
-            one_line_reason=reason or "—",
+            one_line_reason=reason,
+            valuation_state=op.get("valuation_state", ""),
+            venue_note=str(t.get("venue_note", "")),
             citations=citations,
         ))
 
