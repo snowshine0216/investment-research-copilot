@@ -1022,6 +1022,50 @@ def test_find_uncited_conclusions_multi_instrument_paragraph_accepts_co_mentione
     assert wrong == [], f"unexpected wrong_instrument_citation findings: {wrong}"
 
 
+def test_find_uncited_conclusions_ignores_bucket_summary_pause_aggregations() -> None:
+    """Regression: 2026-05-25 memo halted on the gold-ETF section header
+    '**黄金ETF持仓**（本期全部暂停加仓）：'. Bucket-summary aggregations
+    ('本期全部暂停加仓', '均暂停加仓', '全部暂停加仓') are factual statistics
+    of pause_wait bucket membership, not action recommendations."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    for header in (
+        "**黄金ETF持仓**（本期全部暂停加仓）：",
+        "- CN ETF（本期均暂停加仓）：",
+        "- 当前精选：全部暂停加仓。",
+    ):
+        findings = find_uncited_conclusions(
+            prose=header,
+            cited_map={},
+            instrument_aliases={"519770": "519770"},
+            constituent_aliases={},
+            constituent_cited_map={},
+        )
+        assert findings == [], f"unexpected finding on header: {header!r}"
+
+
+def test_find_uncited_conclusions_ignores_section_header_rule_based_pause() -> None:
+    """Regression: 2026-05-25 memo halted on the gold-ETF section header
+    '- 黄金 ETF 状态分布（均按规则暂停加仓）：'. This is a meta-description
+    of what the pause_wait rule does (labels), not an action
+    recommendation. The line introduces per-ETF bullets that each carry
+    their own citation, so the header itself need not."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    for header in (
+        "- 黄金 ETF 状态分布（均按规则暂停加仓）：",
+        "- CN ETF 估值分布（按规则暂停加仓）：",
+        "- 持仓状态：依据规则暂停加仓。",
+        "- 配置面：根据规则暂停加仓。",
+    ):
+        findings = find_uncited_conclusions(
+            prose=header,
+            cited_map={},
+            instrument_aliases={"519770": "519770"},
+            constituent_aliases={},
+            constituent_cited_map={},
+        )
+        assert findings == [], f"unexpected finding on header: {header!r}"
+
+
 def test_find_uncited_conclusions_ignores_grouped_gold_pause_threshold_rule() -> None:
     from irc.memo.numeric_audit import find_uncited_conclusions
     prose = (

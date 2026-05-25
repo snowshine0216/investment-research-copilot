@@ -19,6 +19,9 @@ def audit_memo(draft: str, route: ResolvedRoute) -> ChatResponse:
         messages=[{"role": "system", "content": _SYSTEM},
                   {"role": "user", "content": user_msg}],
         temperature=0.1,
+        # Same rationale as synthesize_memo: deepseek-reasoner needs more
+        # than the 30s default to walk a full memo end-to-end.
+        timeout_s=240.0,
     )
 
 

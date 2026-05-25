@@ -80,7 +80,13 @@ _GUARDRAILS = (
     "这类需要审核员逐一新增白名单的变体。\n"
     "10. 任何提及具体基金代码（≥4 位数字 ID）的段落都必须以 [ref:...] 结尾，"
     "即便是「描述性」表述（如「状态分布」「估值分桶」）。规则 6 的同段引用要求"
-    "适用于一切提及标的代码的段落，不区分章节。"
+    "适用于一切提及标的代码的段落，不区分章节。\n"
+    "11. **禁止**自行新增「补充披露」「底层持仓负面信号」「补充说明」这类章节或段落，"
+    "底层持仓的负面信号已在第 5 节（精选标的表）和原始证据池中按基金分组列出。"
+    "如必须在某基金段落中引用其底层持仓的证据，**只能**引用该基金 evidence pool 中"
+    "owner_instrument_id = 该基金 ID 的 [ref:...]；**禁止**借用其他基金 evidence "
+    "pool 中关于同一只股票的 [ref:...]（多只基金共同持有同一股票时，每只基金有"
+    "独立的 evidence 条目，cross-borrow 会触发 `wrong_instrument_citation`）。"
 )
 
 
@@ -114,4 +120,9 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
         messages=[{"role": "system", "content": _SYSTEM},
                   {"role": "user", "content": user_msg}],
         temperature=0.3,
+        # deepseek-reasoner does multi-step CoT; the strengthened guardrail
+        # block (Rules 1–10) pushes per-call latency well past the 30s
+        # default. 240s keeps a comfortable margin without masking a true
+        # provider outage (which would still time out within 4 min).
+        timeout_s=240.0,
     )

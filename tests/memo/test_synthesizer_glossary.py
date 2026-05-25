@@ -8,7 +8,7 @@ from irc.memo.synthesizer import synthesize_memo
 def _capture_user_prompt() -> str:
     captured: dict[str, object] = {}
 
-    def fake_call_chat(route, messages, temperature):
+    def fake_call_chat(route, messages, **kwargs):
         captured["messages"] = messages
 
         class _R:
@@ -133,3 +133,17 @@ def test_synthesize_memo_prompt_requires_refs_on_any_instrument_id_mention() -> 
     assert "提及具体基金代码" in user_msg
     assert "描述性" in user_msg
     assert "状态分布" in user_msg or "估值分桶" in user_msg
+
+
+def test_synthesize_memo_prompt_forbids_cross_fund_citation_borrow() -> None:
+    """Rule 11 (2026-05-25): a constituent held by ≥2 funds gets a
+    distinct [ref:...] under each fund's evidence pool. The LLM was
+    grabbing the wrong fund's [ref:...] when writing a 'supplementary
+    disclosure' paragraph for a specific fund — that triggers
+    `wrong_instrument_citation`. The prompt must forbid the
+    supplementary-disclosure pattern and require same-owner [ref:...]
+    when constituents are mentioned."""
+    user_msg = _capture_user_prompt()
+    assert "补充披露" in user_msg
+    assert "owner_instrument_id" in user_msg
+    assert "wrong_instrument_citation" in user_msg or "cross-borrow" in user_msg

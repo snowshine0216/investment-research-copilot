@@ -91,6 +91,17 @@ _NEGATED_ACTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     # recommendation. Action recommendations use prescriptive language
     # (建议/应当/需要) which this pattern does not strip.
     re.compile(r"列入[^，。；\n]{0,40}暂停加仓"),
+    # Section-header pattern "(均)?按规则|依据规则|根据规则|规则判定...暂停加仓"
+    # is a meta-description of the pause_wait rule's effect — it labels what
+    # the rule does, not what the reader should do. Covers paraphrases the
+    # LLM produces for gold-ETF / cn-ETF section intros.
+    re.compile(r"(?:均)?(?:按|依据|根据)规则[^，。；\n]{0,12}暂停加仓"),
+    # Bucket-summary headers like "本期全部暂停加仓", "均暂停加仓",
+    # "全部暂停加仓" — all factual aggregations of pause_wait bucket
+    # membership, not action recommendations. The literal "加仓"/"暂停加仓"
+    # alone is still flagged when wrapped in prescriptive language
+    # (建议/应当/需要), since this pattern only strips the bucket-summary form.
+    re.compile(r"(?:本期)?(?:均|全部|都)\s*暂停加仓"),
 )
 
 # Asset-class section header → asset_class string. Used by AC8(c)/(d) only.
@@ -346,10 +357,24 @@ def find_uncited_conclusions(
     return findings
 
 
+_WHITESPACE_RE = re.compile(r"\s+")
+
+
 def _has_actionable_keyword(text: str) -> bool:
-    scrubbed = text
+    """Return True when the text contains an actionable keyword AFTER
+    stripping all `_NON_ACTIONABLE_LABELS` and `_NEGATED_ACTION_PATTERNS`.
+
+    Whitespace insensitivity: the substring match is done on a
+    whitespace-normalised copy so that label "本期黄金 ETF 全部暂停加仓"
+    also matches LLM paraphrases that drop spaces ("本期黄金ETF全部暂停加仓"),
+    different spacings around "ETF", etc. The keyword check uses the same
+    normalised string, so cross-token matches inside an exempt label can't
+    re-trigger.
+    """
+    scrubbed = _WHITESPACE_RE.sub("", text)
     for label in _NON_ACTIONABLE_LABELS:
-        scrubbed = scrubbed.replace(label, "")
+        normalised_label = _WHITESPACE_RE.sub("", label)
+        scrubbed = scrubbed.replace(normalised_label, "")
     for pattern in _NEGATED_ACTION_PATTERNS:
         scrubbed = pattern.sub("", scrubbed)
     return any(kw in scrubbed for kw in _ACTIONABLE_KEYWORDS)
