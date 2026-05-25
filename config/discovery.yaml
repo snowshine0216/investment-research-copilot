@@ -1,10 +1,16 @@
 hard_filters:
   inception_years_min: 3
-  cn_fund_aum_cny_min: 500000000
+  # Lowered from 5e8 → 2e8 so themed active funds (consumer, tech, soe,
+  # real_estate, semiconductor) with 200M–500M AUM survive the filter
+  # instead of collapsing the role buckets to zero candidates.
+  cn_fund_aum_cny_min: 200000000
   us_etf_aum_usd_min: 100000000
   cn_active_expense_ratio_max: 0.015
   cn_passive_expense_ratio_max: 0.005
-  us_etf_expense_ratio_max: 0.003
+  # Lowered from 0.003 → 0.012 so CN-domiciled US-tracking ETFs (typical
+  # expense 0.6%–1.0%) survive instead of collapsing the core_us_equity /
+  # defensive_us_bond buckets to zero. 0.012 matches the QDII feeder tier.
+  us_etf_expense_ratio_max: 0.012
   qdii_feeder_expense_ratio_max: 0.012
   etf_daily_volume_cny_min: 10000000
 
@@ -21,5 +27,10 @@ quality_filters:
   manager_tenure_years_min: 2
 
 role_bucket:
-  min_candidates_per_role: 8
-  fail_below: 5
+  # Lowered from 8 → 3 so themed buckets with 3–7 surviving candidates
+  # warn ("relaxed") but still produce a candidate set instead of failing.
+  min_candidates_per_role: 3
+  # Lowered from 5 → 1: any non-empty bucket should produce SOME signal
+  # rather than fail entirely. The risk-note banner still flags the
+  # 1≤n<min_candidates_per_role band as 'relaxed' so the reader sees it.
+  fail_below: 1

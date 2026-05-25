@@ -100,19 +100,44 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
     # When section 7 was prefilled deterministically (marker present), tell
     # the LLM to copy that section verbatim. Otherwise leave today's
     # behavior unchanged — the LLM still fills the placeholder.
-    section7_instruction = ""
+    locked_section_lines: list[str] = []
     if "<!-- IRC_EXECUTION_LINES_BEGIN -->" in skeleton:
-        section7_instruction = (
+        locked_section_lines.append(
             "第7节『执行要点』的内容已由系统生成（位于 IRC_EXECUTION_LINES_BEGIN/END "
             "标记之间），必须**原样保留**这两个 HTML 注释之间的所有 bullet，"
             "不要改写、合并或扩写其中的任何条目。"
         )
+    # Same lock for the §2 macro pillar.
+    if "<!-- IRC_MACRO_LINES_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第2节『宏观环境』的关键宏观指标与研究摘录位于 IRC_MACRO_LINES_BEGIN/END "
+            "标记之间，必须**原样保留**这两个 HTML 注释之间的所有 bullet 与 [ref:...] "
+            "标记，不要改写、合并、汇总或新增 bullet；可以在标记之外加入连接性的描述段落，"
+            "但禁止做方向性预测或编造未在原始数据中出现的具体数值。"
+        )
+    # Same lock for the §3 gold-evidence pillar.
+    if "<!-- IRC_GOLD_EVIDENCE_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第3节『黄金视角』在 IRC_GOLD_EVIDENCE_BEGIN/END 标记之间的 bullet 必须**原样保留**，"
+            "包括末尾的 [ref:...] 标记。"
+        )
+    # Same lock for the §5 picks table. The LLM has been observed
+    # rewriting the table and substituting refs across instruments (e.g.
+    # placing 518880's announcement ref under 159937 → wrong_instrument_citation).
+    if "<!-- IRC_PICKS_TABLE_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第5节『精选标的（含观察标的）』在 IRC_PICKS_TABLE_BEGIN/END 标记之间的整个 "
+            "markdown 表格（含表头、每一行、综合分说明 footnote）必须**原样保留**：每个 [ref:...] "
+            "citation_id 与对应行的标的代码绑定，跨标的复用 ref 会触发 wrong_instrument_citation。"
+            "禁止改写、合并、新增 row，亦禁止改写 citation 数量或顺序。"
+        )
+    section_lock_instruction = "\n".join(locked_section_lines)
     user_msg = (
         f"{_GLOSSARY}\n\n"
         f"{_GUARDRAILS}\n\n"
         f"以下是备忘录骨架：\n\n{skeleton}\n\n"
         f"以下是相关原始数据摘录（请结合数据充实各章节，勿发明数据）：\n{refs_block}\n\n"
-        f"{section7_instruction}\n\n"
+        f"{section_lock_instruction}\n\n"
         "请按骨架章节结构输出完整备忘录。"
     )
     return call_chat(

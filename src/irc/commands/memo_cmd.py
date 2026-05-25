@@ -21,6 +21,13 @@ from irc.memo.diagnostics import (
 from irc.memo.aliases import build_alias_maps
 from irc.memo.evidence_pool import build_evidence_pool
 from irc.memo.citation_selector import select_citations
+from irc.memo.macro_pillar import (
+    MacroSnapshot,
+    ThemeReportRef,
+    evidence_by_source_key,
+    render_gold_evidence_body,
+    render_macro_section_body,
+)
 from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
@@ -39,10 +46,12 @@ _DEFAULT_TIMELINESS_NOTE = (
 )
 
 
-# Audit P1 (2026-05-20) flagged the prior "实际利率与美元走向是黄金定价的
-# 主导变量" phrasing as a deterministic causal claim. Softened text frames
-# real-yield/USD as one set of reference variables among several (地缘 +
-# 央行购金) and defers A-share valuation specifics to the evidence pool.
+# Anti-fabrication fallback used by §2 only when gold_regime.json is missing
+# its macro_snapshots / theme_refs payload (or both are empty). Audit P1
+# (2026-05-20) flagged the prior "实际利率与美元走向是黄金定价的主导变量"
+# phrasing as a deterministic causal claim. Softened text frames real-yield/
+# USD as one set of reference variables among several (地缘 + 央行购金) and
+# defers A-share valuation specifics to the evidence pool.
 _MACRO_SUMMARY = (
     "实际利率与美元走向通常被视为黄金定价的重要参考变量之一；"
     "地缘风险、央行购金行为等其他因素同样可能对金价产生显著影响。"
@@ -50,6 +59,38 @@ _MACRO_SUMMARY = (
     "其余宽基指数估值百分位未采集，相关宏观判断存在数据缺口，"
     "不要自行编造、补足或外推。"
 )
+
+
+def _snapshots_from_gold(gold: dict) -> tuple[MacroSnapshot, ...]:
+    """Rebuild `MacroSnapshot`s from the dict form written by `gold_cmd`."""
+    out: list[MacroSnapshot] = []
+    for d in gold.get("macro_snapshots") or []:
+        try:
+            out.append(MacroSnapshot(
+                series_id=str(d["series_id"]),
+                display_name=str(d["display_name"]),
+                value=float(d["value"]),
+                unit=str(d.get("unit", "")),
+                date=str(d["date"]),
+            ))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(out)
+
+
+def _theme_refs_from_gold(gold: dict) -> tuple[ThemeReportRef, ...]:
+    out: list[ThemeReportRef] = []
+    for d in gold.get("theme_refs") or []:
+        try:
+            out.append(ThemeReportRef(
+                theme=str(d["theme"]),
+                display_name=str(d["display_name"]),
+                summary=str(d.get("summary") or ""),
+                date=str(d["date"]),
+            ))
+        except (KeyError, TypeError):
+            continue
+    return tuple(out)
 
 
 def _format_threshold(threshold: object) -> str:
@@ -491,6 +532,25 @@ def run_memo(repo_root: str) -> int:
         "zone": gold.get("zone", "unknown"),
         "tilt": alloc.get("gold_tilt", "neutral"),
     }
+
+    # Item 016 — macro evidence pillar. The gold stage now emits a
+    # `macro_snapshots`, `theme_refs`, and `evidence` payload in
+    # `gold_regime.json`. Memo §2 and §3 surface this verbatim with the
+    # exact citation_ids that the publishable universe already contains
+    # (gold_regime.json["evidence"] is part of the citation universe per
+    # `tests/integration/_publishable_set_helper.py`).
+    macro_snapshots = _snapshots_from_gold(gold)
+    theme_refs = _theme_refs_from_gold(gold)
+    macro_evidence = tuple(
+        ThesisEvidence.from_dict(d) for d in (gold.get("evidence") or [])
+    )
+    macro_evidence_by_source = evidence_by_source_key(macro_evidence)
+    macro_summary_md = render_macro_section_body(
+        macro_snapshots, theme_refs, macro_evidence_by_source,
+    )
+    gold_evidence_md = render_gold_evidence_body(
+        macro_snapshots, theme_refs, macro_evidence_by_source,
+    )
     # Item 007 D1a: reconstruct ThesisEvidence dataclasses from the JSON
     # dict form so build_evidence_pool can pass them through select_citations
     # without a third-call-site _evidence_from_dict copy.
@@ -507,6 +567,7 @@ def run_memo(repo_root: str) -> int:
         scoring_rows=list(scoring.get("scores") or []),
         plan_trades=trades,
         gold_regime=gold_regime,
+        macro_evidence=macro_evidence,
     )
 
     # Item 007 D1c: build alias maps from publishable rows. Item 009's
@@ -562,18 +623,24 @@ def run_memo(repo_root: str) -> int:
         require_opportunity_row=True,
     )
 
+    # §2: prefer the dynamic macro_summary_md (carries real values + refs);
+    # fall back to the legacy static text when gold_regime emitted no data.
+    macro_summary_text = (
+        macro_summary_md.strip() if macro_summary_md.strip() else _MACRO_SUMMARY
+    )
     inputs = MemoInputs(
         date_str=today,
         gold_regime=gold.get("regime", "unknown"),
         gold_zone=gold.get("zone", "unknown"),
         gold_tilt=alloc.get("gold_tilt", "neutral"),
         allocation_mode=plan.get("mode", "unknown"),
-        macro_summary=_MACRO_SUMMARY,
+        macro_summary=macro_summary_text,
         top_picks=tuple(r.instrument_id for r in pick_rows),
         risk_notes=risk_notes,
         tldr_lines=tldr,
         picks_table_md=picks_table_md,
         execution_lines=execution_lines,
+        gold_evidence_md=gold_evidence_md,
     )
 
     synth_route = resolve_route("memo_synthesis", bundle.llm)

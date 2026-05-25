@@ -263,6 +263,15 @@ def build_snapshot(
     if target.kind == "active_fund":
         return _build_active_fund_snapshot(target, top_n=top_n)
     if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
+        # Item 016 — QDII funds are CN-registered and DO expose NAV +
+        # announcements via the same AkShare endpoints used by gold/bond/
+        # broad_index. The legacy sentinel skipped these unconditionally
+        # (ADR 0002 §5 F4), which routed every QDII row to the discipline
+        # failure section. We now attempt fund-level fetch when the target
+        # carries a provider_symbol, falling back to the sentinel only
+        # when no fund_id is available (raw-index/global aggregate keys).
+        if target.provider_symbol:
+            return _build_fund_level_snapshot(target)
         return _build_qdii_sentinel_snapshot(target)
     if target.kind in _FUND_LEVEL_KINDS and target.provider_symbol:
         return _build_fund_level_snapshot(target)

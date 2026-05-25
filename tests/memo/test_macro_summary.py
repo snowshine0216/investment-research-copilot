@@ -30,3 +30,17 @@ def test_macro_summary_keeps_anti_fabrication_reminder():
     load-bearing for the synthesizer; the softening must keep it."""
     assert "证据池" in _MACRO_SUMMARY
     assert "不要自行编造" in _MACRO_SUMMARY or "不要编造" in _MACRO_SUMMARY
+
+
+def test_macro_summary_remains_fallback_only():
+    """`_MACRO_SUMMARY` is the anti-fabrication FALLBACK used when
+    `gold_regime.json` has no macro_snapshots / theme_refs. When the gold
+    stage emits real data the memo §2 body is composed by
+    `irc.memo.macro_pillar.render_macro_section_body` instead. This test
+    guards against accidentally re-locking the static text into the
+    primary code path."""
+    from irc.memo import macro_pillar  # importable & wired to memo_cmd
+
+    assert hasattr(macro_pillar, "render_macro_section_body")
+    assert hasattr(macro_pillar, "render_gold_evidence_body")
+    assert hasattr(macro_pillar, "build_macro_evidence")

@@ -109,8 +109,12 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
     if inp.asset_class == "us_etf":
         raw = tracked or theme or "us_equity"
         key = _normalize_qdii_key(raw, _QDII_US_ALIASES) or raw
+        # Item 016 — populate provider_symbol so the snapshot dispatch can
+        # route to `_build_fund_level_snapshot` (NAV + announcements via
+        # the CN AkShare endpoints these QDII funds are registered under).
         return LookthroughTarget(
             "qdii_us", key, _display_for(key, _QDII_US_DISPLAY, key),
+            provider_symbol=inp.instrument_id,
         )
 
     if inp.asset_class == "hk_etf":
@@ -118,11 +122,15 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
         key = _normalize_qdii_key(raw, _QDII_HK_ALIASES) or raw
         return LookthroughTarget(
             "qdii_hk", key, _display_for(key, _QDII_HK_DISPLAY, key),
+            provider_symbol=inp.instrument_id,
         )
 
     if inp.asset_class == "qdii_global":
         raw = tracked or theme or "global_equity"
-        return LookthroughTarget("qdii_global", raw, raw)
+        return LookthroughTarget(
+            "qdii_global", raw, raw,
+            provider_symbol=inp.instrument_id,
+        )
 
     if tracked is not None:
         if tracked in _BROAD_INDEX_KEYS:
@@ -131,10 +139,17 @@ def map_lookthrough(inp: OpportunityInput) -> LookthroughTarget:
                 provider_symbol=inp.instrument_id,
             )
         if tracked in _QDII_US_KEYS:
-            # QDII rows do NOT dispatch to fund-level; provider_symbol stays empty.
-            return LookthroughTarget("qdii_us", tracked, _QDII_US_DISPLAY[tracked])
+            # Item 016 — QDII rows now dispatch to fund-level snapshot
+            # (was: hard-coded sentinel skip).
+            return LookthroughTarget(
+                "qdii_us", tracked, _QDII_US_DISPLAY[tracked],
+                provider_symbol=inp.instrument_id,
+            )
         if tracked in _QDII_HK_KEYS:
-            return LookthroughTarget("qdii_hk", tracked, _QDII_HK_DISPLAY[tracked])
+            return LookthroughTarget(
+                "qdii_hk", tracked, _QDII_HK_DISPLAY[tracked],
+                provider_symbol=inp.instrument_id,
+            )
         # Unknown index: classify as broad_index but keep the raw key + provider_symbol.
         return LookthroughTarget(
             "broad_index", tracked, tracked, provider_symbol=inp.instrument_id,
