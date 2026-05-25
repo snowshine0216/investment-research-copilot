@@ -415,13 +415,97 @@ def fetch_hk_index_constituents(
     return _parse_hk_index_frame(df, top_n)
 
 
+_EASTMONEY_NEWS_URL = "https://search-api-web.eastmoney.com/search/jsonp"
+
+
+def _fetch_eastmoney_news_direct(
+    symbol: str, *, page_size: int = 10, timeout: float = 10.0,
+) -> tuple[dict, ...]:
+    """Direct EastMoney search-API call, bypassing the AkShare adapter.
+
+    Used as the fallback when `stock_news_em` raises `ArrowInvalid` (an
+    upstream AkShare bug: its `\\u3000` regex is rejected by pyarrow's RE2
+    engine on pyarrow-backed string columns). Mirrors AkShare's JSONP
+    request shape but parses with Python's `re`/`json`, so no RE2.
+    Returns the raw article dicts; the caller normalises into NewsItem.
+    """
+    import json as _json
+
+    import requests as _requests  # local import — adapter boundary
+
+    inner = {
+        "uid": "", "keyword": symbol,
+        "type": ["cmsArticleWebOld"],
+        "client": "web", "clientType": "web", "clientVersion": "curr",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "default",
+            "pageIndex": 1, "pageSize": page_size,
+            "preTag": "<em>", "postTag": "</em>",
+        }},
+    }
+    params = {
+        "cb": "cb",
+        "param": _json.dumps(inner, ensure_ascii=False),
+        "_": "1",
+    }
+    headers = {
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+        ),
+        "accept": "*/*",
+        "referer": f"https://so.eastmoney.com/news/s?keyword={symbol}",
+    }
+    resp = _requests.get(_EASTMONEY_NEWS_URL, params=params, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    m = re.match(r"^cb\((.*)\)$", resp.text.strip(), re.S)
+    if not m:
+        return ()
+    data = _json.loads(m.group(1))
+    articles = data.get("result", {}).get("cmsArticleWebOld", []) or ()
+    return tuple(articles)
+
+
+_EM_HIGHLIGHT_RE = re.compile(r"</?em>|　")
+
+
+def _strip_em_highlights(text: str) -> str:
+    """Remove EastMoney `<em>…</em>` highlight markup and `\\u3000` (ideographic
+    space) without invoking pyarrow's RE2 engine."""
+    if not text:
+        return ""
+    return _EM_HIGHLIGHT_RE.sub("", text)
+
+
 def fetch_cn_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
     """Top-K most recent stock news items from EastMoney.
 
-    P1-c: exceptions propagate to the caller (snapshot.py catches them as
-    news_fetch_failed). Returns () only on empty/malformed DataFrame.
+    Primary path: `ak.stock_news_em` via `_ak_call` (mockable in tests).
+    Fallback: direct EastMoney JSONP request via `_fetch_eastmoney_news_direct`
+    — required because pandas dispatches AkShare's `\\u3000` regex to
+    pyarrow's RE2 engine, which raises `ArrowInvalid` for every symbol.
+    Exceptions from the fallback propagate so callers tag the holding as
+    `news_fetch_failed` (P1-c contract).
     """
-    df = _ak_call("stock_news_em", symbol=stock)
+    try:
+        df = _ak_call("stock_news_em", symbol=stock)
+    except Exception:
+        # AkShare adapter broken upstream — fall back to direct EastMoney.
+        articles = _fetch_eastmoney_news_direct(stock, page_size=max(top_k, 10))
+        sorted_articles = sorted(
+            articles, key=lambda a: a.get("date", ""), reverse=True,
+        )[:top_k]
+        return tuple(
+            NewsItem(
+                symbol=stock,
+                title=_strip_em_highlights(str(a.get("title", ""))),
+                url=str(a.get("url", "")),
+                published_iso=str(a.get("date", "")).split(" ")[0],
+                summary=_strip_em_highlights(str(a.get("content", ""))),
+                source="eastmoney_direct",
+            )
+            for a in sorted_articles
+        )
     if not isinstance(df, pd.DataFrame) or df.empty:
         return ()
     title_col = "新闻标题" if "新闻标题" in df.columns else None

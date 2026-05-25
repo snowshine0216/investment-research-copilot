@@ -80,6 +80,12 @@ _NEGATED_ACTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     re.compile(r"不构成[^，。；\n]{0,24}加仓的依据"),
     re.compile(r"不[^，。；\n]{0,16}建仓"),
     re.compile(r"条件性减速定投在第\s*7\s*节触发条件未满足时实际执行量为零"),
+    # `条件性减速定投` is always a meta-description of how pause_wait/small_watch
+    # picks execute (not an action recommendation), so any prose mention is
+    # exempt. Covers all paraphrases: "采用条件性减速定投", "均为条件性减速定投",
+    # "所有执行均为条件性减速定投", etc. The narrower keywords (加仓/减仓/止损/加速
+    # 定投/正常定投) still fire normally.
+    re.compile(r"条件性减速定投"),
 )
 
 # Asset-class section header → asset_class string. Used by AC8(c)/(d) only.

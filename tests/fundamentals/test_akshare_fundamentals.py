@@ -256,13 +256,17 @@ def test_fetch_cn_stock_news_top_3_by_date_desc() -> None:
 
 
 def test_fetch_cn_stock_news_raises_on_adapter_exception() -> None:
-    """P1-c: fetch_cn_stock_news re-raises adapter exceptions so callers can
-    classify them as news_fetch_failed (not news_empty)."""
-    import pytest
-    with patch("irc.fundamentals.akshare_fundamentals._ak_call") as mocked:
-        mocked.side_effect = ConnectionError("dfcfw 502")
-        with pytest.raises(ConnectionError):
-            fetch_cn_stock_news("600519")
+    """P1-c: when both the AkShare primary path and the EastMoney-direct
+    fallback fail, `fetch_cn_stock_news` re-raises so callers tag the
+    holding as `news_fetch_failed` (not silently empty)."""
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=ConnectionError("dfcfw 502"),
+    ), patch(
+        "irc.fundamentals.akshare_fundamentals._fetch_eastmoney_news_direct",
+        side_effect=ConnectionError("dfcfw 502"),
+    ), pytest.raises(ConnectionError):
+        fetch_cn_stock_news("600519")
 
 
 def test_fetch_cn_stock_news_empty_on_empty_frame() -> None:
@@ -270,6 +274,49 @@ def test_fetch_cn_stock_news_empty_on_empty_frame() -> None:
         mocked.return_value = pd.DataFrame()
         out = fetch_cn_stock_news("600519")
     assert out == ()
+
+
+def test_fetch_cn_stock_news_falls_back_on_arrow_invalid() -> None:
+    """When the upstream AkShare adapter raises ArrowInvalid (known bug:
+    pyarrow's RE2 regex engine rejects `\\u3000` escape inside
+    `akshare.stock_news_em`), `fetch_cn_stock_news` must fall back to a
+    direct EastMoney fetch and still return NewsItems with
+    `source='eastmoney_direct'` so callers see info-leg evidence rather
+    than `news_fetch_failed`.
+    """
+    fallback_payload = (
+        {"date": "2026-04-15 09:00:00", "title": "T1",
+         "content": "c1", "url": "https://example.com/1", "mediaName": "EM"},
+        {"date": "2026-04-14 09:00:00", "title": "T2",
+         "content": "c2", "url": "https://example.com/2", "mediaName": "EM"},
+    )
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=Exception("ArrowInvalid: invalid escape sequence: \\u"),
+    ), patch(
+        "irc.fundamentals.akshare_fundamentals._fetch_eastmoney_news_direct",
+        return_value=fallback_payload,
+    ) as direct:
+        out = fetch_cn_stock_news("600519", top_k=2)
+    assert direct.called
+    assert len(out) == 2
+    assert out[0].title == "T1"
+    assert out[0].published_iso == "2026-04-15"
+    assert out[0].source == "eastmoney_direct"
+
+
+def test_fetch_cn_stock_news_reraises_when_fallback_also_fails() -> None:
+    """If both primary and fallback fail, callers expect an exception so
+    they classify the holding as `news_fetch_failed` (not silently empty).
+    """
+    with patch(
+        "irc.fundamentals.akshare_fundamentals._ak_call",
+        side_effect=Exception("ArrowInvalid"),
+    ), patch(
+        "irc.fundamentals.akshare_fundamentals._fetch_eastmoney_news_direct",
+        side_effect=ConnectionError("dns fail"),
+    ), pytest.raises(Exception):
+        fetch_cn_stock_news("600519")
 
 
 def test_fetch_cn_etf_holdings_hk_and_bj_routing_without_market_column() -> None:

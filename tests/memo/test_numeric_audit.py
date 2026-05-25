@@ -950,6 +950,28 @@ def test_find_uncited_conclusions_ignores_all_conditional_dca_zero_execution_sum
     assert findings == []
 
 
+def test_find_uncited_conclusions_ignores_tldr_small_watch_conditional_dca_paraphrase() -> None:
+    """Regression: 2026-05-25 memo halted on TL;DR bullets paraphrasing
+    `条件性减速定投`. The phrase is a meta-description of how
+    pause_wait/small_watch picks execute (not an action recommendation),
+    so any prose mention is exempt from `uncited_portfolio_conclusion`."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    for paraphrase in (
+        "- 本期无 core_dca 候选，所有可执行标的均为 small_watch 且采用"
+        "条件性减速定投，触发条件未满足时实际执行量为零。",
+        "- 本期精选标的均为 small_watch，所有执行均为条件性减速定投；"
+        "未触发第 7 节阈值时实际执行量为零。",
+    ):
+        findings = find_uncited_conclusions(
+            prose=paraphrase,
+            cited_map={},
+            instrument_aliases={"519770": "519770"},
+            constituent_aliases={},
+            constituent_cited_map={},
+        )
+        assert findings == [], f"unexpected finding on paraphrase: {paraphrase!r}"
+
+
 def test_find_uncited_conclusions_ignores_grouped_gold_pause_threshold_rule() -> None:
     from irc.memo.numeric_audit import find_uncited_conclusions
     prose = (

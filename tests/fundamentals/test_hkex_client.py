@@ -137,13 +137,26 @@ def test_fetch_hk_stock_news_top_3_by_date_desc() -> None:
     assert out[0].symbol == "00700"
 
 
-def test_fetch_hk_stock_news_unsupported_adapter_raises() -> None:
-    """P1-c: AttributeError (missing adapter) propagates so callers can classify it."""
-    import pytest
-    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
-        mocked.side_effect = AttributeError("module 'akshare' has no attribute 'stock_hk_news_em'")
-        with pytest.raises(AttributeError):
-            fetch_hk_stock_news("00700")
+def test_fetch_hk_stock_news_unsupported_adapter_falls_back_to_direct() -> None:
+    """AkShare lacks `stock_hk_news_em`; fall back to EastMoney-direct so the
+    holding still gets an info-leg evidence row (regression for the 11 funds
+    rejected with `insufficient_info_coverage_top_half` on 2026-05-24)."""
+    fallback = (
+        {"date": "2026-04-15 09:00:00", "title": "T1",
+         "content": "c1", "url": "https://example.com/1", "mediaName": "EM"},
+    )
+    with patch(
+        "irc.fundamentals.hkex_client._ak_call",
+        side_effect=AttributeError("module 'akshare' has no attribute 'stock_hk_news_em'"),
+    ), patch(
+        "irc.fundamentals.hkex_client._fetch_eastmoney_news_direct",
+        return_value=fallback,
+    ) as direct:
+        out = fetch_hk_stock_news("00700", top_k=1)
+    assert direct.called
+    assert len(out) == 1
+    assert out[0].source == "eastmoney_direct"
+    assert out[0].published_iso == "2026-04-15"
 
 
 def test_fetch_hk_stock_news_empty_frame_returns_empty() -> None:
@@ -153,28 +166,22 @@ def test_fetch_hk_stock_news_empty_frame_returns_empty() -> None:
     assert out == ()
 
 
-def test_fetch_hk_stock_news_connection_error_raises() -> None:
-    """P1-c: ConnectionError propagates so callers can classify it as hk_news_fetch_failed."""
+def test_fetch_hk_stock_news_raises_when_both_paths_fail() -> None:
+    """P1-c: when both AkShare and EastMoney-direct raise, propagate so callers
+    tag the holding as `hk_news_fetch_failed`."""
     import pytest
-    with patch("irc.fundamentals.hkex_client._ak_call") as mocked:
-        mocked.side_effect = ConnectionError("hk dfcfw 502")
-        with pytest.raises(ConnectionError):
-            fetch_hk_stock_news("00700")
+    with patch(
+        "irc.fundamentals.hkex_client._ak_call",
+        side_effect=ConnectionError("hk dfcfw 502"),
+    ), patch(
+        "irc.fundamentals.hkex_client._fetch_eastmoney_news_direct",
+        side_effect=ConnectionError("hk dfcfw 502"),
+    ), pytest.raises(ConnectionError):
+        fetch_hk_stock_news("00700")
 
 
-def test_hk_news_adapter_available_true(monkeypatch) -> None:
-    import sys
-    import types
-    fake_ak = types.SimpleNamespace(stock_hk_news_em=lambda **kw: None)
-    monkeypatch.setitem(sys.modules, "akshare", fake_ak)
+def test_hk_news_adapter_available_always_true() -> None:
+    """Direct EastMoney-direct fallback makes the adapter always available,
+    regardless of whether AkShare exposes `stock_hk_news_em`."""
     from irc.fundamentals.hkex_client import hk_news_adapter_available
     assert hk_news_adapter_available() is True
-
-
-def test_hk_news_adapter_available_false_when_missing(monkeypatch) -> None:
-    import sys
-    import types
-    fake_ak = types.SimpleNamespace()  # no stock_hk_news_em attribute
-    monkeypatch.setitem(sys.modules, "akshare", fake_ak)
-    from irc.fundamentals.hkex_client import hk_news_adapter_available
-    assert hk_news_adapter_available() is False

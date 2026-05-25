@@ -10,6 +10,7 @@ Returns None on any failure; the snapshot orchestrator records the diagnostic.
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 import pandas as pd
@@ -132,18 +133,93 @@ def fetch_hk_filing_digest(symbol: str) -> FilingDigest | None:
 
 # ── Item 003: HK stock news ───────────────────────────────────────────────────
 
-def fetch_hk_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
-    """Top-K recent HK stock news via AkShare `stock_hk_news_em`.
+_EASTMONEY_NEWS_URL = "https://search-api-web.eastmoney.com/search/jsonp"
+_EM_HIGHLIGHT_RE = re.compile(r"</?em>|　")
 
-    P1-c: exceptions propagate to the caller (snapshot.py catches them as
-    hk_news_fetch_failed). Returns () only on empty/malformed DataFrame.
-    The caller uses hk_news_adapter_available() to distinguish "adapter missing"
-    from "runtime exception" — do NOT call this function when the adapter is absent.
+
+def _strip_em_highlights(text: str) -> str:
+    """Remove `<em>…</em>` highlight markup and `\\u3000` (ideographic space)
+    without invoking pyarrow's RE2 engine (which rejects `\\u` escapes)."""
+    if not text:
+        return ""
+    return _EM_HIGHLIGHT_RE.sub("", text)
+
+
+def _fetch_eastmoney_news_direct(
+    symbol: str, *, page_size: int = 10, timeout: float = 10.0,
+) -> tuple[dict, ...]:
+    """Direct EastMoney search-API call — works for HK codes (e.g. `00700`).
+
+    Used because (a) the installed AkShare lacks `stock_hk_news_em`, and (b)
+    the EastMoney search endpoint accepts HK 5-digit codes directly and
+    returns the same article shape used by `stock_news_em` for CN codes.
+    """
+    import json as _json
+
+    import requests as _requests  # local import — adapter boundary
+
+    inner = {
+        "uid": "", "keyword": symbol,
+        "type": ["cmsArticleWebOld"],
+        "client": "web", "clientType": "web", "clientVersion": "curr",
+        "param": {"cmsArticleWebOld": {
+            "searchScope": "default", "sort": "default",
+            "pageIndex": 1, "pageSize": page_size,
+            "preTag": "<em>", "postTag": "</em>",
+        }},
+    }
+    params = {
+        "cb": "cb",
+        "param": _json.dumps(inner, ensure_ascii=False),
+        "_": "1",
+    }
+    headers = {
+        "user-agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"
+        ),
+        "accept": "*/*",
+        "referer": f"https://so.eastmoney.com/news/s?keyword={symbol}",
+    }
+    resp = _requests.get(_EASTMONEY_NEWS_URL, params=params, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    m = re.match(r"^cb\((.*)\)$", resp.text.strip(), re.S)
+    if not m:
+        return ()
+    data = _json.loads(m.group(1))
+    return tuple(data.get("result", {}).get("cmsArticleWebOld", []) or ())
+
+
+def fetch_hk_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
+    """Top-K recent HK stock news from EastMoney.
+
+    Primary: AkShare's `stock_hk_news_em` (mockable in tests). Fallback:
+    direct EastMoney JSONP call (`_fetch_eastmoney_news_direct`) —
+    required because the installed AkShare doesn't expose
+    `stock_hk_news_em`. Exceptions from the fallback propagate so callers
+    tag the holding as `hk_news_fetch_failed` (P1-c contract).
     """
     code = _normalize_hk_code(stock)
     if not code:
         return ()
-    df = _ak_call("stock_hk_news_em", symbol=code)
+    try:
+        df = _ak_call("stock_hk_news_em", symbol=code)
+    except Exception:
+        articles = _fetch_eastmoney_news_direct(code, page_size=max(top_k, 10))
+        sorted_articles = sorted(
+            articles, key=lambda a: a.get("date", ""), reverse=True,
+        )[:top_k]
+        return tuple(
+            NewsItem(
+                symbol=code,
+                title=_strip_em_highlights(str(a.get("title", ""))),
+                url=str(a.get("url", "")),
+                published_iso=str(a.get("date", "")).split(" ")[0],
+                summary=_strip_em_highlights(str(a.get("content", ""))),
+                source="eastmoney_direct",
+            )
+            for a in sorted_articles
+        )
     if not isinstance(df, pd.DataFrame) or df.empty:
         return ()
     title_col = "标题" if "标题" in df.columns else None
@@ -169,12 +245,6 @@ def fetch_hk_stock_news(stock: str, *, top_k: int = 3) -> tuple[NewsItem, ...]:
 
 
 def hk_news_adapter_available() -> bool:
-    """Return True iff the installed AkShare exposes `stock_hk_news_em`.
-
-    Lazy-imports AkShare; on ImportError returns False.
-    """
-    try:
-        import akshare as ak  # local import
-    except ImportError:
-        return False
-    return hasattr(ak, "stock_hk_news_em")
+    """Always True: `fetch_hk_stock_news` has an EastMoney-direct fallback
+    that works even when AkShare lacks `stock_hk_news_em`."""
+    return True
