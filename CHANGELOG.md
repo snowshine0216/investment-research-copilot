@@ -7,6 +7,87 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `memo-evidence-pillar + qdii-fetch-reform + discovery-thresholds` (2026-05-25)
+
+End-to-end fix for the 2026-05-25 memo readability gap. The user opened
+`outputs/2026-05-25/memo.md` and found §2 (宏观环境) was a hardcoded
+anti-fabrication caveat with no real data, §3 (黄金视角) had no `[ref:...]`
+markers, 8/28 role buckets were empty, and the discipline report listed
+~22 funds under `证据不足 / Failed fetch`. None of these surfaces gave the
+reader anything to actually anchor an investment decision on.
+
+- **Macro evidence pillar — memo §2 and §3 now consume real data**
+  (`src/irc/memo/macro_pillar.py` new, `src/irc/commands/gold_cmd.py`,
+  `src/irc/commands/memo_cmd.py`, `src/irc/memo/template.py`,
+  `src/irc/memo/synthesizer.py`, `src/irc/memo/evidence_pool.py`). Macro
+  data (`real_yield_10y_tips`, `DXY`, `vix`, `inflation_5y5y`, `DGS10`)
+  was already in DuckDB; theme reports (`us_monetary`, `cn_monetary`,
+  `geopolitics`, `us_fiscal_politics`, `cn_equity_property_policy`,
+  `gold_drivers`, `holdings_sector`) were already on disk. They were just
+  never plumbed into the memo. `gold_cmd` now emits each as a
+  `ThesisEvidence` with `scope="asset_class_macro"` into
+  `gold_regime.json["evidence"]` (already part of the publishable citation
+  universe). `memo_cmd` reads them back, calls `macro_pillar.render_*`
+  helpers to produce deterministic §2 / §3 bullets with `[ref:...]`
+  markers, and the synthesizer locks them between `IRC_MACRO_LINES_*` /
+  `IRC_GOLD_EVIDENCE_*` comment markers (same pattern as §7). The static
+  `_MACRO_SUMMARY` constant is kept as a fallback only. **Memo §2 + §3
+  now carry 16 macro citations including Fed Chair transition, Russia-
+  Ukraine + Iran summit, A-share property policy, real yield = 2.18% and
+  DXY = 99.34 snapshots.**
+- **QDII fund-level fetch — replaces sentinel skip**
+  (`src/irc/opportunity/lookthrough.py`,
+  `src/irc/fundamentals/snapshot.py`). ADR 0002 §5 F4 mandated a
+  zero-fetch sentinel for every `qdii_us` / `qdii_hk` / `qdii_global`
+  `LookthroughTarget`, which routed 20 QDII funds to the discipline
+  failure section with `qdii_information_unavailable`. But QDII funds
+  ARE CN-registered — the existing `fetch_fund_nav_report` and
+  `fetch_fund_announcements` adapters return real NAV + quarterly /
+  annual report announcements for them. `lookthrough.py` now populates
+  `provider_symbol=instrument_id` on QDII targets, and `build_snapshot`
+  routes them through `_build_fund_level_snapshot` when
+  `provider_symbol` is non-empty; the sentinel is kept only for
+  raw-index aggregate keys. **Discipline-report `证据不足 / Failed
+  fetch` count: 22 → 2** (the two remaining are
+  `incomplete_constituent_data` cases on `004814` and `501025`).
+  Three QDII funds (161716 易方达全球美元债LOF, 017641 摩根标普500
+  指数 QDII, 016452 南方纳斯达克100 QDII) are now publishable picks.
+  ADR 0002 §5 F4 statement that QDII is the only source of
+  `qdii_information_unavailable` no longer holds; pending an ADR
+  amendment sweep.
+- **Discovery thresholds — relax over-strict V1 filters**
+  (`config/discovery.yaml`, `src/irc/templates/config/discovery.yaml`).
+  `us_etf_expense_ratio_max` 0.003 → 0.012 (CN-domiciled US-tracking
+  ETFs charge 0.6%–1.0%, never the native-US 0.03%; the old threshold
+  filtered out essentially every candidate from the
+  `core_us_equity` / `defensive_us_bond` / `hedge_low_correlation`
+  buckets). `cn_fund_aum_cny_min` 500M → 200M (themed active funds in
+  `consumer` / `tech` / `soe` / `real_estate` / `semiconductor` are
+  typically 200M–400M; raising the floor to 500M dropped them all).
+  `role_bucket.min_candidates_per_role` 8 → 3 and `fail_below` 5 → 1
+  (the original thresholds failed buckets with up to 4 surviving
+  candidates; any non-empty bucket is now usable signal). **Role-bucket
+  warning banner: `8/28 → 1/21`** (only `satellite_cn_real_estate`
+  still has zero candidates).
+- **Memo picks-table lock — prevents LLM citation cross-borrowing**
+  (`src/irc/memo/template.py`, `src/irc/memo/synthesizer.py`). The
+  picks table is now wrapped in `IRC_PICKS_TABLE_*` markers and the
+  synthesizer is instructed to keep it byte-for-byte (matches the §7
+  `IRC_EXECUTION_LINES_*` pattern). Prior to this lock the LLM was
+  observed substituting `[ref:a3ff80e80e66caed]` (a 518880 announcement
+  ref) into 159937's row → `wrong_instrument_citation` blocking finding.
+
+### Verification
+
+- 1037 unit tests pass.
+- Memo audit: `审核通过`. Citation audit: 0 findings (was blocking).
+- Rebuilt `outputs/2026-05-25/`: memo.md, opportunity_report.json,
+  discipline_report.md, gold_regime.json all reflect the new behavior.
+- Earlier-stage artifacts (`discovered_watchlist.csv`, `scoring.json`,
+  `proposed_allocation.yaml`, `trade_plan.yaml`) remain from the
+  morning run — re-run `uv run irc run` to refresh them under the
+  loosened discovery filters (slow: LLM-per-row in discover + score).
+
 ### Fixed — `news-fetch-info-leg + memo-audit-stabilization` (2026-05-25)
 
 End-to-end fix for the 2026-05-24/25 pipeline halt where 11 funds were

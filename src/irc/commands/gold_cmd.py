@@ -5,13 +5,20 @@ from pathlib import Path
 import json
 import yaml
 import pandas as pd
+from dataclasses import asdict as _dc_asdict
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.wgc_ingest import cb_purchases_yearly_tons, etf_holdings_30d_change_tons
 from irc.io_utils import atomic_write_text
+from irc.memo.macro_pillar import (
+    MacroSnapshot,
+    ThemeReportRef,
+    build_macro_evidence,
+)
 from irc.research.persistence import load_theme_reports
 from irc.research.geopolitical_stress import geopolitical_stress_from_theme_report
+from irc.research.theme_research import ThemeReport
 from irc.scoring.regime_detect import classify_regime
 from irc.scoring.gold_band import compute_band, classify_zone
 from irc.scoring.gold_scenarios import classify_scenario
@@ -84,6 +91,129 @@ def _real_yield_10y_tips(con) -> float:
     if value is not None:
         return value
     return _macro_value(con, "DGS10", 1.65) - 2.30
+
+
+_MACRO_DISPLAY_NAMES: dict[str, tuple[str, str]] = {
+    # series_id → (display_name, unit)
+    "real_yield_10y_tips": ("美国10Y TIPS 实际利率", "%"),
+    "DXY":                 ("美元指数 DXY", ""),
+    "vix":                 ("VIX 波动率指数", ""),
+    "inflation_5y5y":      ("5Y5Y 通胀预期", "%"),
+    "DGS10":               ("美国10Y 国债收益率", "%"),
+}
+
+
+_THEME_DISPLAY_NAMES: dict[str, str] = {
+    "us_monetary":               "美国货币政策",
+    "us_fiscal_politics":        "美国财政与政治",
+    "cn_monetary":               "中国货币政策",
+    "cn_equity_property_policy": "中国股市与地产政策",
+    "geopolitics":               "地缘政治",
+    "gold_drivers":              "黄金驱动因素",
+    "holdings_sector":           "持仓行业要闻",
+}
+
+
+def _load_macro_snapshots(con) -> tuple[MacroSnapshot, ...]:
+    """Pull the latest value + date for each interesting macro series.
+
+    Series missing from the table are skipped silently (returns no snapshot
+    for that series) — the renderer falls back to its anti-fabrication
+    paragraph when EVERY snapshot is missing.
+    """
+    out: list[MacroSnapshot] = []
+    for series_id, (display, unit) in _MACRO_DISPLAY_NAMES.items():
+        row = con.execute(
+            "SELECT value, date FROM macro_series "
+            "WHERE series_id = ? ORDER BY date DESC LIMIT 1",
+            [series_id],
+        ).fetchone()
+        if not row:
+            continue
+        value, date_val = row
+        if value is None or date_val is None:
+            continue
+        out.append(MacroSnapshot(
+            series_id=series_id,
+            display_name=display,
+            value=float(value),
+            unit=unit,
+            date=str(date_val),
+        ))
+    return tuple(out)
+
+
+def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 220) -> str:
+    """Extract a 1-2 sentence summary from a ThemeReport's markdown body.
+
+    Strategy: take the first non-header, non-empty paragraph and truncate to
+    `max_chars`. Anchor with `…` when truncated. Always returns a non-empty
+    string when the report has any content (so the §2 bullet is meaningful);
+    when the report failed, return the failure_reason verbatim.
+    """
+    if report.failure_reason:
+        return f"研究采集失败：{report.failure_reason}"
+    md = report.report_md or ""
+    for line in md.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        # Drop markdown bullet markers but keep the substance.
+        if stripped.startswith(("- ", "* ", "+ ")):
+            stripped = stripped[2:].lstrip()
+        if not stripped:
+            continue
+        if len(stripped) <= max_chars:
+            return stripped
+        return stripped[: max_chars - 1] + "…"
+    return "（报告为空）"
+
+
+def _evidence_to_dict(ev) -> dict:
+    """Serialise a `ThesisEvidence` to the same JSON shape used in
+    `opportunity_report.json["rows"][*]["thesis_evidence"]` so the
+    publishable-universe loader (`from_dict`) can round-trip it."""
+    return {
+        "type": ev.type,
+        "source": ev.source,
+        "url": ev.url,
+        "date": ev.date,
+        "summary": ev.summary,
+        "scope": ev.scope,
+        "citation_kind": ev.citation_kind,
+        "owner_instrument_id": ev.owner_instrument_id,
+        "parent_fund_id": ev.parent_fund_id,
+        "constituent_key": ev.constituent_key,
+        "citation_id": ev.citation_id,
+        "holding_weight_pct": ev.holding_weight_pct,
+    }
+
+
+def _build_theme_refs(
+    reports: dict[str, ThemeReport],
+    *,
+    today: str,
+) -> tuple[ThemeReportRef, ...]:
+    """Order theme refs by a stable preference list so reruns are byte-identical."""
+    order = (
+        "us_monetary", "cn_monetary", "geopolitics",
+        "us_fiscal_politics", "cn_equity_property_policy",
+        "gold_drivers", "holdings_sector",
+    )
+    out: list[ThemeReportRef] = []
+    for theme in order:
+        report = reports.get(theme)
+        if report is None:
+            continue
+        out.append(ThemeReportRef(
+            theme=theme,
+            display_name=_THEME_DISPLAY_NAMES.get(theme, theme),
+            summary=_summary_from_theme_report(report),
+            date=today,
+        ))
+    return tuple(out)
 
 
 def run_gold(repo_root: str) -> int:
@@ -164,8 +294,15 @@ def run_gold(repo_root: str) -> int:
             cb_purchases_yearly_tons=inputs.cb_purchases_yearly_tons,
             geopolitical_stress=inputs.geopolitical_stress_0to1,
         )
+        macro_snapshots = _load_macro_snapshots(con)
     finally:
         con.close()
+    # Macro/theme evidence — these citation_ids enter the publishable
+    # universe via `gold_regime.json["evidence"]` (see
+    # `tests/integration/_publishable_set_helper.py`). memo §2 / §3 pick
+    # them up by source key.
+    theme_refs = _build_theme_refs(reports, today=today)
+    macro_evidence = build_macro_evidence(macro_snapshots, theme_refs)
     out_dir = root / "outputs" / _today()
     out_dir.mkdir(parents=True, exist_ok=True)
     atomic_write_text(out_dir / "gold_regime.json", json.dumps({
@@ -181,6 +318,11 @@ def run_gold(repo_root: str) -> int:
         "tilt": tilt,
         "zone": zone,
         "scenario": scenario.scenario, "scenario_triggers": list(scenario.triggers_met),
+        # Macro snapshots (raw data the memo deterministically renders).
+        "macro_snapshots": [_dc_asdict(s) for s in macro_snapshots],
+        "theme_refs": [_dc_asdict(t) for t in theme_refs],
+        # ThesisEvidence list — adds to the publishable citation universe.
+        "evidence": [_evidence_to_dict(ev) for ev in macro_evidence],
     }, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "gold_band.yaml", yaml.safe_dump(asdict(band), sort_keys=False))
     print(

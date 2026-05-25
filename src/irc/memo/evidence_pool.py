@@ -96,11 +96,13 @@ def build_evidence_pool(
     scoring_rows: list[dict[str, Any]],
     plan_trades: list[dict[str, Any]],
     gold_regime: dict[str, Any] | None = None,
+    macro_evidence: tuple[ThesisEvidence, ...] = (),
 ) -> list[str]:
     """Return a flat list of evidence strings to feed the LLM.
 
     Each instrument contributes one compact line of numeric facts. The gold
     regime contributes one line if provided. Order: gold regime first,
+    then macro evidence (real_yield/DXY snapshots + theme report excerpts),
     then instruments in plan_trades order, then remaining opportunity rows.
     """
     score_by_id = {s.get("instrument_id"): s for s in scoring_rows}
@@ -113,6 +115,8 @@ def build_evidence_pool(
             f"zone={gold_regime.get('zone', '?')} "
             f"tilt={gold_regime.get('tilt', '?')}"
         )
+    for ev in macro_evidence:
+        pool.append(_format_citation_line(ev))
 
     seen_ids: set[str] = set()
     for t in plan_trades:

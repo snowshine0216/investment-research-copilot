@@ -185,13 +185,16 @@ def test_map_lookthrough_cn_equity_fund_tracked_index_still_routes_active_fund()
     assert target.provider_symbol == "005827"
 
 
-def test_map_lookthrough_legacy_us_etf_unchanged() -> None:
+def test_map_lookthrough_legacy_us_etf_populates_provider_symbol() -> None:
+    # Item 016 — us_etf rows now carry the instrument_id as provider_symbol
+    # so the snapshot dispatch can route them to `_build_fund_level_snapshot`
+    # (NAV + announcements). Previously the QDII sentinel skipped them.
     inp = OpportunityInput(
         instrument_id="x", asset_class="us_etf",
         market="us", tracked_index="nasdaq100", name_cn="纳指ETF",
     )
     assert map_lookthrough(inp) == LookthroughTarget(
-        "qdii_us", "nasdaq100", "纳斯达克100", "",
+        "qdii_us", "nasdaq100", "纳斯达克100", "x",
     )
 
 
@@ -255,8 +258,10 @@ def test_map_lookthrough_cn_etf_theme_populates_provider_symbol() -> None:
     assert t.provider_symbol == "512480"
 
 
-def test_map_lookthrough_qdii_us_leaves_provider_symbol_empty() -> None:
-    # QDII routes to qdii_us; provider_symbol stays empty (no fund-level dispatch).
+def test_map_lookthrough_qdii_us_populates_provider_symbol() -> None:
+    # Item 016 — QDII rows now route to `_build_fund_level_snapshot` via
+    # provider_symbol = instrument_id. The legacy sentinel only fires when
+    # provider_symbol is empty (raw-index aggregate keys).
     from irc.opportunity.lookthrough import map_lookthrough
     from irc.opportunity.types import OpportunityInput
     inp = OpportunityInput(
@@ -266,7 +271,7 @@ def test_map_lookthrough_qdii_us_leaves_provider_symbol_empty() -> None:
     )
     t = map_lookthrough(inp)
     assert t.kind == "qdii_us"
-    assert t.provider_symbol == ""
+    assert t.provider_symbol == "513500"
 
 
 def test_map_lookthrough_unknown_tracked_index_propagates_provider_symbol() -> None:
