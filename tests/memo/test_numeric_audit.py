@@ -952,15 +952,18 @@ def test_find_uncited_conclusions_ignores_all_conditional_dca_zero_execution_sum
 
 def test_find_uncited_conclusions_ignores_tldr_small_watch_conditional_dca_paraphrase() -> None:
     """Regression: 2026-05-25 memo halted on TL;DR bullets paraphrasing
-    `条件性减速定投`. The phrase is a meta-description of how
-    pause_wait/small_watch picks execute (not an action recommendation),
-    so any prose mention is exempt from `uncited_portfolio_conclusion`."""
+    `条件性减速定投` and structural pause_wait bucket enumerations like
+    '5 个标的列入条件性减速定投或暂停加仓'. Both patterns describe how
+    pause_wait/small_watch picks behave (not action recommendations), so
+    any prose mention is exempt from `uncited_portfolio_conclusion`."""
     from irc.memo.numeric_audit import find_uncited_conclusions
     for paraphrase in (
         "- 本期无 core_dca 候选，所有可执行标的均为 small_watch 且采用"
         "条件性减速定投，触发条件未满足时实际执行量为零。",
         "- 本期精选标的均为 small_watch，所有执行均为条件性减速定投；"
         "未触发第 7 节阈值时实际执行量为零。",
+        "- 本期无 core_dca 候选，5 个标的列入条件性减速定投或暂停加仓；"
+        "QDII 类标的因机会数据缺失全部暂缓执行。",
     ):
         findings = find_uncited_conclusions(
             prose=paraphrase,
@@ -970,6 +973,53 @@ def test_find_uncited_conclusions_ignores_tldr_small_watch_conditional_dca_parap
             constituent_cited_map={},
         )
         assert findings == [], f"unexpected finding on paraphrase: {paraphrase!r}"
+
+
+def test_find_uncited_conclusions_multi_instrument_paragraph_accepts_co_mentioned_citations() -> None:
+    """Regression: 2026-05-25 memo halted on a single gold-ETF summary
+    paragraph mentioning all 5 ETFs (518880, 159937, 159934, 518800,
+    518850) with one citation per ETF. Each citation correctly resolves
+    to its own ETF; the audit must NOT flag them as
+    `wrong_instrument_citation` for the OTHER 4 ETFs in the same para.
+    Only legitimate per-instrument dual-leg gaps should be reported."""
+    from unittest.mock import MagicMock
+
+    from irc.memo.numeric_audit import find_uncited_conclusions
+
+    def make_meta(scope: str = "instrument", kind: str = "data"):
+        m = MagicMock()
+        m.scope = scope
+        m.citation_kind = kind
+        return m
+
+    # 5 instruments, each with its own data marker. No info markers (typical
+    # for gold ETFs whose info-leg is empty) — so `uncited_conclusion` is
+    # still expected per-instrument, but `wrong_instrument_citation` must NOT
+    # fire for co-mentioned siblings.
+    cited_map = {
+        "518880": {"3909fc27211e21a9": make_meta()},
+        "159937": {"ecf5a0b85e1e94cf": make_meta()},
+        "159934": {"558748cbe683f023": make_meta()},
+        "518800": {"34667ecabf916402": make_meta()},
+        "518850": {"86318c6b51ebd8c2": make_meta()},
+    }
+    prose = (
+        "证据池内 5 只黄金 ETF（518880、159937、159934、518800、518850）"
+        "状态分桶均为 expensive 或 very_expensive，热度 normal，长期逻辑 intact，"
+        "机会面 pause_wait [ref:3909fc27211e21a9] [ref:ecf5a0b85e1e94cf] "
+        "[ref:558748cbe683f023] [ref:34667ecabf916402] [ref:86318c6b51ebd8c2]"
+        "；按规则全部暂停加仓。"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose,
+        cited_map=cited_map,
+        instrument_aliases={iid: iid for iid in cited_map},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    # No wrong_instrument_citation findings allowed (siblings co-mentioned)
+    wrong = [f for f in findings if f.kind == "wrong_instrument_citation"]
+    assert wrong == [], f"unexpected wrong_instrument_citation findings: {wrong}"
 
 
 def test_find_uncited_conclusions_ignores_grouped_gold_pause_threshold_rule() -> None:

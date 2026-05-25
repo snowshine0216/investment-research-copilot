@@ -86,6 +86,11 @@ _NEGATED_ACTION_PATTERNS: Final[tuple[re.Pattern[str], ...]] = (
     # "所有执行均为条件性减速定投", etc. The narrower keywords (加仓/减仓/止损/加速
     # 定投/正常定投) still fire normally.
     re.compile(r"条件性减速定投"),
+    # Structural enumeration of pause_wait bucket membership ("X 个标的列入
+    # ...暂停加仓", "列入暂停加仓") is a factual count, not an action
+    # recommendation. Action recommendations use prescriptive language
+    # (建议/应当/需要) which this pattern does not strip.
+    re.compile(r"列入[^，。；\n]{0,40}暂停加仓"),
 )
 
 # Asset-class section header → asset_class string. Used by AC8(c)/(d) only.
@@ -307,6 +312,7 @@ def find_uncited_conclusions(
             findings.extend(_check_instrument_citation(
                 iid=iid, markers=scope_markers,
                 cited_map=cited_map, paragraph=para,
+                paragraph_instrument_hits=instrument_hits,
             ))
 
         for ck, owner_pairs in sorted(constituent_hits.items()):
@@ -459,18 +465,33 @@ def _constituent_alias_hits(
 
 def _check_instrument_citation(
     *, iid: str, markers: tuple[str, ...], cited_map: dict, paragraph: str,
+    paragraph_instrument_hits: set[str] | None = None,
 ) -> list[NumericFinding]:
-    """Return findings for the instrument-citation rule on one paragraph."""
+    """Return findings for the instrument-citation rule on one paragraph.
+
+    `paragraph_instrument_hits` (when provided) is the full set of
+    instrument_ids mentioned in this paragraph. When a marker's owner is
+    co-mentioned in the same paragraph, the marker is a legitimate
+    citation for THAT instrument (multi-instrument summary paragraph) —
+    suppress the `wrong_instrument_citation` finding for `iid` and keep
+    walking. The dual-leg check still demands `iid`'s OWN data/info legs.
+    """
     findings: list[NumericFinding] = []
     per_iid = cited_map.get(iid, {})
     has_data = False
     has_info = False
+    co_mentioned = paragraph_instrument_hits or set()
     for cid in markers:
         meta = per_iid.get(cid)
         if meta is None:
             # Try to find this cid under another owner — wrong instrument.
             for owner, mp in cited_map.items():
                 if cid in mp and owner != iid:
+                    if owner in co_mentioned:
+                        # Multi-instrument paragraph: the marker correctly
+                        # cites a co-mentioned instrument; not a wrong-
+                        # owner finding for `iid`.
+                        break
                     findings.append(NumericFinding(
                         instrument_id=iid,
                         kind="wrong_instrument_citation",
