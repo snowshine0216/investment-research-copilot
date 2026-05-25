@@ -39,10 +39,14 @@ def test_stage_names_complete():
     assert "ingest" in STAGE_NAMES
     assert "memo" in STAGE_NAMES
     assert "opportunity" in STAGE_NAMES
+    assert "decision" in STAGE_NAMES
     # opportunity runs before memo so memo can read opportunity_report.json
     # and render real name_cn instead of falling back to instrument ids.
     assert STAGE_NAMES.index("opportunity") < STAGE_NAMES.index("memo")
-    assert len(STAGE_NAMES) == 9  # ingest, research, discover, score, gold, allocate, plan, opportunity, memo
+    # decision runs after memo so it can read memo_audit.txt / memo_traceability.json
+    # for its audit banner.
+    assert STAGE_NAMES.index("memo") < STAGE_NAMES.index("decision")
+    assert len(STAGE_NAMES) == 10  # +decision
 
 
 def test_only_stage_runs_single():
@@ -90,7 +94,7 @@ def test_default_pipeline_skips_research_when_research_disabled(monkeypatch, tmp
 
     assert rc == 0
     assert called == [
-        "ingest", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo",
+        "ingest", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo", "decision",
     ]
 
 
@@ -134,7 +138,7 @@ def test_from_research_runs_research_when_explicit_even_if_research_disabled(mon
         rc = run_pipeline(str(tmp_path), from_stage="research")
 
     assert rc == 0
-    assert called == ["research", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo"]
+    assert called == ["research", "discover", "score", "gold", "allocate", "plan", "opportunity", "memo", "decision"]
 
 
 def test_run_pipeline_consumes_halt_reason_sidecar(tmp_path: Path):
@@ -363,8 +367,8 @@ def test_resume_derives_from_stage_from_state_file(tmp_path: Path):
 
     assert rc == 0
     # Resume must start at the recorded failed_stage and run only downstream stages.
-    # `memo` is the last stage, so only it should have run.
-    assert called == ["memo"]
+    # `memo` is followed by `decision`, so both run.
+    assert called == ["memo", "decision"]
 
 
 def test_cli_run_resume_flag_invokes_run_pipeline_with_resume_true(tmp_path: Path):

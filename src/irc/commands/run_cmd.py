@@ -12,10 +12,11 @@ from irc.commands.plan_cmd import run_plan
 from irc.commands.memo_cmd import run_memo
 from irc.commands.opportunity_cmd import run_opportunity
 from irc.commands.research_cmd import run_research
+from irc.commands.decision_cmd import run_decision
 
 STAGE_NAMES: tuple[str, ...] = (
     "ingest", "research", "discover", "score", "gold",
-    "allocate", "plan", "opportunity", "memo",
+    "allocate", "plan", "opportunity", "memo", "decision",
 )
 _TRUE_ENV_VALUES = frozenset({"1", "true", "yes", "on"})
 
@@ -164,4 +165,5 @@ def _runners_map() -> dict[str, Callable[[str], int]]:
         "plan":        run_plan,
         "opportunity": run_opportunity,
         "memo":        run_memo,
+        "decision":    run_decision,
     }

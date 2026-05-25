@@ -6,6 +6,7 @@ from irc.llm._types import ResolvedRoute
 from irc.memo.template import MemoInputs, render_skeleton
 from irc.memo.synthesizer import synthesize_memo
 from irc.memo.auditor import audit_memo
+from irc.memo.footnote_renderer import render_footnotes
 from irc.memo.numeric_audit import (
     find_prose_data_contradictions,
     render_findings_block,
@@ -136,7 +137,13 @@ def sanitize_compliance_phrasing(text: str) -> str:
 @dataclass(frozen=True)
 class MemoOutput:
     skeleton: str
+    # `draft` keeps the canonical `[ref:HEXID]` markers. Audit gates and
+    # the memo-stage citation gate read this form.
     draft: str
+    # `published_draft` is the user-facing memo.md content: same markdown
+    # as `draft` with inline `[ref:HEXID]` swapped for `[N]` numerals and
+    # the appendix entries numbered + hex-preserved at the line tail.
+    published_draft: str
     audit_notes: str
     traceability: dict[str, int]
     prompt_tokens_total: int
@@ -195,13 +202,21 @@ def run_memo_pipeline(
     audit_route: ResolvedRoute,
 ) -> MemoOutput:
     skeleton = render_skeleton(inputs)
-    effective_refs = raw_ref_pool[:_MAX_REFS]  # only check refs actually given to LLM
+    # The synthesizer prompt is the only place that needs the _MAX_REFS budget
+    # (prompt-size constraint). Sanitization runs on the same truncated set
+    # used in the prompt so the auditor sees what the LLM actually saw.
+    effective_refs = raw_ref_pool[:_MAX_REFS]
     sanitized_refs = list(sanitize_refs_for_auditor(tuple(effective_refs)))
+    # The appendix renders the full ref pool (no cap) so no §5 citation can
+    # be missing from the appendix — fixes 2026-05-25 Problem #2 where
+    # [ref:4b03af24151fe798] for 511010 was cited inline but cut from the
+    # appendix tail.
+    full_sanitized_refs = list(sanitize_refs_for_auditor(tuple(raw_ref_pool)))
     synth_resp = synthesize_memo(skeleton, sanitized_refs, synthesis_route)
     sanitized_draft = sanitize_compliance_phrasing(
         sanitize_unverified_revenue_yoy(synth_resp.text)
     )
-    final_draft = sanitized_draft + _render_evidence_appendix(sanitized_refs)
+    final_draft = sanitized_draft + _render_evidence_appendix(full_sanitized_refs)
     audit_resp = audit_memo(final_draft, audit_route)
     # Programmatic safety net: catch numeric-prose disagreements (e.g.
     # the 2026-05-18 audit's "estimated cheap" claim contradicting
@@ -210,9 +225,14 @@ def run_memo_pipeline(
     numeric_findings = find_prose_data_contradictions(sanitized_draft, sanitized_refs)
     audit_notes = render_findings_block(numeric_findings) + audit_resp.text
     trace = check_traceability(final_draft, sanitized_refs)
+    # Audit + traceability ran on the canonical `[ref:HEXID]` form (final_draft).
+    # The published draft is a separate field so memo_cmd's citation gate can
+    # keep reading the hex-form draft while writing the friendlier form to disk.
+    published_draft = render_footnotes(final_draft, full_sanitized_refs)
     return MemoOutput(
         skeleton=skeleton,
         draft=final_draft,
+        published_draft=published_draft,
         audit_notes=audit_notes,
         traceability=trace,
         prompt_tokens_total=synth_resp.prompt_tokens + audit_resp.prompt_tokens,
