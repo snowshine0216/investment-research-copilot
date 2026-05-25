@@ -7,7 +7,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
+### Fixed — `news-fetch-info-leg + memo-audit-stabilization` (2026-05-25)
+
+End-to-end fix for the 2026-05-24/25 pipeline halt where 11 funds were
+rejected with `insufficient_info_coverage_top_half` and the memo stage
+blocked on the citation gate across repeated LLM regen attempts.
+
+- **CN + HK news fetchers — EastMoney-direct fallback**
+  (`src/irc/fundamentals/akshare_fundamentals.py`,
+  `src/irc/fundamentals/hkex_client.py`). Root cause: AkShare's
+  `stock_news_em` calls `df.str.replace(r"　", "", regex=True)` on
+  pyarrow-backed string columns; pandas dispatches the regex to
+  pyarrow's RE2 engine which rejects `\u` escapes →
+  `ArrowInvalid` for **every** CN symbol. Compounded by the installed
+  AkShare lacking `stock_hk_news_em` entirely, which flagged every HK
+  constituent as `hk_news_unsupported_adapter`. Added
+  `_fetch_eastmoney_news_direct` to both modules — calls EastMoney's
+  search-API JSONP endpoint directly, parses with Python `re` (not RE2),
+  and works for both 6-digit CN and 5-digit HK codes. Fallback fires on
+  any adapter exception; `hk_news_adapter_available()` now returns True
+  unconditionally. **Discipline-report
+  `insufficient_info_coverage_top_half` count: 11 → 0.**
+- **Memo audit — multi-instrument paragraph handling**
+  (`src/irc/memo/numeric_audit.py`). `_check_instrument_citation` gained
+  a `paragraph_instrument_hits` parameter; when a marker's owner is
+  co-mentioned in the same paragraph, the audit no longer flags the
+  non-owning instrument with `wrong_instrument_citation` — that marker
+  correctly cites the co-mentioned sibling. The dual-leg requirement
+  still applies per instrument.
+- **Memo audit — whitespace-insensitive exemption match**
+  (`src/irc/memo/numeric_audit.py`). `_has_actionable_keyword` now
+  normalises whitespace on both the prose and each
+  `_NON_ACTIONABLE_LABELS` entry before substring matching, so
+  paraphrases like `本期黄金ETF全部暂停加仓` match the existing
+  `本期黄金 ETF 全部暂停加仓` label.
+- **Memo audit — broader exemption patterns**
+  (`src/irc/memo/numeric_audit.py`). Three new regex exemptions in
+  `_NEGATED_ACTION_PATTERNS`: `条件性减速定投` (any context),
+  `列入…暂停加仓` (bucket-membership enumeration),
+  `(均)?(按|依据|根据)规则…暂停加仓` (rule-citation section headers),
+  `(本期)?(均|全部|都)\s*暂停加仓` (bucket-aggregation summaries). All are
+  meta-descriptions of pause_wait bucket behaviour, never action
+  recommendations.
+- **Memo synthesizer — strengthened guardrails**
+  (`src/irc/memo/synthesizer.py`). Four new hard rules in `_GUARDRAILS`:
+  Rule 8 forbids multi-instrument summary paragraphs and requires
+  per-instrument bullets with per-instrument `[ref:...]`; Rule 9 lists
+  six audit-whitelisted TL;DR phrasings verbatim plus a forbidden-
+  paraphrase list; Rule 10 extends Rule 6 to **every** paragraph
+  mentioning a fund/ETF code, including descriptive prose; Rule 11
+  forbids LLM-invented "补充披露" paragraphs and requires constituent
+  `[ref:...]` to come from the same fund's evidence pool (no
+  cross-fund borrow).
+- **Memo LLM timeouts** (`src/irc/memo/synthesizer.py`,
+  `src/irc/memo/auditor.py`). Bumped `synthesize_memo` and
+  `audit_memo` to `timeout_s=240.0`; the 30 s default was insufficient
+  for deepseek-reasoner CoT with the strengthened guardrail block.
+
+### Fixed — prior unreleased
 
 - Memo publish now treats explicit audit veto variants such as
   `不予直接通过` and `需修订后重新提交` as blocking, not only the exact
