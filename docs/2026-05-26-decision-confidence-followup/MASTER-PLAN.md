@@ -5,7 +5,7 @@
 **PR shape:** A
 **Base branch:** main (protected — no opt-in; synthetic feature branch is mandatory)
 **Feature branch (synthesized):** `autodev/decision-confidence-followup-feature`
-**Item order:** TBD (set by dependency-scan)
+**Item order:** 001, 002, 003 (locked by dependency-scan 2026-05-26 — no shared files, no producer/consumer relationships; user-priority order approved)
 **Sonnet override:** none (N=3 < 5, no cost warning required)
 
 ## Per-item branches
