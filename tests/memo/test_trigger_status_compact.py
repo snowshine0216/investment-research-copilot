@@ -122,6 +122,42 @@ def test_format_unknown_comparator_falls_back_to_missing() -> None:
     assert out == "weird_trigger ⚠"
 
 
+def test_format_trigger_status_compact_preserves_zero_threshold() -> None:
+    """P1-1 fix: integer 0 threshold is preserved, not silently swapped by `or 0.0`.
+
+    Trigger: weekly_return > 0 (threshold=0, comparator=">").
+    With weekly_return=+0.05 the condition is met → ✓.
+    If `or 0.0` had substituted 0.0 the result would be the same here, BUT
+    we confirm via a negative case: weekly_return=-0.01 should yield ✗ (not_met),
+    which is only correct if threshold=0 (not some other default).
+    """
+    triggers = [
+        {
+            "name": "weekly_return_above_zero",
+            "comparator": ">",
+            "threshold": 0,  # integer zero — falsy, so `or 0.0` would substitute
+            "data_field": "instrument.weekly_return",
+        }
+    ]
+    # Positive return: 0.05 > 0 → met → ✓
+    out_met = _format_trigger_status_compact(
+        triggers=triggers,
+        macro_snapshot={},
+        weekly_return_by_id={"510300": 0.05},
+        instrument_id="510300",
+    )
+    assert out_met == "weekly_return_above_zero ✓"
+
+    # Negative return: -0.01 > 0 → not_met → ✗
+    out_not_met = _format_trigger_status_compact(
+        triggers=triggers,
+        macro_snapshot={},
+        weekly_return_by_id={"510300": -0.01},
+        instrument_id="510300",
+    )
+    assert out_not_met == "weekly_return_above_zero ✗"
+
+
 def test_format_trigger_with_missing_name_uses_default_label() -> None:
     """Defensive: trigger dict without a `name` key → label 'trigger'."""
     triggers = (

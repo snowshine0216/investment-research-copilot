@@ -132,7 +132,10 @@ def _format_trigger_status_compact(
         spec = TriggerSpec(
             name=name,
             comparator=str(trig.get("comparator") or "<="),
-            threshold=float(trig.get("threshold") or 0.0),
+            threshold=(
+                0.0 if trig.get("threshold") is None
+                else float(trig.get("threshold"))
+            ),
         )
         current, _unit = resolve_trigger_current_value(
             trig, instrument_id, macro_snapshot, weekly_return_by_id,
