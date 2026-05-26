@@ -7,11 +7,13 @@ from pathlib import Path
 import pandas as pd
 
 from irc.config_loader import load_repo_configs
+from irc.data.akshare_client import fetch_qdii_premium_pct
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
 from irc.scoring.metrics_loader import load_scoring_metrics
 from irc.scoring.pipeline import run_scoring
+from irc.scoring.qdii_premium import qdii_premium_for_row
 
 
 def _today() -> str:
@@ -50,6 +52,17 @@ def run_score(repo_root: str) -> int:
         con.close()
 
     route = resolve_route("scoring_rationale", bundle.llm)
+
+    def _resolve_qdii_premium(
+        asset_class: str, market: str, symbol: str
+    ) -> float | None:
+        return qdii_premium_for_row(
+            asset_class=asset_class,
+            market=market,
+            fetcher=fetch_qdii_premium_pct,
+            symbol=symbol,
+        )
+
     out = run_scoring(
         watchlist=watchlist,
         metrics=metrics,
@@ -57,6 +70,7 @@ def run_score(repo_root: str) -> int:
         regime_summary=regime,
         route=route,
         cfg_scoring=bundle.scoring,
+        qdii_premium_resolver=_resolve_qdii_premium,
     )
 
     # Enrich each score entry with asset_class, role, and tracked_index

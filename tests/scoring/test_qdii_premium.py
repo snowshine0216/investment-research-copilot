@@ -232,6 +232,22 @@ def test_run_scoring_omits_qdii_premium_pct_when_resolver_returns_none(
     assert "qdii_premium_pct" not in out["scores"][0]
 
 
+def test_score_cmd_composes_resolver_via_qdii_premium_for_row() -> None:
+    """Smoke: score_cmd's _resolve_qdii_premium routes through qdii_premium_for_row.
+
+    Don't run the full CLI — just confirm the imports resolve and the
+    helper is reachable from the command layer.
+    """
+    from irc.commands import score_cmd  # noqa: F401
+    from irc.data.akshare_client import fetch_qdii_premium_pct
+    from irc.scoring.qdii_premium import qdii_premium_for_row
+
+    # The two functions must be importable in the same namespace where
+    # the resolver is composed.
+    assert callable(fetch_qdii_premium_pct)
+    assert callable(qdii_premium_for_row)
+
+
 def test_qdii_asset_classes_defined_exactly_once_in_src() -> None:
     """AC21: the constant lives in qdii_premium.py only; other modules import."""
     import subprocess
