@@ -58,13 +58,26 @@ underlying HK/US holdings as context.
    fund-level evidence in `thesis_evidence` so the dual-coverage gate, the
    picks-table 证据 cell, the evidence-pool, and the discipline thesis
    bullets all see `≥1 data + ≥1 information` citations at
-   `scope="instrument"`. (Achieved by the `_stamp_audit_errors_from_verdict`
+   `scope="instrument"`. ~~(Achieved by the `_stamp_audit_errors_from_verdict`
    companion path in `opportunity_cmd.py` reading `fund_level_evidence` into
    `row.thesis_evidence` when rule 2.5 fires — see implementation
-   notes below.)
+   notes below.)~~ **(Refined per grill Q-G3: introduce a SEPARATE helper
+   `_stamp_fund_level_evidence_from_verdict` that merges
+   `snapshot.fund_level_evidence` into `row.thesis_evidence` when rule 2.5
+   fires with `gap_codes=()`. Mixing it into `_stamp_audit_errors_from_verdict`
+   conflates two different concerns — that helper merges per-constituent
+   audit_errors into `constituent_analyses`, while rule 2.5's effect is to
+   merge row-level evidence into `thesis_evidence`. Both helpers run in
+   sequence on publishable rows.)**
 7. New gap code `foreign_heavy_fund_level_evidence_missing` is registered in
    `_GAP_TO_REASON` (in `src/irc/opportunity/rejection_log.py`) with a
-   `RejectionReasonCode` literal value sorted with the existing literals.
+   ~~`RejectionReasonCode` literal value sorted with the existing literals~~
+   **new `RejectionReasonCode` literal `"foreign_heavy_evidence_missing"`
+   added to the `Literal[...]` tuple, identity-mapped from the gap code in
+   `_GAP_TO_REASON`. The new entry is APPENDED LAST in `_GAP_TO_REASON`
+   (mirroring the `citation_gate_blocked` precedent of bottom-appending
+   non-disruptive new codes) so existing precedence — QDII first, structural
+   Policy B codes next — is unchanged (grill Q-G1)**.
    The criterion-19 regression test that raises on unrecognised codes
    continues to pass.
 8. A fixture mirroring 006809 (10 HK constituents, no CN filings, with
@@ -301,3 +314,144 @@ the existing ADR, not a new one.
   fail-closed freshness probe (ADR 0002 §2) will fire a fresh fetch on the
   next canonical run, which then populates the new field. No manual cache
   invalidation required, but document the behaviour in ADR 0003 §7.
+
+## Resolved decisions
+
+Grilled 2026-05-26 (autodev opus subagent). All questions auto-resolved per the
+autonomy override; the recommended answer becomes the canonical decision.
+
+- **Q-G1: Is `RejectionReasonCode` literal `"foreign_heavy_evidence_missing"`
+  a NEW literal added to the `Literal[...]` tuple, or does it map to an
+  existing code (e.g. `incomplete_constituent_data`)?**
+  A: NEW literal, identity-mapped from the gap code
+  `foreign_heavy_fund_level_evidence_missing` in `_GAP_TO_REASON`.
+  Appended LAST in the dict-literal insertion order (mirroring
+  `citation_gate_blocked` precedent) so existing precedence is unchanged.
+  Rationale: the operator distinction "we couldn't reach this fund's data
+  because the per-holding pipeline doesn't cover HK/US" vs "the filings
+  pipeline broke" is exactly what the new code preserves; collapsing to
+  `incomplete_constituent_data` would erase that signal.
+  Doc impact: ADR-0003 §7 (added "RejectionReasonCode additions" sub-bullet);
+  AC7 above amended with strike-through to lock the new-literal language.
+
+- **Q-G2: Must `fund_level_evidence` carry `scope="instrument"`,
+  `owner_instrument_id=fund_id`, `parent_fund_id=None`, `constituent_key=None`
+  for the dual-coverage gate to accept it on the publishable row?**
+  A: YES. The dual-coverage gate (CONTEXT.md "Evidence & citation") requires
+  ≥1 data-leg AND ≥1 information-leg citation, BOTH at
+  `scope in {"instrument","constituent"}` AND with
+  `owner_instrument_id == row.instrument_id`. The fund-level evidence MUST
+  mirror the shape produced by `_build_fund_level_snapshot` exactly:
+  `scope="instrument"`, `owner_instrument_id=fund_id`,
+  `parent_fund_id=None`, `constituent_key=None`. Otherwise the downstream
+  gate will silently reject the row.
+  Rationale: structural reuse of the QDII reform's evidence shape — no new
+  citation-id space, same audit-trail semantics.
+  Doc impact: CONTEXT.md "`ActiveFundSnapshot.fund_level_evidence`" entry
+  spells the field shape; implementation must use the same constructor
+  pattern as `_build_fund_level_snapshot`. (No new AC needed — the entry
+  is normative.)
+
+- **Q-G3: When rule 2.5 publishes, what merges `snapshot.fund_level_evidence`
+  into `row.thesis_evidence` — extend `_stamp_audit_errors_from_verdict`,
+  or factor a new helper?**
+  A: Factor a NEW helper, e.g. `_stamp_fund_level_evidence_from_verdict`,
+  alongside the existing `_stamp_audit_errors_from_verdict`.
+  Rationale: the two helpers handle different concerns — audit_errors merge
+  per-symbol into `constituent_analyses`; fund-level evidence merges
+  row-level into `thesis_evidence`. Mixing them invites coupling.
+  Functional-programming principle: one function does one thing.
+  Doc impact: AC6 above amended with strike-through to lock the new-helper
+  language; implementation-notes hint already flagged the rename.
+
+- **Q-G4: Should the active-fund cache serializer round-trip
+  `fund_level_evidence` be an explicit AC?**
+  A: The constraint is already called out under "Cache-shape compatibility"
+  in Constraints. ADR-0003 §7's "Cache-shape compatibility" bullet pins the
+  behaviour normatively. Adding a separate AC would be redundant. The TDD
+  flow (AC15) and the round-trip is naturally testable as part of the
+  publishable-case fixture.
+  Rationale: ADR + Constraints together suffice; no spec change needed.
+  Doc impact: ADR-0003 §7 "Cache-shape compatibility" sub-bullet (new).
+
+- **Q-G5: Does rule 2.5's failure code (`foreign_heavy_fund_level_evidence_missing`)
+  affect the H3 universal-gap invariant or the 4-field failure renderer?**
+  A: NO functional change. H3 partitions on `evidence_gaps != ()`; the new
+  code participates in that set exactly like any other Policy B gap code.
+  The 4-field failure renderer (`instrument_id`, `name_cn`,
+  `evidence_gaps`, `fetch_types_attempted`) renders the new code via the
+  `evidence_gaps` tuple. `_classify_rejection_reason` resolves it through
+  the new `_GAP_TO_REASON` entry.
+  Rationale: rule 2.5 is structurally a peer of rules 1–5 inside the same
+  Policy B precedence chain; H3 doesn't care which rule fired.
+  Doc impact: none (existing H3 semantics already cover the new code by
+  construction).
+
+- **Q-G6: Does rule 2.5 disturb the V1 systematic-exclusions tally
+  (`## V1 systematic exclusions: N funds excluded due to US-heavy material
+  holdings`)?**
+  A: NO functional change to the tally. The line counts
+  `insufficient_info_coverage_top_half` (rule 4) entries only. Funds caught
+  at rule 2.5's failure branch appear in `rejections.json` under the new
+  `foreign_heavy_evidence_missing` code, NOT in the V1 systematic
+  exclusions count. Funds previously failing at rule 3 due to
+  weight-majority HK/US holdings will now either publish (rule 2.5
+  publishable branch) or surface under the new code — they will NOT reach
+  rule 4 to swell the systematic-exclusions tally.
+  Rationale: §5's renderer (`render_v1_systematic_exclusion_summary`) keys
+  off `rejection_reason == "insufficient_info_coverage_top_half"` AND
+  material-set majority US. Rule 2.5's existence shifts which funds reach
+  rule 4 but doesn't change the classification logic at the rendering
+  step.
+  Doc impact: ADR-0003 §7 "Interaction with §5" sub-bullet (new).
+
+- **Q-G7: Does rule 2.5 violate ADR-0003 §6 ("Policy B applies ONLY to
+  ActiveFundSnapshot")?**
+  A: NO. Rule 2.5 lives INSIDE `evaluate_policy_b` and runs only when the
+  input is `ActiveFundSnapshot`. QDII funds — which post-2026-05-25 route
+  through `_build_fund_level_snapshot` per `project_qdii_fetch_reform.md` —
+  bypass Policy B entirely, so rule 2.5 never sees them. The §6 boundary
+  is preserved.
+  Rationale: structural — Policy B is the function, rule 2.5 is one of its
+  six rules.
+  Doc impact: ADR-0003 §7 "Interaction with §6" sub-bullet (new).
+
+- **Q-G8: Should the `fund_level_evidence` field name be normalised to
+  match `FundLevelSnapshot.evidence`?**
+  A: NO. The deliberate asymmetry is load-bearing for the cache serializer
+  (`_active_fund_to_dict` and `_fund_level_to_dict` produce different JSON
+  shapes; a shared key name would invite a reader to assume they're
+  interchangeable). Q6 of the original spec already chose this.
+  Rationale: explicit-data-flow principle — different shapes deserve
+  different names.
+  Doc impact: CONTEXT.md entry pins the naming; no spec change.
+
+- **Q-G9: Does the foreign-share computation need to handle the case where
+  `_rank_by_weight` returns `()` (empty `constituent_analyses`)?**
+  A: YES, gracefully — return `0.0` (AC2 already specifies this). Defensive
+  guard so rule 2.5 never fires on a snapshot that should have been caught
+  by rule 1 (`holdings_fetch_failed`). The rule-1 precedence already
+  prevents this in practice, but the defensive `0.0` return is cheap and
+  composable.
+  Rationale: pure-function determinism — same input always produces same
+  output.
+  Doc impact: none (AC2 normative).
+
+- **Q-G10: Should `UNKNOWN` exchange be retroactively treated as
+  HK/US-equivalent for funds known to hold off-platform tickers?**
+  A: NO in V1. Treated conservatively (not foreign). Non-Goal already
+  pins this. A future ticker-resolution improvement that converts
+  `UNKNOWN` → `HK`/`US` would naturally re-classify the fund without an
+  ADR amendment.
+  Rationale: "fail-safe by construction" — accidental publishability via
+  unresolved tickers is worse than over-rejection.
+  Doc impact: CONTEXT.md "Foreign-heavy fund" entry pins the policy.
+
+- **Q-G11: Does the fetch-budget delta (2 extra calls × N active funds)
+  need a preflight contract change?**
+  A: NO. Default `IRC_FETCH_BUDGET=2000`; ~50 active funds × 2 = ~100
+  additional calls. Comfortably under budget. Document the per-fund
+  delta in ADR-0003 §7 ("Fetch budget impact") so a future operator
+  scaling up the active-fund universe knows the new floor.
+  Rationale: empirical headroom; no contract change needed.
+  Doc impact: ADR-0003 §7 "Fetch budget impact" sub-bullet (new).
