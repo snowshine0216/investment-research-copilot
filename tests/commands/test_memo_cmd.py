@@ -81,3 +81,49 @@ def test_memo_allow_stale_env_proceeds(repo_with_inputs: Path, monkeypatch):
     assert rc == 0
     markers = list((repo / "outputs").rglob("STALE_INGEST.md"))
     assert len(markers) == 1
+
+
+def test_decision_status_for_pick_uses_qdii_premium_threshold() -> None:
+    """AC10: memo-stage twin honours the qdii_max_premium_pct threshold."""
+    from irc.commands.memo_cmd import _decision_status_for_pick
+
+    score_row = {
+        "instrument_id": "513650",
+        "asset_class": "us_etf",
+        "action": "buy_candidate",
+        "data_completeness": 1.0,
+        "qdii_premium_pct": 0.10,  # above default 0.05
+    }
+    trade = {
+        "target": "513650", "asset_class": "us_etf",
+        "venue_compatible": True, "proxy_id": None,
+        "target_weight": 0.2,
+    }
+    op_row = {"instrument_id": "513650", "asset_class": "us_etf"}
+    status = _decision_status_for_pick(
+        score_row, trade, op_row, qdii_max_premium_pct=0.05,
+    )
+    assert status == "blocked"
+
+
+def test_decision_status_for_pick_synthetic_zero_passes() -> None:
+    """Off-exchange synthetic 0.0 passes the memo-stage gate."""
+    from irc.commands.memo_cmd import _decision_status_for_pick
+
+    score_row = {
+        "instrument_id": "017641",
+        "asset_class": "us_etf",
+        "action": "buy_candidate",
+        "data_completeness": 1.0,
+        "qdii_premium_pct": 0.0,
+    }
+    trade = {
+        "target": "017641", "asset_class": "us_etf",
+        "venue_compatible": True, "proxy_id": None,
+        "target_weight": 0.2,
+    }
+    op_row = {"instrument_id": "017641", "asset_class": "us_etf"}
+    status = _decision_status_for_pick(
+        score_row, trade, op_row, qdii_max_premium_pct=0.05,
+    )
+    assert status == "actionable_buy"
