@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from irc.decision.sizing import (
+    TriggerSpec,
+    evaluate_trigger,
+    resolve_trigger_current_value,
+)
 from irc.opportunity.types import ThesisEvidence
 
 
@@ -85,6 +90,47 @@ def _format_citations_cell(citations: tuple[ThesisEvidence, ...]) -> str:
     if not citations:
         return "—"
     return "<br>".join(_format_citation(c) for c in citations)
+
+
+_TRIGGER_STATE_GLYPH: dict[str, str] = {
+    "met": "✓",
+    "not_met": "✗",
+    "missing": "⚠",
+}
+
+
+def _format_trigger_status_compact(
+    triggers: tuple[dict, ...] | list[dict],
+    macro_snapshot: dict[str, float],
+    weekly_return_by_id: dict[str, float],
+    instrument_id: str,
+) -> str:
+    """Render the 触发状态 column cell. One line per trigger
+    (`{name} {✓|✗|⚠}`), multi-trigger joined by ``<br>`` to keep the
+    markdown row single-line (mirrors `_format_citations_cell`).
+
+    YAML insertion order from `trade_plan.yaml::trades[*].triggers` is
+    preserved (no re-sort). Empty tuple → "" (renderer emits em-dash).
+    Trigger state is computed by `evaluate_trigger`; current value is
+    resolved via `resolve_trigger_current_value`.
+    """
+    if not triggers:
+        return ""
+    parts: list[str] = []
+    for trig in triggers:
+        name = str(trig.get("name") or "trigger")
+        spec = TriggerSpec(
+            name=name,
+            comparator=str(trig.get("comparator") or "<="),
+            threshold=float(trig.get("threshold") or 0.0),
+        )
+        current, _unit = resolve_trigger_current_value(
+            trig, instrument_id, macro_snapshot, weekly_return_by_id,
+        )
+        state = evaluate_trigger(spec, current)
+        glyph = _TRIGGER_STATE_GLYPH.get(state, "⚠")
+        parts.append(f"{name} {glyph}")
+    return "<br>".join(parts)
 
 
 def _format_score(row: PickRow) -> str:
