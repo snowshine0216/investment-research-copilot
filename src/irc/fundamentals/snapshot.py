@@ -457,11 +457,7 @@ def _fetch_active_fund_level_evidence(
     """
     evidence: list[ThesisEvidence] = []
     failures: list[str] = []
-    try:
-        nav = fetch_fund_nav_report(fund_id)
-    except Exception as exc:
-        failures.append(f"fund_nav_fetch_failed:{fund_id}:{type(exc).__name__}")
-        nav = None
+    nav = fetch_fund_nav_report(fund_id)
     if nav is not None:
         evidence.append(ThesisEvidence(
             type="snapshot",
@@ -477,13 +473,7 @@ def _fetch_active_fund_level_evidence(
         ))
     else:
         failures.append(f"fund_nav_unavailable:{fund_id}")
-    try:
-        anns = fetch_fund_announcements(fund_id)
-    except Exception as exc:
-        failures.append(
-            f"fund_announcements_fetch_failed:{fund_id}:{type(exc).__name__}"
-        )
-        anns = ()
+    anns = fetch_fund_announcements(fund_id)
     if anns:
         for a in anns[:_FUND_LEVEL_INFO_CAP]:
             evidence.append(ThesisEvidence(
