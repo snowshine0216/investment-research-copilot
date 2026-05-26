@@ -4,7 +4,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail · ⏭�
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅    | ✅     | ✅    | 🔄      | ⏳    | ⏳     | ⏳  | ⏳      | ⏳      | ⏳         | ⏳   | ⏳     |
+| 001 | ✅    | ✅     | ✅    | ✅ claude/decision-confidence-followup-001 | ✅ fc8aa41 | ✅ items/001-drift.md | 🔄  | ⏳      | ⏳      | ⏳         | ⏳   | ⏳     |
 | 002 | ⏳    | ⏳     | ⏳    | ⏳      | ⏳    | ⏳     | ⏳  | ⏳      | ⏳      | ⏳         | ⏳   | ⏳     |
 | 003 | ⏳    | ⏳     | ⏳    | ⏳      | ⏳    | ⏳     | ⏳  | ⏳      | ⏳      | ⏳         | ⏳   | ⏳     |
 
