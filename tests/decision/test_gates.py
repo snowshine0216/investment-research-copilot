@@ -134,6 +134,114 @@ def test_compute_blocking_reasons_qdii_premium_too_high_default_is_false() -> No
     assert reasons == []
 
 
+def test_qdii_buy_with_premium_above_threshold_blocks() -> None:
+    """AC15: QDII buy_candidate with premium > qdii_max_premium_pct → blocked."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", qdii_premium_pct=0.10),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert decision["decision_status"] == "blocked"
+    assert "qdii_premium_too_high" in decision["blocking_reasons"]
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_buy_with_premium_at_threshold_admits_boundary() -> None:
+    """AC15: premium == threshold passes (strict-greater comparison)."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", qdii_premium_pct=0.05),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_buy_with_healthy_premium_passes() -> None:
+    """AC15: small positive premium below threshold admits; no QDII code fires."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", qdii_premium_pct=0.01),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert decision["decision_status"] == "actionable_buy"
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_off_exchange_synthetic_zero_passes() -> None:
+    """qdii_premium_pct=0.0 (off-exchange synthetic) clears both QDII codes."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", qdii_premium_pct=0.0),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert decision["decision_status"] == "actionable_buy"
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_premium_unknown_unchanged_when_premium_is_none() -> None:
+    """Regression: the existing qdii_premium_unknown branch still fires."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf"),  # no qdii_premium_pct
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert decision["decision_status"] == "blocked"
+    assert "qdii_premium_unknown" in decision["blocking_reasons"]
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+
+
+def test_non_qdii_premium_above_threshold_is_ignored() -> None:
+    """Non-QDII rows with arbitrary qdii_premium_pct must not trigger either code."""
+    decision = decide_row(
+        score=_score(asset_class="cn_equity_fund", qdii_premium_pct=0.99),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+    assert "qdii_premium_unknown" not in decision["blocking_reasons"]
+
+
+def test_qdii_watch_action_with_high_premium_does_not_block() -> None:
+    """Only BUY actions trigger the QDII premium gate."""
+    decision = decide_row(
+        score=_score(asset_class="us_etf", action="watch", qdii_premium_pct=0.10),
+        allocation_selected=False,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        qdii_max_premium_pct=0.05,
+    )
+    assert "qdii_premium_too_high" not in decision["blocking_reasons"]
+
+
 def test_avoid_action_stays_avoid_even_when_selected() -> None:
     decision = decide_row(
         score=_score(action="avoid"),
