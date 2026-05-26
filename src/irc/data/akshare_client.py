@@ -555,3 +555,59 @@ def fetch_etf_metadata(symbol: str) -> dict[str, Any]:
         "ticker": symbol,
         "name_cn": str(row.get("名称") or row.get("name") or ""),
     }
+
+
+def _raw_etf_spot_table_call() -> pd.DataFrame:
+    """Raw call to akshare for the bulk ETF spot table. Extracted for lru_cache wrapping."""
+    return _ak_call("fund_etf_spot_em")
+
+
+@lru_cache(maxsize=1)
+def _fetch_full_etf_spot_table() -> pd.DataFrame:
+    """Master bulk ETF spot table from EastMoney (one snapshot per pipeline run).
+
+    Source of `基金折价率` (discount-rate, percent units) used by
+    ``fetch_qdii_premium_pct``. Decorated with ``lru_cache(maxsize=1)`` so
+    every QDII symbol in a single ``irc run`` shares ONE AkShare call.
+
+    Test isolation: callers MUST invoke ``_fetch_full_etf_spot_table.cache_clear()``
+    in fixture teardown — same pattern as ``_fetch_full_fund_table`` and
+    ``_fetch_full_etf_table``.
+    """
+    return _raw_etf_spot_table_call()
+
+
+def fetch_qdii_premium_pct(symbol: str) -> float | None:
+    """Single-symbol premium-to-NAV ratio for a QDII feeder ETF.
+
+    Returns a **signed** float in ratio units (positive = trading **above**
+    NAV; negative = trading **below** NAV / discount). Computed as
+    ``-(基金折价率) / 100.0`` because AkShare's native column is
+    discount-positive.
+
+    Degrade-to-``None`` on any failure: AkShare exception, empty table,
+    missing required columns (`代码` or `基金折价率`), or symbol not in the
+    table (mirrors ``fetch_fund_nav_report``'s contract per ADR 0002 §5).
+
+    Dispatches through ``_fetch_full_etf_spot_table`` so all QDII symbols
+    in one pipeline run share a single AkShare call (1 against
+    ``IRC_FETCH_BUDGET``).
+    """
+    try:
+        df = _fetch_full_etf_spot_table()
+    except Exception:
+        return None
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+    if "代码" not in df.columns or "基金折价率" not in df.columns:
+        return None
+    normalized = _normalize_fund_code(symbol)
+    codes = df["代码"].astype(str).map(_normalize_fund_code)
+    matches = df[codes == normalized]
+    if matches.empty:
+        return None
+    raw = matches.iloc[0]["基金折价率"]
+    try:
+        return -(float(raw)) / 100.0
+    except (TypeError, ValueError):
+        return None

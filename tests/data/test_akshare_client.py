@@ -663,3 +663,139 @@ def test_fetch_open_fund_ranks_normalizes_columns_and_parses_percentages(monkeyp
     assert out.loc[out["fund_code"] == "000001", "return_1y"].iloc[0] == -3.50
     # Missing returns become NaN (downstream treats NaN as "rank last").
     assert pd.isna(out.loc[out["fund_code"] == "999999", "return_1y"].iloc[0])
+
+
+# ---------------------------------------------------------------------------
+# QDII premium-to-NAV fetcher tests (AC1, AC2, AC3, AC4, AC13, AC20)
+# ---------------------------------------------------------------------------
+
+import json
+from pathlib import Path
+
+
+_FUND_ETF_SPOT_EM_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "fixtures" / "akshare" / "fund_etf_spot_em.json"
+)
+
+
+def _load_etf_spot_fixture_df() -> pd.DataFrame:
+    rows = json.loads(_FUND_ETF_SPOT_EM_FIXTURE.read_text(encoding="utf-8"))
+    return pd.DataFrame(rows)
+
+
+def test_fetch_qdii_premium_pct_returns_signed_ratio_for_premium_case() -> None:
+    """基金折价率=-2.92 (discount-positive native) → premium ratio +0.0292."""
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = _load_etf_spot_fixture_df()
+            out = fetch_qdii_premium_pct("513650")
+        assert out == pytest.approx(0.0292)
+        assert mocked.call_args[0][0] == "fund_etf_spot_em"
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_returns_negative_ratio_for_discount_case() -> None:
+    """基金折价率=+0.79 (true discount) → premium ratio -0.0079."""
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = _load_etf_spot_fixture_df()
+            out = fetch_qdii_premium_pct("159691")
+        assert out == pytest.approx(-0.0079)
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_returns_none_for_missing_symbol() -> None:
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = _load_etf_spot_fixture_df()
+            out = fetch_qdii_premium_pct("999999")
+        assert out is None
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_returns_none_for_missing_required_column() -> None:
+    """Schema drift: 基金折价率 column missing → degrade to None."""
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        fake = pd.DataFrame({"代码": ["513650"], "最新价": [1.234]})
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = fake
+            out = fetch_qdii_premium_pct("513650")
+        assert out is None
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_returns_none_for_empty_table() -> None:
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = pd.DataFrame()
+            out = fetch_qdii_premium_pct("513650")
+        assert out is None
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_returns_none_on_akshare_exception() -> None:
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.side_effect = ConnectionError("EastMoney unreachable")
+            out = fetch_qdii_premium_pct("513650")
+        assert out is None
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_qdii_premium_pct_uses_bulk_table_once_for_many_symbols() -> None:
+    """All QDII symbols in one run share ONE AkShare call (lru_cache contract)."""
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        with patch("irc.data.akshare_client._ak_call") as mocked:
+            mocked.return_value = _load_etf_spot_fixture_df()
+            a = fetch_qdii_premium_pct("513650")
+            b = fetch_qdii_premium_pct("159691")
+            c = fetch_qdii_premium_pct("513690")
+        assert a == pytest.approx(0.0292)
+        assert b == pytest.approx(-0.0079)
+        assert c == pytest.approx(0.0022)
+        # ONE AkShare call regardless of how many symbols asked.
+        assert mocked.call_count == 1
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
