@@ -182,6 +182,12 @@ def _active_fund_to_dict(snap: ActiveFundSnapshot) -> dict[str, Any]:
             k: list(v) for k, v in snap.failure_reasons_by_symbol.items()
         },
         "fund_level_failure_reasons": list(snap.fund_level_failure_reasons),
+        # Item 001 (ADR 0003 §7): row-level NAV+announcement evidence consumed
+        # by Policy B rule 2.5. Older cache files lacking this key re-hydrate
+        # with `()`; the next freshness probe fires a fresh fetch.
+        "fund_level_evidence": [
+            _evidence_to_dict(e) for e in snap.fund_level_evidence
+        ],
     }
 
 
@@ -192,6 +198,9 @@ def _active_fund_from_dict(body: dict[str, Any]) -> ActiveFundSnapshot | None:
     try:
         analyses = tuple(
             _constituent_from_dict(c) for c in body["constituent_analyses"]
+        )
+        fund_level_evidence = tuple(
+            _evidence_from_dict(e) for e in body.get("fund_level_evidence", [])
         )
     except (KeyError, TypeError, ValueError):
         return None
@@ -205,6 +214,7 @@ def _active_fund_from_dict(body: dict[str, Any]) -> ActiveFundSnapshot | None:
             k: tuple(v) for k, v in body.get("failure_reasons_by_symbol", {}).items()
         },
         fund_level_failure_reasons=tuple(body.get("fund_level_failure_reasons", ())),
+        fund_level_evidence=fund_level_evidence,
     )
 
 
