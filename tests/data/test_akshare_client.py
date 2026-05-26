@@ -802,6 +802,25 @@ def test_fetch_qdii_premium_pct_uses_bulk_table_once_for_many_symbols() -> None:
         _fetch_full_etf_spot_table.cache_clear()
 
 
+def test_fetch_qdii_premium_pct_logs_on_exception(caplog, monkeypatch) -> None:
+    """P0-1 fix: failures emit a warning log, not silent None."""
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        def _raise(*args, **kwargs):
+            raise ConnectionError("boom")
+        monkeypatch.setattr("irc.data.akshare_client._raw_etf_spot_table_call", _raise)
+        with caplog.at_level("WARNING"):
+            result = fetch_qdii_premium_pct("513650")
+        assert result is None
+        assert "failed" in caplog.text.lower()
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
+
+
 @pytest.mark.live_akshare
 @pytest.mark.skipif(
     _os_live.environ.get("IRC_RUN_LIVE_AKSHARE") != "1",

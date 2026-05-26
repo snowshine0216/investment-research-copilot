@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 import contextlib
 from functools import lru_cache
+import logging
 import os
 import re
 import threading
@@ -12,6 +13,8 @@ from typing import Any, Generator, TypeVar
 import pandas as pd
 
 from irc.http_proxy import resolve_proxy
+
+_log = logging.getLogger(__name__)
 
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
@@ -595,7 +598,11 @@ def fetch_qdii_premium_pct(symbol: str) -> float | None:
     """
     try:
         df = _fetch_full_etf_spot_table()
-    except Exception:
+    except Exception as exc:
+        _log.warning(
+            "fetch_qdii_premium_pct failed for %s: %s",
+            symbol, exc, exc_info=True,
+        )
         return None
     if not isinstance(df, pd.DataFrame) or df.empty:
         return None
