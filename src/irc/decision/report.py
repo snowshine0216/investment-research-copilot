@@ -424,6 +424,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
     "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
+    "qdii_premium_too_high": "QDII premium-to-NAV above threshold",
     "opportunity_excluded": "Excluded from opportunity_report (Policy B / dual-coverage gate)",
 }
 
@@ -443,6 +444,10 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
     "qdii_premium_unknown":
         "Fetch real-time QDII premium / FX status before treating as actionable. "
         "QDII feeders frequently trade 5–15% above NAV.",
+    "qdii_premium_too_high":
+        "QDII premium-to-NAV exceeds the configured ceiling "
+        "(qdii_max_premium_pct in config/discovery.yaml; default 5%). "
+        "Wait for the premium to normalise or use an alternative venue.",
     "opportunity_excluded":
         "The instrument scored well enough to enter trade_plan but Policy B / "
         "the dual-coverage gate rejected it at opportunity_write. Common cause: "
