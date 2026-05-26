@@ -413,7 +413,6 @@ def test_build_snapshot_active_fund_records_us_unsupported(monkeypatch) -> None:
 def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
     """Item 001: _build_active_fund_snapshot must fetch NAV + announcements
     and stamp them on `fund_level_evidence`."""
-    from datetime import date as _date
     from irc.fundamentals import snapshot as _snap_mod
     from irc.fundamentals.types import (
         FundAnnouncement,

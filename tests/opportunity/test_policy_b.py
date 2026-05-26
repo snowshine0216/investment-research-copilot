@@ -557,7 +557,7 @@ def _evidence_data_instrument(fund_id: str = "006809"):
         source=fund_id,
         url="",
         date="2024-04-15",
-        summary=f"NAV=1.2345 @ 2024-04-15",
+        summary="NAV=1.2345 @ 2024-04-15",
         scope="instrument",
         citation_kind="data",
         owner_instrument_id=fund_id,
