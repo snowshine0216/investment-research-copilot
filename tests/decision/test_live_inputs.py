@@ -62,6 +62,29 @@ def test_read_live_decision_inputs_reads_macro_and_returns(tmp_path: Path) -> No
     assert returns["510300"] == pytest.approx(0.10)
 
 
+def test_read_live_decision_inputs_logs_on_query_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture,
+) -> None:
+    """P0-1 fix: catastrophic query failures emit a WARNING to stderr, not
+    a silent empty dict. Uses an empty DB (no schema) so the macro_series
+    query raises a CatalogException mid-run."""
+    db_dir = tmp_path / "data"
+    db_dir.mkdir()
+    db_path = db_dir / "local.duckdb"
+    # Create an empty DuckDB file — no tables — so the macro_series query fails.
+    con = duckdb.connect(str(db_path))
+    con.close()
+
+    macro, returns = read_live_decision_inputs(tmp_path, instrument_ids={"510300"})
+
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.err
+    assert "live_inputs query failed" in captured.err
+    assert macro == {}
+    assert returns == {}
+
+
 def test_read_live_decision_inputs_skips_instruments_with_too_few_navs(
     tmp_path: Path,
 ) -> None:

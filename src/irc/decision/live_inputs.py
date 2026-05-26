@@ -9,6 +9,8 @@ text rather than crash. Imported by both `commands/decision_cmd.py` and
 """
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 
 
@@ -60,13 +62,23 @@ def read_live_decision_inputs(
                 [iid],
             ).fetchdf()
             if len(navs) < 5:
+                if os.environ.get("DEBUG"):
+                    print(
+                        f"DEBUG: {iid} has {len(navs)} NAV rows (<5 threshold); "
+                        "skipping weekly return.",
+                        file=sys.stderr,
+                    )
                 continue
             latest = float(navs.iloc[0]["nav"])
             prior = float(navs.iloc[-1]["nav"])
             if prior > 0:
                 returns[iid] = latest / prior - 1.0
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — degrade gracefully
+        print(
+            f"WARNING: live_inputs query failed ({exc.__class__.__name__}: {exc}); "
+            "macro snapshot and weekly returns will be empty — all triggers show ⚠.",
+            file=sys.stderr,
+        )
     finally:
         con.close()
     return macro, returns
