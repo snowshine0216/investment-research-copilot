@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `memo-decision-consolidation + readable-refs` (2026-05-25)
+
+Closes both items in `outputs/2026-05-25/problem.md`.
+
+**Problem #1 — memo.md misaligned with decision_report.json.** `decision_report` flagged 003318 / 519770 as `actionable_buy` (gates passed) but memo §5 rendered them as `pause_wait` / `small_watch` (opportunity overlay). Two reports answering different questions, and the memo never read decision state, so the user could not reconcile them.
+
+**Problem #2 — refs in memo.md were unscannable.** Inline `[ref:HEXID]` 16-hex markers (e.g. `[ref:4b03af24151fe798]`) were hard to read, and the `_MAX_REFS = 40` cap in `memo/pipeline.py` truncated the appendix so some §5 picks-table refs (e.g. 511010's NAV snapshot) had no appendix entry to anchor on.
+
+Changes:
+
+- `irc run` now executes 10 stages — `decision` is the final stage after `memo`. Standalone `irc opportunity` / `irc decision` invocations are no longer required for the weekly workflow.
+- `src/irc/decision/gates.py` promotes `_decision_status` → `compute_decision_status` and `_blocking_reasons` → `compute_blocking_reasons` (both pure, public). Old names kept as aliases.
+- Memo §5 picks table gains a **决策** column between 综合分* and 机会状态, populated via `compute_decision_status` over the same primitives `decision_cmd` uses. Cell values: `候选可执行` / `阻断` / `观察` / `回避`.
+- Memo §1 TL;DR prepends a **今日唯一行动** banner derived from `actionable_buy` picks (`✅ 候选可执行：003318, 519770` or `⚪ 本周无候选可执行`).
+- New module `src/irc/memo/footnote_renderer.py` post-processes the published `memo.md`: inline `[ref:HEXID]` markers become `[1]` / `[2]` / … (global single sequence, ASCII brackets); appendix entries gain a `**[N]**` prefix and preserve the original `[ref:HEXID]` at the line tail for grep/audit. Drops the `_MAX_REFS = 40` cap on the appendix so every ref in the pool always has an entry. Audit gates still operate on the canonical hex-form draft (no audit code changes).
+- `src/irc/pipeline_outputs.py` adds `decision_report.{json,md}` to `STAGE_REQUIRED_OUTPUTS`.
+- README and `docs/diagrams/overall-workflow.html` updated to show the 10-stage pipeline; ADR 0001 gains a 2026-05-25 addendum documenting the published-memo veneer.
+- Tests: `tests/decision/test_gates.py` adds the `compute_decision_status` / `compute_blocking_reasons` golden tables; `tests/memo/test_picks_table.py` adds the 决策-column header + ZH-map assertions; `tests/memo/test_pick_rows.py` adds three decision-status wiring tests; `tests/memo/test_tldr_action_banner.py` adds four banner-branch tests; `tests/memo/test_footnote_renderer.py` adds seven post-pass tests; `tests/commands/test_run_cmd.py` extended for the new `decision` stage.
+
 ### Fixed — `memo-evidence-pillar + qdii-fetch-reform + discovery-thresholds` (2026-05-25)
 
 End-to-end fix for the 2026-05-25 memo readability gap. The user opened

@@ -194,7 +194,7 @@ def _build_decision_row(
     )
 
 
-def _blocking_reasons(
+def compute_blocking_reasons(
     pipeline_halted: bool,
     completeness: float,
     completeness_threshold: float,
@@ -222,7 +222,16 @@ def _blocking_reasons(
     return reasons
 
 
-def _decision_status(score_action: str, blocking_reasons: list[str], allocation_selected: bool) -> DecisionStatus:
+def compute_decision_status(
+    score_action: str,
+    blocking_reasons: list[str],
+    allocation_selected: bool,
+) -> DecisionStatus:
+    """Pure verdict on a row given its score action, blockers, and allocation.
+
+    Promoted from the private `_decision_status` so the memo stage can
+    call it (memo §5 决策 column) without depending on decision_report.json.
+    """
     if score_action in _AVOID_ACTIONS:
         return "avoid"
     if blocking_reasons:
@@ -230,6 +239,11 @@ def _decision_status(score_action: str, blocking_reasons: list[str], allocation_
     if score_action in _BUY_ACTIONS and allocation_selected:
         return "actionable_buy"
     return "watch_only"
+
+
+# Backwards-compatible aliases for the old private names.
+_blocking_reasons = compute_blocking_reasons
+_decision_status = compute_decision_status
 
 
 def _watch_reason(

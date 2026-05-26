@@ -199,6 +199,65 @@ def test_render_picks_table_emits_citation_markers_in_evidence_column():
     assert "broker·中信证券·2026-05-02" in md
 
 
+def test_render_picks_table_includes_decision_column_with_zh_map():
+    """决策 column lives between 综合分* and 机会状态. Cell value maps
+    decision_status to ZH per the spec."""
+    rows = [
+        PickRow(
+            instrument_id="A", name_cn="ai", asset_class="x", role="r",
+            target_weight=0.1, composite_score=50.0,
+            opportunity_state="core_dca", dca_action="normal_dca",
+            risk_action="none", one_line_reason="x",
+            decision_status="actionable_buy",
+        ),
+        PickRow(
+            instrument_id="B", name_cn="bi", asset_class="x", role="r",
+            target_weight=0.1, composite_score=50.0,
+            opportunity_state="pause_wait", dca_action="pause_dca",
+            risk_action="none", one_line_reason="x",
+            decision_status="blocked",
+        ),
+        PickRow(
+            instrument_id="C", name_cn="ci", asset_class="x", role="r",
+            target_weight=0.1, composite_score=50.0,
+            opportunity_state="small_watch", dca_action="slow_dca",
+            risk_action="none", one_line_reason="x",
+            decision_status="watch_only",
+        ),
+        PickRow(
+            instrument_id="D", name_cn="di", asset_class="x", role="r",
+            target_weight=0.1, composite_score=50.0,
+            opportunity_state="exclude", dca_action="do_not_buy",
+            risk_action="none", one_line_reason="x",
+            decision_status="avoid",
+        ),
+    ]
+    md = render_picks_table(rows)
+    # New 决策 column header is present and positioned between 综合分* and 机会状态.
+    header_line = next(line for line in md.split("\n") if line.startswith("| 代码"))
+    cols = [c.strip() for c in header_line.strip("|").split("|")]
+    assert "决策" in cols
+    assert cols.index("决策") == cols.index("综合分*") + 1
+    assert cols.index("决策") + 1 == cols.index("机会状态")
+    # ZH map renders on the four rows.
+    assert "候选可执行" in md
+    assert "阻断" in md
+    assert "观察" in md
+    assert "回避" in md
+
+
+def test_pick_row_decision_status_defaults_to_watch_only():
+    """Existing tests build PickRow without decision_status. Default keeps
+    backwards compatibility so they still pass."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.decision_status == "watch_only"
+
+
 def test_render_picks_table_empty_citations_renders_dash():
     """When PickRow.citations is empty, the 证据 cell renders `—`."""
     row = PickRow(

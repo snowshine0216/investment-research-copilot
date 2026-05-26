@@ -133,11 +133,11 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">End-to-end `irc run` (9 stages) with v3 evidence-gap fixes detailed for opportunity + memo · slices A · F · G · H · D0 · D1 · D2 · D3</p>
+      <p class="subtitle">End-to-end `irc run` (10 stages) with v3 evidence-gap fixes detailed for opportunity + memo · slices A · F · G · H · D0 · D1 · D2 · D3</p>
     </div>
 
     <div class="diagram-container">
-      <svg viewBox="0 -260 1320 2500" preserveAspectRatio="xMidYMin meet">
+      <svg viewBox="0 -260 1460 2500" preserveAspectRatio="xMidYMin meet">
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
             <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
@@ -156,13 +156,13 @@
           </pattern>
         </defs>
 
-        <rect x="0" y="-260" width="1320" height="2500" fill="url(#grid)" />
+        <rect x="0" y="-260" width="1460" height="2500" fill="url(#grid)" />
 
         <!-- =================================================================
-             STAGE 0 · irc run — END-TO-END PIPELINE (9 stages)
+             STAGE 0 · irc run — END-TO-END PIPELINE (10 stages)
              commands/run_cmd.py · STAGE_NAMES tuple
              ================================================================= -->
-        <text x="40" y="-240" fill="#475569" font-size="10" font-weight="600">STAGE 0 · irc run — END-TO-END PIPELINE (9 stages, commands/run_cmd.py)</text>
+        <text x="40" y="-240" fill="#475569" font-size="10" font-weight="600">STAGE 0 · irc run — END-TO-END PIPELINE (10 stages, commands/run_cmd.py)</text>
 
         <!-- small horizontal connector arrows between consecutive stage boxes -->
         <line x1="157"  y1="-170" x2="167"  y2="-170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
@@ -173,6 +173,7 @@
         <line x1="867"  y1="-170" x2="877"  y2="-170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
         <line x1="1009" y1="-170" x2="1019" y2="-170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
         <line x1="1151" y1="-170" x2="1161" y2="-170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
+        <line x1="1293" y1="-170" x2="1303" y2="-170" stroke="#64748b" stroke-width="1.2" marker-end="url(#arrowhead)"/>
 
         <!-- Box 1: ingest -->
         <rect x="27" y="-230" width="130" height="120" rx="6" fill="#0f172a"/>
@@ -281,6 +282,18 @@
         <text x="1228" y="-144" fill="#94a3b8" font-size="8" text-anchor="middle">picks_table + evidence_pool</text>
         <text x="1228" y="-128" fill="#94a3b8" font-size="8" text-anchor="middle">+ LLM synthesizer</text>
         <text x="1228" y="-116" fill="#475569" font-size="7" text-anchor="middle">memo_cmd.py</text>
+
+        <!-- Box 10: decision -->
+        <rect x="1305" y="-230" width="130" height="120" rx="6" fill="#0f172a"/>
+        <rect x="1305" y="-230" width="130" height="120" rx="6" fill="rgba(76, 29, 149, 0.3)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1314" y="-216" fill="#475569" font-size="8" font-weight="600">10</text>
+        <text x="1370" y="-208" fill="white" font-size="11" font-weight="600" text-anchor="middle">decision</text>
+        <text x="1370" y="-190" fill="#a78bfa" font-size="8" text-anchor="middle">decision-readiness</text>
+        <text x="1370" y="-174" fill="#94a3b8" font-size="8" text-anchor="middle">scoring + alloc + plan +</text>
+        <text x="1370" y="-158" fill="#94a3b8" font-size="8" text-anchor="middle">memo_audit →</text>
+        <text x="1370" y="-144" fill="#94a3b8" font-size="8" text-anchor="middle">decision_report.json</text>
+        <text x="1370" y="-128" fill="#94a3b8" font-size="8" text-anchor="middle">decision_report.md</text>
+        <text x="1370" y="-116" fill="#475569" font-size="7" text-anchor="middle">decision_cmd.py</text>
 
         <!-- Transition: arrow from stages 8+9 down to detail -->
         <line x1="1086" y1="-110" x2="1086" y2="-80" stroke="#22d3ee" stroke-width="1.5"/>

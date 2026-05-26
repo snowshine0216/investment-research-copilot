@@ -88,3 +88,11 @@ These gates run immediately before `atomic_write_text` of `opportunity_report.js
 
 - [ADR 0002 — Active-fund fetch engine](0002-active-fund-fetch-engine.md): the runtime engine that emits `ThesisEvidence` with `scope="constituent"` for active-fund holdings. Adds the optional `holding_weight_pct` field (NOT part of the citation_id hash preimage; the contract in §2 of this ADR is unchanged).
 - [ADR 0004 — Renderer determinism + alias policy](0004-renderer-determinism-and-alias-policy.md): downstream consumer-side companion. Locks the SAME-3 invariant across the three rendering surfaces (picks-table, evidence-pool, discipline nested bullets) — all three call `select_citations` directly with no pre-filter so the deterministic selector contract in §3 of this ADR is preserved end-to-end.
+
+## Addendum — 2026-05-25: Published memo footnote-numbering veneer
+
+`memo.md` published to disk now post-processes inline `[ref:HEXID]` markers into `[N]` numerals (global single sequence, ASCII brackets) for readability. The appendix is rewritten so each entry is prefixed with `**[N]**` and the original `[ref:HEXID]` is preserved at the line tail in backticks. The post-pass is implemented by `src/irc/memo/footnote_renderer.py::render_footnotes` and runs AFTER all audit gates have inspected the canonical hex-form draft.
+
+This veneer does NOT change the citation-id contract defined in this ADR. Every internal surface — the LLM raw-ref pool, the synthesizer prompt, the auditor input, `citation_audit.json`, `memo_traceability.json`, `numeric_audit._MARKER_RE`, `find_uncited_conclusions`, `find_hallucinated_citations`, the alias-builder, `check_traceability` — continues to consume the canonical `\[ref:[0-9a-f]{16}\]` form. The hex is still grep-discoverable in the published memo via the appendix tail.
+
+The post-pass also drops the `_MAX_REFS = 40` cap on the appendix renderer; the cap still constrains the synthesizer prompt input (a prompt-size budget) but the appendix renders every ref in the raw pool so no inline citation can be missing from the appendix.

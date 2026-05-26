@@ -2,7 +2,7 @@
 
 Weekly research-and-recommendation system for gold + Mainland China funds + Mainland China ETFs + HK ETFs (via QDII proxy) + US ETFs (via QDII proxy).
 
-> **Status:** Plans 1–6 complete. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → LLM memo synthesis → interactive queries. Run `irc run` to execute the 7 default stages. Web-search research (Tavily/Brave/Bocha/Jina) runs between ingest and discovery when `RESEARCH_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. Opportunity layer adds valuation/heat/thesis/product-quality states, thesis cards, and DCA discipline actions.
+> **Status:** Plans 1–6 complete. Default pipeline operational: data ingest → discovery → scoring → gold analysis → allocation → trade planning → opportunity layer → LLM memo synthesis → decision-readiness report. Run `irc run` to execute the 9 default stages (plus optional research). Web-search research (Tavily/Brave/Bocha/Jina) runs between ingest and discovery when `RESEARCH_ENABLED=true`. CN fund universe now covers broad/sector/dividend/bond categories with role-aware allocation. Opportunity layer adds valuation/heat/thesis/product-quality states, thesis cards, and DCA discipline actions. Memo §5 now consolidates the decision-readiness verdict (decision_status) alongside the opportunity overlay so the two views align in a single picks table; inline citations render as `[1]`, `[2]`, … with a numbered appendix mapping back to `[ref:HEXID]` for grep/audit.
 
 ## Design references
 
@@ -24,7 +24,7 @@ uv run irc config validate
 uv run irc run
 ```
 
-`irc run` executes the default pipeline: ingest -> discover -> score -> gold -> allocate -> plan -> memo. It skips web research unless `RESEARCH_ENABLED=true`, does not rebuild fundamentals snapshots, and does not run the opportunity layer unless you call `irc opportunity` separately.
+`irc run` executes the default pipeline: ingest -> discover -> score -> gold -> allocate -> plan -> opportunity -> memo -> decision. It skips web research unless `RESEARCH_ENABLED=true` and does not rebuild fundamentals snapshots (quarterly job — see `irc fundamentals snapshot`).
 
 ## Environment setup
 
@@ -114,9 +114,9 @@ Use this for the normal weekly recommendation memo without refreshing web resear
 
 ```bash
 uv run irc run
-uv run irc opportunity
-uv run irc decision
 ```
+
+`irc run` now bundles opportunity + decision into the default pipeline — the consolidated `memo.md` (with the 决策 column and the `今日唯一行动` banner) and `decision_report.{json,md}` are written in a single invocation.
 
 ### Weekly run with research
 
@@ -124,8 +124,6 @@ Use this when you want fresh macro/news/theme citations included before discover
 
 ```bash
 RESEARCH_ENABLED=true uv run irc run
-uv run irc opportunity
-uv run irc decision
 ```
 
 ### Monthly universe maintenance
@@ -145,9 +143,9 @@ Use this when you want decision-grade thesis cards backed by fresh theme researc
 uv run irc research
 uv run irc fundamentals snapshot --target all --top-n 10
 uv run irc run --from discover
-uv run irc opportunity
-uv run irc decision
 ```
+
+(`--from discover` re-runs every stage from discover through decision; opportunity + memo + decision are part of the default chain.)
 
 `fundamentals snapshot --target all --top-n 10` is intentionally not part of `irc run`; it can take several minutes because it fetches filings and reports target by target.
 
@@ -183,10 +181,8 @@ uv run irc score
 uv run irc gold
 uv run irc allocate
 uv run irc plan
-uv run irc memo
-
-# 7. Run post-pipeline decision layers.
 uv run irc opportunity
+uv run irc memo
 uv run irc decision
 
 # 8. Ask grounded questions against today's outputs.
@@ -202,7 +198,7 @@ DEBUG=true uv run irc research
 DEBUG=true uv run irc run --from discover
 ```
 
-You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun. Valid stages are `ingest`, `research`, `discover`, `score`, `gold`, `allocate`, `plan`, and `memo`.
+You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun. Valid stages are `ingest`, `research`, `discover`, `score`, `gold`, `allocate`, `plan`, `opportunity`, `memo`, and `decision`.
 
 ## Output inspection cheatsheet
 
@@ -271,7 +267,7 @@ Candidates are loaded from `config/universe/cn_funds.yaml` (curated) and `config
 | Cadence | Scope | Command |
 |---|---|---|
 | Daily light | Holdings, thesis cards, watchlist only — check drawdown, heat, triggers | `irc opportunity` (fast) |
-| Weekly full | Merged configured universe, discovery, scoring, thesis card refresh | `irc run` then `irc opportunity` |
+| Weekly full | Merged configured universe, discovery, scoring, thesis card refresh, decision-readiness | `irc run` (opportunity + decision are now part of the default chain) |
 | Monthly universe rebuild | Re-fetch broad fund catalog, regenerate `cn_funds.generated.yaml` | `irc universe build-cn-funds` |
 | Quarterly thesis research | Theme search + citations and constituent snapshot refresh | `uv run irc research` plus `uv run irc fundamentals snapshot --target all --top-n 10` |
 
@@ -284,8 +280,7 @@ The system does not scan every fund deeply on every run. Universe generation run
 1. `uv run irc ingest` — refresh local market/fund data used by discovery and scoring.
 2. `uv run irc research` — refresh macro, policy, gold-driver, geopolitics, and holdings-sector citations under `data/research/`.
 3. `uv run irc fundamentals snapshot --target all --top-n 10` — refresh constituent filings and broker reports for every registered snapshot target under `data/fundamentals/`.
-4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, and memo from the refreshed inputs.
-5. `uv run irc opportunity` — generate `opportunity_report.json`, `thesis_cards.yaml`, and `discipline_report.md`.
+4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, opportunity, memo, and decision from the refreshed inputs.
 
 `--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 

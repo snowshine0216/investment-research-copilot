@@ -37,6 +37,13 @@ from irc.commands.opportunity_cmd import (
     _resolve_enforce_mode,
     _write_citation_audit_shadow_log,
 )
+from irc.decision.completeness import MIN_BUY_COMPLETENESS
+from irc.decision.gates import (
+    _QDII_ASSET_CLASSES,
+    compute_blocking_reasons,
+    compute_decision_status,
+    derive_venue_status,
+)
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
 from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
@@ -298,12 +305,27 @@ def _names_from_universes(bundle) -> dict[str, str]:
     return names
 
 
-def _derive_tldr_lines(gold: dict, alloc: dict, opportunity: dict, plan: dict) -> tuple[str, ...]:
+def _derive_tldr_lines(
+    gold: dict,
+    alloc: dict,
+    opportunity: dict,
+    plan: dict,
+    pick_rows: list | tuple = (),
+) -> tuple[str, ...]:
     summary = opportunity.get("summary") or {}
     n_core = summary.get("core_dca_count", 0)
     n_watch = summary.get("small_watch_count", 0)
     n_pause = summary.get("pause_wait_count", 0)
-    lines: list[str] = []
+    actionable = [str(r.instrument_id) for r in pick_rows
+                  if getattr(r, "decision_status", "") == "actionable_buy"]
+    if actionable:
+        banner = (
+            f"✅ 候选可执行：{', '.join(actionable)}"
+            "（仍需人工核对 venue/溢价/合规）。"
+        )
+    else:
+        banner = "⚪ 本周无候选可执行（详见 §5 决策列与 §6 风险提示）。"
+    lines: list[str] = [banner]
     lines.append(
         f"黄金：regime={gold.get('regime', '?')}，zone={gold.get('zone', '?')}，"
         f"仓位倾斜={alloc.get('gold_tilt', '?')}。"
@@ -408,6 +430,48 @@ def _reconstruct_opportunity_rows(
     return tuple(rows)
 
 
+def _decision_status_for_pick(
+    score_row: dict,
+    trade: dict | None,
+    op_row: dict,
+) -> str:
+    """Compute the decision-readiness verdict for a single pick row.
+
+    Mirrors the logic `decision_cmd` runs over the full universe, restricted
+    to the fields the memo stage already has in scope. Three favourable
+    assumptions are baked in here (and only here) because memo runs AFTER
+    plan/opportunity and BEFORE decision in the pipeline:
+
+      • pipeline_halted=False   — memo wouldn't be running otherwise.
+      • target_weight_valid=True — allocate would have failed earlier.
+      • evidence_status="evidence_linked" — memo always emits evidence.
+
+    qdii_premium_unknown stays True for QDII rows so the 决策 column
+    correctly says 阻断 until the user fetches a premium quote.
+    """
+    score_action = str(score_row.get("action", "watch"))
+    asset_class = str(op_row.get("asset_class") or score_row.get("asset_class") or "")
+    completeness_raw = score_row.get("data_completeness", 1.0)
+    try:
+        completeness = float(completeness_raw) if completeness_raw is not None else 1.0
+    except (TypeError, ValueError):
+        completeness = 0.0
+    venue_status = derive_venue_status(trade)
+    qdii_premium_unknown = asset_class in _QDII_ASSET_CLASSES
+    blocking = compute_blocking_reasons(
+        pipeline_halted=False,
+        completeness=completeness,
+        completeness_threshold=MIN_BUY_COMPLETENESS,
+        target_weight_valid=True,
+        venue_status=venue_status,
+        evidence_status="evidence_linked",
+        score_action=score_action,
+        qdii_premium_unknown=qdii_premium_unknown,
+    )
+    allocation_selected = trade is not None
+    return compute_decision_status(score_action, blocking, allocation_selected)
+
+
 def _build_pick_rows(
     trades: list[dict],
     opportunity: dict,
@@ -466,6 +530,7 @@ def _build_pick_rows(
         if score is None:
             score = sc.get("composite_score") or 0.0
         name = op.get("name_cn") or extra_names.get(str(iid_raw)) or iid_raw
+        decision_status = _decision_status_for_pick(sc, t, op)
         pick_rows.append(PickRow(
             instrument_id=iid_raw,
             name_cn=name,
@@ -480,6 +545,7 @@ def _build_pick_rows(
             valuation_state=op.get("valuation_state", ""),
             venue_note=str(t.get("venue_note", "")),
             citations=citations,
+            decision_status=decision_status,
         ))
 
     return pick_rows, absent, gapped
@@ -591,7 +657,7 @@ def run_memo(repo_root: str) -> int:
         )
         return 1
 
-    tldr = _derive_tldr_lines(gold, alloc, opportunity, plan)
+    tldr = _derive_tldr_lines(gold, alloc, opportunity, plan, pick_rows=pick_rows)
 
     cutoff = extract_evidence_cutoff(raw_ref_pool)
     risk_notes = _compose_risk_notes(cutoff)
@@ -785,7 +851,7 @@ def run_memo(repo_root: str) -> int:
             file=sys.stderr,
         )
 
-    atomic_write_text(out_dir / "memo.md", output.draft)
+    atomic_write_text(out_dir / "memo.md", output.published_draft)
     blocked_path = out_dir / "memo_blocked.md"
     if blocked_path.exists():
         blocked_path.unlink()

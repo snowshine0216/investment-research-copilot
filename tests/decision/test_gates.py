@@ -381,3 +381,61 @@ def test_qdii_hk_etf_also_gated() -> None:
         memo_traceability_coverage=1.0,
     )
     assert "qdii_premium_unknown" in decision["blocking_reasons"]
+
+
+def test_compute_decision_status_pure_golden() -> None:
+    """Pure function: (score_action, blocking_reasons, allocation_selected) → DecisionStatus.
+
+    Promoted from `_decision_status` so memo can call it without depending on
+    decision_report.json.
+    """
+    from irc.decision.gates import compute_decision_status
+
+    # avoid wins over anything
+    assert compute_decision_status("avoid", [], True) == "avoid"
+    assert compute_decision_status("strong_avoid", ["venue_blocked"], False) == "avoid"
+
+    # any blocking reason → blocked (unless avoid already won)
+    assert compute_decision_status("buy_candidate", ["venue_blocked"], True) == "blocked"
+    assert compute_decision_status("watch", ["pipeline_halted"], False) == "blocked"
+
+    # buy + allocated + no blocking → actionable_buy
+    assert compute_decision_status("buy_candidate", [], True) == "actionable_buy"
+    assert compute_decision_status("strong_buy_candidate", [], True) == "actionable_buy"
+
+    # buy but not allocated → watch_only
+    assert compute_decision_status("buy_candidate", [], False) == "watch_only"
+
+    # plain watch with no blocking → watch_only
+    assert compute_decision_status("watch", [], True) == "watch_only"
+    assert compute_decision_status("watch", [], False) == "watch_only"
+
+
+def test_compute_blocking_reasons_pure_smoke() -> None:
+    """compute_blocking_reasons is the promoted, public form of _blocking_reasons.
+
+    Smoke test — full coverage already in earlier tests via decide_row.
+    """
+    from irc.decision.gates import compute_blocking_reasons
+
+    reasons = compute_blocking_reasons(
+        pipeline_halted=False,
+        completeness=1.0,
+        completeness_threshold=0.8,
+        target_weight_valid=True,
+        venue_status="blocked_no_proxy",
+        evidence_status="evidence_linked",
+        score_action="buy_candidate",
+        qdii_premium_unknown=False,
+    )
+    assert reasons == ["venue_blocked"]
+    assert compute_blocking_reasons(
+        pipeline_halted=False,
+        completeness=1.0,
+        completeness_threshold=0.8,
+        target_weight_valid=True,
+        venue_status="direct",
+        evidence_status="evidence_linked",
+        score_action="buy_candidate",
+        qdii_premium_unknown=False,
+    ) == []

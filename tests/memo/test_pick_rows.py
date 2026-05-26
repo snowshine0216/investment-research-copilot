@@ -129,6 +129,65 @@ def test_build_pick_rows_raises_on_citation_id_tampering():
         _build_pick_rows(trades, opportunity, {"scores": []})
 
 
+def test_build_pick_rows_populates_decision_status_actionable_when_no_blockers():
+    """A buy_candidate score + allocation_selected + venue=direct → actionable_buy."""
+    trades = [{
+        "target": "510300",
+        "target_weight": 0.1,
+        "venue_compatible": True,
+        "proxy_id": None,
+    }]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    scoring = {"scores": [{
+        "instrument_id": "510300",
+        "asset_class": "cn_etf",
+        "action": "buy_candidate",
+        "data_completeness": 1.0,
+        "missing_data": [],
+    }]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, scoring)
+    assert pick_rows[0].decision_status == "actionable_buy"
+
+
+def test_build_pick_rows_populates_decision_status_blocked_when_venue_blocked():
+    trades = [{
+        "target": "510300",
+        "target_weight": 0.1,
+        "venue_compatible": False,
+        "proxy_id": None,
+        "venue_note": "venue mismatch and no proxy available",
+    }]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    scoring = {"scores": [{
+        "instrument_id": "510300",
+        "asset_class": "cn_etf",
+        "action": "buy_candidate",
+        "data_completeness": 1.0,
+        "missing_data": [],
+    }]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, scoring)
+    assert pick_rows[0].decision_status == "blocked"
+
+
+def test_build_pick_rows_populates_decision_status_avoid_for_avoid_action():
+    trades = [{
+        "target": "510300",
+        "target_weight": 0.1,
+        "venue_compatible": True,
+        "proxy_id": None,
+    }]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    scoring = {"scores": [{
+        "instrument_id": "510300",
+        "asset_class": "cn_etf",
+        "action": "avoid",
+        "data_completeness": 1.0,
+        "missing_data": [],
+    }]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, scoring)
+    assert pick_rows[0].decision_status == "avoid"
+
+
 def test_build_pick_rows_missing_opportunity_falls_into_absent():
     """When opportunity is {} (file absent), every trade target falls into
     `absent` — explicit signal that opportunity didn't run."""

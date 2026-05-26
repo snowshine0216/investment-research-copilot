@@ -20,6 +20,13 @@ _RISK_CN: dict[str, str] = {
     "exit_review": "（退出复核）",
 }
 
+_DECISION_CN: dict[str, str] = {
+    "actionable_buy": "候选可执行",
+    "blocked": "阻断",
+    "watch_only": "观察",
+    "avoid": "回避",
+}
+
 
 # Audit P5 (2026-05-20) required composite_score methodology disclosure.
 # Single-line footnote keeps the table compact while satisfying the
@@ -48,6 +55,9 @@ class PickRow:
     valuation_state: str = ""
     venue_note: str = ""
     citations: tuple[ThesisEvidence, ...] = field(default_factory=tuple)
+    # Gates verdict (actionable_buy / blocked / watch_only / avoid). Defaults
+    # to watch_only so callers/tests that omit it stay backwards-compatible.
+    decision_status: str = "watch_only"
 
 
 def _action_cn(row: PickRow) -> str:
@@ -96,17 +106,18 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
         unique.append(r)
 
     header = (
-        "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 机会状态 | 本期行动 | 主要理由 | 证据 |\n"
-        "|---|---|---|---|---|---|---|---|---|"
+        "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | 主要理由 | 证据 |\n"
+        "|---|---|---|---|---|---|---|---|---|---|"
     )
     lines = [header]
     for r in unique:
         weight_str = f"{r.target_weight * 100:.1f}%"
         score_str = _format_score(r)
         citations_cell = _format_citations_cell(r.citations)
+        decision_cell = _DECISION_CN.get(r.decision_status, r.decision_status)
         lines.append(
             f"| {r.instrument_id} | {r.name_cn} | {r.role} | "
-            f"{weight_str} | {score_str} | {r.opportunity_state} | "
+            f"{weight_str} | {score_str} | {decision_cell} | {r.opportunity_state} | "
             f"{_action_cn(r)} | {r.one_line_reason} | {citations_cell} |"
         )
     lines.append("")

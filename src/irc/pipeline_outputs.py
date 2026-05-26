@@ -13,6 +13,7 @@ STAGE_REQUIRED_OUTPUTS: dict[str, tuple[str, ...]] = {
     # `memo.md` for audit pass or `memo_blocked.md` for audit block satisfies);
     # this empty tuple is just the manifest-presence sentinel.
     "memo":        (),
+    "decision":    ("decision_report.json", "decision_report.md"),
 }
 
 
