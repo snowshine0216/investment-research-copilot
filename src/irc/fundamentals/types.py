@@ -232,6 +232,11 @@ class ActiveFundSnapshot:
     constituent_analyses: tuple[ConstituentAnalysis, ...]
     failure_reasons_by_symbol: dict[str, tuple[str, ...]]
     fund_level_failure_reasons: tuple[str, ...] = ()
+    # Item 001 (decision-confidence-followup): row-level evidence (NAV + announcements)
+    # consumed by Policy B rule 2.5 (foreign-heavy short-circuit). Same shape as
+    # FundLevelSnapshot.evidence: scope="instrument", owner_instrument_id=fund_id,
+    # parent_fund_id=None, constituent_key=None. See ADR 0003 §7.
+    fund_level_evidence: tuple[ThesisEvidence, ...] = ()
 
 
 # ── Item 005: Fund-level types ────────────────────────────────────────────────

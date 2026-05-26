@@ -443,12 +443,69 @@ def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -
     return " · ".join(fragments)[:60]
 
 
+def _fetch_active_fund_level_evidence(
+    fund_id: str,
+) -> tuple[tuple[ThesisEvidence, ...], list[str]]:
+    """Fetch fund-level NAV + announcements for an active fund.
+
+    Mirrors the citation shape produced by `_build_fund_level_snapshot`:
+    scope="instrument", owner_instrument_id=fund_id, parent_fund_id=None,
+    constituent_key=None. Returns (evidence_tuple, failure_reasons_list).
+    Item 001 (ADR 0003 §7): Policy B rule 2.5 consumes the data + information
+    legs to short-circuit foreign-heavy funds. Per-fund call delta = 2 AkShare
+    calls; see `_fetch_budget` in opportunity_cmd.py (default budget 2000).
+    """
+    evidence: list[ThesisEvidence] = []
+    failures: list[str] = []
+    nav = fetch_fund_nav_report(fund_id)
+    if nav is not None:
+        evidence.append(ThesisEvidence(
+            type="snapshot",
+            source=fund_id,
+            url="",
+            date=nav.latest_nav_date,
+            summary=f"NAV={nav.latest_nav:.4f} @ {nav.latest_nav_date}",
+            scope="instrument",
+            citation_kind="data",
+            owner_instrument_id=fund_id,
+            parent_fund_id=None,
+            constituent_key=None,
+        ))
+    else:
+        failures.append(f"fund_nav_unavailable:{fund_id}")
+    anns = fetch_fund_announcements(fund_id)
+    if anns:
+        for a in anns[:_FUND_LEVEL_INFO_CAP]:
+            evidence.append(ThesisEvidence(
+                type="news",
+                source=f"fund_announcement_{a.topic}_em",
+                url="",
+                date=a.date,
+                summary=f"[{a.report_id}] {a.title}",
+                scope="instrument",
+                citation_kind="information",
+                owner_instrument_id=fund_id,
+                parent_fund_id=None,
+                constituent_key=None,
+            ))
+    else:
+        failures.append(f"fund_announcements_unavailable:{fund_id}")
+    return tuple(evidence), failures
+
+
 def _build_active_fund_snapshot(
     target: LookthroughTarget, *, top_n: int,
 ) -> ActiveFundSnapshot:
-    """Fetch holdings then per-constituent evidence per exchange routing."""
+    """Fetch holdings then per-constituent evidence per exchange routing.
+
+    Item 001 (ADR 0003 §7): ALWAYS fetches fund-level NAV + announcements so
+    Policy B rule 2.5 can short-circuit foreign-heavy funds whose top-N
+    holdings are HK/US-listed (and therefore unreachable by the per-holding
+    CN filings pipeline).
+    """
     fund_id = target.provider_symbol
     holdings = fetch_cn_etf_holdings(target.provider_symbol, top_n=top_n)
+    fund_evidence, fund_evidence_failures = _fetch_active_fund_level_evidence(fund_id)
     if not holdings.constituents:
         return ActiveFundSnapshot(
             fund_id=fund_id,
@@ -459,7 +516,8 @@ def _build_active_fund_snapshot(
             failure_reasons_by_symbol={},
             fund_level_failure_reasons=(
                 f"holdings_fetch_failed:{fund_id}:empty",
-            ),
+            ) + tuple(fund_evidence_failures),
+            fund_level_evidence=fund_evidence,
         )
     # P0-5: if quarter parse failed (semi-annual or unparseable text), stamp the
     # fund-level failure reason.  The snapshot is still returned for downstream
@@ -490,7 +548,8 @@ def _build_active_fund_snapshot(
         cache_probed_at="",
         constituent_analyses=tuple(analyses),
         failure_reasons_by_symbol=fail_by_symbol,
-        fund_level_failure_reasons=tuple(fund_level_failures),
+        fund_level_failure_reasons=tuple(fund_level_failures) + tuple(fund_evidence_failures),
+        fund_level_evidence=fund_evidence,
     )
 
 

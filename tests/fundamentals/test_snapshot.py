@@ -408,3 +408,85 @@ def test_build_snapshot_active_fund_records_us_unsupported(monkeypatch) -> None:
     out = build_snapshot(target, top_n=1)
     assert isinstance(out, ActiveFundSnapshot)
     assert "us_evidence_unsupported:AAPL" in out.failure_reasons_by_symbol["AAPL"]
+
+
+def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
+    """Item 001: _build_active_fund_snapshot must fetch NAV + announcements
+    and stamp them on `fund_level_evidence`."""
+    from irc.fundamentals import snapshot as _snap_mod
+    from irc.fundamentals.types import (
+        FundAnnouncement,
+        FundHolding,
+        FundNavReport,
+        HoldingsResult,
+        LookthroughTarget,
+    )
+
+    fund_id = "006809"
+
+    def _fake_holdings(provider_symbol: str, *, top_n: int) -> HoldingsResult:
+        assert provider_symbol == fund_id
+        return HoldingsResult(
+            constituents=(
+                FundHolding(
+                    symbol="00700.HK",
+                    name_cn="腾讯控股",
+                    weight_pct=10.0,
+                    exchange="HK",
+                    provider_symbol="00700.HK",
+                ),
+            ),
+            source_report_date="2024-03-31",
+            source_report_quarter="2024Q1",
+        )
+
+    def _fake_nav(fid: str) -> FundNavReport:
+        assert fid == fund_id
+        return FundNavReport(
+            fund_id=fid,
+            fund_name="泰康香港银行指数A",
+            latest_nav=1.2345,
+            latest_nav_date="2024-04-15",
+            nav_history=(("2024-04-15", 1.2345),),
+            source_report_quarter="2024Q1",
+        )
+
+    def _fake_announcements(fid: str):
+        assert fid == fund_id
+        return (
+            FundAnnouncement(
+                fund_id=fid,
+                title="季度报告",
+                topic="report",
+                date="2024-04-10",
+                report_id="REP-1",
+            ),
+        )
+
+    def _fake_evidence_for_constituent(holding, *, fund_id):
+        # HK holding hits the no-filings path in real code; emulate empty.
+        return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"]
+
+    monkeypatch.setattr(_snap_mod, "fetch_cn_etf_holdings", _fake_holdings)
+    monkeypatch.setattr(_snap_mod, "fetch_fund_nav_report", _fake_nav)
+    monkeypatch.setattr(_snap_mod, "fetch_fund_announcements", _fake_announcements)
+    monkeypatch.setattr(
+        _snap_mod, "_evidence_for_constituent", _fake_evidence_for_constituent
+    )
+
+    target = LookthroughTarget(
+        kind="active_fund",
+        key=fund_id,
+        display_cn="泰康香港银行指数A",
+        provider_symbol=fund_id,
+    )
+    snap = _snap_mod._build_active_fund_snapshot(target, top_n=10)
+
+    assert len(snap.fund_level_evidence) == 2
+    kinds = sorted(e.citation_kind for e in snap.fund_level_evidence)
+    assert kinds == ["data", "information"]
+    for e in snap.fund_level_evidence:
+        assert e.scope == "instrument"
+        assert e.owner_instrument_id == fund_id
+        assert e.parent_fund_id is None
+        assert e.constituent_key is None

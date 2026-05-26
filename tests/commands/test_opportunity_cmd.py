@@ -407,8 +407,8 @@ def test_fetch_plan_total_calls_active_fund_only() -> None:
         active_fund_misses=5, active_fund_stale=0,
         passive_misses=0, passive_stale=0, top_n=10,
     )
-    # 5 × (1 + 10*3) = 5 × 31 = 155
-    assert plan.total_calls() == 155
+    # 5 × (1 + 10*3 + 4) = 5 × 35 = 175
+    assert plan.total_calls() == 175
 
 
 def test_fetch_plan_total_calls_with_stale_and_passive() -> None:
@@ -417,8 +417,8 @@ def test_fetch_plan_total_calls_with_stale_and_passive() -> None:
         active_fund_misses=2, active_fund_stale=3,
         passive_misses=4, passive_stale=1, top_n=10,
     )
-    # (2 + 3) × 31 + 4×2 + 1×2 = 155 + 8 + 2 = 165
-    assert plan.total_calls() == 165
+    # (2+3) × 35 + 4×2 + 1×2 = 175 + 8 + 2 = 185
+    assert plan.total_calls() == 185
 
 
 def test_fetch_budget_exceeded_carries_breakdown() -> None:

@@ -1,8 +1,10 @@
 """Item 006 Slice H2.v2 — Policy B weight-aware quorum evaluator.
 
-Five-rule precedence (1 → 2 → 3 → 4 → 5), locked by ADR 0003 §1. Each rule
-short-circuits when it fires. Applies ONLY to `ActiveFundSnapshot` — passive
-`FundLevelSnapshot` and legacy `ConstituentSnapshot` never feed this module.
+Six-rule precedence (1 → 2 → 2.5 → 3 → 4 → 5), locked by ADR 0003 §1+§7.
+Each rule short-circuits when it fires. Applies ONLY to `ActiveFundSnapshot`
+— passive `FundLevelSnapshot` and legacy `ConstituentSnapshot` never feed
+this module. Rule 2.5 (item 001 amendment) accepts fund-level NAV+announcement
+evidence in lieu of per-holding filings when foreign weight share ≥ 50 %.
 
 See `docs/adr/0003-failure-mode-policy-b.md` for the full rationale.
 """
@@ -10,8 +12,16 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from typing import Final
 
 from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
+
+# Item 001 (decision-confidence-followup): foreign-heavy threshold for Policy B rule 2.5.
+# Hardcoded per ADR 0003 §7 — operators tuning thresholds at runtime would silently
+# weaken the audit trail. Future promotion to env var follows IRC_CACHE_FRESHNESS_DAYS.
+FOREIGN_HEAVY_THRESHOLD: Final[float] = 0.50
+_FOREIGN_EXCHANGES: Final[frozenset[str]] = frozenset({"HK", "US"})
 
 
 def MATERIAL_HOLDING_QUORUM(top_n: int) -> int:
@@ -91,6 +101,29 @@ def _rank_by_weight(
     return tuple(sorted(analyses, key=lambda c: (-c.weight_pct, c.symbol)))
 
 
+def _compute_foreign_listed_share(
+    ranked: tuple[ConstituentAnalysis, ...],
+) -> float:
+    """Weight share of constituents listed on HK or US exchanges.
+
+    Returns a fraction in [0.0, 1.0]. Returns 0.0 on empty input or when
+    `sum(weight_pct)` is 0 (defensive guard; rule 1 should have caught this).
+    Pure, deterministic. Foreign = `_infer_exchange(symbol) in {"HK", "US"}`.
+    `UNKNOWN` and `BJ` are NOT counted as foreign (spec non-goal; conservative
+    fail-safe per ADR 0003 §7).
+    """
+    if not ranked:
+        return 0.0
+    total = sum(c.weight_pct for c in ranked)
+    if total <= 0:
+        return 0.0
+    foreign = sum(
+        c.weight_pct for c in ranked
+        if _infer_exchange(c.symbol) in _FOREIGN_EXCHANGES
+    )
+    return foreign / total
+
+
 def _material_set_with_ties(
     ranked: tuple[ConstituentAnalysis, ...],
     *,
@@ -168,12 +201,16 @@ class PolicyBVerdict:
     `decision_rule` is a template-format-locked string for stable diff output
     (criterion 11). `material_symbols` is the symbol list of the material
     top-half (weight-rank ascending).
+    `fired_rule` is a structural discriminator: "1", "2", "2.5", "3", "4",
+    "5", or "" (publishable / default). Prefer this over `startswith` matching
+    on `decision_rule` text (item 001, P1-1).
     """
     gap_codes: tuple[str, ...]
     audit_errors: tuple[str, ...]
     decision_rule: str
-    material_symbols: tuple[str, ...]
-    constituent_coverage: tuple[ConstituentCoverageEntry, ...]
+    fired_rule: str = ""  # "1", "2", "2.5", "3", "4", "5", or "" (publishable)
+    material_symbols: tuple[str, ...] = ()
+    constituent_coverage: tuple[ConstituentCoverageEntry, ...] = ()
 
 
 def evaluate_policy_b(
@@ -198,6 +235,7 @@ def evaluate_policy_b(
             gap_codes=("holdings_fetch_failed",),
             audit_errors=(),
             decision_rule="holdings adapter empty/failed",
+            fired_rule="1",
             material_symbols=(),
             constituent_coverage=(),
         )
@@ -208,6 +246,7 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_record",),
             audit_errors=("empty_constituent_analyses_without_failure_reason",),
             decision_rule=f"empty constituent_analyses; 0 of {top_n} holdings",
+            fired_rule="2",
             material_symbols=(),
             constituent_coverage=(),
         )
@@ -227,10 +266,51 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_record",),
             audit_errors=audit_errors,
             decision_rule=f"missing constituent records: {len(missing)} of {top_n}",
+            fired_rule="2",
             material_symbols=_material_symbols(ranked, top_n),
             constituent_coverage=_build_coverage_entries(
                 ranked, top_n, audit_overrides=audit_overrides,
             ),
+        )
+
+    # Rule 2.5: foreign-heavy short-circuit (item 001, ADR 0003 §7).
+    # Active CN equity funds with ≥ 50 % top-N weight listed on HK or US
+    # exchanges (e.g. 006809) cannot satisfy rule 3's per-holding data leg
+    # because the CN filings pipeline doesn't reach HK/US tickers. Accept
+    # fund-level NAV + announcement evidence as the dual-coverage substitute.
+    foreign_share = _compute_foreign_listed_share(ranked)
+    if foreign_share >= FOREIGN_HEAVY_THRESHOLD:
+        fund_evidence = snapshot.fund_level_evidence
+        has_data = any(e.citation_kind == "data" for e in fund_evidence)
+        has_info = any(e.citation_kind == "information" for e in fund_evidence)
+        share_pct = f"{foreign_share * 100:.0f}%"
+        if has_data and has_info:
+            return PolicyBVerdict(
+                gap_codes=(),
+                audit_errors=(),
+                decision_rule=(
+                    f"foreign-heavy (share={share_pct}); fund-level "
+                    f"NAV+announcements accepted"
+                ),
+                fired_rule="2.5",
+                material_symbols=_material_symbols(ranked, top_n),
+                constituent_coverage=_build_coverage_entries(ranked, top_n),
+            )
+        missing_legs: list[str] = []
+        if not has_data:
+            missing_legs.append("data")
+        if not has_info:
+            missing_legs.append("information")
+        return PolicyBVerdict(
+            gap_codes=("foreign_heavy_fund_level_evidence_missing",),
+            audit_errors=(),
+            decision_rule=(
+                f"foreign-heavy (share={share_pct}); fund-level evidence "
+                f"missing legs: {missing_legs}"
+            ),
+            fired_rule="2.5",
+            material_symbols=_material_symbols(ranked, top_n),
+            constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
 
     # Rule 3: per-holding data leg required for ALL ranked holdings.
@@ -247,6 +327,7 @@ def evaluate_policy_b(
                 f"data leg missing for {len(no_data_leg)} of {top_n} holdings: "
                 f"{symbols}"
             ),
+            fired_rule="3",
             material_symbols=_material_symbols(ranked, top_n),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
@@ -265,6 +346,7 @@ def evaluate_policy_b(
                 f"info-leg quorum {len(material)} of {top_n}; "
                 f"{len(info_satisfied)} of material top-half satisfied"
             ),
+            fired_rule="4",
             material_symbols=tuple(c.symbol for c in material),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
@@ -280,6 +362,7 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_coverage",),
             audit_errors=(),
             decision_rule=f"holdings with no evidence: {len(only_failure)} of {top_n}",
+            fired_rule="5",
             material_symbols=tuple(c.symbol for c in material),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )

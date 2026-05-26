@@ -1,8 +1,8 @@
 # ADR 0003 — Failure-mode + Policy B weight-aware quorum + H3 universal gapped-row invariant
 
-**Status:** Accepted (2026-05-23, item 006)
+**Status:** Accepted (2026-05-23, item 006). **Amended 2026-05-26** (decision-confidence-followup item 001 — §7 added; §1 precedence list amended from five rules to six rules).
 **Supersedes:** none. Builds on [ADR 0001 — citation data model](0001-citation-data-model.md) and [ADR 0002 — active-fund fetch engine](0002-active-fund-fetch-engine.md).
-**Spec:** `docs/2026-05-22-thesis-cards-evidence-gap/items/006-spec.md`
+**Spec:** `docs/2026-05-22-thesis-cards-evidence-gap/items/006-spec.md` (original); `docs/2026-05-26-decision-confidence-followup/items/001-spec.md` (§7 amendment).
 
 ## Context
 
@@ -18,12 +18,13 @@ This ADR locks all three. Reviewers reading `rejection_log.py`, `failure_rendere
 
 ## Decision
 
-### 1. Policy B v2 — five-rule precedence with weight-aware quorum
+### 1. Policy B v2 — six rules in fixed precedence with weight-aware quorum
 
-`evaluate_policy_b(snapshot: ActiveFundSnapshot, *, top_n: int) -> PolicyBVerdict` evaluates exactly five rules in this fixed order. Each rule short-circuits when it fires:
+`evaluate_policy_b(snapshot: ActiveFundSnapshot, *, top_n: int) -> PolicyBVerdict` evaluates exactly six rules in this fixed order. Each rule short-circuits when it fires:
 
 1. **`holdings_fetch_failed`** — `snapshot.constituent_analyses == () AND snapshot.fund_level_failure_reasons` non-empty.
 2. **`incomplete_constituent_record` (audit error)** — any `ConstituentAnalysis` with `evidence == () AND failure_reasons == ()`. Item 003's adapter contract was violated; the constituent record is shape-corrupt. Audit error string: `f"missing_constituent_record:{symbol}"`.
+2.5. **Foreign-heavy short-circuit** — `_compute_foreign_listed_share(ranked) >= FOREIGN_HEAVY_THRESHOLD` (default 0.50). If `snapshot.fund_level_evidence` carries ≥1 `citation_kind="data"` AND ≥1 `citation_kind="information"` entry → publishable (`gap_codes=()`). Else → `gap_codes=("foreign_heavy_fund_level_evidence_missing",)`. See §7 for the rationale; this rule is the post-2026-05-26 amendment.
 3. **`incomplete_constituent_data` (per-holding data leg)** — any holding in the top-N lacks a `citation_kind="data"` evidence entry. Disclosure listed the holding, so missing data-leg is a real gap. Tail holdings are NOT exempt.
 4. **`insufficient_info_coverage_top_half` (weight-aware info quorum)** — the material top-half (top `ceil(top_N/2)` holdings by weight, EXTENDED to include positions tied at the cutoff weight) must EACH have a `citation_kind="information"` evidence entry. Tail holdings may be data-only without blocking.
 5. **`incomplete_constituent_coverage`** — at least one constituent has `evidence == () AND failure_reasons != ()` (mixed case: some constituents have evidence + diagnostics, others have only diagnostics). Rule 5 catches the case rule 3 doesn't reach when not ALL top-N lack data leg.
@@ -31,6 +32,7 @@ This ADR locks all three. Reviewers reading `rejection_log.py`, `failure_rendere
 **Why this order:**
 - Rule 1 first because nothing else is computable without holdings.
 - Rule 2 second because a corrupt-shape record poisons downstream interpretation; audit error is the most informative failure to surface.
+- Rule 2.5 next — must run AFTER rule 2 (foreign-heavy short-circuit must not paper over a fundamentally broken snapshot) but BEFORE rule 3 (whose per-holding data-leg requirement is exactly what the relaxation supersedes for HK/US-heavy funds). See §7 for the full rationale.
 - Rule 3 third because data-leg is universally required (every holding); rule 4 (info-leg) is weight-restricted to the material set. Surfacing data-leg failure as its own code lets the operator distinguish "the filings pipeline broke" from "we don't have enough broker commentary."
 - Rule 4 fourth — info-leg quorum is the V1 signature gate (drives the US-heavy systematic exclusion).
 - Rule 5 last — the leftover diagnostic, not a primary cause.
@@ -108,6 +110,55 @@ Item 007's territory (per item 006's "Out of scope") remains memo evidence_pool 
 - The QDII sentinel (item 005's `_build_qdii_sentinel_snapshot`) emits `evidence_gaps=("qdii_information_unavailable",)` directly; Policy B has no role.
 
 `_classify_rejection_reason` (the post-partition helper) handles ALL gap codes (QDII + Policy B + fund-level) so the rejection log records every excluded fund regardless of which engine stamped the gap. But the Policy B evaluator itself only runs for active funds.
+
+### 7. Foreign-heavy fund relaxation (rule 2.5) — 2026-05-26 amendment
+
+**Context.** Active CN equity funds whose top-N constituents are weight-majority listed outside Mainland China (HK or US) — e.g. `006809 泰康香港银行指数A` whose top-10 are all HK names — failed rule 3 (`incomplete_constituent_data`) under the original five-rule contract. The per-holding CN filing pipeline (`fetch_cn_filing_digest`, `fetch_cn_broker_reports`) does not reach HK or US tickers, so by construction the data-leg requirement is unsatisfiable for these funds — yet the fund itself is a publishable, investable CN-registered vehicle that discloses fund-level NAV and announcements via the same AkShare endpoints used by gold / bond / broad_index (and, post-2026-05-25, QDII per `project_qdii_fetch_reform.md`).
+
+This is the same shape problem the QDII reform solved, but the QDII reform routed the entire row through `_build_fund_level_snapshot`, skipping Policy B. Active funds cannot do that — they need the `## 持仓明细` appendix to render per-constituent context, which requires the `ActiveFundSnapshot` path. So rule 2.5 is a Policy B precedence-list amendment instead: the snapshot stays on the active-fund path, but Policy B accepts fund-level NAV + announcement evidence as the dual-coverage gate substitute when the foreign weight share is ≥ 50 %.
+
+**Decision.** Insert a new rule 2.5 between rules 2 and 3 with the semantics in §1 above. Producer-side, `_build_active_fund_snapshot` ALWAYS fetches fund-level NAV + announcements (regardless of whether rule 2.5 will fire) and stamps the result on a new `ActiveFundSnapshot.fund_level_evidence` field. Foreign share is **derived at evaluation time** by `_compute_foreign_listed_share(ranked)`, never persisted on the snapshot — mirrors §2's "audit_errors derived, never persisted" principle.
+
+**Why a precedence rule and not a producer-side reroute:**
+- Re-routing through `_build_fund_level_snapshot` (QDII-style) would strip `constituent_analyses`, breaking the `## 持仓明细` appendix renderer (CONTEXT.md "持仓明细 appendix").
+- The operator still needs to see WHICH HK/US names the fund holds — that visibility is the whole point of the appendix.
+- Keeping the change at the audit layer means existing producer contracts (cache shape modulo the new field, freshness probe, fetch budget) are preserved.
+
+**Why 50 % and `>=`:**
+- The threshold demarcates "majority of holdings are unreachable by CN filings pipeline" — anything below 50 % means at least half the material weight is CN-listed, so rule 3's per-holding data-leg requirement is satisfiable in principle.
+- `>=` so a fund sitting exactly at 50.0 % foreign weight is accepted (boundary-inclusive matches the "≥ 50 %" language in the source handoff).
+- Hardcoded as `FOREIGN_HEAVY_THRESHOLD` in `policy_b.py` — no YAML / env-var knob in V1. Operators tuning thresholds at runtime would silently weaken the audit trail. Future promotion to `IRC_FOREIGN_HEAVY_THRESHOLD` follows the `IRC_CACHE_FRESHNESS_DAYS` precedent.
+
+**Why fund-level NAV + announcement (not NAV alone):**
+- The downstream dual-coverage gate (CONTEXT.md "Dual-coverage gate") requires ≥1 `citation_kind="data"` AND ≥1 `citation_kind="information"` per publishable row. NAV alone satisfies data but not information.
+- The pair maps to existing adapters (`fetch_fund_nav_report` → data; `fetch_fund_announcements` → information) — same shape as `_build_fund_level_snapshot`, no new infrastructure.
+
+**Why `UNKNOWN` and `BJ` are NOT counted as foreign:**
+- `BJ` (Beijing Stock Exchange) is mainland — funds with BJ-heavy holdings are reachable by the CN filings pipeline.
+- `UNKNOWN` is treated conservatively to prevent accidental publishability via unresolved tickers. A future ticker-resolution improvement that converts `UNKNOWN` → `HK`/`US` would naturally re-classify the fund without an ADR amendment.
+
+**`RejectionReasonCode` additions:**
+- A new literal `"foreign_heavy_evidence_missing"` is added to `RejectionReasonCode` and to `_GAP_TO_REASON`, identity-mapped from the gap code `foreign_heavy_fund_level_evidence_missing`. The new entry is appended LAST in `_GAP_TO_REASON` (mirroring the `citation_gate_blocked` precedent) so existing precedence — QDII first, structural Policy B codes next — is unchanged.
+
+**Cache-shape compatibility.**
+- `ActiveFundSnapshot.fund_level_evidence: tuple[ThesisEvidence, ...] = ()` defaults to empty, so existing call sites and test factories continue to compile without modification.
+- The cache serialiser (`_active_fund_to_dict` / `_active_fund_from_dict` in `snapshot_cache.py`) gains a round-trip for the new field. Older cache files missing the field re-hydrate with `()` and the next canonical run's fail-closed freshness probe (ADR 0002 §2) fires a fresh fetch, populating the new field. No manual cache invalidation required.
+
+**Interaction with §6 (Policy B applies ONLY to ActiveFundSnapshot).**
+- Rule 2.5 is **inside** Policy B and only fires when the input is `ActiveFundSnapshot`. The boundary in §6 is preserved.
+- QDII funds (routed through `_build_fund_level_snapshot` per the 2026-05-25 reform) bypass Policy B entirely — rule 2.5 has no effect on them.
+
+**Interaction with §5 (V1 systematic exclusions tally).**
+- Funds previously failing at rule 3 (`incomplete_constituent_data`) due to all-HK / all-US holdings will now either publish via rule 2.5 OR fail via the new `foreign_heavy_evidence_missing` code — they will NOT reach rule 4.
+- The `## V1 systematic exclusions: N funds excluded due to US-heavy material holdings` line counts `insufficient_info_coverage_top_half` (rule 4) entries only, so its count is structurally unchanged by rule 2.5. Funds caught at rule 2.5's failure branch appear in `rejections.json` under the new code, NOT in the V1 systematic exclusions tally.
+
+**Fetch budget impact.**
+- Per active fund, `_build_active_fund_snapshot` now fires **2 additional AkShare calls** (NAV + announcements). On a full canonical run with ~50 active funds this adds ~100 calls; well under the default `IRC_FETCH_BUDGET=2000`. No preflight-budget contract change.
+
+**Trade-off considered:**
+- *Alternative A — extend `RejectionReasonCode` precedence so foreign-heavy funds map to a softer existing code (e.g. `incomplete_constituent_data`).* Rejected: the operator distinction "we couldn't reach this fund's data because the per-holding pipeline doesn't cover HK/US" vs "the filings pipeline broke" is exactly what the new code preserves.
+- *Alternative B — promote rule 2.5 into a standalone ADR 0005.* Rejected: ADR 0003 §1 IS the precedence-list ADR. A reader landing in 0003 must see rule 2.5; a sibling ADR 0005 that overrides §1 from outside would invite drift. Amendment-in-place is the load-bearing structural choice.
+- *Alternative C — make the threshold YAML-configurable from V1.* Rejected: a policy decision belongs in code+ADR. Runtime tuning would silently weaken the audit trail. Future promotion to env var is reversible without an API change.
 
 ## Consequences
 

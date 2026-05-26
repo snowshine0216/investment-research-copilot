@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `policy-b-foreign-heavy` (2026-05-26)
+
+Policy B rule 2.5 (foreign-heavy short-circuit) — when a fund's top-N
+constituent weight is ≥ 50% non-CN-listed (HK/US), accept fund-level
+NAV + announcement evidence as the data leg instead of requiring per-
+holding filings. Mirrors the 2026-05-25 QDII fetch reform (ADR 0002
+§5 F4 / `project_qdii_fetch_reform` memory) for the active-fund path
+that Policy B governs. Unblocks 006809 and any future HK-heavy
+discretionary fund whose holdings are unreachable by the CN filings
+pipeline. Precedence: rule 2.5 fires between rule 2 and rule 3; no
+existing rule changes.
+
+Changes:
+
+- `src/irc/opportunity/policy_b.py` adds `_compute_foreign_listed_share`
+  (pure helper aggregating constituent weights by exchange), the
+  `FOREIGN_HEAVY_THRESHOLD: Final[float] = 0.50` constant, and rule 2.5
+  in `evaluate_policy_b`. `PolicyBVerdict` gains `fired_rule: str = ""`
+  (structural discriminator; populated with `"1" / "2" / "2.5" / "3" /
+  "4" / "5"` at each emit site).
+- `src/irc/opportunity/rejection_log.py` appends new gap code
+  `foreign_heavy_fund_level_evidence_missing` (mapped to rejection
+  reason `foreign_heavy_evidence_missing`) LAST in `_GAP_TO_REASON` to
+  preserve all prior precedence.
+- `src/irc/fundamentals/types.py` adds optional field `fund_level_evidence:
+  tuple[ThesisEvidence, ...] = ()` to `ActiveFundSnapshot` (backward-
+  compatible default; legacy cache files rehydrate to `()`).
+- `src/irc/fundamentals/snapshot.py` adds `_fetch_active_fund_level_evidence`
+  helper that unconditionally fetches NAV (`fetch_fund_nav_report`) +
+  announcements (`fetch_fund_announcements`) for every active fund;
+  `_build_active_fund_snapshot` now stamps `fund_level_evidence` on
+  every `ActiveFundSnapshot` it builds.
+- `src/irc/fundamentals/snapshot_cache.py` round-trips the new field
+  symmetrically (legacy files default to `()`).
+- `src/irc/commands/opportunity_cmd.py` `_stamp_fund_level_evidence_from_verdict`
+  stamps fund-level citations onto publishable rule-2.5 rows (`scope=
+  "instrument"`, `owner_instrument_id=fund_id`). `FetchPlan.total_calls()`
+  accounts for the +4 AkShare calls per active fund (1 NAV + 3
+  announcement endpoints).
+- `docs/adr/0003-failure-mode-policy-b.md` adds §7 documenting the rule
+  2.5 contract; precedence table amended from "five rules" to "six rules".
+- `CONTEXT.md` adds glossary entries for `ActiveFundSnapshot.fund_level_evidence`,
+  "Foreign-heavy fund (rule 2.5 short-circuit)", and `FOREIGN_HEAVY_THRESHOLD`.
+
 ### Added — `decision-confidence + bond-yield-anchor` (2026-05-26)
 
 Closes the five issues that prevented a reader of `outputs/<DATE>/memo.md`

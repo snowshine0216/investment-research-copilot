@@ -31,6 +31,8 @@ RejectionReasonCode = Literal[
     "fund_announcements_unavailable",
     "missing_us_news_adapter",
     "citation_gate_blocked",  # Item 009 Q4 — set by opportunity-stage citation gate.
+    # Item 001 (decision-confidence-followup): Policy B rule 2.5 failure branch.
+    "foreign_heavy_evidence_missing",
 ]
 
 
@@ -95,6 +97,11 @@ _GAP_TO_REASON: dict[str, RejectionReasonCode] = {
     # existing precedence (qdii first, etc.) is unchanged. Item 008 AC11's
     # hard-coded "qdii_information_unavailable" string stays valid.
     "citation_gate_blocked":                "citation_gate_blocked",
+    # Item 001 (decision-confidence-followup): Policy B rule 2.5 failure branch.
+    # Identity mapping. Appended LAST (mirroring `citation_gate_blocked` precedent)
+    # so existing precedence (QDII first, structural Policy B codes next) is
+    # unchanged. See ADR 0003 §7.
+    "foreign_heavy_fund_level_evidence_missing": "foreign_heavy_evidence_missing",
 }
 
 
