@@ -799,3 +799,33 @@ def test_fetch_qdii_premium_pct_uses_bulk_table_once_for_many_symbols() -> None:
         assert mocked.call_count == 1
     finally:
         _fetch_full_etf_spot_table.cache_clear()
+
+
+import os as _os_live  # local alias so we don't shadow other imports
+
+
+@pytest.mark.live_akshare
+@pytest.mark.skipif(
+    _os_live.environ.get("IRC_RUN_LIVE_AKSHARE") != "1",
+    reason="set IRC_RUN_LIVE_AKSHARE=1 to run live AkShare tests",
+)
+def test_fetch_qdii_premium_pct_live() -> None:
+    """Live: at least one of {159691, 513690, 513650} returns a sane float.
+
+    Sanity bound (-1.0, 1.0): premium values outside ±100% indicate a parser
+    error (the column should never be that large in normal markets).
+    """
+    from irc.data.akshare_client import (
+        _fetch_full_etf_spot_table,
+        fetch_qdii_premium_pct,
+    )
+    _fetch_full_etf_spot_table.cache_clear()
+    try:
+        symbols = ("159691", "513690", "513650")
+        results = {s: fetch_qdii_premium_pct(s) for s in symbols}
+        floats = [v for v in results.values() if isinstance(v, float)]
+        assert floats, f"no float returned for any of {symbols}: {results!r}"
+        for v in floats:
+            assert -1.0 < v < 1.0, f"premium {v!r} outside ±100% sanity bound"
+    finally:
+        _fetch_full_etf_spot_table.cache_clear()
