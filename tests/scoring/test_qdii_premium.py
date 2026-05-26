@@ -248,6 +248,48 @@ def test_score_cmd_composes_resolver_via_qdii_premium_for_row() -> None:
     assert callable(qdii_premium_for_row)
 
 
+def test_smoke_eight_master_spec_instruments_route_correctly() -> None:
+    """Per spec Goal: the 8 MASTER-SPEC instruments split into 3 on-exchange
+    (fetcher invoked) + 5 off-exchange (synthetic 0.0 injected).
+    """
+    on_exchange = [
+        ("159691", "hk_etf"),
+        ("513690", "us_etf"),
+        ("513650", "us_etf"),
+    ]
+    off_exchange = [
+        ("517641", "us_etf"),
+        ("019172", "us_etf"),
+        ("161716", "us_etf"),
+        ("016452", "us_etf"),
+        ("019547", "qdii_global"),
+    ]
+    fetcher_calls: list[str] = []
+
+    def fetcher(symbol: str) -> float | None:
+        fetcher_calls.append(symbol)
+        return 0.01  # healthy 1% premium
+
+    on_results = [
+        qdii_premium_for_row(
+            asset_class=ac, market="cn_on_exchange",
+            fetcher=fetcher, symbol=sym,
+        )
+        for sym, ac in on_exchange
+    ]
+    off_results = [
+        qdii_premium_for_row(
+            asset_class=ac, market="cn_off_exchange",
+            fetcher=fetcher, symbol=sym,
+        )
+        for sym, ac in off_exchange
+    ]
+    assert on_results == [0.01, 0.01, 0.01]
+    assert off_results == [0.0, 0.0, 0.0, 0.0, 0.0]
+    # Fetcher invoked exactly 3 times — one per on-exchange row.
+    assert sorted(fetcher_calls) == ["159691", "513650", "513690"]
+
+
 def test_qdii_asset_classes_defined_exactly_once_in_src() -> None:
     """AC21: the constant lives in qdii_premium.py only; other modules import."""
     import subprocess
