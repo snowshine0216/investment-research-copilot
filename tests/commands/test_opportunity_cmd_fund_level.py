@@ -204,7 +204,7 @@ def test_fetch_plan_includes_fund_level_costs(tmp_path: Path) -> None:
 def test_fetch_plan_combines_active_and_fund_level_costs() -> None:
     from irc.commands.opportunity_cmd import FetchPlan
     plan = FetchPlan(
-        active_fund_misses=2,   # 2 × (1+10×3) = 62
+        active_fund_misses=2,   # 2 × (1+10×3+4) = 70 — +4 for fund-level NAV+announcements (item 001)
         active_fund_stale=0,
         passive_misses=0,
         passive_stale=0,
@@ -212,7 +212,7 @@ def test_fetch_plan_combines_active_and_fund_level_costs() -> None:
         fund_level_misses=5,    # 5 × 4 = 20
         fund_level_stale=0,
     )
-    assert plan.total_calls() == 62 + 20
+    assert plan.total_calls() == 70 + 20
 
 
 def test_preflight_does_not_exceed_budget_for_v1_universe() -> None:
