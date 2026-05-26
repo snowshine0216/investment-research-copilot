@@ -876,3 +876,28 @@ def test_active_fund_snapshot_fund_level_evidence_defaults_to_empty() -> None:
         failure_reasons_by_symbol={},
     )
     assert snap.fund_level_evidence == ()
+
+
+def test_evaluate_policy_b_rule_2_5_sets_fired_rule_literal() -> None:
+    """Rule 2.5 verdict carries `fired_rule='2.5'` for structural discrimination."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # All 10 holdings are HK — foreign share = 100 % ≥ threshold.
+    # Fund-level evidence supplies both data and info legs → rule 2.5 publishes.
+    analyses = tuple(
+        _ca(
+            f"0070{i}.HK", 10.0 - i,
+            evidence=(),
+            failure_reasons=(f"filing_fetch_failed:0070{i}.HK:KeyError",),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.fired_rule == "2.5"
+    assert v.gap_codes == ()

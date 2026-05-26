@@ -201,12 +201,16 @@ class PolicyBVerdict:
     `decision_rule` is a template-format-locked string for stable diff output
     (criterion 11). `material_symbols` is the symbol list of the material
     top-half (weight-rank ascending).
+    `fired_rule` is a structural discriminator: "1", "2", "2.5", "3", "4",
+    "5", or "" (publishable / default). Prefer this over `startswith` matching
+    on `decision_rule` text (item 001, P1-1).
     """
     gap_codes: tuple[str, ...]
     audit_errors: tuple[str, ...]
     decision_rule: str
-    material_symbols: tuple[str, ...]
-    constituent_coverage: tuple[ConstituentCoverageEntry, ...]
+    fired_rule: str = ""  # "1", "2", "2.5", "3", "4", "5", or "" (publishable)
+    material_symbols: tuple[str, ...] = ()
+    constituent_coverage: tuple[ConstituentCoverageEntry, ...] = ()
 
 
 def evaluate_policy_b(
@@ -231,6 +235,7 @@ def evaluate_policy_b(
             gap_codes=("holdings_fetch_failed",),
             audit_errors=(),
             decision_rule="holdings adapter empty/failed",
+            fired_rule="1",
             material_symbols=(),
             constituent_coverage=(),
         )
@@ -241,6 +246,7 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_record",),
             audit_errors=("empty_constituent_analyses_without_failure_reason",),
             decision_rule=f"empty constituent_analyses; 0 of {top_n} holdings",
+            fired_rule="2",
             material_symbols=(),
             constituent_coverage=(),
         )
@@ -260,6 +266,7 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_record",),
             audit_errors=audit_errors,
             decision_rule=f"missing constituent records: {len(missing)} of {top_n}",
+            fired_rule="2",
             material_symbols=_material_symbols(ranked, top_n),
             constituent_coverage=_build_coverage_entries(
                 ranked, top_n, audit_overrides=audit_overrides,
@@ -285,6 +292,7 @@ def evaluate_policy_b(
                     f"foreign-heavy (share={share_pct}); fund-level "
                     f"NAV+announcements accepted"
                 ),
+                fired_rule="2.5",
                 material_symbols=_material_symbols(ranked, top_n),
                 constituent_coverage=_build_coverage_entries(ranked, top_n),
             )
@@ -300,6 +308,7 @@ def evaluate_policy_b(
                 f"foreign-heavy (share={share_pct}); fund-level evidence "
                 f"missing legs: {missing_legs}"
             ),
+            fired_rule="2.5",
             material_symbols=_material_symbols(ranked, top_n),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
@@ -318,6 +327,7 @@ def evaluate_policy_b(
                 f"data leg missing for {len(no_data_leg)} of {top_n} holdings: "
                 f"{symbols}"
             ),
+            fired_rule="3",
             material_symbols=_material_symbols(ranked, top_n),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
@@ -336,6 +346,7 @@ def evaluate_policy_b(
                 f"info-leg quorum {len(material)} of {top_n}; "
                 f"{len(info_satisfied)} of material top-half satisfied"
             ),
+            fired_rule="4",
             material_symbols=tuple(c.symbol for c in material),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )
@@ -351,6 +362,7 @@ def evaluate_policy_b(
             gap_codes=("incomplete_constituent_coverage",),
             audit_errors=(),
             decision_rule=f"holdings with no evidence: {len(only_failure)} of {top_n}",
+            fired_rule="5",
             material_symbols=tuple(c.symbol for c in material),
             constituent_coverage=_build_coverage_entries(ranked, top_n),
         )

@@ -1107,9 +1107,10 @@ def _stamp_fund_level_evidence_from_verdict(
         return row
     if not snapshot.fund_level_evidence:
         return row
-    # Only stamp when the publishable verdict came via rule 2.5. Identify by
-    # the decision_rule prefix locked in `evaluate_policy_b` rule 2.5.
-    if not verdict.decision_rule.startswith("foreign-heavy"):
+    # Only stamp when the publishable verdict came via rule 2.5. Use the
+    # structural discriminator `fired_rule` rather than a startswith match
+    # on the free-text `decision_rule` (item 001, P1-1).
+    if verdict.fired_rule != "2.5":
         return row
     return replace(
         row,
