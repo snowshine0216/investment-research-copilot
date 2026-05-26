@@ -165,6 +165,26 @@ def _read_opportunity_published_ids(path: Path) -> set[str] | None:
     return {str(r.get("instrument_id")) for r in rows if r.get("instrument_id")}
 
 
+def _read_opportunity_state_by_id(path: Path) -> dict[str, dict[str, Any]]:
+    """Map instrument_id -> opportunity_report row dict for renderer enrichment.
+
+    Empty dict when the file is missing or malformed — the Decision Sheet
+    falls back to its generic 'gates are clear' reason in that case.
+    """
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for r in data.get("rows") or []:
+        iid = r.get("instrument_id")
+        if iid:
+            out[str(iid)] = r
+    return out
+
+
 def run_decision(repo_root: str) -> int:
     root = Path(repo_root)
     out_dir = _resolve_output_dir(root)
@@ -200,6 +220,7 @@ def run_decision(repo_root: str) -> int:
     }
     audit_summary = _load_audit_summary(out_dir / "memo_audit.txt")
     opportunity_published = _read_opportunity_published_ids(out_dir / "opportunity_report.json")
+    opportunity_states = _read_opportunity_state_by_id(out_dir / "opportunity_report.json")
     trade_ids = {str(t.get("target")) for t in trade_plan.get("trades", []) if t.get("target")}
     macro_snapshot, weekly_returns = _read_live_decision_inputs(root, trade_ids)
     report = compose_decision_report(
@@ -217,6 +238,7 @@ def run_decision(repo_root: str) -> int:
         opportunity_published_ids=opportunity_published,
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_returns,
+        opportunity_state_by_id=opportunity_states,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))

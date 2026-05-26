@@ -28,6 +28,7 @@ def compose_decision_report(
     opportunity_published_ids: set[str] | None = None,
     macro_snapshot: dict[str, float] | None = None,
     weekly_return_by_id: dict[str, float] | None = None,
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -102,6 +103,7 @@ def compose_decision_report(
         "build_mode": str(trade_plan.get("mode") or "build"),
         "macro_snapshot": macro_snapshot or {},
         "weekly_return_by_id": weekly_return_by_id or {},
+        "opportunity_state_by_id": opportunity_state_by_id or {},
     }
 
 
@@ -176,6 +178,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         build_mode=report.get("build_mode") or "build",
         macro_snapshot=report.get("macro_snapshot") or {},
         weekly_return_by_id=report.get("weekly_return_by_id") or {},
+        opportunity_state_by_id=report.get("opportunity_state_by_id") or {},
     ))
     lines.append("")
     lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
@@ -480,6 +483,7 @@ def _decision_sheet_section(
     build_mode: str,
     macro_snapshot: dict[str, float],
     weekly_return_by_id: dict[str, float],
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> list[str]:
     """Render the per-instrument 'why / when / how-much' cards.
 
@@ -535,10 +539,29 @@ def _decision_sheet_section(
                     trig, iid, macro_snapshot, weekly_return_by_id,
                 )
                 out.append(f"  - {format_why_when_line(spec, current, unit)}")
-        # Synthesize a one-line reason from blocking_reasons + score_action
-        reason = row.get("reason") or ""
-        if reason:
-            out.append(f"- **Why / 理由**: {reason}")
+        # Why YES / Why NOT / Why WHEN — prefer the opportunity_report's
+        # operational state (valuation/heat/thesis/quality) over the generic
+        # 'gates are clear' reason because the former is what the system
+        # actually believes about the row TODAY.
+        opp = (opportunity_state_by_id or {}).get(iid) or {}
+        if opp:
+            valuation = opp.get("valuation_state") or "unknown"
+            heat = opp.get("heat_state") or "unknown"
+            thesis = opp.get("thesis_state") or "unknown"
+            quality = opp.get("product_quality_state") or "unknown"
+            opp_state = opp.get("opportunity_state") or "unknown"
+            opp_reason = (opp.get("opportunity_reason") or "").split("|", 1)[0].strip()
+            out.append(
+                f"- **Why (operational) / 理由**: opportunity_state=`{opp_state}` · "
+                f"valuation=`{valuation}` · heat=`{heat}` · thesis=`{thesis}` · "
+                f"quality=`{quality}`."
+            )
+            if opp_reason:
+                out.append(f"  - 备注: {opp_reason}")
+        else:
+            reason = row.get("reason") or ""
+            if reason:
+                out.append(f"- **Why / 理由**: {reason}")
         out.append("")
     return out
 
