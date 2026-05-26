@@ -67,6 +67,29 @@ def _none_if_na(value) -> float | None:
     return float(value)
 
 
+_BOND_ASSET_CLASSES_REQUIRING_YIELD: frozenset[str] = frozenset({"cn_bond_fund"})
+_CN_10Y_YIELD_SERIES_ID = "cn_10y_yield"
+
+
+def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
+    """Read the cn_10y_yield series, return the rank-percentile of the latest
+    observation. Aligned with `classify_bond_valuation`'s semantics: high
+    yield ⇒ high percentile ⇒ bond cheap. Returns None when the series is
+    absent or shorter than 2 points.
+    """
+    df = con.execute(
+        "SELECT date, value FROM macro_series WHERE series_id = ? ORDER BY date",
+        [_CN_10Y_YIELD_SERIES_ID],
+    ).fetchdf()
+    if df.empty or len(df) < 2:
+        return None
+    series = pd.Series(df["value"].to_numpy())
+    latest = series.iloc[-1]
+    if pd.isna(latest):
+        return None
+    return float((series <= latest).mean())
+
+
 def populate_inputs(
     con: duckdb.DuckDBPyConnection,
     skeleton: OpportunityInput,
@@ -92,6 +115,12 @@ def populate_inputs(
             else None
         )
 
+    bond_yield_pct = (
+        _cn_bond_yield_percentile(con)
+        if skeleton.asset_class in _BOND_ASSET_CLASSES_REQUIRING_YIELD
+        else None
+    )
+
     return replace(
         skeleton,
         expense_ratio=meta.get("expense_ratio"),
@@ -104,4 +133,5 @@ def populate_inputs(
         ret_12m=returns["ret_12m"],
         valuation_percentile_self=percentile,
         drawdown_since_entry=dd,
+        cn_bond_yield_percentile=bond_yield_pct,
     )

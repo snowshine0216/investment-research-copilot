@@ -42,6 +42,9 @@ _MACRO_SERIES = (
     _MacroSeriesSpec(source_id="DFII10", storage_id="real_yield_10y_tips"),
     _MacroSeriesSpec(source_id="VIXCLS", storage_id="vix"),
     _MacroSeriesSpec(source_id="T5YIFR", storage_id="inflation_5y5y"),
+    # CN 10Y CGB yield — the valuation anchor for cn_bond_fund classification.
+    # Read by inputs_loader.populate_inputs into OpportunityInput.cn_bond_yield_percentile.
+    _MacroSeriesSpec(source_id="CN10Y", storage_id="cn_10y_yield"),
 )
 _LOOK_BACK_DAYS = 365 * 3
 _PRICE_HISTORY_MARKETS = frozenset({"cn_on_exchange"})

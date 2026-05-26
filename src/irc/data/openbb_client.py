@@ -19,9 +19,10 @@ _FRED_CRED_LOCK = threading.Lock()  # guards global OBB credential mutation
 OPENBB_PROVIDER_DEFAULT = "yfinance"
 
 # Series IDs that aren't FRED tickers — skip the OpenBB call and go straight
-# to akshare. DXY in particular has no FRED equivalent at the same level
-# (DTWEXBGS sits ~120 vs DXY ~98), so OpenBB+FRED would always 404.
-_AKSHARE_ONLY_SERIES = frozenset({"DXY"})
+# to akshare. DXY has no FRED equivalent at the same level (DTWEXBGS sits
+# ~120 vs DXY ~98). CN10Y is akshare-only (FRED's IRLTLT01CNM156N is monthly;
+# we want daily for percentile granularity).
+_AKSHARE_ONLY_SERIES = frozenset({"DXY", "CN10Y"})
 
 
 def _call_obb(path: str, **kwargs: Any) -> Any:
