@@ -293,3 +293,78 @@ def test_memo_cmd_uses_thesis_evidence_from_dict() -> None:
     else:
         # Removal path: call sites have already migrated.
         assert True
+
+
+# ── Item 003 — tranche_cap_pct + trigger_status population ───────────────────
+
+
+def test_build_pick_rows_populates_tranche_cap_pct_in_build_mode():
+    """`target_weight=0.20` + `build_mode='build'` → `tranche_cap_pct=0.05`
+    (target ÷ 4 tranches). Reuses suggest_tranche_pct verbatim."""
+    trades = [{"target": "510300", "target_weight": 0.20}]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    pick_rows, _, _ = _build_pick_rows(
+        trades, opportunity, {"scores": []},
+        build_mode="build",
+    )
+    assert pick_rows[0].tranche_cap_pct == 0.05
+
+
+def test_build_pick_rows_populates_trigger_status_from_trade_triggers():
+    """Triggers on the trade row → compact-format string on the PickRow."""
+    trades = [{
+        "target": "510300",
+        "target_weight": 0.20,
+        "triggers": [{
+            "name": "weekly_drawdown_4pct",
+            "comparator": "<=",
+            "threshold": -0.04,
+            "data_field": "instrument.weekly_return",
+        }],
+    }]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    pick_rows, _, _ = _build_pick_rows(
+        trades, opportunity, {"scores": []},
+        build_mode="build",
+        macro_snapshot={},
+        weekly_return_by_id={"510300": -0.05},
+    )
+    assert pick_rows[0].trigger_status == "weekly_drawdown_4pct ✓"
+
+
+def test_build_pick_rows_defaults_when_live_inputs_omitted():
+    """Legacy callers (e.g. older tests) omit the new kwargs; fields fall
+    back to safe sentinels — None for cap (when build_mode default = 'build'
+    still yields target/4) and "" for triggers (no live data to evaluate)."""
+    trades = [{"target": "510300", "target_weight": 0.20}]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, {"scores": []})
+    # build_mode defaults to 'build', so cap is computed.
+    assert pick_rows[0].tranche_cap_pct == 0.05
+    # No triggers on the trade → empty string.
+    assert pick_rows[0].trigger_status == ""
+
+
+def test_build_pick_rows_missing_triggers_yields_empty_trigger_status():
+    """Trade without `triggers` key → trigger_status = "" (renderer → —)."""
+    trades = [{"target": "510300", "target_weight": 0.20}]
+    opportunity = {"rows": [_op_row(iid="510300")]}
+    pick_rows, _, _ = _build_pick_rows(
+        trades, opportunity, {"scores": []},
+        build_mode="build",
+        macro_snapshot={"vix": 16.76},
+        weekly_return_by_id={"510300": -0.01},
+    )
+    assert pick_rows[0].trigger_status == ""
+
+
+def test_build_pick_rows_zero_weight_yields_zero_cap():
+    """target_weight=0 (observation-only) → tranche_cap_pct=0.0; renderer
+    will emit em-dash (per spec AC11)."""
+    trades = [{"target": "510300", "target_weight": 0.0}]
+    opportunity = {"rows": [_op_row(iid="510300", opportunity_state="small_watch")]}
+    pick_rows, _, _ = _build_pick_rows(
+        trades, opportunity, {"scores": []},
+        build_mode="build",
+    )
+    assert pick_rows[0].tranche_cap_pct == 0.0

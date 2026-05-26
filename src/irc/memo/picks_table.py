@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from irc.decision.sizing import (
+    TriggerSpec,
+    evaluate_trigger,
+    resolve_trigger_current_value,
+)
 from irc.opportunity.types import ThesisEvidence
 
 
@@ -31,11 +36,16 @@ _DECISION_CN: dict[str, str] = {
 # Audit P5 (2026-05-20) required composite_score methodology disclosure.
 # Single-line footnote keeps the table compact while satisfying the
 # transparency requirement and carrying the load-bearing disclaimer.
+# Item 003 (2026-05-26) added the 单次定投上限 + 触发状态 explainer
+# sentence between the existing weight/score caveat and the closing 不构成
+# 投资建议 disclaimer (P5 lock: disclaimer stays at the end).
 _SCORING_FOOTNOTE = (
     "> *综合分由内部多因子模型生成（估值百分位 / 热度 / 长期逻辑 / 产品质量 / 宏观契合度 /"
     " 持有成本），仅作为辅助参考，不构成投资建议。表中权重均为上限约束（≤），"
     "非强制建仓目标；条件性减速定投在第7节触发条件未满足时实际执行量为零。"
     "估值维度缺失的综合分不得单独依据分值高低作为配置优先级依据。"
+    "单次定投上限 = 目标权重 ÷ 4（build 模式），表示一次建仓的最大占总资产比例；"
+    "触发状态反映第7节触发条件相对当前宏观/净值快照的评估结果。"
     "详见评分体系说明文档。"
 )
 
@@ -58,6 +68,11 @@ class PickRow:
     # Gates verdict (actionable_buy / blocked / watch_only / avoid). Defaults
     # to watch_only so callers/tests that omit it stay backwards-compatible.
     decision_status: str = "watch_only"
+    # Item 003: Decision Sheet mirror columns. Both default to safe sentinels
+    # so legacy callers/tests (21 PickRow(...) call sites — all kwargs) stay
+    # green; the renderer emits em-dash for missing values.
+    tranche_cap_pct: float | None = None
+    trigger_status: str = ""
 
 
 def _action_cn(row: PickRow) -> str:
@@ -87,6 +102,66 @@ def _format_citations_cell(citations: tuple[ThesisEvidence, ...]) -> str:
     return "<br>".join(_format_citation(c) for c in citations)
 
 
+_TRIGGER_STATE_GLYPH: dict[str, str] = {
+    "met": "✓",
+    "not_met": "✗",
+    "missing": "⚠",
+}
+
+
+def _format_trigger_status_compact(
+    triggers: tuple[dict, ...] | list[dict],
+    macro_snapshot: dict[str, float],
+    weekly_return_by_id: dict[str, float],
+    instrument_id: str,
+) -> str:
+    """Render the 触发状态 column cell. One line per trigger
+    (`{name} {✓|✗|⚠}`), multi-trigger joined by ``<br>`` to keep the
+    markdown row single-line (mirrors `_format_citations_cell`).
+
+    YAML insertion order from `trade_plan.yaml::trades[*].triggers` is
+    preserved (no re-sort). Empty tuple → "" (renderer emits em-dash).
+    Trigger state is computed by `evaluate_trigger`; current value is
+    resolved via `resolve_trigger_current_value`.
+    """
+    if not triggers:
+        return ""
+    parts: list[str] = []
+    for trig in triggers:
+        name = str(trig.get("name") or "trigger")
+        spec = TriggerSpec(
+            name=name,
+            comparator=str(trig.get("comparator") or "<="),
+            threshold=(
+                0.0 if trig.get("threshold") is None
+                else float(trig.get("threshold"))
+            ),
+        )
+        current, _unit = resolve_trigger_current_value(
+            trig, instrument_id, macro_snapshot, weekly_return_by_id,
+        )
+        state = evaluate_trigger(spec, current)
+        glyph = _TRIGGER_STATE_GLYPH.get(state, "⚠")
+        parts.append(f"{name} {glyph}")
+    return "<br>".join(parts)
+
+
+def _format_tranche_cap_cell(tranche_cap_pct: float | None) -> str:
+    """Render the 单次定投上限 cell. None or ≤ 0 → em-dash (matches the
+    empty-citations convention; spec AC3)."""
+    if tranche_cap_pct is None or tranche_cap_pct <= 0.0:
+        return "—"
+    return f"≤ {tranche_cap_pct * 100:.2f}%"
+
+
+def _format_trigger_status_cell(trigger_status: str) -> str:
+    """Render the 触发状态 cell. Empty string → em-dash; otherwise verbatim
+    (helper precomputed the `{name} ✓/✗/⚠<br>...` form upstream)."""
+    if not trigger_status:
+        return "—"
+    return trigger_status
+
+
 def _format_score(row: PickRow) -> str:
     score = f"{row.composite_score:.1f}"
     if row.valuation_state == "evidence_insufficient":
@@ -106,8 +181,9 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
         unique.append(r)
 
     header = (
-        "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | 主要理由 | 证据 |\n"
-        "|---|---|---|---|---|---|---|---|---|---|"
+        "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | "
+        "主要理由 | 单次定投上限 | 触发状态 | 证据 |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|"
     )
     lines = [header]
     for r in unique:
@@ -115,10 +191,13 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
         score_str = _format_score(r)
         citations_cell = _format_citations_cell(r.citations)
         decision_cell = _DECISION_CN.get(r.decision_status, r.decision_status)
+        tranche_cell = _format_tranche_cap_cell(r.tranche_cap_pct)
+        trigger_cell = _format_trigger_status_cell(r.trigger_status)
         lines.append(
             f"| {r.instrument_id} | {r.name_cn} | {r.role} | "
             f"{weight_str} | {score_str} | {decision_cell} | {r.opportunity_state} | "
-            f"{_action_cn(r)} | {r.one_line_reason} | {citations_cell} |"
+            f"{_action_cn(r)} | {r.one_line_reason} | "
+            f"{tranche_cell} | {trigger_cell} | {citations_cell} |"
         )
     lines.append("")
     lines.append(_SCORING_FOOTNOTE)

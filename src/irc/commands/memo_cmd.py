@@ -28,7 +28,12 @@ from irc.memo.macro_pillar import (
     render_gold_evidence_body,
     render_macro_section_body,
 )
-from irc.memo.picks_table import PickRow, render_failure_sections, render_picks_table
+from irc.memo.picks_table import (
+    PickRow,
+    _format_trigger_status_compact,
+    render_failure_sections,
+    render_picks_table,
+)
 from irc.memo.template import MemoInputs
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
@@ -43,6 +48,8 @@ from irc.decision.gates import (
     compute_decision_status,
     derive_venue_status,
 )
+from irc.decision.live_inputs import read_live_decision_inputs
+from irc.decision.sizing import suggest_tranche_pct
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
@@ -498,6 +505,9 @@ def _build_pick_rows(
     extra_names: dict[str, str] | None = None,
     *,
     qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
+    build_mode: str = "build",
+    macro_snapshot: dict[str, float] | None = None,
+    weekly_return_by_id: dict[str, float] | None = None,
 ) -> tuple[list[PickRow], list[dict], list[dict]]:
     """Classify each trade target into one of three buckets:
 
@@ -514,6 +524,8 @@ def _build_pick_rows(
     rows_by_id = {r["instrument_id"]: r for r in rows_list}
     score_by_id = {s["instrument_id"]: s for s in (scoring.get("scores") or [])}
     extra_names = extra_names or {}
+    macro_snapshot = macro_snapshot or {}
+    weekly_return_by_id = weekly_return_by_id or {}
 
     pick_rows: list[PickRow] = []
     absent: list[dict] = []
@@ -554,12 +566,20 @@ def _build_pick_rows(
         decision_status = _decision_status_for_pick(
             sc, t, op, qdii_max_premium_pct=qdii_max_premium_pct
         )
+        target_weight = float(t.get("target_weight") or 0.0)
+        tranche_cap_pct = suggest_tranche_pct(target_weight, build_mode)
+        trigger_status = _format_trigger_status_compact(
+            tuple(t.get("triggers") or ()),
+            macro_snapshot,
+            weekly_return_by_id,
+            str(iid_raw),
+        )
         pick_rows.append(PickRow(
             instrument_id=iid_raw,
             name_cn=name,
             asset_class=op.get("asset_class") or t.get("asset_class", ""),
             role=t.get("role") or "",
-            target_weight=float(t.get("target_weight") or 0.0),
+            target_weight=target_weight,
             composite_score=float(score),
             opportunity_state=opp_state,
             dca_action=dca,
@@ -569,6 +589,8 @@ def _build_pick_rows(
             venue_note=str(t.get("venue_note", "")),
             citations=citations,
             decision_status=decision_status,
+            tranche_cap_pct=tranche_cap_pct,
+            trigger_status=trigger_status,
         ))
 
     return pick_rows, absent, gapped
@@ -613,9 +635,20 @@ def run_memo(repo_root: str) -> int:
         _qdii_max = bundle.discovery.hard_filters.qdii_max_premium_pct
     except Exception:
         _qdii_max = QDII_MAX_PREMIUM_DEFAULT
+    # Item 003: feed the same (macro_snapshot, weekly_return_by_id) into the
+    # picks-table renderer that the Decision Sheet uses, so 单次定投上限 +
+    # 触发状态 columns can compute live trigger states. Graceful degrade:
+    # read_live_decision_inputs returns ({}, {}) when data/local.duckdb is
+    # absent — renderer then shows em-dash.
+    trade_ids = {str(t.get("target")) for t in trades if t.get("target")}
+    macro_snapshot, weekly_return_by_id = read_live_decision_inputs(root, trade_ids)
+    build_mode = str(plan.get("mode") or "build")
     pick_rows, absent_targets, gapped_targets = _build_pick_rows(
         trades, opportunity, scoring, fallback_names,
         qdii_max_premium_pct=_qdii_max,
+        build_mode=build_mode,
+        macro_snapshot=macro_snapshot,
+        weekly_return_by_id=weekly_return_by_id,
     )
     picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
         absent_targets, gapped_targets, fallback_names,

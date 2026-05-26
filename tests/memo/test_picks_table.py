@@ -258,6 +258,158 @@ def test_pick_row_decision_status_defaults_to_watch_only():
     assert row.decision_status == "watch_only"
 
 
+def test_pick_row_tranche_cap_pct_defaults_to_none():
+    """Backward compatibility: existing callers/tests omit the new field;
+    default keeps the legacy construction site call sites compiling unchanged."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.tranche_cap_pct is None
+
+
+def test_pick_row_trigger_status_defaults_to_empty_string():
+    """Backward compatibility: omitted field defaults to '' so the renderer
+    emits em-dash, matching the empty-citations convention."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.trigger_status == ""
+
+
+def test_picks_table_header_contains_tranche_cap_and_trigger_status_columns():
+    """Header order locked: ... | 主要理由 | 单次定投上限 | 触发状态 | 证据 |."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    md = render_picks_table([row])
+    header_line = next(line for line in md.split("\n") if line.startswith("| 代码"))
+    cols = [c.strip() for c in header_line.strip("|").split("|")]
+    assert "单次定投上限" in cols
+    assert "触发状态" in cols
+    # Order: 主要理由 → 单次定投上限 → 触发状态 → 证据
+    assert cols.index("单次定投上限") == cols.index("主要理由") + 1
+    assert cols.index("触发状态") == cols.index("单次定投上限") + 1
+    assert cols.index("证据") == cols.index("触发状态") + 1
+
+
+def test_picks_table_tranche_cap_renders_with_two_decimals_and_le_prefix():
+    """`tranche_cap_pct=0.05` → cell shows `≤ 5.00%` (two decimals, locked)."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.2, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        tranche_cap_pct=0.05,
+    )
+    md = render_picks_table([row])
+    assert "≤ 5.00%" in md
+
+
+def test_picks_table_tranche_cap_none_renders_em_dash():
+    """`tranche_cap_pct=None` → cell shows `—` (matches empty-citations convention)."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.0, composite_score=50.0,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="x",
+        tranche_cap_pct=None,
+    )
+    md = render_picks_table([row])
+    # Find the data row and confirm an em-dash appears
+    data_lines = [line for line in md.split("\n")
+                  if line.startswith("| A ")]
+    assert data_lines, "no data row found for A"
+    assert "| — |" in data_lines[0]
+
+
+def test_picks_table_tranche_cap_zero_renders_em_dash():
+    """`tranche_cap_pct=0.0` (observation-only pick) → cell shows `—`,
+    not `≤ 0.00%` which would be visually misleading."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.0, composite_score=50.0,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="x",
+        tranche_cap_pct=0.0,
+    )
+    md = render_picks_table([row])
+    data_lines = [line for line in md.split("\n")
+                  if line.startswith("| A ")]
+    assert "≤ 0.00%" not in data_lines[0]
+    assert "| — |" in data_lines[0]
+
+
+def test_picks_table_trigger_status_renders_verbatim_when_non_empty():
+    """Pre-formatted string is rendered as-is — renderer does not re-evaluate."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        trigger_status="vix_above_25 ✓<br>weekly_drawdown_4pct ✗",
+    )
+    md = render_picks_table([row])
+    assert "vix_above_25 ✓<br>weekly_drawdown_4pct ✗" in md
+
+
+def test_picks_table_trigger_status_empty_renders_em_dash():
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        trigger_status="",
+    )
+    md = render_picks_table([row])
+    data_lines = [line for line in md.split("\n")
+                  if line.startswith("| A ")]
+    assert "| — |" in data_lines[0]
+
+
+def test_picks_table_footnote_explains_tranche_cap_and_trigger_status():
+    """Footnote text gains a short clause about both new columns. Existing
+    audit P5 disclaimer (不构成投资建议) must remain the closing token."""
+    md = render_picks_table([])
+    assert "单次定投上限" in md
+    assert "触发状态" in md
+    assert "build" in md or "目标权重" in md
+    # P5 lock: 不构成投资建议 stays present
+    assert "不构成投资建议" in md
+
+
+def test_picks_table_new_columns_carry_no_citation_markers():
+    """SAME-3 invariant guard: 单次定投上限 + 触发状态 cells must not emit
+    any [ref:...] markers. All citations live in the 证据 column."""
+    import re
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.2, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        tranche_cap_pct=0.05,
+        trigger_status="vix_above_25 ✓<br>weekly_drawdown_4pct ✗",
+    )
+    md = render_picks_table([row])
+    data_lines = [line for line in md.split("\n")
+                  if line.startswith("| A ")]
+    assert data_lines
+    cells = [c.strip() for c in data_lines[0].strip("|").split("|")]
+    # The two new cells are at positions [-3] and [-2] (证据 is last)
+    tranche_cell = cells[-3]
+    trigger_cell = cells[-2]
+    assert not re.search(r"\[ref:[0-9a-f]{16}\]", tranche_cell)
+    assert not re.search(r"\[ref:[0-9a-f]{16}\]", trigger_cell)
+
+
 def test_render_picks_table_empty_citations_renders_dash():
     """When PickRow.citations is empty, the 证据 cell renders `—`."""
     row = PickRow(
