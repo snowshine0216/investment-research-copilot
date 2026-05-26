@@ -7,6 +7,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `decision-confidence + bond-yield-anchor` (2026-05-26)
+
+Closes the five issues that prevented a reader of `outputs/<DATE>/memo.md`
++ `decision_report.md` from making a buy decision with confidence:
+(1) `decision_report` flagged 006809 as `actionable_buy` while memo §5
+correctly excluded it under Policy B, (2) no per-pick when-to-buy signal
+(trigger thresholds declared but current values not shown), (3) no
+how-much signal (footnotes said "this plan does not size trades"),
+(4) every row's rationale collapsed to "估值=very_expensive、热度=normal",
+(5) bond-fund valuation_state was permanently `evidence_insufficient`
+because `cn_bond_yield_percentile` was defined in `OpportunityInput`
+but never populated.
+
+Net effect on today's outputs:
+
+- 014502 / 511010 / 511220 valuation went from `evidence_insufficient`
+  → `expensive` (CN10Y at 1.75% sits at 20th percentile of 3y history;
+  composite scores now comparable instead of annotated "不得用于优先级比较").
+- 006809 correctly reclassified: now under "Blocked → Excluded from
+  opportunity_report (Policy B / dual-coverage gate)" with a one-line
+  remediation explaining the HK-constituent data-leg gap.
+- decision_report.md gains a "决策面板 / Per-pick decision summary"
+  section showing, for each actionable pick: role, target cap,
+  per-tranche cap (`build mode → target ÷ 4`), trigger condition with
+  live current value (`触发 weekly_drawdown_4pct: <= -4.00%; current =
+  -0.77% ⇒ ✗ NOT MET`), and the operational opportunity_state
+  (`valuation=expensive · heat=normal · thesis=intact · quality=weak`).
+- Visible blocked count dropped from 27.5% (34/124) to 8.3% (11/132) on
+  2026-05-26 data — the remaining QDII premium-unknown rows + foreign-
+  fund Policy B rejections are sequenced into the follow-up plan.
+
+Changes:
+
+- `src/irc/data/akshare_client.py` adds `_fetch_cn_10y_yield_via_akshare`
+  reading the China 10Y CGB column from `bond_zh_us_rate`; registered
+  under `_AKSHARE_MACRO_HANDLERS["CN10Y"]`.
+- `src/irc/data/openbb_client.py` adds `CN10Y` to `_AKSHARE_ONLY_SERIES`
+  (FRED's `IRLTLT01CNM156N` is monthly; daily granularity needed for
+  percentile).
+- `src/irc/commands/ingest_cmd.py` adds the `CN10Y → cn_10y_yield`
+  `_MacroSeriesSpec` so `irc run --only ingest` persists the series.
+- `src/irc/opportunity/inputs_loader.py` computes the rank-percentile of
+  the latest 10Y yield against the persisted series and populates
+  `OpportunityInput.cn_bond_yield_percentile` when
+  `asset_class == cn_bond_fund` (None for every other class).
+- `src/irc/decision/sizing.py` (new): pure helpers — `suggest_tranche_pct`
+  (`build` mode → target/4), `evaluate_trigger` (`met / not_met / missing`),
+  `format_why_when_line` (renders `触发 X: condition; current=… ⇒
+  ✓/✗/⚠ marker`).
+- `src/irc/decision/gates.py`: `decide_row` + `compute_blocking_reasons`
+  gain `excluded_from_opportunity` flag; new blocking reason
+  `opportunity_excluded` flows through `_BLOCKING_REASON_LABEL` +
+  `_BLOCKING_REMEDIATION` so the blocked-section explains it.
+- `src/irc/decision/report.py` adds `_decision_sheet_section` rendered
+  between "Actionable buys" and "Blocked — fixable today"; threads
+  `trade_plan_trades / build_mode / macro_snapshot / weekly_return_by_id
+  / opportunity_state_by_id` through `compose_decision_report`.
+- `src/irc/commands/decision_cmd.py` reads `opportunity_report.json`
+  (published-id set + per-id state), latest macro values + 7-day-prior
+  NAV from `local.duckdb`, and passes them in. Read-only and graceful
+  on locked DBs (prints WARNING; falls back to "未知 / unknown" markers).
+- New: `docs/account-onboarding.md` — how to add `cn_brokerage` /
+  `hk_connect` / `us_brokerage` venues with concrete steps + the per-
+  venue universe unlock count.
+- New: `docs/superpowers/plans/2026-05-26-decision-confidence-and-
+  blocked-cleanup.md` — multi-stage plan including the deferred Stage 2
+  (foreign-fund Policy B relaxation for 006809) and Stage 4 (QDII
+  premium-to-NAV fetcher to unblock the 8 remaining premium-unknown
+  rows).
+- Tests: `tests/data/test_akshare_client.py` adds CN10Y dispatch test;
+  `tests/opportunity/test_inputs_loader.py` adds 3 bond-yield-percentile
+  tests (bond-fund populated / non-bond None / empty-series None);
+  `tests/decision/test_gates.py` adds `opportunity_excluded` blocking
+  reasons tests; `tests/decision/test_sizing.py` (new): 12 sizing +
+  trigger-evaluation tests. All 140 prior decision tests still pass.
+
 ### Fixed — `memo-decision-consolidation + readable-refs` (2026-05-25)
 
 Closes both items in `outputs/2026-05-25/problem.md`.
