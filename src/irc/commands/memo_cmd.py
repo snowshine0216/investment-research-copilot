@@ -48,6 +48,7 @@ from irc.decision.gates import (
     compute_decision_status,
     derive_venue_status,
 )
+from irc.decision.live_inputs import read_live_decision_inputs
 from irc.decision.sizing import suggest_tranche_pct
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
@@ -634,9 +635,20 @@ def run_memo(repo_root: str) -> int:
         _qdii_max = bundle.discovery.hard_filters.qdii_max_premium_pct
     except Exception:
         _qdii_max = QDII_MAX_PREMIUM_DEFAULT
+    # Item 003: feed the same (macro_snapshot, weekly_return_by_id) into the
+    # picks-table renderer that the Decision Sheet uses, so 单次定投上限 +
+    # 触发状态 columns can compute live trigger states. Graceful degrade:
+    # read_live_decision_inputs returns ({}, {}) when data/local.duckdb is
+    # absent — renderer then shows em-dash.
+    trade_ids = {str(t.get("target")) for t in trades if t.get("target")}
+    macro_snapshot, weekly_return_by_id = read_live_decision_inputs(root, trade_ids)
+    build_mode = str(plan.get("mode") or "build")
     pick_rows, absent_targets, gapped_targets = _build_pick_rows(
         trades, opportunity, scoring, fallback_names,
         qdii_max_premium_pct=_qdii_max,
+        build_mode=build_mode,
+        macro_snapshot=macro_snapshot,
+        weekly_return_by_id=weekly_return_by_id,
     )
     picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
         absent_targets, gapped_targets, fallback_names,
