@@ -3,6 +3,11 @@ from __future__ import annotations
 from typing import Any
 
 from irc.decision.gates import decide_row, target_weights_are_valid
+from irc.decision.sizing import (
+    TriggerSpec,
+    format_why_when_line,
+    suggest_tranche_pct,
+)
 
 _PIPELINE_INCOMPLETE_THRESHOLD = 0.5
 
@@ -20,6 +25,10 @@ def compose_decision_report(
     proxies_by_id: dict[str, str] | None = None,
     names_by_id: dict[str, str] | None = None,
     audit_summary: dict[str, Any] | None = None,
+    opportunity_published_ids: set[str] | None = None,
+    macro_snapshot: dict[str, float] | None = None,
+    weekly_return_by_id: dict[str, float] | None = None,
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -57,6 +66,11 @@ def compose_decision_report(
         names_by_id=names_by_id or {},
         target_weight_by_id=target_weight_by_id,
         role_by_id=role_by_id,
+        # Set of instrument_ids that survived to opportunity_report.json.
+        # None = unknown (legacy callers without an opportunity input);
+        # an empty set = "nothing published" (treat all as excluded).
+        opportunity_published_ids=opportunity_published_ids,
+        trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -81,6 +95,15 @@ def compose_decision_report(
         # Structured summary of memo_audit.txt: verdict + P1 count + first 10
         # findings. None when the caller did not pass one in (back-compat).
         "audit_summary": audit_summary,
+        # Decision Sheet inputs — passed through to the renderer for the
+        # per-instrument why/when/how-much cards. Optional; empty when the
+        # caller (legacy paths, tests) hasn't gathered live macro + return
+        # snapshots.
+        "trade_plan_trades": list(trade_plan.get("trades") or []),
+        "build_mode": str(trade_plan.get("mode") or "build"),
+        "macro_snapshot": macro_snapshot or {},
+        "weekly_return_by_id": weekly_return_by_id or {},
+        "opportunity_state_by_id": opportunity_state_by_id or {},
     }
 
 
@@ -148,6 +171,15 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
     # table. JSON output is unchanged. See
     # docs/2026-05-18-fix-memo-audit/items/011-spec.md.
     lines.extend(_actionable_buys_section(rows))
+    lines.append("")
+    lines.extend(_decision_sheet_section(
+        rows,
+        trades=report.get("trade_plan_trades") or [],
+        build_mode=report.get("build_mode") or "build",
+        macro_snapshot=report.get("macro_snapshot") or {},
+        weekly_return_by_id=report.get("weekly_return_by_id") or {},
+        opportunity_state_by_id=report.get("opportunity_state_by_id") or {},
+    ))
     lines.append("")
     lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
     lines.append("")
@@ -305,10 +337,21 @@ def _build_rows(
     names_by_id: dict[str, str],
     target_weight_by_id: dict[str, float],
     role_by_id: dict[str, str],
+    opportunity_published_ids: set[str] | None,
+    trade_plan_targets: set[str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
         iid = str(score.get("instrument_id"))
+        # An instrument is "opportunity_excluded" only when it has a trade
+        # plan entry (so we expected it to publish) AND it did not survive
+        # to opportunity_report.json. Legacy / non-opportunity-aware callers
+        # pass opportunity_published_ids=None — preserve old behavior then.
+        excluded = (
+            opportunity_published_ids is not None
+            and iid in trade_plan_targets
+            and iid not in opportunity_published_ids
+        )
         rows.append(decide_row(
             score=score,
             allocation_selected=iid in selected_ids,
@@ -322,6 +365,7 @@ def _build_rows(
             instrument_name=names_by_id.get(iid),
             target_weight=target_weight_by_id.get(iid, 0.0),
             role=role_by_id.get(iid, ""),
+            excluded_from_opportunity=excluded,
         ))
     return rows
 
@@ -370,6 +414,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
     "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
+    "opportunity_excluded": "Excluded from opportunity_report (Policy B / dual-coverage gate)",
 }
 
 _BLOCKING_REMEDIATION: dict[str, str] = {
@@ -388,7 +433,137 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
     "qdii_premium_unknown":
         "Fetch real-time QDII premium / FX status before treating as actionable. "
         "QDII feeders frequently trade 5–15% above NAV.",
+    "opportunity_excluded":
+        "The instrument scored well enough to enter trade_plan but Policy B / "
+        "the dual-coverage gate rejected it at opportunity_write. Common cause: "
+        "constituents are foreign-listed (HK/US) and per-holding filings aren't "
+        "available. See `rejections.json` for the per-instrument gap codes.",
 }
+
+
+_MACRO_FIELD_TO_KEY: dict[str, str] = {
+    # trade_plan trigger `data_field` → key in macro_snapshot
+    "macro.vix": "vix",
+    "macro.real_yield_10y_tips": "real_yield_10y_tips",
+    "macro.dxy": "DXY",
+}
+
+
+def _resolve_trigger_current_value(
+    trig: dict[str, Any],
+    instrument_id: str,
+    macro_snapshot: dict[str, float],
+    weekly_return_by_id: dict[str, float],
+) -> tuple[float | None, str]:
+    """Resolve a trigger's current value + unit hint from the live snapshots.
+
+    `instrument.weekly_return` lookups go to weekly_return_by_id; macro
+    triggers map via _MACRO_FIELD_TO_KEY. Returns (value, unit_hint) where
+    unit_hint is "pct" for return-like fractions (display as XX.XX%) and
+    "raw" for raw scalars.
+    """
+    field = str(trig.get("data_field") or "")
+    if field == "instrument.weekly_return":
+        return weekly_return_by_id.get(instrument_id), "pct"
+    if field.startswith("macro."):
+        key = _MACRO_FIELD_TO_KEY.get(field.lower())
+        if key is None:
+            return None, "raw"
+        # Real-yield is stored as percent (2.18 == 2.18%) in macro_series;
+        # threshold in trade_plan is expressed in the same unit (≤ 0.0%).
+        unit = "raw"
+        return macro_snapshot.get(key), unit
+    return None, "raw"
+
+
+def _decision_sheet_section(
+    rows: list[dict[str, Any]],
+    *,
+    trades: list[dict[str, Any]],
+    build_mode: str,
+    macro_snapshot: dict[str, float],
+    weekly_return_by_id: dict[str, float],
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
+) -> list[str]:
+    """Render the per-instrument 'why / when / how-much' cards.
+
+    One card per actionable_buy row (the visible decision set). Each card
+    shows: role + target cap, the trade plan's triggers WITH current
+    values resolved against `macro_snapshot` + `weekly_return_by_id`, and
+    a suggested per-tranche % cap derived from build_mode.
+
+    Empty when no actionable rows exist or no trade entries match the
+    actionable ids.
+    """
+    actionable = [r for r in rows if r.get("decision_status") == "actionable_buy"]
+    out: list[str] = ["## 决策面板 / Per-pick decision summary", ""]
+    if not actionable:
+        out.append("（无 actionable_buy 行，跳过本节。）")
+        return out
+    trades_by_target = {str(t.get("target")): t for t in trades}
+    out.append(
+        f"_构建模式: `{build_mode}`. `build` = 累积至目标的 4 个等分 tranche；"
+        "实际行动只在触发条件满足时执行，否则本期保持 0 仓位。_"
+    )
+    out.append("")
+    for row in actionable:
+        iid = str(row.get("instrument_id"))
+        name = row.get("instrument_name") or ""
+        role = row.get("role") or "—"
+        target_weight = float(row.get("target_weight") or 0.0)
+        per_tranche = suggest_tranche_pct(target_weight, build_mode)
+        out.append(f"### ✅ {_md(iid)} {_md(name)}")
+        out.append(f"- **Role / 角色**: `{role}`")
+        out.append(
+            f"- **Target cap / 权重上限**: {target_weight * 100:.2f}% of total portfolio"
+        )
+        out.append(
+            f"- **Per-tranche cap / 单次定投上限**: "
+            f"≤ {per_tranche * 100:.2f}% of total portfolio "
+            f"({build_mode} mode → target ÷ 4 tranches)"
+        )
+        # Triggers from trade_plan
+        trade = trades_by_target.get(iid)
+        triggers = (trade or {}).get("triggers") or []
+        if not triggers:
+            out.append("- **Trigger / 触发条件**: 无 — 本期可考虑常规定投（参考备忘录第7节）.")
+        else:
+            out.append("- **Trigger / 触发条件**:")
+            for trig in triggers:
+                spec = TriggerSpec(
+                    name=str(trig.get("name") or "trigger"),
+                    comparator=str(trig.get("comparator") or "<="),
+                    threshold=float(trig.get("threshold") or 0.0),
+                )
+                current, unit = _resolve_trigger_current_value(
+                    trig, iid, macro_snapshot, weekly_return_by_id,
+                )
+                out.append(f"  - {format_why_when_line(spec, current, unit)}")
+        # Why YES / Why NOT / Why WHEN — prefer the opportunity_report's
+        # operational state (valuation/heat/thesis/quality) over the generic
+        # 'gates are clear' reason because the former is what the system
+        # actually believes about the row TODAY.
+        opp = (opportunity_state_by_id or {}).get(iid) or {}
+        if opp:
+            valuation = opp.get("valuation_state") or "unknown"
+            heat = opp.get("heat_state") or "unknown"
+            thesis = opp.get("thesis_state") or "unknown"
+            quality = opp.get("product_quality_state") or "unknown"
+            opp_state = opp.get("opportunity_state") or "unknown"
+            opp_reason = (opp.get("opportunity_reason") or "").split("|", 1)[0].strip()
+            out.append(
+                f"- **Why (operational) / 理由**: opportunity_state=`{opp_state}` · "
+                f"valuation=`{valuation}` · heat=`{heat}` · thesis=`{thesis}` · "
+                f"quality=`{quality}`."
+            )
+            if opp_reason:
+                out.append(f"  - 备注: {opp_reason}")
+        else:
+            reason = row.get("reason") or ""
+            if reason:
+                out.append(f"- **Why / 理由**: {reason}")
+        out.append("")
+    return out
 
 
 def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
@@ -487,7 +662,7 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
     watch_rows = [r for r in rows if r.get("decision_status") == "watch_only"]
     out = ["## Watch (no trade)", ""]
     if not watch_rows:
-        out.append(f"0 个标的暂未触发交易决策。")
+        out.append("0 个标的暂未触发交易决策。")
         return out
     by_reason: dict[str, int] = {}
     for r in watch_rows:

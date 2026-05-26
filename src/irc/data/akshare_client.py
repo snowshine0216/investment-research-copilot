@@ -395,14 +395,33 @@ _AKSHARE_MACRO_HANDLERS: dict[str, str] = {
     # macro series_id → akshare resolver-method name (registered below).
     # DGS10 is a FRED series; DXY is an akshare-only proxy (no FRED equivalent
     # at the same level — DTWEXBGS sits ~120 vs DXY ~98).
+    # CN10Y is akshare-only — `bond_zh_us_rate` exposes both US and CN 10Y
+    # in the same table, and the bond-fund valuation anchor in opportunity/
+    # states.py.classify_bond_valuation reads from the resulting series.
     "DGS10": "_fetch_dgs10_via_akshare",
     "DXY": "_fetch_dxy_via_akshare",
+    "CN10Y": "_fetch_cn_10y_yield_via_akshare",
 }
 
 
 def _fetch_dgs10_via_akshare(start: str, end: str) -> pd.DataFrame:
     raw = _ak_call("bond_zh_us_rate")
     df = raw[["日期", "美国国债收益率10年"]].rename(columns={"日期": "date", "美国国债收益率10年": "value"})
+    df = df.dropna(subset=["value"])
+    df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
+    return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)
+
+
+def _fetch_cn_10y_yield_via_akshare(start: str, end: str) -> pd.DataFrame:
+    """CN 10Y central-government bond yield. Same `bond_zh_us_rate` table as
+    DGS10 (the akshare table carries both US and CN 10Y in a single fetch).
+    Output column is the per-cent yield value (e.g. 2.45 == 2.45%); used by
+    `cn_bond_yield_percentile` for bond-fund valuation classification.
+    """
+    raw = _ak_call("bond_zh_us_rate")
+    df = raw[["日期", "中国国债收益率10年"]].rename(
+        columns={"日期": "date", "中国国债收益率10年": "value"},
+    )
     df = df.dropna(subset=["value"])
     df["date"] = pd.to_datetime(df["date"]).dt.strftime("%Y-%m-%d")
     return df[(df["date"] >= start) & (df["date"] <= end)].reset_index(drop=True)

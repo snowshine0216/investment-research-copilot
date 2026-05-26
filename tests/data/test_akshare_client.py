@@ -474,6 +474,22 @@ def test_fetch_macro_series_akshare_dispatches_dgs10() -> None:
     assert out.iloc[-1]["value"] == 4.30
 
 
+def test_fetch_macro_series_akshare_dispatches_cn_10y_yield() -> None:
+    """CN10Y is the akshare-only slot used by the bond-fund valuation anchor.
+    Source: `bond_zh_us_rate` table (same handler family as DGS10), column
+    `中国国债收益率10年`. Used in `OpportunityInput.cn_bond_yield_percentile`."""
+    fake = pd.DataFrame({
+        "日期": ["2026-04-30", "2026-05-06"],
+        "中国国债收益率10年": [2.41, 2.45],
+    })
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_macro_series_akshare("CN10Y", start="2026-01-01", end="2026-12-31")
+    assert mocked.call_args.args[0] == "bond_zh_us_rate"
+    assert list(out.columns) == ["date", "value"]
+    assert out.iloc[-1]["value"] == 2.45
+
+
 def test_fetch_macro_series_akshare_dispatches_dxy() -> None:
     """DXY is the akshare-only US Dollar Index slot used by gold scoring;
     thresholds in gold_score/_dxy_score (95/105/115) and gold_scenarios

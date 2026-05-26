@@ -63,6 +63,89 @@ def test_populate_inputs_fills_evidence_fields(tmp_path):
     con.close()
 
 
+def _seed_cn_10y_yield(con, values: list[float], base_date: date = date(2025, 1, 1)) -> None:
+    """Insert a deterministic CN10Y series into `macro_series` for percentile tests."""
+    rows = []
+    for i, v in enumerate(values):
+        d = date.fromordinal(base_date.toordinal() + i)
+        rows.append(("cn_10y_yield", d, float(v)))
+    con.executemany(
+        "INSERT INTO macro_series VALUES (?,?,?, TIMESTAMP '2026-05-15', 'test', 'test:cn_10y_yield')",
+        rows,
+    )
+
+
+def test_populate_inputs_computes_bond_yield_percentile_for_bond_fund(tmp_path):
+    """A bond fund's `cn_bond_yield_percentile` reflects today's 10Y CGB yield
+    against the 3y history — high yield = high percentile = bond cheap.
+    """
+    con = duckdb.connect(str(tmp_path / "bond.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('014502','014502','cn_off_exchange','泰信汇盈',NULL,'cn_bond_fund','cny',"
+        " DATE '2020-01-01', 0.004, 1.0e9, NULL, 5.0,"
+        " TIMESTAMP '2026-05-15', 'test', 'test:014502')"
+    )
+    # Yield series: 100 days rising from 2.0 to 2.99. Today's value 2.99 == max → percentile 1.0.
+    yields = [2.0 + i * 0.01 for i in range(100)]
+    _seed_cn_10y_yield(con, yields)
+
+    skeleton = OpportunityInput(
+        instrument_id="014502",
+        asset_class="cn_bond_fund",
+        market="cn_off_exchange",
+        name_cn="泰信汇盈债券A",
+        role="defensive_cn_bond",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.cn_bond_yield_percentile == pytest.approx(1.0)
+    con.close()
+
+
+def test_populate_inputs_bond_yield_percentile_none_for_equity_fund(tmp_path):
+    """Non-bond asset classes never populate cn_bond_yield_percentile — keeps the
+    field's contract aligned with classify_bond_valuation's dispatch rule."""
+    con = duckdb.connect(str(tmp_path / "eq.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('003318','003318','cn_off_exchange','低波A',NULL,'cn_equity_fund','cny',"
+        " DATE '2020-01-01', 0.012, 1.0e9, NULL, 5.0,"
+        " TIMESTAMP '2026-05-15', 'test', 'test:003318')"
+    )
+    _seed_cn_10y_yield(con, [2.0, 2.1, 2.2, 2.3, 2.4])
+    skeleton = OpportunityInput(
+        instrument_id="003318",
+        asset_class="cn_equity_fund",
+        market="cn_off_exchange",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.cn_bond_yield_percentile is None
+    con.close()
+
+
+def test_populate_inputs_bond_yield_percentile_none_when_series_empty(tmp_path):
+    """Missing macro series → percentile stays None (evidence_insufficient downstream)."""
+    con = duckdb.connect(str(tmp_path / "empty_series.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('014502','014502','cn_off_exchange','泰信汇盈',NULL,'cn_bond_fund','cny',"
+        " DATE '2020-01-01', 0.004, 1.0e9, NULL, 5.0,"
+        " TIMESTAMP '2026-05-15', 'test', 'test:014502')"
+    )
+    # No macro_series rows inserted.
+    skeleton = OpportunityInput(
+        instrument_id="014502",
+        asset_class="cn_bond_fund",
+        market="cn_off_exchange",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.cn_bond_yield_percentile is None
+    con.close()
+
+
 def test_populate_inputs_returns_unchanged_when_instrument_missing(tmp_path):
     con = duckdb.connect(str(tmp_path / "empty.duckdb"))
     ensure_schema(con)
