@@ -108,3 +108,24 @@ def test_propagates_none_from_fetcher() -> None:
     )
     assert out is None
     assert fetcher.calls == ["999999"]
+
+
+def test_qdii_asset_classes_defined_exactly_once_in_src() -> None:
+    """AC21: the constant lives in qdii_premium.py only; other modules import."""
+    import subprocess
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    result = subprocess.run(
+        ["git", "grep", "-l", "_QDII_ASSET_CLASSES.*=.*frozenset", "src/"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    matching_files = [
+        line for line in result.stdout.strip().splitlines() if line
+    ]
+    assert matching_files == ["src/irc/scoring/qdii_premium.py"], (
+        f"_QDII_ASSET_CLASSES must be defined in exactly one file, found: {matching_files!r}"
+    )

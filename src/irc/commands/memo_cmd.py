@@ -39,11 +39,11 @@ from irc.commands.opportunity_cmd import (
 )
 from irc.decision.completeness import MIN_BUY_COMPLETENESS
 from irc.decision.gates import (
-    _QDII_ASSET_CLASSES,
     compute_blocking_reasons,
     compute_decision_status,
     derive_venue_status,
 )
+from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
 from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
