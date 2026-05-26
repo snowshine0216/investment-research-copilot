@@ -98,6 +98,7 @@ def decide_row(
     instrument_name: str | None = None,
     target_weight: float = 0.0,
     role: str = "",
+    excluded_from_opportunity: bool = False,
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -137,6 +138,7 @@ def decide_row(
         evidence_status=evidence_status,
         score_action=score_action,
         qdii_premium_unknown=qdii_premium_unknown,
+        excluded_from_opportunity=excluded_from_opportunity,
     )
     decision_status = _decision_status(score_action, blocking_reasons, allocation_selected)
     watch_reason = _watch_reason(decision_status, score_action, allocation_selected, venue_status)
@@ -203,6 +205,7 @@ def compute_blocking_reasons(
     evidence_status: str,
     score_action: str,
     qdii_premium_unknown: bool = False,
+    excluded_from_opportunity: bool = False,
 ) -> list[str]:
     reasons: list[str] = []
     if pipeline_halted:
@@ -219,6 +222,8 @@ def compute_blocking_reasons(
         reasons.append("score_avoid")
     if qdii_premium_unknown:
         reasons.append("qdii_premium_unknown")
+    if excluded_from_opportunity:
+        reasons.append("opportunity_excluded")
     return reasons
 
 

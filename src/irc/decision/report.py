@@ -20,6 +20,7 @@ def compose_decision_report(
     proxies_by_id: dict[str, str] | None = None,
     names_by_id: dict[str, str] | None = None,
     audit_summary: dict[str, Any] | None = None,
+    opportunity_published_ids: set[str] | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -57,6 +58,11 @@ def compose_decision_report(
         names_by_id=names_by_id or {},
         target_weight_by_id=target_weight_by_id,
         role_by_id=role_by_id,
+        # Set of instrument_ids that survived to opportunity_report.json.
+        # None = unknown (legacy callers without an opportunity input);
+        # an empty set = "nothing published" (treat all as excluded).
+        opportunity_published_ids=opportunity_published_ids,
+        trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -305,10 +311,21 @@ def _build_rows(
     names_by_id: dict[str, str],
     target_weight_by_id: dict[str, float],
     role_by_id: dict[str, str],
+    opportunity_published_ids: set[str] | None,
+    trade_plan_targets: set[str],
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
         iid = str(score.get("instrument_id"))
+        # An instrument is "opportunity_excluded" only when it has a trade
+        # plan entry (so we expected it to publish) AND it did not survive
+        # to opportunity_report.json. Legacy / non-opportunity-aware callers
+        # pass opportunity_published_ids=None — preserve old behavior then.
+        excluded = (
+            opportunity_published_ids is not None
+            and iid in trade_plan_targets
+            and iid not in opportunity_published_ids
+        )
         rows.append(decide_row(
             score=score,
             allocation_selected=iid in selected_ids,
@@ -322,6 +339,7 @@ def _build_rows(
             instrument_name=names_by_id.get(iid),
             target_weight=target_weight_by_id.get(iid, 0.0),
             role=role_by_id.get(iid, ""),
+            excluded_from_opportunity=excluded,
         ))
     return rows
 
@@ -370,6 +388,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
     "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
+    "opportunity_excluded": "Excluded from opportunity_report (Policy B / dual-coverage gate)",
 }
 
 _BLOCKING_REMEDIATION: dict[str, str] = {
@@ -388,6 +407,11 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
     "qdii_premium_unknown":
         "Fetch real-time QDII premium / FX status before treating as actionable. "
         "QDII feeders frequently trade 5–15% above NAV.",
+    "opportunity_excluded":
+        "The instrument scored well enough to enter trade_plan but Policy B / "
+        "the dual-coverage gate rejected it at opportunity_write. Common cause: "
+        "constituents are foreign-listed (HK/US) and per-holding filings aren't "
+        "available. See `rejections.json` for the per-instrument gap codes.",
 }
 
 
@@ -487,7 +511,7 @@ def _watch_collapsed_section(rows: list[dict[str, Any]]) -> list[str]:
     watch_rows = [r for r in rows if r.get("decision_status") == "watch_only"]
     out = ["## Watch (no trade)", ""]
     if not watch_rows:
-        out.append(f"0 个标的暂未触发交易决策。")
+        out.append("0 个标的暂未触发交易决策。")
         return out
     by_reason: dict[str, int] = {}
     for r in watch_rows:

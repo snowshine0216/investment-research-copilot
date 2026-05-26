@@ -64,6 +64,41 @@ def test_low_data_completeness_blocks_buy() -> None:
     assert "data_incomplete" in decision["blocking_reasons"]
 
 
+def test_excluded_from_opportunity_report_blocks_actionable_buy() -> None:
+    """When a row was filtered out of `opportunity_report.json` (e.g. Policy B
+    rejected it as `incomplete_constituent_data` for foreign-listed holdings)
+    the decision row must not claim `actionable_buy`. The downgrade keeps
+    decision_report.md consistent with memo.md §5's "未能纳入精选：机会数据缺失"
+    section."""
+    decision = decide_row(
+        score=_score(instrument_id="006809"),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        excluded_from_opportunity=True,
+    )
+    assert decision["decision_status"] == "blocked"
+    assert "opportunity_excluded" in decision["blocking_reasons"]
+
+
+def test_included_in_opportunity_report_allows_actionable_buy() -> None:
+    """Sanity-check the default path: row is included → no opportunity_excluded
+    reason → status stays at the score+venue-derived verdict."""
+    decision = decide_row(
+        score=_score(),
+        allocation_selected=True,
+        target_weight_valid=True,
+        trade={"venue_compatible": True, "proxy_id": None},
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        excluded_from_opportunity=False,
+    )
+    assert decision["decision_status"] == "actionable_buy"
+    assert "opportunity_excluded" not in decision["blocking_reasons"]
+
+
 def test_avoid_action_stays_avoid_even_when_selected() -> None:
     decision = decide_row(
         score=_score(action="avoid"),

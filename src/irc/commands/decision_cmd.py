@@ -89,6 +89,22 @@ _REQUIRED_ARTIFACTS = (
 )
 
 
+def _read_opportunity_published_ids(path: Path) -> set[str] | None:
+    """Load the set of instrument_ids published in opportunity_report.json.
+
+    Returns None when the file is absent — legacy behavior (don't downgrade
+    rows on missing data). Returns an empty set when present but empty.
+    """
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
+    rows = data.get("rows") or []
+    return {str(r.get("instrument_id")) for r in rows if r.get("instrument_id")}
+
+
 def run_decision(repo_root: str) -> int:
     root = Path(repo_root)
     out_dir = _resolve_output_dir(root)
@@ -123,6 +139,7 @@ def run_decision(repo_root: str) -> int:
         if row.get("proxy_id")
     }
     audit_summary = _load_audit_summary(out_dir / "memo_audit.txt")
+    opportunity_published = _read_opportunity_published_ids(out_dir / "opportunity_report.json")
     report = compose_decision_report(
         date=out_dir.name,
         scoring=scoring,
@@ -135,6 +152,7 @@ def run_decision(repo_root: str) -> int:
         proxies_by_id=proxies,
         names_by_id=names,
         audit_summary=audit_summary,
+        opportunity_published_ids=opportunity_published,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))
