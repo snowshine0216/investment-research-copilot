@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
+
 
 _EXECUTION_DRIFT_FLOOR_PP = 0.05  # 5 percentage points
 
@@ -24,7 +26,6 @@ _ROLE_BUCKET_FAILED_REASON: str = "below fail_below"
 # out without any FX-hedge, premium/discount, or quota mention. When
 # QDII weight exceeds this floor, the memo gets a dedicated diagnostic.
 _QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC = 0.20
-from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
 
 def compose_execution_drift_lines(

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import json
+import os as _os_live  # aliased to avoid shadowing later
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
@@ -597,8 +600,10 @@ def test_fund_table_fetched_once_across_calls():
     with patch("irc.data.akshare_client._raw_fund_table_call",
                return_value=MagicMock()) as mock_raw:
         for _ in range(5):
-            try: fetch_fund_metadata("110011")
-            except Exception: pass
+            try:
+                fetch_fund_metadata("110011")
+            except Exception:
+                pass
         assert mock_raw.call_count == 1
 
 
@@ -668,10 +673,6 @@ def test_fetch_open_fund_ranks_normalizes_columns_and_parses_percentages(monkeyp
 # ---------------------------------------------------------------------------
 # QDII premium-to-NAV fetcher tests (AC1, AC2, AC3, AC4, AC13, AC20)
 # ---------------------------------------------------------------------------
-
-import json
-from pathlib import Path
-
 
 _FUND_ETF_SPOT_EM_FIXTURE = (
     Path(__file__).resolve().parents[1]
@@ -799,9 +800,6 @@ def test_fetch_qdii_premium_pct_uses_bulk_table_once_for_many_symbols() -> None:
         assert mocked.call_count == 1
     finally:
         _fetch_full_etf_spot_table.cache_clear()
-
-
-import os as _os_live  # local alias so we don't shadow other imports
 
 
 @pytest.mark.live_akshare

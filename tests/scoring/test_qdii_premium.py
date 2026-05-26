@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from unittest.mock import MagicMock, patch
 
+import pandas as pd
+
+from irc.schemas.scoring import ScoringConfig
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES, qdii_premium_for_row
 
 
@@ -108,13 +112,6 @@ def test_propagates_none_from_fetcher() -> None:
     )
     assert out is None
     assert fetcher.calls == ["999999"]
-
-
-from unittest.mock import MagicMock, patch
-
-import pandas as pd
-
-from irc.schemas.scoring import ScoringConfig
 
 
 def _scoring_cfg() -> ScoringConfig:
