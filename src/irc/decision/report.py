@@ -4,7 +4,6 @@ from typing import Any
 
 from irc.decision.gates import decide_row, target_weights_are_valid
 from irc.decision.sizing import (
-    MACRO_FIELD_TO_KEY,
     TriggerSpec,
     format_why_when_line,
     resolve_trigger_current_value,
