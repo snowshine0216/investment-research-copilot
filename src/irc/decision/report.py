@@ -4,8 +4,10 @@ from typing import Any
 
 from irc.decision.gates import decide_row, target_weights_are_valid
 from irc.decision.sizing import (
+    MACRO_FIELD_TO_KEY,
     TriggerSpec,
     format_why_when_line,
+    resolve_trigger_current_value,
     suggest_tranche_pct,
 )
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
@@ -458,41 +460,6 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
 }
 
 
-_MACRO_FIELD_TO_KEY: dict[str, str] = {
-    # trade_plan trigger `data_field` → key in macro_snapshot
-    "macro.vix": "vix",
-    "macro.real_yield_10y_tips": "real_yield_10y_tips",
-    "macro.dxy": "DXY",
-}
-
-
-def _resolve_trigger_current_value(
-    trig: dict[str, Any],
-    instrument_id: str,
-    macro_snapshot: dict[str, float],
-    weekly_return_by_id: dict[str, float],
-) -> tuple[float | None, str]:
-    """Resolve a trigger's current value + unit hint from the live snapshots.
-
-    `instrument.weekly_return` lookups go to weekly_return_by_id; macro
-    triggers map via _MACRO_FIELD_TO_KEY. Returns (value, unit_hint) where
-    unit_hint is "pct" for return-like fractions (display as XX.XX%) and
-    "raw" for raw scalars.
-    """
-    field = str(trig.get("data_field") or "")
-    if field == "instrument.weekly_return":
-        return weekly_return_by_id.get(instrument_id), "pct"
-    if field.startswith("macro."):
-        key = _MACRO_FIELD_TO_KEY.get(field.lower())
-        if key is None:
-            return None, "raw"
-        # Real-yield is stored as percent (2.18 == 2.18%) in macro_series;
-        # threshold in trade_plan is expressed in the same unit (≤ 0.0%).
-        unit = "raw"
-        return macro_snapshot.get(key), unit
-    return None, "raw"
-
-
 def _decision_sheet_section(
     rows: list[dict[str, Any]],
     *,
@@ -552,7 +519,7 @@ def _decision_sheet_section(
                     comparator=str(trig.get("comparator") or "<="),
                     threshold=float(trig.get("threshold") or 0.0),
                 )
-                current, unit = _resolve_trigger_current_value(
+                current, unit = resolve_trigger_current_value(
                     trig, iid, macro_snapshot, weekly_return_by_id,
                 )
                 out.append(f"  - {format_why_when_line(spec, current, unit)}")
