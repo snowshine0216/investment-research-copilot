@@ -1,6 +1,17 @@
 from __future__ import annotations
+
+from typing import Final
+
 from pydantic import Field, model_validator
+
 from ._types import FrozenModel
+
+
+# AC9: named Final constant so the magic number has a name (mirrors
+# FOREIGN_HEAVY_THRESHOLD in policy_b.py). YAML key stays lowercase per
+# existing config convention; the constant lives at module scope so
+# downstream consumers can introspect the default without instantiating.
+QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05
 
 
 class HardFilters(FrozenModel):
@@ -12,6 +23,9 @@ class HardFilters(FrozenModel):
     us_etf_expense_ratio_max: float = Field(ge=0, le=1)
     qdii_feeder_expense_ratio_max: float = Field(default=0.012, ge=0, le=1)
     etf_daily_volume_cny_min: float = Field(ge=0)
+    qdii_max_premium_pct: float = Field(
+        default=QDII_MAX_PREMIUM_DEFAULT, ge=0, le=1
+    )
 
 
 class QualityFilters(FrozenModel):

@@ -13,6 +13,10 @@ hard_filters:
   us_etf_expense_ratio_max: 0.012
   qdii_feeder_expense_ratio_max: 0.012
   etf_daily_volume_cny_min: 10000000
+  # AC9 (item 002): premium-to-NAV ceiling for QDII feeders (ratio units).
+  # 0.05 matches CONTEXT.md's "QDII feeders frequently trade 5–15% above NAV".
+  # Strict-greater comparison (`premium > threshold` blocks; boundary admits).
+  qdii_max_premium_pct: 0.05
 
 quality_filters:
   drawdown_3y_buffer: 1.2
