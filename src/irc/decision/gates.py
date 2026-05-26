@@ -202,6 +202,7 @@ def compute_blocking_reasons(
     score_action: str,
     qdii_premium_unknown: bool = False,
     excluded_from_opportunity: bool = False,
+    qdii_premium_too_high: bool = False,
 ) -> list[str]:
     reasons: list[str] = []
     if pipeline_halted:
@@ -218,6 +219,8 @@ def compute_blocking_reasons(
         reasons.append("score_avoid")
     if qdii_premium_unknown:
         reasons.append("qdii_premium_unknown")
+    if qdii_premium_too_high:
+        reasons.append("qdii_premium_too_high")
     if excluded_from_opportunity:
         reasons.append("opportunity_excluded")
     return reasons

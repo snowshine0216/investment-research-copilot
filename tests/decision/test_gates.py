@@ -99,6 +99,41 @@ def test_included_in_opportunity_report_allows_actionable_buy() -> None:
     assert "opportunity_excluded" not in decision["blocking_reasons"]
 
 
+def test_compute_blocking_reasons_emits_qdii_premium_too_high() -> None:
+    """AC8: when the qdii_premium_too_high flag is True, the code lands in reasons."""
+    from irc.decision.gates import compute_blocking_reasons
+
+    reasons = compute_blocking_reasons(
+        pipeline_halted=False,
+        completeness=1.0,
+        completeness_threshold=0.8,
+        target_weight_valid=True,
+        venue_status="direct",
+        evidence_status="evidence_linked",
+        score_action="buy_candidate",
+        qdii_premium_unknown=False,
+        qdii_premium_too_high=True,
+    )
+    assert reasons == ["qdii_premium_too_high"]
+
+
+def test_compute_blocking_reasons_qdii_premium_too_high_default_is_false() -> None:
+    """Existing call sites stay working (default False)."""
+    from irc.decision.gates import compute_blocking_reasons
+
+    reasons = compute_blocking_reasons(
+        pipeline_halted=False,
+        completeness=1.0,
+        completeness_threshold=0.8,
+        target_weight_valid=True,
+        venue_status="direct",
+        evidence_status="evidence_linked",
+        score_action="buy_candidate",
+        qdii_premium_unknown=False,
+    )
+    assert reasons == []
+
+
 def test_avoid_action_stays_avoid_even_when_selected() -> None:
     decision = decide_row(
         score=_score(action="avoid"),
