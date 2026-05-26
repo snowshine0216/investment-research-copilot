@@ -236,7 +236,7 @@ def test_qdii_premium_unknown_renders_in_blocked_section():
     md = render_decision_markdown(report)
     section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
     assert "QDII premium-to-NAV" in section
-    assert "Fetch real-time QDII premium" in section
+    assert "AkShare returned no premium snapshot" in section
 
 
 def _audit_report(summary):
@@ -640,3 +640,13 @@ def test_qdii_premium_too_high_renders_in_blocked_section():
     md = render_decision_markdown(report)
     section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
     assert "QDII premium-to-NAV above threshold" in section
+
+
+def test_qdii_premium_unknown_remediation_mentions_akshare():
+    """AC22: the rewritten remediation must reference AkShare so operators
+    know 'unknown' = 'AkShare returned no row'."""
+    from irc.decision.report import _BLOCKING_REMEDIATION
+    text = _BLOCKING_REMEDIATION["qdii_premium_unknown"]
+    assert "AkShare" in text
+    # AC22 explicitly drops the FX-status half (out of V1 scope).
+    assert "FX status" not in text

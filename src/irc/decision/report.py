@@ -442,8 +442,10 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
     "score_avoid":
         "Scoring action is avoid — review the underlying factor scores.",
     "qdii_premium_unknown":
-        "Fetch real-time QDII premium / FX status before treating as actionable. "
-        "QDII feeders frequently trade 5–15% above NAV.",
+        "AkShare returned no premium snapshot for this QDII symbol. "
+        "Refresh fund_etf_spot_em data or wait for the next ingest. "
+        "QDII feeders frequently trade 5–15% above NAV — premium must "
+        "be known before treating as actionable.",
     "qdii_premium_too_high":
         "QDII premium-to-NAV exceeds the configured ceiling "
         "(qdii_max_premium_pct in config/discovery.yaml; default 5%). "
