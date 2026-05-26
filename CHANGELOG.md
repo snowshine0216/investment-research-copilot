@@ -7,6 +7,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `memo-picks-table-decision-mirror` (2026-05-26)
+
+Memo §5 picks table now mirrors the per-pick `单次定投上限` (tranche cap)
+and `触发状态` (trigger status) columns that already render in
+`decision_report.md`'s "决策面板" section. A reader of `memo.md` alone
+no longer has to cross-reference the decision report to see the live
+trigger state or sizing budget for each pick. Pure renderer change —
+no new data dependencies; reuses `suggest_tranche_pct` + `evaluate_trigger`
+via the relocated public helpers.
+
+Changes:
+
+- `src/irc/memo/picks_table.py` — `PickRow` gains `tranche_cap_pct:
+  float | None = None` and `trigger_status: str = ""` (frozen-dataclass
+  safe defaults; all 21 existing call sites use kwargs). New private
+  helper `_format_trigger_status_compact` renders triggers as
+  `{name} ✓ / ✗ / ⚠` joined by `<br>` for multi-trigger rows.
+  Em-dash `—` placeholder for None / zero / empty cases (matches
+  existing `_format_citations_cell` convention). Header column order:
+  `… | 主要理由 | 单次定投上限 | 触发状态 | 证据 |`.
+- `src/irc/decision/sizing.py` — `MACRO_FIELD_TO_KEY` (was
+  `_MACRO_FIELD_TO_KEY` in `decision/report.py`) and
+  `resolve_trigger_current_value` (was `_resolve_trigger_current_value`)
+  promoted to public symbols so the memo renderer can share them.
+- `src/irc/decision/live_inputs.py` — new module hosts
+  `read_live_decision_inputs` (extracted from `decision/report.py`);
+  reads macro snapshot + per-instrument weekly returns from DuckDB.
+  Connect-failure and query-failure paths now emit WARNING to stderr
+  instead of staying silent.
+- `src/irc/decision/report.py` — re-imports the relocated helpers;
+  `decision_report.md` output is byte-identical post-refactor.
+- `src/irc/commands/memo_cmd.py` + `src/irc/commands/decision_cmd.py`
+  — wire the new columns through `_build_pick_rows` and feed live
+  decision inputs.
+
+H3 / SAME-3 invariant: the two new cells emit ZERO `[ref:...]` markers
+(`test_picks_table_new_columns_carry_no_citation_markers`). The §5
+table is inside `<!-- IRC_PICKS_TABLE_BEGIN/END -->` markers — the new
+columns come from the deterministic renderer, never from LLM output.
+
 ### Added — `qdii-premium-fetcher` (2026-05-26)
 
 QDII premium-to-NAV fetcher unblocks the 8 instruments left in the
