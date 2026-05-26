@@ -94,7 +94,7 @@ class FetchPlan:
     fund_level_stale: int = 0   # Item 005
 
     def total_calls(self) -> int:
-        per_active = 1 + self.top_n * 3
+        per_active = 1 + self.top_n * 3 + 4  # +4 = 1 NAV + 3 announcement endpoints (item 001)
         per_fund_level = 4  # 1 NAV + 3 announcement endpoints (ADR 0002 §5)
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
