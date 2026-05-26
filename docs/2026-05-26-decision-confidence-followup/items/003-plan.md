@@ -190,11 +190,12 @@ Expected: 6 passed.
 
 In `src/irc/decision/report.py`:
 
-Edit the existing import block (lines 6-10) to add the two new symbols:
+Edit the existing import block (lines 6-10) to add `resolve_trigger_current_value`
+(note: `MACRO_FIELD_TO_KEY` is **not** used in `report.py` — do not import it here;
+ruff F401 will flag it as unused):
 
 ```python
 from irc.decision.sizing import (
-    MACRO_FIELD_TO_KEY,
     TriggerSpec,
     format_why_when_line,
     resolve_trigger_current_value,
@@ -295,8 +296,10 @@ def test_read_live_decision_inputs_reads_macro_and_returns(tmp_path: Path) -> No
         "  instrument_id VARCHAR, date DATE, nav DOUBLE"
         ")"
     )
-    # 8 NAV points → weekly return computable.
-    for i, nav in enumerate([1.10, 1.09, 1.08, 1.07, 1.06, 1.05, 1.04, 1.00]):
+    # 8 NAV points in ascending date order — latest date gets the highest NAV.
+    # ORDER BY date DESC means iloc[0]=latest=1.10, iloc[-1]=oldest=1.00.
+    # return = 1.10 / 1.00 - 1 = 0.10
+    for i, nav in enumerate([1.00, 1.01, 1.02, 1.03, 1.04, 1.06, 1.08, 1.10]):
         con.execute(
             "INSERT INTO nav_history VALUES (?, ?, ?)",
             ["510300", f"2026-05-{18 + i:02d}", nav],
