@@ -43,6 +43,7 @@ from irc.decision.gates import (
     compute_decision_status,
     derive_venue_status,
 )
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
 from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
@@ -435,7 +436,7 @@ def _decision_status_for_pick(
     trade: dict | None,
     op_row: dict,
     *,
-    qdii_max_premium_pct: float = 0.05,
+    qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> str:
     """Compute the decision-readiness verdict for a single pick row.
 
@@ -496,7 +497,7 @@ def _build_pick_rows(
     scoring: dict,
     extra_names: dict[str, str] | None = None,
     *,
-    qdii_max_premium_pct: float = 0.05,
+    qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> tuple[list[PickRow], list[dict], list[dict]]:
     """Classify each trade target into one of three buckets:
 
@@ -608,7 +609,6 @@ def run_memo(repo_root: str) -> int:
         **_names_from_watchlist_csv(out_today),
         **_names_from_universes(bundle),
     }
-    from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
     try:
         _qdii_max = bundle.discovery.hard_filters.qdii_max_premium_pct
     except Exception:
