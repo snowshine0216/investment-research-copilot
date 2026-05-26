@@ -13,7 +13,7 @@ Wire an AkShare premium-to-NAV fetcher into the scoring pass so QDII feeder ETFs
 
 Each criterion is independently testable.
 
-1. **AC1 — Pure adapter call signature.** `fetch_qdii_premium_pct(symbol: str) -> float | None` exists in `src/irc/data/akshare_client.py`. Returns a `float` in **ratio units** (e.g. `0.0292` for 2.92% premium) when AkShare returns a row for the symbol, `None` otherwise. The float represents **premium** (positive = above NAV); it is computed as `-(基金折价率 / 100.0)` so that the sign convention matches everywhere downstream.
+1. **AC1 — Pure adapter call signature.** `fetch_qdii_premium_pct(symbol: str) -> float | None` exists in `src/irc/data/akshare_client.py`. Returns a `float` in **ratio units** (e.g. `0.0292` for 2.92% premium) when AkShare returns a row for the symbol, `None` otherwise. The float is the **signed premium** ratio (positive = above NAV; negative = below NAV / trading at a discount). Computed as `-(基金折价率 / 100.0)` — AkShare's native `基金折价率` column is discount-positive (e.g. `-2.92` for a 2.92% premium), so the unary minus flips the sign at the adapter boundary. The gate comparison `premium > qdii_max_premium_pct` is safe under either sign (a discount-trading fund has negative premium and never exceeds the threshold).
 2. **AC2 — Bulk-fetch indirection.** The adapter dispatches through a single bulk-table call (`ak.fund_etf_spot_em()`) that is memoised at module scope via `lru_cache` keyed on `()`. The decorated helper `_fetch_full_etf_spot_table()` is the only function that calls `_ak_call("fund_etf_spot_em")`. Per-symbol lookups read from the cached table — at most ONE AkShare call per pipeline run regardless of how many QDII symbols ask.
 3. **AC3 — Column resilience.** The adapter requires `代码` and `基金折价率` columns. Missing either column → return `None` for the symbol (degrade-to-None per `fetch_fund_nav_report`'s contract). Tested with a fixture that simulates AkShare schema drift.
 4. **AC4 — Symbol normalisation.** Input symbol is matched against the `代码` column after stripping whitespace and zero-padding to 6 digits — mirrors `_normalize_fund_code` in the existing client. Symbols not present in the table → `None`.
@@ -21,7 +21,9 @@ Each criterion is independently testable.
 6. **AC6 — Scoring wire-in.** `src/irc/scoring/pipeline.py::run_scoring` accepts an optional `qdii_premium_resolver: Callable[[str], float | None] | None = None` parameter. When provided AND the watchlist row's `asset_class` is in `_QDII_ASSET_CLASSES`, the resolver is invoked once per QDII row and the result is set as `qdii_premium_pct` on the emitted score dict (key absent when value is `None`, matching the existing serialiser convention for empty scalar fields). The pipeline remains pure: it does not call AkShare directly.
 7. **AC7 — Command-layer composition.** `src/irc/commands/score_cmd.py::run_score` builds the resolver by composing `qdii_premium_for_row` with `fetch_qdii_premium_pct` (curried over the watchlist row's `market` and `asset_class`) and passes it into `run_scoring`. AkShare calls live exclusively in the command layer (effects at edges).
 8. **AC8 — New gap code `qdii_premium_too_high`.** `src/irc/decision/gates.py::compute_blocking_reasons` gains a new boolean parameter `qdii_premium_too_high: bool = False` (default False to preserve existing call sites). When `True`, `"qdii_premium_too_high"` is appended to `reasons`. The two QDII gap codes are mutually exclusive in any single call: the caller computes `qdii_premium_too_high = (asset_class ∈ QDII AND premium is not None AND premium > threshold AND action ∈ BUY_ACTIONS)` and `qdii_premium_unknown = (asset_class ∈ QDII AND premium is None AND action ∈ BUY_ACTIONS)`.
-9. **AC9 — Threshold sourcing.** `config/discovery.yaml::hard_filters.qdii_max_premium_pct` exists with a default of `0.03` (3%). `src/irc/schemas/discovery.py::HardFilters` gains the field with `Field(default=0.03, ge=0, le=1)`. Threshold is in **ratio units** matching AC1's value units.
+9. ~~**AC9 — Threshold sourcing.** `config/discovery.yaml::hard_filters.qdii_max_premium_pct` exists with a default of `0.03` (3%). `src/irc/schemas/discovery.py::HardFilters` gains the field with `Field(default=0.03, ge=0, le=1)`. Threshold is in **ratio units** matching AC1's value units.~~ — corrected by grill: default raised from `0.03` to `0.05` (see Resolved decisions (grill) Q5); constant extracted as `QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05` for naming consistency with `FOREIGN_HEAVY_THRESHOLD`.
+
+9. **AC9 — Threshold sourcing.** `config/discovery.yaml::hard_filters.qdii_max_premium_pct` exists with a default of `0.05` (5%). `src/irc/schemas/discovery.py` declares `QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05` at module scope; `HardFilters` gains the field with `Field(default=QDII_MAX_PREMIUM_DEFAULT, ge=0, le=1)`. Threshold is in **ratio units** matching AC1's value units. Default `0.05` matches CONTEXT.md's existing `qdii_premium_unknown` remediation text ("QDII feeders frequently trade 5–15% above NAV") and the bias-toward-let-it-pass autodev guidance for opt-out gates.
 10. **AC10 — Gate consumes the new threshold.** `decide_row` (and its memo-stage twin in `commands/memo_cmd.py`) receives a `qdii_max_premium_pct: float` parameter and feeds the `qdii_premium_too_high` boolean into `compute_blocking_reasons`. Memo-stage twin (`_compute_decision_status_for_memo`) reads the threshold from the loaded `DiscoveryConfig` bundle, not a hardcoded constant.
 11. **AC11 — Decision report labels.** `src/irc/decision/report.py::_BLOCKING_REASON_LABEL` and `_BLOCKING_REMEDIATION` gain entries for `qdii_premium_too_high`:
     - label: `"QDII premium-to-NAV above threshold"`
@@ -41,7 +43,13 @@ Each criterion is independently testable.
 16. **AC16 — Fetch-budget bookkeeping.** The bulk-table call counts as exactly ONE AkShare call against `IRC_FETCH_BUDGET` per run, asserted via the existing `_AKSHARE_CALL_COUNTER`-style instrumentation if it exists; otherwise documented in the spec text and confirmed via the `lru_cache` decoration.
 17. **AC17 — Three-section markdown rendering.** `tests/decision/test_three_section_markdown.py` gains a test analogous to the existing `test_qdii_premium_unknown_renders_in_blocked_section` that asserts a `qdii_premium_too_high` row surfaces in the blocked section with its label + remediation.
 18. **AC18 — `config validate` passes.** `uv run irc config validate` succeeds after the change. Documented as a smoke step in the verification path.
-19. **AC19 — CONTEXT.md addendum.** A new bullet under "Failure-mode + audit policy" (or "Active-fund fetch engine", as appropriate) defines `qdii_premium_too_high` as a peer of `qdii_premium_unknown`, pins the units (ratio, not percent), pins the off-exchange synthetic-zero policy, and pins the bulk-fetch + lru_cache contract.
+19. **AC19 — CONTEXT.md addendum.** A new section "QDII premium-to-NAV" with five bullets (QDII premium-to-NAV ratio / `fetch_qdii_premium_pct` / off-exchange synthetic-zero premium policy / `qdii_premium_too_high` / `qdii_max_premium_pct`) defines the term family, pins the units (ratio, not percent), pins the sign convention (signed; positive = premium), pins the off-exchange synthetic-zero policy, pins the bulk-fetch + lru_cache contract, and names the `QDII_MAX_PREMIUM_DEFAULT` constant. Resolved by the grill — already merged in the same commit as this spec refinement.
+
+20. **AC20 — Cache-clear test-isolation contract.** Tests that exercise `_fetch_full_etf_spot_table` MUST call `_fetch_full_etf_spot_table.cache_clear()` in fixture teardown (mirrors the existing `_fetch_full_fund_table.cache_clear()` pattern in `tests/data/test_akshare_client.py`). Locked by an explicit teardown hook in the new test module and documented inline so future maintainers don't introduce cross-test state leak.
+
+21. **AC21 — `_QDII_ASSET_CLASSES` full consolidation.** The shared constant `_QDII_ASSET_CLASSES: frozenset[str] = frozenset({"us_etf", "hk_etf", "qdii_global"})` lives in `src/irc/scoring/qdii_premium.py`. Its current three definitions — `decision/gates.py:15` (plain `set`), `memo/diagnostics.py:27` (`frozenset`), `allocation/target_weights.py:12` (`frozenset`) — are all replaced by `from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES`. Type unified to `frozenset` (immutability per CLAUDE.md). Locked by an acceptance test that asserts the constant is defined exactly once in `src/`.
+
+22. **AC22 — `qdii_premium_unknown` remediation rewrite.** `_BLOCKING_REMEDIATION["qdii_premium_unknown"]` in `decision/report.py` is rewritten to clarify "unknown" now means "AkShare returned no row for this symbol" (not "we haven't tried to fetch"). The text drops the now-misleading "FX status" half (out of V1 scope per Non-goals). Suggested text: `"AkShare returned no premium snapshot for this QDII symbol. Refresh fund_etf_spot_em data or wait for the next ingest. QDII feeders frequently trade 5–15% above NAV — premium must be known before treating as actionable."` Locked by a test that asserts the remediation string contains "AkShare" (signal that it refers to the data path).
 
 ## Non-goals
 
@@ -190,11 +198,13 @@ ADR 0002 §5 gains a one-sentence cross-reference noting that the QDII premium f
 | `src/irc/scoring/qdii_premium.py` | NEW. Pure `qdii_premium_for_row` + shared `_QDII_ASSET_CLASSES` constant. |
 | `src/irc/scoring/pipeline.py` | Accept `qdii_premium_resolver` parameter; stamp `qdii_premium_pct` on QDII rows. |
 | `src/irc/commands/score_cmd.py` | Build resolver from fetcher + routing helper; pass into `run_scoring`. |
-| `src/irc/decision/gates.py` | Add `qdii_premium_too_high` parameter and `decide_row` threshold parameter; import `_QDII_ASSET_CLASSES` from the new module. |
-| `src/irc/commands/memo_cmd.py` | Mirror the gate update; read threshold from `DiscoveryConfig` bundle. |
-| `src/irc/decision/report.py` | Add label + remediation for `qdii_premium_too_high`. |
-| `src/irc/schemas/discovery.py` | Add `qdii_max_premium_pct: float = Field(default=0.03, ge=0, le=1)` to `HardFilters`. |
-| `config/discovery.yaml` | Add `qdii_max_premium_pct: 0.03` under `hard_filters`. |
+| `src/irc/decision/gates.py` | Add `qdii_premium_too_high` parameter and `decide_row` threshold parameter; replace local `_QDII_ASSET_CLASSES` with import from the new module. |
+| `src/irc/commands/memo_cmd.py` | Mirror the gate update; read threshold from `DiscoveryConfig` bundle; replace local `_QDII_ASSET_CLASSES` import with import from the new module. |
+| `src/irc/memo/diagnostics.py` | Replace local `_QDII_ASSET_CLASSES` definition with import from the new module (AC21 consolidation). |
+| `src/irc/allocation/target_weights.py` | Replace local `_QDII_ASSET_CLASSES` definition with import from the new module (AC21 consolidation). |
+| `src/irc/decision/report.py` | Add label + remediation for `qdii_premium_too_high`; rewrite the `qdii_premium_unknown` remediation text per AC22. |
+| `src/irc/schemas/discovery.py` | Add `QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05` module constant + `qdii_max_premium_pct: float = Field(default=QDII_MAX_PREMIUM_DEFAULT, ge=0, le=1)` to `HardFilters`. |
+| `config/discovery.yaml` | Add `qdii_max_premium_pct: 0.05` under `hard_filters`. |
 | `tests/data/test_akshare_client.py` | New tests: bulk-table contract, sign-flip arithmetic, missing-symbol, live double-gated. |
 | `tests/scoring/test_qdii_premium.py` | NEW. Pure-function tests for routing helper. |
 | `tests/decision/test_gates.py` | Add tests for `qdii_premium_too_high` path. |
@@ -210,5 +220,59 @@ ADR 0002 §5 gains a one-sentence cross-reference noting that the QDII premium f
 3. `IRC_RUN_LIVE_AKSHARE=1 uv run pytest -m live_akshare tests/data/test_akshare_client.py::test_fetch_qdii_premium_pct_live` — live test green.
 4. `uv run irc config validate` — passes.
 5. `uv run irc run --only score` (after `irc run --only discover`) on today's universe — `outputs/<date>/scoring.json` contains `qdii_premium_pct` for the 3 on-exchange QDII rows and `0.0` for the 5 off-exchange feeders.
-6. `uv run irc decision` — `decision_report.md` shows the 8 previously-blocked QDII rows in the actionable section (assuming premium ≤ 3%), with the blocked section reduced.
+6. `uv run irc decision` — `decision_report.md` shows the 8 previously-blocked QDII rows in the actionable section (assuming premium ≤ 5%), with the blocked section reduced.
 7. `uv run ruff check src tests` — passes.
+
+## Resolved decisions (grill)
+
+Q/A pairs from the grill pass (2026-05-26, AUTO-ACCEPT mode). Brainstorming-phase decisions are preserved verbatim in the "Open questions resolved during brainstorming" section above; this section only records new findings the grill surfaced.
+
+- **Q (G1): Should `_QDII_ASSET_CLASSES` be consolidated across all three current call sites, or only the one the spec mentions?**
+  - **A:** Consolidate across ALL three (`decision/gates.py`, `memo/diagnostics.py`, `allocation/target_weights.py`) into the new home `src/irc/scoring/qdii_premium.py`. Type unified to `frozenset` (matches two of three existing definitions; honours CLAUDE.md immutability rule). New AC21 added.
+  - **Rationale:** Eliminate three-way duplication that can drift; immutability for shared constants.
+  - **Doc impact:** spec AC21 (new); no CONTEXT.md change required (the constant is an implementation detail).
+
+- **Q (G2): Is `0.0` (rather than `None`) the right semantics for off-exchange QDII feeders?**
+  - **A:** `0.0` is correct. Off-exchange units transact at NAV by construction (subscription/redemption settle at end-of-day NAV — no secondary-market premium concept applies). `None` would falsely fire `qdii_premium_unknown` and re-block these structurally-NAV-tracking funds.
+  - **Rationale:** Domain truth: the field is *known* (zero by construction), not *missing*.
+  - **Doc impact:** CONTEXT.md "off-exchange synthetic-zero premium policy" bullet added.
+
+- **Q (G3): Is `基金折价率` ever positive (fund trading at discount), and does the spec's "positive = premium" assumption hold?**
+  - **A:** YES, `基金折价率` is sometimes positive (the column is literally "discount rate" — positive value = trading below NAV). The spec's sign-flip formula `premium = -(基金折价率)/100` correctly yields a NEGATIVE premium in that case (e.g. `基金折价率=2.0` → `premium=-0.02`). The original spec text "positive = above NAV" was incomplete; AC1 has been rewritten to state the premium is **signed** (positive = above NAV, negative = below). The gate comparison `premium > threshold` is safe under either sign (a discount fund's negative premium never exceeds a positive threshold).
+  - **Rationale:** Math is correct; doc text was misleading. Live test bound `(-1.0, 1.0)` already accommodates both signs.
+  - **Doc impact:** spec AC1 rewritten; CONTEXT.md "QDII premium-to-NAV ratio" pins signed semantics.
+
+- **Q (G4): Is the spec's live-test double-gating explicit enough to satisfy CONTEXT.md "Live test gate"?**
+  - **A:** YES. AC12 names both `pytest.mark.live_akshare` AND module-level `pytest.mark.skipif(os.environ.get("IRC_RUN_LIVE_AKSHARE") != "1", ...)`. Constraints section reiterates. No change needed.
+  - **Rationale:** Spec already canonical.
+  - **Doc impact:** none.
+
+- **Q (G5): Is the threshold default `0.03` too tight versus MASTER-SPEC's `0.05`?**
+  - **A:** Raise to `0.05`. (a) MASTER-SPEC was `0.05`; (b) CONTEXT.md's existing `qdii_premium_unknown` remediation text references "5–15% above NAV" as the operator's mental model; (c) the 3-row sample (`513650: -2.92%`, `159691: 0.79%`, `513690: 0.22%`) is a single snapshot, not a distribution — QDII feeders historically spike to 4–8% during US-CN time-zone arbitrage windows; (d) the gate is opt-out (premium > threshold blocks), so the autodev guidance bias is toward "let it pass". Operator can tune down via YAML if false-negatives appear.
+  - **Rationale:** Bias toward let-it-pass for opt-out gates; align with existing operator mental model.
+  - **Doc impact:** spec AC9 corrected (struck through + replacement); `config/discovery.yaml` default `0.05`; new `QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05` constant in `schemas/discovery.py`; CONTEXT.md `qdii_max_premium_pct` bullet pins `0.05` default.
+
+- **Q (G6): Does the `lru_cache(maxsize=1)` pattern introduce concurrency or test-isolation hazards?**
+  - **A:** No concurrency hazard — `irc` runs single-process single-threaded for scoring (no async fanout into the cache). Test isolation IS a concern: existing fixtures in `tests/data/test_akshare_client.py` already call `_fetch_full_fund_table.cache_clear()` in teardown for the same reason. The new test module must call `_fetch_full_etf_spot_table.cache_clear()` to prevent fixture leak across tests. New AC20 added.
+  - **Rationale:** Match established hygiene pattern.
+  - **Doc impact:** spec AC20 (new); CONTEXT.md `fetch_qdii_premium_pct` bullet pins the cache_clear contract.
+
+- **Q (G7): Naming consistency — should the magic default be a named `Final` constant like `FOREIGN_HEAVY_THRESHOLD` from item 001?**
+  - **A:** YES. Introduce `QDII_MAX_PREMIUM_DEFAULT: Final[float] = 0.05` in `src/irc/schemas/discovery.py` at module scope, referenced by `HardFilters.qdii_max_premium_pct = Field(default=QDII_MAX_PREMIUM_DEFAULT, ...)`. Mirrors `FOREIGN_HEAVY_THRESHOLD` in `policy_b.py`. The YAML key `qdii_max_premium_pct` stays lowercase per existing config convention.
+  - **Rationale:** Naming consistency with item 001's pattern; magic numbers get names.
+  - **Doc impact:** spec AC9 rewritten with constant; CONTEXT.md `qdii_max_premium_pct` bullet names the constant.
+
+- **Q (G8): The existing `qdii_premium_unknown` remediation text mentions "premium / FX status". After this item lands, premium IS fetched — is the text still accurate?**
+  - **A:** No. Rewrite to clarify "unknown" now means "AkShare returned no row for this symbol" (distinct from "too high"), and drop the "FX status" half (out of V1 scope per Non-goals). New AC22 added with suggested text.
+  - **Rationale:** Operator-facing text must match new behaviour; preserve audit-trail clarity between the two QDII codes.
+  - **Doc impact:** spec AC22 (new).
+
+- **Q (G9): Does the 2026-05-25 QDII fetch reform memory conflict with this item?**
+  - **A:** No. The memory governs the dual-coverage gate at the opportunity stage (QDII funds now fetch fund-level NAV + announcements via `_build_fund_level_snapshot`). This item governs the `qdii_premium_pct` decision-stage gate (a scoring metric, orthogonal axis). Both can be true: a QDII row clears the dual-coverage gate via fund-level evidence AND clears the decision-stage gate via a healthy premium. The 8 currently-blocked rows already cleared dual-coverage; only `qdii_premium_unknown` blocks them now.
+  - **Rationale:** Two orthogonal gate axes; no contradiction.
+  - **Doc impact:** none required (the cross-reference is implicit in the existing CONTEXT.md text).
+
+- **Q (G10): Is the "no new ADR; CONTEXT.md addendum + ADR 0002 §5 cross-reference" the right docs surface?**
+  - **A:** YES. The fetch pattern (bulk-table + lru_cache + degrade-to-None) is textbook ADR 0002 §5. The new gate code `qdii_premium_too_high` is a peer of an existing code — no new architectural ground. A one-sentence cross-reference in ADR 0002 §5 (now added as "F6 QDII premium-to-NAV fetcher") is the right shape.
+  - **Rationale:** Match docs surface to architectural delta; new code = new bullet, not new ADR.
+  - **Doc impact:** ADR 0002 §5 amended with F6 paragraph; CONTEXT.md "QDII premium-to-NAV" section added.
