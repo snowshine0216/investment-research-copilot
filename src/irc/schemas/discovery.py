@@ -24,7 +24,7 @@ class HardFilters(FrozenModel):
     qdii_feeder_expense_ratio_max: float = Field(default=0.012, ge=0, le=1)
     etf_daily_volume_cny_min: float = Field(ge=0)
     qdii_max_premium_pct: float = Field(
-        default=QDII_MAX_PREMIUM_DEFAULT, ge=0, le=1
+        default=QDII_MAX_PREMIUM_DEFAULT, gt=0, le=1
     )
 
 
