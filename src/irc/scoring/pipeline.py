@@ -136,9 +136,16 @@ def run_scoring(
         if qdii_premium_resolver is not None and str(asset_class or "") in _QDII_ASSET_CLASSES:
             row_market = str(market or "")
             row_asset_class = str(asset_class or "")
-            premium = qdii_premium_resolver(
-                row_asset_class, row_market, str(r.instrument_id)
-            )
+            try:
+                premium = qdii_premium_resolver(
+                    row_asset_class, row_market, str(r.instrument_id)
+                )
+            except Exception as exc:
+                _log.warning(
+                    "qdii_premium_resolver raised for %s: %s",
+                    r.instrument_id, exc, exc_info=True,
+                )
+                premium = None
             if premium is not None:
                 score_row["qdii_premium_pct"] = premium
         out.append(score_row)

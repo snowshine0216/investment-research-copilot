@@ -287,6 +287,57 @@ def test_smoke_eight_master_spec_instruments_route_correctly() -> None:
     assert sorted(fetcher_calls) == ["159691", "513650", "513690"]
 
 
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_run_scoring_continues_when_resolver_raises(mock_macro, caplog) -> None:
+    """P0-2 fix: a raising resolver must not silently drop remaining rows."""
+    from irc.scoring.pipeline import run_scoring
+    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([
+        {"instrument_id": "513650", "name_cn": "ETF A", "asset_class": "us_etf",
+         "market": "cn_on_exchange", "role": "core_us_equity",
+         "cited_refs": "r1", "tracked_index": ""},
+        {"instrument_id": "159691", "name_cn": "ETF B", "asset_class": "hk_etf",
+         "market": "cn_on_exchange", "role": "core_hk_equity",
+         "cited_refs": "r2", "tracked_index": ""},
+        {"instrument_id": "513690", "name_cn": "ETF C", "asset_class": "us_etf",
+         "market": "cn_on_exchange", "role": "satellite_us",
+         "cited_refs": "r3", "tracked_index": ""},
+    ])
+    metrics = pd.DataFrame([
+        {"instrument_id": iid, "expense_ratio": 0.006,
+         "premium_discount_pct": 0.0, "drawdown_3y": 0.15,
+         "vol_1y": 0.18, "downside_capture": 0.9,
+         "aum_stability_pct": 0.05, "manager_tenure_years": 8,
+         "holdings_concentration_top10": 0.25}
+        for iid in ["513650", "159691", "513690"]
+    ])
+
+    def _raising_resolver(asset_class: str, market: str, instrument_id: str) -> float | None:
+        if instrument_id == "159691":
+            raise RuntimeError("boom")
+        return 0.02
+
+    with caplog.at_level("WARNING"):
+        out = run_scoring(
+            watchlist=watchlist, metrics=metrics, news_summaries={},
+            regime_summary="x", route=MagicMock(),
+            cfg_scoring=_scoring_cfg(),
+            qdii_premium_resolver=_raising_resolver,
+        )
+
+    by_id = {s["instrument_id"]: s for s in out["scores"]}
+    # All 3 rows returned — raiser does NOT abort the loop
+    assert set(by_id) == {"513650", "159691", "513690"}
+    # The raiser's row has no qdii_premium_pct (treated as unknown)
+    assert "qdii_premium_pct" not in by_id["159691"]
+    # Non-raising rows still have their premium stamped
+    assert by_id["513650"]["qdii_premium_pct"] == pytest.approx(0.02)
+    assert by_id["513690"]["qdii_premium_pct"] == pytest.approx(0.02)
+    # A WARNING was emitted mentioning the failing instrument_id
+    assert "159691" in caplog.text
+    assert any(r.levelname == "WARNING" for r in caplog.records)
+
+
 def test_qdii_asset_classes_defined_exactly_once_in_src() -> None:
     """AC21: the constant lives in qdii_premium.py only; other modules import."""
     import subprocess
