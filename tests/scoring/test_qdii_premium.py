@@ -110,6 +110,128 @@ def test_propagates_none_from_fetcher() -> None:
     assert fetcher.calls == ["999999"]
 
 
+from unittest.mock import MagicMock, patch
+
+import pandas as pd
+
+from irc.schemas.scoring import ScoringConfig
+
+
+def _scoring_cfg() -> ScoringConfig:
+    return ScoringConfig.model_validate({
+        "factor_weights": {
+            "valuation_cost": 0.10, "risk": 0.25, "quality": 0.20,
+            "macro_fit": 0.25, "thesis_news": 0.20,
+        },
+        "action_thresholds": {
+            "strong_buy_candidate": 80, "buy_candidate": 60,
+            "watch": 40, "avoid": 20,
+        },
+        "conviction_data_completeness_threshold": 0.80,
+        "weights_version": "v1",
+    })
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_run_scoring_stamps_qdii_premium_pct_when_resolver_provided(
+    mock_macro,
+) -> None:
+    """AC6: run_scoring invokes the resolver per QDII row and stamps the result."""
+    from irc.scoring.pipeline import run_scoring
+    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([
+        {"instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
+         "market": "cn_on_exchange", "role": "core_us_equity",
+         "cited_refs": "r1", "tracked_index": ""},
+        {"instrument_id": "000001", "name_cn": "华夏成长", "asset_class": "cn_equity_fund",
+         "market": "cn_off_exchange", "role": "core_cn_equity",
+         "cited_refs": "r2", "tracked_index": ""},
+    ])
+    metrics = pd.DataFrame([
+        {"instrument_id": "513650", "expense_ratio": 0.006,
+         "premium_discount_pct": 0.0, "drawdown_3y": 0.15,
+         "vol_1y": 0.18, "downside_capture": 0.9,
+         "aum_stability_pct": 0.05, "manager_tenure_years": 8,
+         "holdings_concentration_top10": 0.25},
+        {"instrument_id": "000001", "expense_ratio": 0.015,
+         "premium_discount_pct": 0.0, "drawdown_3y": 0.20,
+         "vol_1y": 0.20, "downside_capture": 1.0,
+         "aum_stability_pct": 0.05, "manager_tenure_years": 5,
+         "holdings_concentration_top10": 0.30},
+    ])
+    resolver_calls: list[tuple[str, str, str]] = []
+
+    def fake_resolver(asset_class: str, market: str, symbol: str) -> float | None:
+        resolver_calls.append((asset_class, market, symbol))
+        if asset_class == "us_etf":
+            return 0.0292
+        return None
+
+    out = run_scoring(
+        watchlist=watchlist, metrics=metrics, news_summaries={},
+        regime_summary="x", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+        qdii_premium_resolver=fake_resolver,
+    )
+    by_id = {s["instrument_id"]: s for s in out["scores"]}
+    assert by_id["513650"]["qdii_premium_pct"] == pytest.approx(0.0292)
+    assert "qdii_premium_pct" not in by_id["000001"]
+    assert resolver_calls == [("us_etf", "cn_on_exchange", "513650")]
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_run_scoring_omits_qdii_premium_pct_when_no_resolver(mock_macro) -> None:
+    """No resolver → no qdii_premium_pct key (back-compat)."""
+    from irc.scoring.pipeline import run_scoring
+    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([{
+        "instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
+        "market": "cn_on_exchange", "role": "core_us_equity",
+        "cited_refs": "r1", "tracked_index": "",
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "513650", "expense_ratio": 0.006,
+        "premium_discount_pct": 0.0, "drawdown_3y": 0.15,
+        "vol_1y": 0.18, "downside_capture": 0.9,
+        "aum_stability_pct": 0.05, "manager_tenure_years": 8,
+        "holdings_concentration_top10": 0.25,
+    }])
+    out = run_scoring(
+        watchlist=watchlist, metrics=metrics, news_summaries={},
+        regime_summary="x", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+    )
+    assert "qdii_premium_pct" not in out["scores"][0]
+
+
+@patch("irc.scoring.pipeline.score_macro_fit")
+def test_run_scoring_omits_qdii_premium_pct_when_resolver_returns_none(
+    mock_macro,
+) -> None:
+    """Resolver returning None → key absent (existing serialiser convention)."""
+    from irc.scoring.pipeline import run_scoring
+    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    watchlist = pd.DataFrame([{
+        "instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
+        "market": "cn_on_exchange", "role": "core_us_equity",
+        "cited_refs": "r1", "tracked_index": "",
+    }])
+    metrics = pd.DataFrame([{
+        "instrument_id": "513650", "expense_ratio": 0.006,
+        "premium_discount_pct": 0.0, "drawdown_3y": 0.15,
+        "vol_1y": 0.18, "downside_capture": 0.9,
+        "aum_stability_pct": 0.05, "manager_tenure_years": 8,
+        "holdings_concentration_top10": 0.25,
+    }])
+    out = run_scoring(
+        watchlist=watchlist, metrics=metrics, news_summaries={},
+        regime_summary="x", route=MagicMock(),
+        cfg_scoring=_scoring_cfg(),
+        qdii_premium_resolver=lambda ac, mk, sym: None,
+    )
+    assert "qdii_premium_pct" not in out["scores"][0]
+
+
 def test_qdii_asset_classes_defined_exactly_once_in_src() -> None:
     """AC21: the constant lives in qdii_premium.py only; other modules import."""
     import subprocess

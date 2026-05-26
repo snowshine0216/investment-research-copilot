@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 import pandas as pd
+
+from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
 from irc.decision.completeness import (
     completeness_ratio,
@@ -46,6 +49,7 @@ def run_scoring(
     regime_summary: str,
     route: Any,
     cfg_scoring: ScoringConfig,
+    qdii_premium_resolver: Callable[[str, str, str], float | None] | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """End-to-end scoring for each instrument in the watchlist."""
     by_id = metrics.set_index("instrument_id").to_dict("index") if not metrics.empty else {}
@@ -119,7 +123,7 @@ def run_scoring(
             data_completeness=completeness,
             cfg=cfg_scoring,
         )
-        out.append({
+        score_row: dict[str, Any] = {
             "instrument_id": score_obj.instrument_id,
             "composite_score": score_obj.composite_score,
             "action": score_obj.action,
@@ -128,5 +132,14 @@ def run_scoring(
             "data_completeness": score_obj.data_completeness,
             "missing_data": missing_data,
             "weights_version": score_obj.weights_version,
-        })
+        }
+        if qdii_premium_resolver is not None and str(asset_class or "") in _QDII_ASSET_CLASSES:
+            row_market = str(market or "")
+            row_asset_class = str(asset_class or "")
+            premium = qdii_premium_resolver(
+                row_asset_class, row_market, str(r.instrument_id)
+            )
+            if premium is not None:
+                score_row["qdii_premium_pct"] = premium
+        out.append(score_row)
     return {"scores": out}
