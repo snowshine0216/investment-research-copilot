@@ -37,7 +37,8 @@ def read_live_decision_inputs(
         print(
             f"WARNING: decision report could not read live macro/returns "
             f"({exc.__class__.__name__}); per-pick triggers will show "
-            f"'未知 / unknown'."
+            f"'未知 / unknown'.",
+            file=sys.stderr,
         )
         return {}, {}
     macro: dict[str, float] = {}
