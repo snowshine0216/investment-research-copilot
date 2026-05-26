@@ -8,6 +8,7 @@ from irc.decision.sizing import (
     format_why_when_line,
     suggest_tranche_pct,
 )
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 
 _PIPELINE_INCOMPLETE_THRESHOLD = 0.5
 
@@ -29,6 +30,7 @@ def compose_decision_report(
     macro_snapshot: dict[str, float] | None = None,
     weekly_return_by_id: dict[str, float] | None = None,
     opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
+    qdii_max_premium_pct: float | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -53,6 +55,11 @@ def compose_decision_report(
         _n_provided = int(memo_traceability.get("n_refs_provided") or 0)
         _n_quoted = int(memo_traceability.get("n_refs_quoted_verbatim") or 0)
         coverage = 1.0 if (_n_provided == 0 or _n_quoted > 0) else 0.0
+    threshold = (
+        QDII_MAX_PREMIUM_DEFAULT
+        if qdii_max_premium_pct is None
+        else qdii_max_premium_pct
+    )
     scores = scoring.get("scores", [])
     pipeline_incomplete = _scores_missing_action(scores)
     if pipeline_incomplete:
@@ -71,6 +78,7 @@ def compose_decision_report(
         # an empty set = "nothing published" (treat all as excluded).
         opportunity_published_ids=opportunity_published_ids,
         trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
+        qdii_max_premium_pct=threshold,
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -339,6 +347,7 @@ def _build_rows(
     role_by_id: dict[str, str],
     opportunity_published_ids: set[str] | None,
     trade_plan_targets: set[str],
+    qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
@@ -366,6 +375,7 @@ def _build_rows(
             target_weight=target_weight_by_id.get(iid, 0.0),
             role=role_by_id.get(iid, ""),
             excluded_from_opportunity=excluded,
+            qdii_max_premium_pct=qdii_max_premium_pct,
         ))
     return rows
 

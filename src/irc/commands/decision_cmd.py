@@ -11,6 +11,7 @@ from irc.config_loader import load_repo_configs
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
 from irc.memo.auditor import extract_audit_summary
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.schemas.universe import UniverseConfig
 
 
@@ -205,9 +206,11 @@ def run_decision(repo_root: str) -> int:
         bundle = load_repo_configs(root)
         venue_reqs, available_venues = _venue_maps_from_bundle(bundle, root)
         names = _names_from_bundle(bundle)
+        qdii_max_premium = bundle.discovery.hard_filters.qdii_max_premium_pct
     except Exception as exc:  # noqa: BLE001 — graceful degrade
         print(f"WARNING: could not load venue context ({exc}); falling back to unknown venue for rows without trades.")
         venue_reqs, available_venues, names = {}, [], {}
+        qdii_max_premium = QDII_MAX_PREMIUM_DEFAULT
     # Universe yamls miss instruments only present in the discovered watchlist
     # for this run. Fall back to that CSV so the markdown never renders naked ids.
     watchlist_names = _names_from_watchlist_csv(out_dir / "discovered_watchlist.csv")
@@ -239,6 +242,7 @@ def run_decision(repo_root: str) -> int:
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_returns,
         opportunity_state_by_id=opportunity_states,
+        qdii_max_premium_pct=qdii_max_premium,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))
