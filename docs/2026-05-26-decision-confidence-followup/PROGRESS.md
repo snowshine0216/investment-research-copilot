@@ -12,9 +12,20 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail · ⏭�
 
 | Gate              | Status |
 |-------------------|--------|
-| run-doc-sync      | ⏳      |
-| run-final-verify  | ⏳      |
-| feature-branch PR | ⏳      |
+| run-doc-sync      | ✅ run-doc-sync.md (PASS — 13 doc changes verified across 5 files) |
+| run-final-verify  | ✅ run-final-verify.md (PASS — CLI + cross-item imports + 127 tests, 0 failures) |
+| feature-branch PR | ✅ #74 (opened against main — NOT merged; user reviews & lands) |
+
+## Close-out
+
+**All three items merged into `autodev/decision-confidence-followup-feature`.** Feature-branch PR #74 is open against `main` as the user's roll-up review surface — autodev does NOT merge into protected branches.
+
+- Sub-PR #71 (item 001 — Policy B rule 2.5): merged `67ffa2c`
+- Sub-PR #72 (item 002 — QDII premium fetcher): merged `9898f6b`
+- Sub-PR #73 (item 003 — memo picks-table mirror): merged `84c7612`
+- Run-level PR #74: https://github.com/snowshine0216/investment-research-copilot/pull/74
+
+User to review #74 and merge into `main` when satisfied. Autodev deliberately did not auto-merge per the protected-branches contract (main was protected; no explicit opt-in this turn).
 
 ## Items
 
