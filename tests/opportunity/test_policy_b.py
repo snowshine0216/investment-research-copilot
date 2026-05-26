@@ -544,3 +544,335 @@ def test_evaluate_policy_b_thesis_state_never_modified() -> None:
     ann = sig.return_annotation
     ann_name = ann if isinstance(ann, str) else ann.__name__
     assert ann_name == "PolicyBVerdict"
+
+
+# ── Item 001 (decision-confidence-followup): rule 2.5 foreign-heavy ──────────
+
+
+def _evidence_data_instrument(fund_id: str = "006809"):
+    """Build an instrument-scope, data-leg ThesisEvidence (NAV-style)."""
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type="snapshot",
+        source=fund_id,
+        url="",
+        date="2024-04-15",
+        summary=f"NAV=1.2345 @ 2024-04-15",
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id=fund_id,
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+
+
+def _evidence_info_instrument(fund_id: str = "006809"):
+    """Build an instrument-scope, information-leg ThesisEvidence (announcement-style)."""
+    from irc.fundamentals.types import ThesisEvidence
+    return ThesisEvidence(
+        type="news",
+        source="fund_announcement_report_em",
+        url="",
+        date="2024-04-15",
+        summary="[REP-001] 季度报告",
+        scope="instrument",
+        citation_kind="information",
+        owner_instrument_id=fund_id,
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+
+
+def _snapshot_with_fund_level_evidence(
+    analyses=(),
+    fund_level_failure_reasons=(),
+    fund_level_evidence=(),
+    fund_id: str = "006809",
+):
+    """Snapshot factory that supplies fund_level_evidence (item 001 field)."""
+    from irc.fundamentals.types import ActiveFundSnapshot
+    return ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=analyses,
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=fund_level_failure_reasons,
+        fund_level_evidence=fund_level_evidence,
+    )
+
+
+def test_foreign_heavy_threshold_constant_is_half() -> None:
+    from irc.opportunity.policy_b import FOREIGN_HEAVY_THRESHOLD
+    assert FOREIGN_HEAVY_THRESHOLD == 0.50
+
+
+def test_compute_foreign_listed_share_all_hk_returns_one() -> None:
+    from irc.opportunity.policy_b import (
+        _compute_foreign_listed_share,
+        _rank_by_weight,
+    )
+    ranked = _rank_by_weight(tuple(
+        _ca(f"0070{i}.HK", 1.0) for i in range(10)
+    ))
+    assert _compute_foreign_listed_share(ranked) == 1.0
+
+
+def test_compute_foreign_listed_share_all_cn_returns_zero() -> None:
+    from irc.opportunity.policy_b import (
+        _compute_foreign_listed_share,
+        _rank_by_weight,
+    )
+    # SH symbols (start with 6, 6 digits).
+    ranked = _rank_by_weight(tuple(
+        _ca(f"60000{i}", 1.0) for i in range(10)
+    ))
+    assert _compute_foreign_listed_share(ranked) == 0.0
+
+
+def test_compute_foreign_listed_share_empty_input_returns_zero() -> None:
+    from irc.opportunity.policy_b import _compute_foreign_listed_share
+    assert _compute_foreign_listed_share(()) == 0.0
+
+
+def test_compute_foreign_listed_share_mixed_below_threshold() -> None:
+    """5 HK at weight 4.9 + 5 SH at weight 5.1 → foreign share 49 %."""
+    from irc.opportunity.policy_b import (
+        _compute_foreign_listed_share,
+        _rank_by_weight,
+    )
+    hk = tuple(_ca(f"0070{i}.HK", 4.9) for i in range(5))
+    sh = tuple(_ca(f"60000{i}", 5.1) for i in range(5))
+    ranked = _rank_by_weight(hk + sh)
+    share = _compute_foreign_listed_share(ranked)
+    assert abs(share - 0.49) < 1e-9
+
+
+def test_compute_foreign_listed_share_exact_50_pct_boundary() -> None:
+    """5 HK @ 5.0 + 5 SH @ 5.0 → foreign share == 0.50 exactly."""
+    from irc.opportunity.policy_b import (
+        _compute_foreign_listed_share,
+        _rank_by_weight,
+    )
+    hk = tuple(_ca(f"0070{i}.HK", 5.0) for i in range(5))
+    sh = tuple(_ca(f"60000{i}", 5.0) for i in range(5))
+    ranked = _rank_by_weight(hk + sh)
+    assert _compute_foreign_listed_share(ranked) == 0.5
+
+
+def test_compute_foreign_listed_share_unknown_exchange_treated_non_foreign() -> None:
+    """UNKNOWN exchange symbols are conservatively NOT counted as foreign (spec non-goal)."""
+    from irc.opportunity.policy_b import (
+        _compute_foreign_listed_share,
+        _rank_by_weight,
+    )
+    # "ZZZ" → _infer_exchange returns "US" because it's alpha; pick a symbol
+    # whose shape forces UNKNOWN: digits but wrong length.
+    ranked = _rank_by_weight((
+        _ca("123", 5.0),       # UNKNOWN (3-digit; not 4/5/6)
+        _ca("600000", 5.0),    # SH
+    ))
+    # Foreign share = 0 / 10 = 0.0 (UNKNOWN excluded; SH excluded).
+    assert _compute_foreign_listed_share(ranked) == 0.0
+
+
+def test_evaluate_policy_b_rule_2_5_foreign_heavy_publishable() -> None:
+    """006809 fixture: 10 HK constituents, no CN filings, fund-level evidence present."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # All 10 holdings are HK and lack data leg (no CN filings reach HK).
+    # In the legacy precedence this triggers rule 3; rule 2.5 must short-circuit.
+    analyses = tuple(
+        _ca(
+            f"0070{i}.HK", 10.0 - i,
+            evidence=(),  # no per-holding filings; the whole point of rule 2.5
+            failure_reasons=(f"filing_fetch_failed:0070{i}.HK:KeyError",),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ()
+    assert v.audit_errors == ()
+    assert v.decision_rule.startswith("foreign-heavy (share=100%)")
+    assert "fund-level" in v.decision_rule
+
+
+def test_evaluate_policy_b_rule_2_5_foreign_heavy_missing_evidence_fails() -> None:
+    """Foreign-heavy fund WITHOUT fund_level_evidence → new gap code."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(
+            f"0070{i}.HK", 10.0 - i,
+            evidence=(),
+            failure_reasons=(f"filing_fetch_failed:0070{i}.HK:KeyError",),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(),  # empty → rule 2.5 fails
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("foreign_heavy_fund_level_evidence_missing",)
+    # decision_rule must mention which leg is missing.
+    assert "data" in v.decision_rule or "information" in v.decision_rule
+
+
+def test_evaluate_policy_b_rule_2_5_data_only_missing_info_fails() -> None:
+    """Foreign-heavy with fund-level NAV (data leg) but no announcement (info leg)."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    analyses = tuple(
+        _ca(
+            f"0070{i}.HK", 10.0 - i,
+            evidence=(),
+            failure_reasons=(f"filing_fetch_failed:0070{i}.HK:KeyError",),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(_evidence_data_instrument("006809"),),  # data only
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("foreign_heavy_fund_level_evidence_missing",)
+    assert "information" in v.decision_rule
+
+
+def test_evaluate_policy_b_rule_2_5_exact_50_pct_threshold_triggers() -> None:
+    """Comparison is `>=`: a fund at exactly 50.0 % HK weight triggers rule 2.5."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    hk = tuple(
+        _ca(f"0070{i}.HK", 5.0, evidence=(),
+            failure_reasons=(f"filing_empty:0070{i}.HK",))
+        for i in range(5)
+    )
+    sh = tuple(
+        _ca(f"60000{i}", 5.0, evidence=(),
+            failure_reasons=(f"filing_empty:60000{i}",))
+        for i in range(5)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=hk + sh,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    # Rule 2.5 fires (share == 0.50, `>=` boundary inclusive) → publishable.
+    assert v.gap_codes == ()
+    assert v.decision_rule.startswith("foreign-heavy (share=50%)")
+
+
+def test_evaluate_policy_b_rule_2_5_below_threshold_falls_through_to_rule_3() -> None:
+    """49 % HK weight does NOT trigger rule 2.5; existing rule 3 fires on missing data legs."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    hk = tuple(
+        _ca(f"0070{i}.HK", 4.9, evidence=(),
+            failure_reasons=(f"filing_empty:0070{i}.HK",))
+        for i in range(5)
+    )
+    sh = tuple(
+        _ca(f"60000{i}", 5.1, evidence=(),
+            failure_reasons=(f"filing_empty:60000{i}",))
+        for i in range(5)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=hk + sh,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    # Below 50 % → rule 2.5 falls through → rule 3 catches missing data legs.
+    assert v.gap_codes == ("incomplete_constituent_data",)
+
+
+def test_evaluate_policy_b_rule_2_5_cn_only_unchanged_regression_guard() -> None:
+    """CN-only fund (0 % foreign) is unaffected by rule 2.5 — existing rule 4 still fires."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # All 10 SH holdings have data leg but no info leg → rule 4 fires.
+    analyses = tuple(
+        _ca(
+            f"60000{i}", 10.0 - i,
+            evidence=(_evidence_data(f"60000{i}"),),
+        )
+        for i in range(10)
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    # Foreign share = 0 → rule 2.5 falls through silently → rule 4 fires.
+    assert v.gap_codes == ("insufficient_info_coverage_top_half",)
+
+
+def test_evaluate_policy_b_rule_2_5_does_not_override_rule_1() -> None:
+    """Rule 1 (holdings_fetch_failed) precedes rule 2.5 — empty analyses cannot
+    be salvaged by fund-level evidence."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=(),
+        fund_level_failure_reasons=("holdings_fetch_failed:006809:Timeout",),
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    assert v.gap_codes == ("holdings_fetch_failed",)
+
+
+def test_evaluate_policy_b_rule_2_5_does_not_override_rule_2() -> None:
+    """Rule 2 (incomplete_constituent_record audit-error) precedes rule 2.5."""
+    from irc.opportunity.policy_b import evaluate_policy_b
+    # Two HK holdings shape-corrupt: evidence==() AND failure_reasons==().
+    analyses = (
+        _ca("00700.HK", 6.0, evidence=(), failure_reasons=()),
+        _ca("00388.HK", 4.0, evidence=(), failure_reasons=()),
+    )
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=analyses,
+        fund_level_evidence=(
+            _evidence_data_instrument("006809"),
+            _evidence_info_instrument("006809"),
+        ),
+    )
+    v = evaluate_policy_b(snap, top_n=10)
+    # Rule 2 fires first; rule 2.5 must NOT paper over the audit error.
+    assert v.gap_codes == ("incomplete_constituent_record",)
+
+
+def test_rejection_reason_code_foreign_heavy_evidence_missing_is_registered() -> None:
+    """The new gap code must map to a new RejectionReasonCode."""
+    from irc.opportunity.rejection_log import _GAP_TO_REASON
+    assert (
+        _GAP_TO_REASON["foreign_heavy_fund_level_evidence_missing"]
+        == "foreign_heavy_evidence_missing"
+    )
+
+
+def test_active_fund_snapshot_fund_level_evidence_defaults_to_empty() -> None:
+    """Backward-compat: existing snapshot constructors compile without supplying the new field."""
+    from irc.fundamentals.types import ActiveFundSnapshot
+    snap = ActiveFundSnapshot(
+        fund_id="005827",
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="",
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+    )
+    assert snap.fund_level_evidence == ()
