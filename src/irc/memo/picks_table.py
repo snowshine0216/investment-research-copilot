@@ -63,6 +63,11 @@ class PickRow:
     # Gates verdict (actionable_buy / blocked / watch_only / avoid). Defaults
     # to watch_only so callers/tests that omit it stay backwards-compatible.
     decision_status: str = "watch_only"
+    # Item 003: Decision Sheet mirror columns. Both default to safe sentinels
+    # so legacy callers/tests (21 PickRow(...) call sites — all kwargs) stay
+    # green; the renderer emits em-dash for missing values.
+    tranche_cap_pct: float | None = None
+    trigger_status: str = ""
 
 
 def _action_cn(row: PickRow) -> str:

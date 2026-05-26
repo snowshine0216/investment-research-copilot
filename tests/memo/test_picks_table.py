@@ -258,6 +258,30 @@ def test_pick_row_decision_status_defaults_to_watch_only():
     assert row.decision_status == "watch_only"
 
 
+def test_pick_row_tranche_cap_pct_defaults_to_none():
+    """Backward compatibility: existing callers/tests omit the new field;
+    default keeps the legacy construction site call sites compiling unchanged."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.tranche_cap_pct is None
+
+
+def test_pick_row_trigger_status_defaults_to_empty_string():
+    """Backward compatibility: omitted field defaults to '' so the renderer
+    emits em-dash, matching the empty-citations convention."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="x", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.trigger_status == ""
+
+
 def test_render_picks_table_empty_citations_renders_dash():
     """When PickRow.citations is empty, the 证据 cell renders `—`."""
     row = PickRow(
