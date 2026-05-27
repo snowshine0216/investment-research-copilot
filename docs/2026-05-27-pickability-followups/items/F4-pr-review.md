@@ -1,9 +1,9 @@
 Verdict: FAIL
 
-Source: /code-review on PR #80
-PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/80#pullrequestreview-4371707414
-Findings: 2
-  - src/irc/scoring/news_summaries.py:54 — latent-bug — _summary_for_theme returns full formatted markdown (header + citations section) rather than just LLM prose. load_theme_reports reads the .md file written by format_report_markdown, which has the shape "# theme\n\n{prose}\n\n## Citations\n[1] title — url". A report with neutral prose but citation title "Fed signals buy to support bonds" scores 85.0 instead of ~50.0 (confirmed by runtime test: catalyst_count=4, momentum=1.0 from citation keywords alone). gold_cmd._summary_from_theme_report already solves this by skipping lines starting with "#" but that logic is not reused.
-  - src/irc/scoring/news_summaries.py:43 — latent-bug — _summary_for_theme duplicates prose-extraction logic already in gold_cmd._summary_from_theme_report but without the header-skipping guard that makes it correct. gold_cmd._summary_from_theme_report iterates splitlines(), skips "#" lines, and returns the first non-empty paragraph. _summary_for_theme does none of this.
-
-Root cause: load_theme_reports reconstructs ThemeReport.report_md from the formatted .md file on disk (written by format_report_markdown), which wraps the original LLM prose in "# theme\n\n{prose}\n\n## Citations\n{cit_lines}\n". The unit tests for build_news_summaries use a _report() helper that constructs ThemeReport directly with bare prose, so they never exercise the disk round-trip and do not catch this.
+Source: /code-review on PR #80 (round 2 — after fix 45c715b)
+Round 1: FAIL — see commit history; both findings fixed in 45c715b
+Round 2 PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/80#issuecomment-4553837265
+Findings: 3
+  - src/irc/research/geopolitical_stress.py:93 — latent-bug — geopolitical_stress_from_theme_report reads report.report_md verbatim (same citation-contamination class as the round-1 blocker). Citation titles containing 'war', 'sanction', 'escalation', 'ceasefire' falsely shift the geo-stress score: confirmed live — neutral prose + stress citation titles yields geo_stress=0.70 vs correct 0.40. Flows into GoldDriverInputs.geopolitical_stress_0to1 → compute_gold_score. Fix: call extract_prose_from_report_md before _count_hits, same pattern as the two callers already fixed.
+  - src/irc/research/persistence.py:32 — latent-bug — extract_prose_from_report_md stops at ANY '## ' heading, not only '## Citations'. LLM prompt in synthesize.py does not forbid ## subheadings; real LLM output commonly uses '## Key Risks', '## Outlook' etc. A prose block starting with '## Key Drivers\nDemand rising.\n## Key Risks\nEscalation.' returns '' (breaks at first ##), silently feeding score_thesis_news an empty string and producing the neutral-50 fallback the PR aimed to eliminate.
+  - tests/research/test_persistence.py — nit — No dedicated unit tests for the new extract_prose_from_report_md helper. Unexercised edge cases include ##Citations-no-space (citation lines after it leak into prose), ## subheadings in prose body, and failure-report passthrough.
