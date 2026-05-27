@@ -56,9 +56,10 @@ unit-test suite. All must be green.
    empty tuple when the asset class has no mapped themes).
 
 2. **Mapping — deterministic per-asset-class theme assignment exists as a
-   pure function.** A new pure function (proposed name
-   `themes_for_instrument(asset_class: str, market: str) -> tuple[str, ...]`)
-   lives in `src/irc/scoring/news_summaries.py` (or a similarly-named module
+   pure function.** A new pure function
+   ~~`themes_for_instrument(asset_class: str, market: str) -> tuple[str, ...]`~~ — corrected by grill: `market` dropped from the signature (Q2; no mapping in the seven real asset_classes depends on `cn_on_exchange` vs `cn_off_exchange`).
+   New signature: **`themes_for_instrument(asset_class: str) -> tuple[str, ...]`**.
+   Lives in `src/irc/scoring/news_summaries.py` (or a similarly-named module
    under `src/irc/scoring/`, file < 200 lines). It returns a sorted, stable
    tuple of theme names from the fixed set
    `{us_monetary, us_fiscal_politics, cn_monetary, cn_equity_property_policy,
@@ -120,13 +121,31 @@ unit-test suite. All must be green.
 
 ### Theme → asset-class mapping (locked here; ADR 0007 captures the same table)
 
-| `asset_class` (canonical) | Mapped themes (sorted) |
+~~| `asset_class` (canonical) | Mapped themes (sorted) |~~
+~~|---|---|~~
+~~| `gold` / `gold_etf` / `gold_proxy` | `gold_drivers`, `us_monetary` |~~
+~~| `cn_a_broad`, `cn_a_sector`, `cn_a_smart_beta` | `cn_equity_property_policy`, `cn_monetary`, `holdings_sector` |~~
+~~| `cn_bond` / `cn_money_market` | `cn_monetary` (single theme; bonds rarely differentiate on news) |~~
+~~| `qdii_us` / `qdii_global` | `geopolitics`, `us_fiscal_politics`, `us_monetary` |~~
+~~| `qdii_hk` | `cn_equity_property_policy`, `cn_monetary`, `geopolitics` |~~
+~~| anything else (unmapped) | empty tuple (falls back to neutral 50.0; documented in ADR) |~~
+
+— corrected by grill (Q1, Q3–Q7): the original table invented asset_class
+values (`cn_a_broad`, `cn_a_sector`, `cn_a_smart_beta`, `cn_money_market`,
+`qdii_us`, `qdii_hk`, `gold_etf`, `gold_proxy`) that do NOT exist in
+`config/universe/*.yaml`. The actual seven canonical values are
+`cn_bond_fund`, `cn_equity_fund`, `cn_etf`, `gold`, `hk_etf`, `qdii_global`,
+`us_etf`. Rewritten mapping below:
+
+| `asset_class` (canonical, real) | Mapped themes (sorted ASC) |
 |---|---|
-| `gold` / `gold_etf` / `gold_proxy` | `gold_drivers`, `us_monetary` |
-| `cn_a_broad`, `cn_a_sector`, `cn_a_smart_beta` | `cn_equity_property_policy`, `cn_monetary`, `holdings_sector` |
-| `cn_bond` / `cn_money_market` | `cn_monetary` (single theme; bonds rarely differentiate on news) |
-| `qdii_us` / `qdii_global` | `geopolitics`, `us_fiscal_politics`, `us_monetary` |
-| `qdii_hk` | `cn_equity_property_policy`, `cn_monetary`, `geopolitics` |
+| `gold` | `(geopolitics, gold_drivers, us_monetary)` |
+| `cn_equity_fund` | `(cn_equity_property_policy, cn_monetary, holdings_sector)` |
+| `cn_etf` | `(cn_equity_property_policy, cn_monetary, holdings_sector)` |
+| `cn_bond_fund` | `(cn_monetary,)` — single theme; bonds rarely differentiate on news |
+| `hk_etf` | `(cn_equity_property_policy, cn_monetary, geopolitics, holdings_sector)` |
+| `us_etf` | `(geopolitics, us_fiscal_politics, us_monetary)` |
+| `qdii_global` | `(geopolitics, us_fiscal_politics, us_monetary)` |
 | anything else (unmapped) | empty tuple (falls back to neutral 50.0; documented in ADR) |
 
 Sorted-tuple output guarantees that mapping changes are visible in diffs and
@@ -306,3 +325,150 @@ to satisfy AC #4 (i.e., even after plumbing, top-10 picks still cluster
 within ±5 of 50), the spec falls back to AC #4 being **measured**
 rather than **passed** — and a SKIPPED entry captures the LLM upgrade.
 That contingency is documented in MASTER-SPEC §"Known risks" already.
+
+---
+
+## Resolved decisions (grill phase, 2026-05-27)
+
+Twenty-four questions auto-accepted from the grill-with-docs skill (no
+user in the loop; AUTONOMY OVERRIDE per dispatch instructions). Q/A pairs
+listed below. Strike-throughs above mark where the original spec text was
+corrected.
+
+- **Q1** — Does the spec's theme→asset-class mapping table use real
+  `asset_class` values from `config/universe/`?
+  **A:** No. The table invented seven labels (`cn_a_broad`,
+  `cn_a_sector`, `cn_a_smart_beta`, `cn_money_market`, `cn_bond`,
+  `qdii_us`, `qdii_hk`, `gold_etf`, `gold_proxy`) that do not exist.
+  Real values: `cn_bond_fund`, `cn_equity_fund`, `cn_etf`, `gold`,
+  `hk_etf`, `qdii_global`, `us_etf`. Table rewritten.
+  Doc impact: CONTEXT.md "Thesis-news scoring" + ADR-0007 §2.
+
+- **Q2** — Is `themes_for_instrument(asset_class, market)` the right
+  signature?
+  **A:** No — drop `market`. No mapping among the seven real
+  asset_classes depends on `cn_on_exchange` vs `cn_off_exchange`. New
+  signature: `themes_for_instrument(asset_class: str) -> tuple[str, ...]`.
+  Doc impact: CONTEXT.md "Thesis-news scoring" + ADR-0007 §2.
+
+- **Q3** — How should `holdings_sector` route in the rewritten table?
+  **A:** All CN-equity-flavoured asset_classes — `cn_equity_fund`,
+  `cn_etf`, `hk_etf`. Bonds / gold / US / global excluded.
+  Doc impact: CONTEXT.md mapping table.
+
+- **Q4** — `cn_bond_fund` mapping: single `cn_monetary` or expand?
+  **A:** Single theme `cn_monetary`. Bonds correlate with monetary
+  policy primarily.
+  Doc impact: CONTEXT.md mapping table.
+
+- **Q5** — `gold` mapping: add `geopolitics`?
+  **A:** Yes. Gold reacts to safe-haven flows during geopolitical
+  events. Mapping: `(geopolitics, gold_drivers, us_monetary)`.
+  Doc impact: CONTEXT.md mapping table + ADR-0007 §2.
+
+- **Q6** — `us_etf` / `hk_etf` mappings?
+  **A:** `us_etf → (geopolitics, us_fiscal_politics, us_monetary)`;
+  `hk_etf → (cn_equity_property_policy, cn_monetary, geopolitics, holdings_sector)`.
+  Doc impact: CONTEXT.md mapping table.
+
+- **Q7** — `qdii_global` mapping?
+  **A:** `(geopolitics, us_fiscal_politics, us_monetary)` — same as
+  `us_etf`. Global QDIIs are predominantly USD-denominated equity.
+  Doc impact: CONTEXT.md mapping table.
+
+- **Q8** — Empty-input invariant: `news_summaries={}` and `{iid: ()}`
+  treated identically?
+  **A:** Yes — `dict.get(iid, ())` returns `()` either way. Factor
+  returns `score=50.0, components={"data_completeness": 0.0,
+  "neutral_default": 1.0}`. Locked by ADR-0007 §3 + spec AC #5.
+  Doc impact: ADR-0007 §3.
+
+- **Q9** — Unknown `asset_class`: silent empty tuple or raise?
+  **A:** Silent empty tuple. Defensive: a new asset_class added to
+  `config/universe/` should not crash the scorer. Ops awareness via a
+  non-fatal log at the command edge; the pure function never logs.
+  Doc impact: ADR-0007 §2.
+
+- **Q10** — `build_news_summaries` reads `report_md` only, or also
+  citations?
+  **A:** `report_md` only. The rubric is keyword-based over prose;
+  citation titles would dilute the signal.
+  Doc impact: CONTEXT.md `build_news_summaries` entry + ADR-0007 §4.
+
+- **Q11** — Tuple of theme summaries, or concatenated single string?
+  **A:** Tuple — one summary per theme. Concatenation would
+  over-weight a single long report; the existing factor function
+  expects `tuple[str, ...]` per its current signature.
+  Doc impact: CONTEXT.md `news_summaries` entry.
+
+- **Q12** — Theme with failed `report_md` (non-empty `failure_reason`):
+  include empty string or skip?
+  **A:** Skip silently. An empty-string summary would inflate the
+  tuple count without signal.
+  Doc impact: CONTEXT.md `build_news_summaries` entry.
+
+- **Q13** — End-to-end determinism: holds across all four layers?
+  **A:** Yes. `load_theme_reports` → JSON ordered list; `MappingProxyType`
+  is immutable; per-instrument tuple is sorted by theme name ASC;
+  `score_thesis_news` is arithmetic. Regression-tested.
+  Doc impact: ADR-0007 §4.
+
+- **Q14** — AC #4 hard-pass or measured-with-fallback?
+  **A:** Measured. If <3 of top-10 differ by ≥10 points, add SKIPPED
+  entry `F4-followup-llm-rubric` capturing the LLM upgrade.
+  Doc impact: ADR-0007 §5.
+
+- **Q15** — `news_summaries` cached or recomputed per `run_scoring`?
+  **A:** Recomputed. One-shot disk read at the start of `run_score`;
+  caching would need invalidation logic that doesn't pay for itself.
+  Doc impact: none (implementation note).
+
+- **Q16** — Where does the `_compose_news_summaries` call live in
+  `score_cmd.run_score`?
+  **A:** After watchlist load, before the `run_scoring` call. The
+  `news_summaries={}` literal at line 69 is removed (AC #10 greppable).
+  Doc impact: none (implementation note).
+
+- **Q17** — `themes_for_instrument` lookup inside `build_news_summaries`
+  or at the call site?
+  **A:** Inside `build_news_summaries`. That's why it's a pure
+  function; caller doesn't need to know about themes.
+  Doc impact: CONTEXT.md `build_news_summaries` entry.
+
+- **Q18** — Per-instrument tuple order: theme-mapping order or sorted?
+  **A:** Theme-name ASC. Determinism non-negotiable; sorting at the
+  build step makes the invariant visible at the boundary.
+  Doc impact: CONTEXT.md `build_news_summaries` entry + ADR-0007 §4.
+
+- **Q19** — Does F4 touch H3, `thesis_state`, citation gate, or
+  `OpportunityRow`?
+  **A:** No. Factor score change is purely numeric → `compose_score`
+  only. Locked by ADR-0007 "Non-goals" + spec non-goal #4 / #6.
+  Doc impact: ADR-0007 "Non-goals".
+
+- **Q20** — `IRC_*_BEGIN/END` marker interaction?
+  **A:** None. F4 changes scoring output only; memo markers are
+  downstream and untouched. Spec AC #9 already locks this.
+  Doc impact: none.
+
+- **Q21** — Should ADR-0007 mention the `news_summaries={}` literal as
+  the historical bug?
+  **A:** Yes. Without it the ADR reads "we added theme-to-asset-class
+  mapping" with no motivation.
+  Doc impact: ADR-0007 §Context.
+
+- **Q22** — Determinism gate: `news_summaries` dict equality or
+  `scoring.json` byte equality?
+  **A:** `scoring.json` byte equality. That's the user-visible
+  artifact AC #6 specifies; dict-level equality is a weaker invariant.
+  Doc impact: ADR-0007 §4.
+
+- **Q23** — Does F4 affect `IRC_FETCH_BUDGET` or fetch-state?
+  **A:** No. F4 reads cached `data/research/` only; no AkShare, no
+  LLM. ADR 0002 §3 contracts untouched.
+  Doc impact: none.
+
+- **Q24** — Does F4's test suite need the live-test gate?
+  **A:** No. All F4 tests are pure-function tests against fixtures.
+  Live-test marker is for tests hitting real upstreams.
+  Doc impact: none.
