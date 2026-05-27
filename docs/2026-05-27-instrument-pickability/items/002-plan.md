@@ -585,25 +585,44 @@ def test_compute_concentration_pairs_three_funds_three_qualifying_pairs():
 def test_compute_concentration_pairs_render_order_overlap_desc_then_id_asc():
     """AC8: pairs in result sorted by (overlap_pct DESC, id_a ASC, id_b ASC).
 
-    Build three pairs with different overlaps + a tie to lock the tiebreaker.
+    Build three distinct pairs (no ties) using unique per-pair shared symbols so
+    only intended pairs qualify. Tiebreaker exercised in a separate test below.
+
+    [AMENDED: original fixture A,B,C,D all sharing X+Y produced C(4,2)=6 qualifying
+    pairs, not 3 as asserted. Replaced with chain-fixture using unique shared symbols;
+    separate tiebreak test added. — drift review claude/instrument-pickability-002]
     """
     from irc.memo.concentration import compute_concentration_pairs
     rows = (
-        # A↔B overlap = min(40,40)+min(20,20) = 60.0
-        _op_row("A", "甲", (_analysis("X", 40.0), _analysis("Y", 20.0))),
-        _op_row("B", "乙", (_analysis("X", 40.0), _analysis("Y", 20.0))),
-        # C↔D overlap = min(35,35)+min(10,10) = 45.0 — tie pair
-        _op_row("C", "丙", (_analysis("X", 35.0), _analysis("Y", 10.0))),
-        _op_row("D", "丁", (_analysis("X", 35.0), _analysis("Y", 10.0))),
-        # B↔C overlap = min(40,35)+min(20,10) = 45.0 — tie value with C↔D
-        # E intentionally empty so it's skipped.
-        _op_row("E", "戊", ()),
+        _op_row("A", "甲", (_analysis("AB", 40.0),)),
+        _op_row("B", "乙", (_analysis("AB", 38.0), _analysis("BC", 35.0))),
+        _op_row("C", "丙", (_analysis("BC", 33.0), _analysis("CD", 32.0))),
+        _op_row("D", "丁", (_analysis("CD", 30.0),)),
     )
     pairs = compute_concentration_pairs(rows)
-    # Sorted: (60.0, "A", "B"), then ties at 45.0 sorted by id_a ASC then id_b ASC:
-    # (45.0, "B", "C") before (45.0, "C", "D").
+    # A↔B=38.0, B↔C=33.0, C↔D=30.0; A↔C/A↔D/B↔D share no symbols → excluded.
     ids = [(p.overlap_pct, p.instrument_id_a, p.instrument_id_b) for p in pairs]
-    assert ids == [(60.0, "A", "B"), (45.0, "B", "C"), (45.0, "C", "D")]
+    assert ids == [(38.0, "A", "B"), (33.0, "B", "C"), (30.0, "C", "D")]
+
+
+def test_compute_concentration_pairs_render_order_tiebreak_by_id():
+    """AC8 tiebreaker: when overlap_pct ties, sort by id_a ASC then id_b ASC.
+
+    [AMENDED: extracted from the original render-order test as a separate fixture
+    after the original fixture was replaced. — drift review claude/instrument-pickability-002]
+    """
+    from irc.memo.concentration import compute_concentration_pairs
+    # B↔C and A↔D both overlap at exactly 32.0 (using distinct shared symbols).
+    rows = (
+        _op_row("A", "甲", (_analysis("AD", 32.0),)),
+        _op_row("B", "乙", (_analysis("BC", 32.0),)),
+        _op_row("C", "丙", (_analysis("BC", 32.0),)),
+        _op_row("D", "丁", (_analysis("AD", 32.0),)),
+    )
+    pairs = compute_concentration_pairs(rows)
+    ids = [(p.overlap_pct, p.instrument_id_a, p.instrument_id_b) for p in pairs]
+    # Both pairs tie at 32.0; A↔D comes before B↔C alphabetically by id_a.
+    assert ids == [(32.0, "A", "D"), (32.0, "B", "C")]
 
 
 def test_compute_concentration_pairs_two_argument_orderings_byte_equal():
@@ -1009,31 +1028,34 @@ git commit -m "feat(memo): wire concentration marker block into run_memo §6 ris
 Append to `tests/memo/test_concentration.py`:
 
 ```python
-def test_synthesizer_locks_concentration_block_when_marker_present(monkeypatch):
+def test_synthesizer_locks_concentration_block_when_marker_present():
     """AC10: synthesizer.py adds a verbatim-lock instruction for the
-    IRC_CONCENTRATION_* marker pair — same pattern as the other 5 markers."""
-    from irc.memo import synthesizer
-    from irc.llm._types import ResolvedRoute
+    IRC_CONCENTRATION_* marker pair — same pattern as the other 5 markers.
+
+    [AMENDED: original plan used monkeypatch + ResolvedRoute(api_key=, retries=)
+    kwargs that do not exist in the actual ResolvedRoute dataclass (which has only
+    task/provider/model/base_url/api_key_env). Replaced with the project's
+    established pattern: unittest.mock.patch + route=None, matching
+    test_synthesizer_glossary.py. — drift review claude/instrument-pickability-002]
+    """
+    from unittest.mock import patch
+    from irc.memo.synthesizer import synthesize_memo
 
     captured_messages: list = []
 
-    def _fake_call_chat(*, route, messages, temperature, timeout_s):
+    def _fake_call_chat(route, messages, **kwargs):
         captured_messages.append(messages)
+
         class _Resp:
-            content = "ok"
-            input_tokens = 0
-            output_tokens = 0
-            usage_raw = {}
+            text = "ok"
+            prompt_tokens = 0
+            completion_tokens = 0
         return _Resp()
 
-    monkeypatch.setattr(synthesizer, "call_chat", _fake_call_chat)
-    route = ResolvedRoute(
-        provider="deepseek", model="deepseek-chat", base_url="https://x",
-        api_key_env="X", api_key="X", retries=0,
-    )
     skeleton = "# memo\n<!-- IRC_CONCENTRATION_BEGIN -->\nbody\n<!-- IRC_CONCENTRATION_END -->\n"
-    synthesizer.synthesize_memo(skeleton, raw_ref_pool=[], route=route)
-    user_msg = captured_messages[0][-1]["content"]
+    with patch("irc.memo.synthesizer.call_chat", side_effect=_fake_call_chat):
+        synthesize_memo(skeleton, raw_ref_pool=[], route=None)  # type: ignore[arg-type]
+    user_msg = next(m for m in captured_messages[0] if m["role"] == "user")["content"]
     assert "IRC_CONCENTRATION_BEGIN/END" in user_msg
     assert "原样保留" in user_msg  # the verbatim-lock keyword used by every other marker
 ```

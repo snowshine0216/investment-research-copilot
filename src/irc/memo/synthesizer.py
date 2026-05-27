@@ -138,6 +138,13 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
             "该 bullet 由系统根据 Top-5 持仓券商覆盖证据自动生成，禁止改写、合并、"
             "新增或删除其中的任何条目，亦禁止改写其中的标的代码与名称。"
         )
+    # Item 002 (instrument-pickability) lock for the §6 concentration block.
+    if "<!-- IRC_CONCENTRATION_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第6节『风险提示』在 IRC_CONCENTRATION_BEGIN/END 标记之间的 bullet 必须**原样保留**："
+            "该 bullet 由系统根据 Top-10 加权重合度自动生成，禁止改写、合并、"
+            "新增或删除其中的任何条目，亦禁止改写其中的标的代码、名称、重合百分比或共同持仓清单。"
+        )
     section_lock_instruction = "\n".join(locked_section_lines)
     user_msg = (
         f"{_GLOSSARY}\n\n"
