@@ -4,15 +4,12 @@ from typing import Any
 
 from irc.decision.completeness import MIN_BUY_COMPLETENESS, missing_required_fields
 from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus, WatchReason
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
+from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
 
 _BUY_ACTIONS = {"buy_candidate", "strong_buy_candidate"}
 _AVOID_ACTIONS = {"avoid", "strong_avoid"}
-# Asset classes where premium-to-NAV must be known before the row can be
-# treated as actionable. QDII feeders trade at 5–15% premium and can suspend
-# large subscriptions — the trust-check doc (A2, priority #4) flagged this as
-# the highest single-trade-loss risk in the layperson-facing report.
-_QDII_ASSET_CLASSES = {"us_etf", "hk_etf", "qdii_global"}
 
 
 def target_weights_are_valid(allocation: dict[str, Any], tolerance: float = 1e-3) -> bool:
@@ -99,6 +96,7 @@ def decide_row(
     target_weight: float = 0.0,
     role: str = "",
     excluded_from_opportunity: bool = False,
+    qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -124,10 +122,20 @@ def decide_row(
     )
     evidence_status = memo_evidence_status(memo_traceability_coverage)
     asset_class = str(score.get("asset_class") or "")
-    qdii_premium_unknown = (
+    raw_premium = score.get("qdii_premium_pct")
+    try:
+        premium_value = float(raw_premium) if raw_premium is not None else None
+    except (TypeError, ValueError):
+        premium_value = None
+    is_qdii_buy = (
         asset_class in _QDII_ASSET_CLASSES
-        and score.get("qdii_premium_pct") is None
         and score_action in _BUY_ACTIONS
+    )
+    qdii_premium_unknown = is_qdii_buy and premium_value is None
+    qdii_premium_too_high = (
+        is_qdii_buy
+        and premium_value is not None
+        and premium_value > qdii_max_premium_pct
     )
     blocking_reasons = _blocking_reasons(
         pipeline_halted=pipeline_halted,
@@ -138,6 +146,7 @@ def decide_row(
         evidence_status=evidence_status,
         score_action=score_action,
         qdii_premium_unknown=qdii_premium_unknown,
+        qdii_premium_too_high=qdii_premium_too_high,
         excluded_from_opportunity=excluded_from_opportunity,
     )
     decision_status = _decision_status(score_action, blocking_reasons, allocation_selected)
@@ -206,6 +215,7 @@ def compute_blocking_reasons(
     score_action: str,
     qdii_premium_unknown: bool = False,
     excluded_from_opportunity: bool = False,
+    qdii_premium_too_high: bool = False,
 ) -> list[str]:
     reasons: list[str] = []
     if pipeline_halted:
@@ -222,6 +232,8 @@ def compute_blocking_reasons(
         reasons.append("score_avoid")
     if qdii_premium_unknown:
         reasons.append("qdii_premium_unknown")
+    if qdii_premium_too_high:
+        reasons.append("qdii_premium_too_high")
     if excluded_from_opportunity:
         reasons.append("opportunity_excluded")
     return reasons

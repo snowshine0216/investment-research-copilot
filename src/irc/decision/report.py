@@ -6,8 +6,10 @@ from irc.decision.gates import decide_row, target_weights_are_valid
 from irc.decision.sizing import (
     TriggerSpec,
     format_why_when_line,
+    resolve_trigger_current_value,
     suggest_tranche_pct,
 )
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 
 _PIPELINE_INCOMPLETE_THRESHOLD = 0.5
 
@@ -29,6 +31,7 @@ def compose_decision_report(
     macro_snapshot: dict[str, float] | None = None,
     weekly_return_by_id: dict[str, float] | None = None,
     opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
+    qdii_max_premium_pct: float | None = None,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -53,6 +56,11 @@ def compose_decision_report(
         _n_provided = int(memo_traceability.get("n_refs_provided") or 0)
         _n_quoted = int(memo_traceability.get("n_refs_quoted_verbatim") or 0)
         coverage = 1.0 if (_n_provided == 0 or _n_quoted > 0) else 0.0
+    threshold = (
+        QDII_MAX_PREMIUM_DEFAULT
+        if qdii_max_premium_pct is None
+        else qdii_max_premium_pct
+    )
     scores = scoring.get("scores", [])
     pipeline_incomplete = _scores_missing_action(scores)
     if pipeline_incomplete:
@@ -71,6 +79,7 @@ def compose_decision_report(
         # an empty set = "nothing published" (treat all as excluded).
         opportunity_published_ids=opportunity_published_ids,
         trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
+        qdii_max_premium_pct=threshold,
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -339,6 +348,7 @@ def _build_rows(
     role_by_id: dict[str, str],
     opportunity_published_ids: set[str] | None,
     trade_plan_targets: set[str],
+    qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for score in scoring.get("scores", []):
@@ -366,6 +376,7 @@ def _build_rows(
             target_weight=target_weight_by_id.get(iid, 0.0),
             role=role_by_id.get(iid, ""),
             excluded_from_opportunity=excluded,
+            qdii_max_premium_pct=qdii_max_premium_pct,
         ))
     return rows
 
@@ -414,6 +425,7 @@ _BLOCKING_REASON_LABEL: dict[str, str] = {
     "memo_narrative_only": "Memo narrative only (no verbatim evidence)",
     "score_avoid": "Score action is avoid",
     "qdii_premium_unknown": "QDII premium-to-NAV / FX status not collected",
+    "qdii_premium_too_high": "QDII premium-to-NAV above threshold",
     "opportunity_excluded": "Excluded from opportunity_report (Policy B / dual-coverage gate)",
 }
 
@@ -431,49 +443,20 @@ _BLOCKING_REMEDIATION: dict[str, str] = {
     "score_avoid":
         "Scoring action is avoid — review the underlying factor scores.",
     "qdii_premium_unknown":
-        "Fetch real-time QDII premium / FX status before treating as actionable. "
-        "QDII feeders frequently trade 5–15% above NAV.",
+        "AkShare returned no premium snapshot for this QDII symbol. "
+        "Refresh fund_etf_spot_em data or wait for the next ingest. "
+        "QDII feeders frequently trade 5–15% above NAV — premium must "
+        "be known before treating as actionable.",
+    "qdii_premium_too_high":
+        "QDII premium-to-NAV exceeds the configured ceiling "
+        "(qdii_max_premium_pct in config/discovery.yaml; default 5%). "
+        "Wait for the premium to normalise or use an alternative venue.",
     "opportunity_excluded":
         "The instrument scored well enough to enter trade_plan but Policy B / "
         "the dual-coverage gate rejected it at opportunity_write. Common cause: "
         "constituents are foreign-listed (HK/US) and per-holding filings aren't "
         "available. See `rejections.json` for the per-instrument gap codes.",
 }
-
-
-_MACRO_FIELD_TO_KEY: dict[str, str] = {
-    # trade_plan trigger `data_field` → key in macro_snapshot
-    "macro.vix": "vix",
-    "macro.real_yield_10y_tips": "real_yield_10y_tips",
-    "macro.dxy": "DXY",
-}
-
-
-def _resolve_trigger_current_value(
-    trig: dict[str, Any],
-    instrument_id: str,
-    macro_snapshot: dict[str, float],
-    weekly_return_by_id: dict[str, float],
-) -> tuple[float | None, str]:
-    """Resolve a trigger's current value + unit hint from the live snapshots.
-
-    `instrument.weekly_return` lookups go to weekly_return_by_id; macro
-    triggers map via _MACRO_FIELD_TO_KEY. Returns (value, unit_hint) where
-    unit_hint is "pct" for return-like fractions (display as XX.XX%) and
-    "raw" for raw scalars.
-    """
-    field = str(trig.get("data_field") or "")
-    if field == "instrument.weekly_return":
-        return weekly_return_by_id.get(instrument_id), "pct"
-    if field.startswith("macro."):
-        key = _MACRO_FIELD_TO_KEY.get(field.lower())
-        if key is None:
-            return None, "raw"
-        # Real-yield is stored as percent (2.18 == 2.18%) in macro_series;
-        # threshold in trade_plan is expressed in the same unit (≤ 0.0%).
-        unit = "raw"
-        return macro_snapshot.get(key), unit
-    return None, "raw"
 
 
 def _decision_sheet_section(
@@ -535,7 +518,7 @@ def _decision_sheet_section(
                     comparator=str(trig.get("comparator") or "<="),
                     threshold=float(trig.get("threshold") or 0.0),
                 )
-                current, unit = _resolve_trigger_current_value(
+                current, unit = resolve_trigger_current_value(
                     trig, iid, macro_snapshot, weekly_return_by_id,
                 )
                 out.append(f"  - {format_why_when_line(spec, current, unit)}")

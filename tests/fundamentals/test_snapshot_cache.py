@@ -199,3 +199,83 @@ def test_snapshot_cache_uses_thesis_evidence_from_dict(monkeypatch) -> None:
     }
     _ = sc._evidence_from_dict(d) if hasattr(sc, "_evidence_from_dict") else ThesisEvidence.from_dict(d)
     assert called, "ThesisEvidence.from_dict was not invoked by snapshot_cache path"
+
+
+def test_active_fund_cache_round_trips_fund_level_evidence(tmp_path):
+    """Item 001 (ADR 0003 §7): fund_level_evidence is preserved across
+    write_active_fund_cache → load_active_fund_cache."""
+    from irc.fundamentals.snapshot_cache import (
+        load_active_fund_cache,
+        write_active_fund_cache,
+    )
+    from irc.fundamentals.types import ActiveFundSnapshot, ThesisEvidence
+
+    fund_id = "006809"
+    nav_evidence = ThesisEvidence(
+        type="snapshot",
+        source=fund_id,
+        url="",
+        date="2024-04-15",
+        summary="NAV=1.2345 @ 2024-04-15",
+        scope="instrument",
+        citation_kind="data",
+        owner_instrument_id=fund_id,
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    ann_evidence = ThesisEvidence(
+        type="news",
+        source="fund_announcement_report_em",
+        url="",
+        date="2024-04-10",
+        summary="[REP-1] 季度报告",
+        scope="instrument",
+        citation_kind="information",
+        owner_instrument_id=fund_id,
+        parent_fund_id=None,
+        constituent_key=None,
+    )
+    snap = ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date="2024-03-31",
+        source_report_quarter="2024Q1",
+        cache_probed_at="2024-04-20",
+        constituent_analyses=(),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=(),
+        fund_level_evidence=(nav_evidence, ann_evidence),
+    )
+    # Snapshots with empty constituent_analyses still serialise — the cache
+    # writer doesn't gate on that.
+    write_active_fund_cache(snap, tmp_path)
+    loaded = load_active_fund_cache(fund_id, "2024Q1", tmp_path)
+    assert loaded is not None
+    assert len(loaded.fund_level_evidence) == 2
+    assert {e.citation_kind for e in loaded.fund_level_evidence} == {"data", "information"}
+    assert all(e.owner_instrument_id == fund_id for e in loaded.fund_level_evidence)
+
+
+def test_active_fund_cache_legacy_file_rehydrates_with_empty_fund_level_evidence(tmp_path):
+    """Older cache files missing `fund_level_evidence` re-hydrate to `()`."""
+    import json
+    from irc.fundamentals.snapshot_cache import (
+        active_fund_cache_path,
+        load_active_fund_cache,
+    )
+
+    fund_id = "005827"
+    quarter = "2024Q1"
+    path = active_fund_cache_path(fund_id, quarter, tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "fund_id": fund_id,
+        "source_report_date": "2024-03-31",
+        "source_report_quarter": quarter,
+        "cache_probed_at": "",
+        "constituent_analyses": [],
+        "failure_reasons_by_symbol": {},
+        "fund_level_failure_reasons": [],
+    }), encoding="utf-8")
+    loaded = load_active_fund_cache(fund_id, quarter, tmp_path)
+    assert loaded is not None
+    assert loaded.fund_level_evidence == ()

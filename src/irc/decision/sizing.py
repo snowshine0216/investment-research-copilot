@@ -113,3 +113,42 @@ def format_why_when_line(
     return (
         f"触发 `{trig.name}`：{condition}；current = {current_str} ⇒ {marker}."
     )
+
+
+# ── Trigger field resolution ──────────────────────────────────────────────────
+#
+# Maps the trade_plan trigger schema's `data_field` strings to macro_snapshot
+# keys. Imported by both `decision/report.py::_decision_sheet_section` and
+# `memo/picks_table.py::_format_trigger_status_compact` so memo + decision
+# never drift on what a trigger's "current value" means. See CONTEXT.md
+# "Renderers + alias-builder" → MACRO_FIELD_TO_KEY entry.
+MACRO_FIELD_TO_KEY: dict[str, str] = {
+    "macro.vix": "vix",
+    "macro.real_yield_10y_tips": "real_yield_10y_tips",
+    "macro.dxy": "DXY",
+}
+
+
+def resolve_trigger_current_value(
+    trig: dict,
+    instrument_id: str,
+    macro_snapshot: dict[str, float],
+    weekly_return_by_id: dict[str, float],
+) -> tuple[float | None, str]:
+    """Resolve a trigger's current value + unit hint from the live snapshots.
+
+    `instrument.weekly_return` lookups go to weekly_return_by_id; macro
+    triggers map via MACRO_FIELD_TO_KEY. Returns (value, unit_hint) where
+    unit_hint is "pct" for return-like fractions (display as XX.XX%) and
+    "raw" for raw scalars. Returns (None, "raw") for unknown fields so the
+    renderer falls back to a 'missing' marker.
+    """
+    field = str(trig.get("data_field") or "")
+    if field == "instrument.weekly_return":
+        return weekly_return_by_id.get(instrument_id), "pct"
+    if field.startswith("macro."):
+        key = MACRO_FIELD_TO_KEY.get(field.lower())
+        if key is None:
+            return None, "raw"
+        return macro_snapshot.get(key), "raw"
+    return None, "raw"

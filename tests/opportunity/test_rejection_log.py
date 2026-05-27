@@ -452,12 +452,17 @@ def test_gap_to_reason_maps_citation_gate_blocked_to_self() -> None:
 
 def test_gap_to_reason_citation_gate_blocked_is_last_entry() -> None:
     """Item 009 Q4 — appended at end to preserve existing precedence.
+    Item 001 (decision-confidence-followup) appended `foreign_heavy_fund_level_evidence_missing`
+    AFTER `citation_gate_blocked` — it is now the final entry.
 
     Item 008 AC11 hard-codes `qdii_information_unavailable` precedence over
     other gaps; that ordering must NOT change."""
     from irc.opportunity.rejection_log import _GAP_TO_REASON
     keys = list(_GAP_TO_REASON.keys())
-    assert keys[-1] == "citation_gate_blocked"
+    # Item 001: new last entry is the foreign-heavy code (appended after citation_gate_blocked).
+    assert keys[-1] == "foreign_heavy_fund_level_evidence_missing"
+    # citation_gate_blocked is second-to-last (item 009 precedent still holds).
+    assert "citation_gate_blocked" in keys
     # First entry stays qdii_information_unavailable (item 008 AC11 contract).
     assert keys[0] == "qdii_information_unavailable"
 

@@ -7,6 +7,145 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `memo-picks-table-decision-mirror` (2026-05-26)
+
+Memo §5 picks table now mirrors the per-pick `单次定投上限` (tranche cap)
+and `触发状态` (trigger status) columns that already render in
+`decision_report.md`'s "决策面板" section. A reader of `memo.md` alone
+no longer has to cross-reference the decision report to see the live
+trigger state or sizing budget for each pick. Pure renderer change —
+no new data dependencies; reuses `suggest_tranche_pct` + `evaluate_trigger`
+via the relocated public helpers.
+
+Changes:
+
+- `src/irc/memo/picks_table.py` — `PickRow` gains `tranche_cap_pct:
+  float | None = None` and `trigger_status: str = ""` (frozen-dataclass
+  safe defaults; all 21 existing call sites use kwargs). New private
+  helper `_format_trigger_status_compact` renders triggers as
+  `{name} ✓ / ✗ / ⚠` joined by `<br>` for multi-trigger rows.
+  Em-dash `—` placeholder for None / zero / empty cases (matches
+  existing `_format_citations_cell` convention). Header column order:
+  `… | 主要理由 | 单次定投上限 | 触发状态 | 证据 |`.
+- `src/irc/decision/sizing.py` — `MACRO_FIELD_TO_KEY` (was
+  `_MACRO_FIELD_TO_KEY` in `decision/report.py`) and
+  `resolve_trigger_current_value` (was `_resolve_trigger_current_value`)
+  promoted to public symbols so the memo renderer can share them.
+- `src/irc/decision/live_inputs.py` — new module hosts
+  `read_live_decision_inputs` (extracted from `decision/report.py`);
+  reads macro snapshot + per-instrument weekly returns from DuckDB.
+  Connect-failure and query-failure paths now emit WARNING to stderr
+  instead of staying silent.
+- `src/irc/decision/report.py` — re-imports the relocated helpers;
+  `decision_report.md` output is byte-identical post-refactor.
+- `src/irc/commands/memo_cmd.py` + `src/irc/commands/decision_cmd.py`
+  — wire the new columns through `_build_pick_rows` and feed live
+  decision inputs.
+
+H3 / SAME-3 invariant: the two new cells emit ZERO `[ref:...]` markers
+(`test_picks_table_new_columns_carry_no_citation_markers`). The §5
+table is inside `<!-- IRC_PICKS_TABLE_BEGIN/END -->` markers — the new
+columns come from the deterministic renderer, never from LLM output.
+
+### Added — `qdii-premium-fetcher` (2026-05-26)
+
+QDII premium-to-NAV fetcher unblocks the 8 instruments left in the
+`qdii_premium_unknown` bucket. Three on-exchange (517641, 161716, 159691)
+now read a live signed premium from AkShare's `fund_etf_spot_em()` bulk
+endpoint (column `基金折价率`; sign-flipped to premium-positive units).
+Five off-exchange feeders (019172, 513690, 513650, 016452, 019547)
+receive a synthetic 0.0 because they transact at NAV — no fetch needed.
+The existing gate `qdii_premium_unknown` is retained for the missing-data
+path; a new gate `qdii_premium_too_high` fires when premium exceeds the
+threshold. Both gates are mutually exclusive by construction.
+
+Net effect on today's data: the largest remaining blocked bucket (8 of
+the 11 rows) becomes either actionable (when premium ≤ threshold) or
+explicitly blocked with a meaningful "premium = X% > Y%" reason instead
+of "unknown".
+
+Changes:
+
+- `src/irc/scoring/qdii_premium.py` adds the canonical
+  `_QDII_ASSET_CLASSES: Final[frozenset[str]] = frozenset({"us_etf",
+  "hk_etf", "qdii_global"})` and the pure `qdii_premium_for_row(...)`
+  router that returns `None` for non-QDII, `0.0` synthetically for
+  off-exchange feeders, and delegates to the AkShare fetcher otherwise.
+  Four prior duplicate definitions of `_QDII_ASSET_CLASSES` in
+  `decision/gates.py`, `memo/diagnostics.py`, `allocation/target_weights.py`,
+  and `commands/memo_cmd.py` are removed; all sites now import the
+  canonical home.
+- `src/irc/data/akshare_client.py` adds `fetch_qdii_premium_pct(symbol)`
+  backed by `_fetch_full_etf_spot_table()` with `lru_cache(maxsize=1)`
+  (one AkShare call per run). Signed premium: `-(基金折价率)/100`.
+  Failures are logged at WARNING with `exc_info=True` before returning
+  `None` (no silent swallow).
+- `src/irc/scoring/pipeline.py` `run_scoring` gains optional
+  `qdii_premium_resolver` parameter; resolver invocation is guarded by
+  try/except so a raising resolver does not drop subsequent rows.
+- `src/irc/decision/gates.py` `compute_blocking_reasons` registers the
+  new `qdii_premium_too_high` reason; `decide_row` reads
+  `qdii_max_premium_pct` from config.
+- `src/irc/decision/report.py` adds label + remediation for the new
+  reason; `compose_decision_report` threads the threshold through.
+- `src/irc/commands/{score,memo,decision}_cmd.py` compose the resolver
+  closure / read the threshold from `bundle.discovery.hard_filters`.
+- `src/irc/schemas/discovery.py` adds `qdii_max_premium_pct: float`
+  (default `QDII_MAX_PREMIUM_DEFAULT = 0.05`, constraint `gt=0` —
+  zero or negative threshold is invalid configuration). `config/discovery.yaml`
+  template updated.
+- `docs/adr/0002-active-fund-fetch-engine.md` §5 adds an F6 paragraph
+  cross-referencing the QDII premium fetcher.
+- `CONTEXT.md` adds glossary entries for "QDII premium-to-NAV ratio",
+  `fetch_qdii_premium_pct`, the off-exchange synthetic-zero policy,
+  `qdii_premium_too_high`, and `qdii_max_premium_pct`.
+- The `qdii_premium_unknown` remediation text in `src/irc/decision/report.py`
+  is rewritten to mention AkShare (drops the obsolete "FX status" line).
+
+### Added — `policy-b-foreign-heavy` (2026-05-26)
+
+Policy B rule 2.5 (foreign-heavy short-circuit) — when a fund's top-N
+constituent weight is ≥ 50% non-CN-listed (HK/US), accept fund-level
+NAV + announcement evidence as the data leg instead of requiring per-
+holding filings. Mirrors the 2026-05-25 QDII fetch reform (ADR 0002
+§5 F4 / `project_qdii_fetch_reform` memory) for the active-fund path
+that Policy B governs. Unblocks 006809 and any future HK-heavy
+discretionary fund whose holdings are unreachable by the CN filings
+pipeline. Precedence: rule 2.5 fires between rule 2 and rule 3; no
+existing rule changes.
+
+Changes:
+
+- `src/irc/opportunity/policy_b.py` adds `_compute_foreign_listed_share`
+  (pure helper aggregating constituent weights by exchange), the
+  `FOREIGN_HEAVY_THRESHOLD: Final[float] = 0.50` constant, and rule 2.5
+  in `evaluate_policy_b`. `PolicyBVerdict` gains `fired_rule: str = ""`
+  (structural discriminator; populated with `"1" / "2" / "2.5" / "3" /
+  "4" / "5"` at each emit site).
+- `src/irc/opportunity/rejection_log.py` appends new gap code
+  `foreign_heavy_fund_level_evidence_missing` (mapped to rejection
+  reason `foreign_heavy_evidence_missing`) LAST in `_GAP_TO_REASON` to
+  preserve all prior precedence.
+- `src/irc/fundamentals/types.py` adds optional field `fund_level_evidence:
+  tuple[ThesisEvidence, ...] = ()` to `ActiveFundSnapshot` (backward-
+  compatible default; legacy cache files rehydrate to `()`).
+- `src/irc/fundamentals/snapshot.py` adds `_fetch_active_fund_level_evidence`
+  helper that unconditionally fetches NAV (`fetch_fund_nav_report`) +
+  announcements (`fetch_fund_announcements`) for every active fund;
+  `_build_active_fund_snapshot` now stamps `fund_level_evidence` on
+  every `ActiveFundSnapshot` it builds.
+- `src/irc/fundamentals/snapshot_cache.py` round-trips the new field
+  symmetrically (legacy files default to `()`).
+- `src/irc/commands/opportunity_cmd.py` `_stamp_fund_level_evidence_from_verdict`
+  stamps fund-level citations onto publishable rule-2.5 rows (`scope=
+  "instrument"`, `owner_instrument_id=fund_id`). `FetchPlan.total_calls()`
+  accounts for the +4 AkShare calls per active fund (1 NAV + 3
+  announcement endpoints).
+- `docs/adr/0003-failure-mode-policy-b.md` adds §7 documenting the rule
+  2.5 contract; precedence table amended from "five rules" to "six rules".
+- `CONTEXT.md` adds glossary entries for `ActiveFundSnapshot.fund_level_evidence`,
+  "Foreign-heavy fund (rule 2.5 short-circuit)", and `FOREIGN_HEAVY_THRESHOLD`.
+
 ### Added — `decision-confidence + bond-yield-anchor` (2026-05-26)
 
 Closes the five issues that prevented a reader of `outputs/<DATE>/memo.md`

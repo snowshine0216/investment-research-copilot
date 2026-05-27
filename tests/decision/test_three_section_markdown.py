@@ -236,7 +236,7 @@ def test_qdii_premium_unknown_renders_in_blocked_section():
     md = render_decision_markdown(report)
     section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
     assert "QDII premium-to-NAV" in section
-    assert "Fetch real-time QDII premium" in section
+    assert "AkShare returned no premium snapshot" in section
 
 
 def _audit_report(summary):
@@ -612,3 +612,41 @@ def test_markdown_renders_without_name_when_unknown():
     # No "None" leaks into the table when the name is missing.
     assert "| None |" not in md
     assert "UNKNOWN" in md
+
+
+def test_qdii_premium_too_high_renders_in_blocked_section():
+    """AC17: a buy_candidate QDII row with premium > threshold lands in the
+    blocked section with the new label + remediation."""
+    report = compose_decision_report(
+        date="2026-05-26",
+        scoring={"scores": [{
+            "instrument_id": "513650", "asset_class": "us_etf",
+            "action": "buy_candidate", "conviction": "med",
+            "data_completeness": 1.0, "missing_data": [],
+            "qdii_premium_pct": 0.10,
+        }]},
+        allocation={"selected_instruments": [
+            {"instrument_id": "513650", "target_weight": 0.2}
+        ], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": [
+            {"target": "513650", "asset_class": "us_etf",
+             "venue_compatible": True, "proxy_id": None,
+             "target_weight": 0.2}
+        ]},
+        memo_traceability={"n_refs_quoted_verbatim": 1, "n_refs_provided": 1},
+        pipeline_halted=False,
+        qdii_max_premium_pct=0.05,
+    )
+    md = render_decision_markdown(report)
+    section = md.split("## Blocked — fixable today", 1)[1].split("\n## ", 1)[0]
+    assert "QDII premium-to-NAV above threshold" in section
+
+
+def test_qdii_premium_unknown_remediation_mentions_akshare():
+    """AC22: the rewritten remediation must reference AkShare so operators
+    know 'unknown' = 'AkShare returned no row'."""
+    from irc.decision.report import _BLOCKING_REMEDIATION
+    text = _BLOCKING_REMEDIATION["qdii_premium_unknown"]
+    assert "AkShare" in text
+    # AC22 explicitly drops the FX-status half (out of V1 scope).
+    assert "FX status" not in text

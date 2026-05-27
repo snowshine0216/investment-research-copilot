@@ -8,9 +8,11 @@ from typing import Any
 import yaml
 
 from irc.config_loader import load_repo_configs
+from irc.decision.live_inputs import read_live_decision_inputs
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
 from irc.memo.auditor import extract_audit_summary
+from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.schemas.universe import UniverseConfig
 
 
@@ -89,66 +91,6 @@ _REQUIRED_ARTIFACTS = (
 )
 
 
-def _read_live_decision_inputs(
-    repo_root: Path,
-    instrument_ids: set[str],
-) -> tuple[dict[str, float], dict[str, float]]:
-    """Read latest macro snapshot + per-instrument weekly returns from the
-    local DuckDB. Returns ``(macro_snapshot, weekly_return_by_id)``.
-
-    Empty dicts on any failure — the renderer gracefully shows "未知" when
-    a value is missing. Pure read; no caching, no mutation.
-    """
-    db_path = repo_root / "data" / "local.duckdb"
-    if not db_path.exists():
-        return {}, {}
-    try:
-        import duckdb  # local import — keep `irc decision` fast when db is absent
-        con = duckdb.connect(str(db_path), read_only=True)
-    except Exception as exc:  # noqa: BLE001 — degrade gracefully
-        # Locked DBs (concurrent `irc run --only ingest`) and other I/O
-        # failures should not block the decision report; render with
-        # placeholders instead.
-        print(
-            f"WARNING: decision report could not read live macro/returns "
-            f"({exc.__class__.__name__}); per-pick triggers will show "
-            f"'未知 / unknown'."
-        )
-        return {}, {}
-    macro: dict[str, float] = {}
-    returns: dict[str, float] = {}
-    try:
-        macro_df = con.execute(
-            "SELECT series_id, value FROM ("
-            "  SELECT series_id, value, "
-            "         ROW_NUMBER() OVER (PARTITION BY series_id ORDER BY date DESC) AS rn"
-            "  FROM macro_series"
-            ") WHERE rn = 1"
-        ).fetchdf()
-        for _, r in macro_df.iterrows():
-            try:
-                macro[str(r["series_id"])] = float(r["value"])
-            except (TypeError, ValueError):
-                continue
-        for iid in instrument_ids:
-            navs = con.execute(
-                "SELECT nav FROM nav_history WHERE instrument_id = ? "
-                "ORDER BY date DESC LIMIT 8",
-                [iid],
-            ).fetchdf()
-            if len(navs) < 5:
-                continue
-            latest = float(navs.iloc[0]["nav"])
-            prior = float(navs.iloc[-1]["nav"])
-            if prior > 0:
-                returns[iid] = latest / prior - 1.0
-    except Exception:
-        pass
-    finally:
-        con.close()
-    return macro, returns
-
-
 def _read_opportunity_published_ids(path: Path) -> set[str] | None:
     """Load the set of instrument_ids published in opportunity_report.json.
 
@@ -205,9 +147,11 @@ def run_decision(repo_root: str) -> int:
         bundle = load_repo_configs(root)
         venue_reqs, available_venues = _venue_maps_from_bundle(bundle, root)
         names = _names_from_bundle(bundle)
+        qdii_max_premium = bundle.discovery.hard_filters.qdii_max_premium_pct
     except Exception as exc:  # noqa: BLE001 — graceful degrade
         print(f"WARNING: could not load venue context ({exc}); falling back to unknown venue for rows without trades.")
         venue_reqs, available_venues, names = {}, [], {}
+        qdii_max_premium = QDII_MAX_PREMIUM_DEFAULT
     # Universe yamls miss instruments only present in the discovered watchlist
     # for this run. Fall back to that CSV so the markdown never renders naked ids.
     watchlist_names = _names_from_watchlist_csv(out_dir / "discovered_watchlist.csv")
@@ -222,7 +166,7 @@ def run_decision(repo_root: str) -> int:
     opportunity_published = _read_opportunity_published_ids(out_dir / "opportunity_report.json")
     opportunity_states = _read_opportunity_state_by_id(out_dir / "opportunity_report.json")
     trade_ids = {str(t.get("target")) for t in trade_plan.get("trades", []) if t.get("target")}
-    macro_snapshot, weekly_returns = _read_live_decision_inputs(root, trade_ids)
+    macro_snapshot, weekly_returns = read_live_decision_inputs(root, trade_ids)
     report = compose_decision_report(
         date=out_dir.name,
         scoring=scoring,
@@ -239,6 +183,7 @@ def run_decision(repo_root: str) -> int:
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_returns,
         opportunity_state_by_id=opportunity_states,
+        qdii_max_premium_pct=qdii_max_premium,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))

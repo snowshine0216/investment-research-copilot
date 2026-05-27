@@ -94,7 +94,7 @@ class FetchPlan:
     fund_level_stale: int = 0   # Item 005
 
     def total_calls(self) -> int:
-        per_active = 1 + self.top_n * 3
+        per_active = 1 + self.top_n * 3 + 4  # +4 = 1 NAV + 3 announcement endpoints (item 001)
         per_fund_level = 4  # 1 NAV + 3 announcement endpoints (ADR 0002 §5)
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
@@ -987,6 +987,12 @@ def _build_rows(
                     )
                 else:
                     row = _stamp_audit_errors_from_verdict(row, verdict)
+                    # Item 001 (ADR 0003 §7): rule 2.5 publishable rows must
+                    # surface fund-level NAV+announcement evidence on the row
+                    # so the dual-coverage gate accepts them.
+                    row = _stamp_fund_level_evidence_from_verdict(
+                        row, snap_obj, verdict,
+                    )
                 pending_verdicts[row.instrument_id] = verdict
             # Thread snapshot into per-instrument cache for _write_opportunity_outputs.
             if snap_obj is not None:
@@ -1072,6 +1078,44 @@ def _stamp_audit_errors_from_verdict(
         for c in row.constituent_analyses
     )
     return replace(row, constituent_analyses=patched_constituents)
+
+
+def _stamp_fund_level_evidence_from_verdict(
+    row: OpportunityRow,
+    snapshot: ActiveFundSnapshot,
+    verdict: PolicyBVerdict,
+) -> OpportunityRow:
+    """Merge `snapshot.fund_level_evidence` into `row.thesis_evidence` when
+    Policy B rule 2.5 fires with `gap_codes=()`.
+
+    Item 001 (ADR 0003 §7): rule 2.5 is the foreign-heavy short-circuit;
+    publishable rows must carry the fund-level NAV + announcement citations
+    so the downstream dual-coverage gate, picks table, evidence pool, and
+    discipline thesis bullets see ≥1 data + ≥1 information citation at
+    scope="instrument" with owner_instrument_id == row.instrument_id.
+
+    Pure copy-replace via `dataclasses.replace`. Skipped when:
+    - the verdict is not publishable (`gap_codes != ()`);
+    - the snapshot already has empty `fund_level_evidence` (defensive — the
+      rule wouldn't have published, but guard for clarity).
+
+    Distinct from `_stamp_audit_errors_from_verdict` (which merges
+    per-constituent audit_errors into `constituent_analyses`); the two
+    helpers run in sequence on publishable rows. See spec Q-G3 / grill.
+    """
+    if verdict.gap_codes:
+        return row
+    if not snapshot.fund_level_evidence:
+        return row
+    # Only stamp when the publishable verdict came via rule 2.5. Use the
+    # structural discriminator `fired_rule` rather than a startswith match
+    # on the free-text `decision_rule` (item 001, P1-1).
+    if verdict.fired_rule != "2.5":
+        return row
+    return replace(
+        row,
+        thesis_evidence=row.thesis_evidence + snapshot.fund_level_evidence,
+    )
 
 
 def _print_quality_warnings(rows: list[OpportunityRow]) -> None:
