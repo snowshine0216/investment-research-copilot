@@ -10,8 +10,12 @@ omit them and the audit gate (item 009) can verify their presence.
 """
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
+from irc.memo.qdii_premium_lines import (
+    QDII_PREMIUM_THRESHOLD_PCT as _QDII_PREMIUM_DISPLAY_THRESHOLD,
+)
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
 
@@ -133,10 +137,37 @@ def compose_role_bucket_banner(
     return (header, caveat)
 
 
+_LEGACY_PREMIUM_PLACEHOLDER = (
+    "溢价/折价：数据未采集——请在交易前查阅各 QDII 二级市场溢价。"
+)
+
+
+def _compose_premium_element(
+    qdii_premium_rows: Sequence[dict] | None,
+    evidence_cutoff: str | None,
+) -> str:
+    """§6 premium element (AC7 / AC8). Empty/None projection → legacy
+    placeholder; non-empty → marker-wrapped block."""
+    if not qdii_premium_rows:
+        return _LEGACY_PREMIUM_PLACEHOLDER
+    from irc.memo.qdii_premium_lines import render_qdii_premium_block
+
+    projection = {
+        "rows": list(qdii_premium_rows),
+        "threshold_pct": _QDII_PREMIUM_DISPLAY_THRESHOLD,
+        "evidence_cutoff": evidence_cutoff,
+    }
+    rendered = render_qdii_premium_block(projection)
+    return rendered or _LEGACY_PREMIUM_PLACEHOLDER
+
+
 def compose_fx_qdii_lines(
     allocation: dict[str, Any] | None,
     usd_tolerance: tuple[float, float] | None,
     fx_hedge_policy: str | None = None,
+    *,
+    qdii_premium_rows: Sequence[dict] | None = None,
+    evidence_cutoff: str | None = None,
 ) -> tuple[str, ...]:
     """Emit FX & QDII diagnostic lines when QDII weight crosses the floor.
 
@@ -179,7 +210,7 @@ def compose_fx_qdii_lines(
         f"{_QDII_WEIGHT_FLOOR_FOR_DIAGNOSTIC * 100:.0f}% 触发线)。"
         + (f" {tolerance_line}" if tolerance_line else "")
     )
-    premium = "溢价/折价：数据未采集——请在交易前查阅各 QDII 二级市场溢价。"
+    premium = _compose_premium_element(qdii_premium_rows, evidence_cutoff)
     hedge = _compose_hedge_line(fx_hedge_policy, tolerance_state)
     return (header, premium, hedge)
 
