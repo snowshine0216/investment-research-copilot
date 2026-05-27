@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 
+from irc.research.persistence import extract_prose_from_report_md
 from irc.research.theme_research import ThemeReport
 
 GEOPOLITICAL_STRESS_DEFAULT: float = 0.4
@@ -90,8 +91,9 @@ def geopolitical_stress_from_theme_report(
         return default
     if report is None:  # unreachable; narrows type for static checker
         return default  # pragma: no cover
-    stress = _count_hits(report.report_md, _STRESS_TOKENS_EN, _STRESS_TOKENS_CJK)
-    calm = _count_hits(report.report_md, _CALM_TOKENS_EN, _CALM_TOKENS_CJK)
+    prose = extract_prose_from_report_md(report.report_md)
+    stress = _count_hits(prose, _STRESS_TOKENS_EN, _STRESS_TOKENS_CJK)
+    calm = _count_hits(prose, _CALM_TOKENS_EN, _CALM_TOKENS_CJK)
     net = stress - calm
     if net == 0:
         return default

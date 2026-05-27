@@ -70,21 +70,35 @@ FactorScore(score=50.0, raw_refs=raw_refs,
 
 unchanged from the pre-F4 behaviour. Existing test `tests/scoring/factors/test_thesis_news.py::test_no_news_returns_neutral_with_low_completeness` stays green without modification. Cold-start production output is therefore identical to pre-F4 — F4 only changes the warm-state output where `data/research/` exists.
 
-### 3a. Prose-extraction invariant — keyword rubric scores prose only (ADR amendment, 2026-05-27)
+### 3a. Prose-extraction invariant — keyword rubric scores prose only (ADR amendment, 2026-05-27; stop-marker tightened 2026-05-27 round 2)
 
 `_summary_for_theme` in `src/irc/scoring/news_summaries.py` MUST strip the
 `# <theme>` heading and the `## Citations` footer before returning the summary
 string. When `load_theme_reports` reads persisted `.md` files from disk the
 `report_md` field contains the full `format_report_markdown` output (heading +
-prose + citation lines). Passing that raw string to `score_thesis_news` causes
-citation titles and URLs to be matched against the keyword lexicon, producing
-false positive/negative counts.
+prose + citation lines). Passing that raw string to `score_thesis_news` or
+`geopolitical_stress_from_theme_report` causes citation titles and URLs to be
+matched against the keyword lexicon, producing false positive/negative counts.
 
 **Single source of truth:** `extract_prose_from_report_md(report_md: str) -> str`
-in `src/irc/research/persistence.py`. Both `news_summaries._summary_for_theme`
-and `gold_cmd._summary_from_theme_report` MUST call this helper — not inline
-equivalent logic. Regression-tested in
-`tests/scoring/test_news_summaries.py::test_build_news_summaries_strips_header_and_citation_footer`.
+in `src/irc/research/persistence.py`. The functions `news_summaries._summary_for_theme`,
+`gold_cmd._summary_from_theme_report`, and
+`geopolitical_stress.geopolitical_stress_from_theme_report` MUST all call this
+helper — not inline equivalent logic.
+
+**Precise stop-marker (round 2 amendment):** the helper stops ONLY at the
+`## Citations` or `## References` footer heading (case-insensitive, optional
+space after `##`). Internal `## <subheading>` lines (e.g. `## Key Risks`,
+`## Key Drivers`) that the LLM synth prompt may generate inside the prose body
+MUST NOT cause premature truncation. The original round-1 implementation stopped
+at ANY `## ` heading, which would silently return empty string for reports with
+internal subheadings, reverting to the neutral-50 fallback. The regex
+`^##\s*(Citations|References)\b` (anchored per line) is the canonical gate.
+
+Regression-tested in:
+- `tests/scoring/test_news_summaries.py::test_build_news_summaries_strips_header_and_citation_footer`
+- `tests/research/test_persistence_prose_extraction.py` (10 tests covering stop-marker precision, internal subheadings, multi-paragraph prose, edge cases)
+- `tests/research/test_geopolitical_stress.py::test_stress_keywords_in_citation_titles_do_not_inflate_score`
 
 ### 4. Determinism contract — two runs over same inputs → byte-identical `scoring.json`
 
