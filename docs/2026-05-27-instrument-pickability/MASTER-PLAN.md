@@ -5,7 +5,9 @@
 **PR shape**: `A` (per-item PRs into the feature branch, then one rollup PR you land yourself)
 **Feature branch**: `autodev/instrument-pickability-feature` (synthesized off `main`, pushed)
 **Sub-branch prefix**: `claude/instrument-pickability-`
-**Item order**: pending dependency-scan; provisional `001, 002, 003`
+**Item order**: `001, 002, 003` (locked by dep-scan 2026-05-27)
+
+Dep-scan finding (Sonnet, 2026-05-27): three items share write surface on `src/irc/memo/diagnostics.py` (compose_* helpers) and `src/irc/commands/memo_cmd.py` risk_notes tuple assembly (~lines 725–746). Sequential order eliminates merge conflicts between sub-branches. Item 003 must run last because it overwrites the "数据未采集" placeholder in `compose_fx_qdii_lines` that the current `compose_*` chain emits; placing it before 001/002 would force re-conflict resolution after each subsequent merge.
 
 ## Phase contract per item (backlog mode)
 
