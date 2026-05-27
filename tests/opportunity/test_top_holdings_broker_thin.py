@@ -143,3 +143,36 @@ def test_card_to_dict_serializes_advisory_gaps():
     card = build_thesis_card(row, pos, role="", entry_reason="")
     d = _card_to_dict(card)
     assert d["advisory_gaps"] == ["top_holdings_broker_thin"]
+
+
+def test_discipline_section_header_appends_advisory_gap_suffix():
+    """AC9: the `## 今日可定投` per-fund line gains a 证据缺口 suffix when the
+    row carries top_holdings_broker_thin. Append-only — does not perturb
+    existing column positions.
+    """
+    from irc.opportunity.report import _render_section
+    from irc.opportunity.types import DisciplineRow
+    drow = DisciplineRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", note_cn="证据偏薄",
+        advisory_gaps=("top_holdings_broker_thin",),
+    )
+    rendered = _render_section("今日可定投", [drow])
+    assert "证据缺口：核心持仓券商覆盖不足" in rendered
+    # Suffix appears AFTER asset state markers but BEFORE note_cn.
+    assert rendered.index("证据缺口：核心持仓券商覆盖不足") < rendered.index("证据偏薄")
+
+
+def test_discipline_section_header_no_suffix_when_advisory_gaps_empty():
+    from irc.opportunity.report import _render_section
+    from irc.opportunity.types import DisciplineRow
+    drow = DisciplineRow(
+        instrument_id="005827", name_cn="易方达蓝筹精选",
+        asset_class="cn_equity_fund", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="买入候选",
+    )
+    rendered = _render_section("今日可定投", [drow])
+    assert "证据缺口" not in rendered
