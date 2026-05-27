@@ -474,3 +474,28 @@ def test_concentration_lines_render_through_skeleton_into_section_6():
     assert "<!-- IRC_CONCENTRATION_BEGIN -->" in md
     assert "<!-- IRC_CONCENTRATION_END -->" in md
     assert "其他风险条目" in md
+
+
+def test_synthesizer_locks_concentration_block_when_marker_present():
+    """AC10: synthesizer.py adds a verbatim-lock instruction for the
+    IRC_CONCENTRATION_* marker pair — same pattern as the other 5 markers."""
+    from unittest.mock import patch
+    from irc.memo.synthesizer import synthesize_memo
+
+    captured_messages: list = []
+
+    def _fake_call_chat(route, messages, **kwargs):
+        captured_messages.append(messages)
+
+        class _Resp:
+            text = "ok"
+            prompt_tokens = 0
+            completion_tokens = 0
+        return _Resp()
+
+    skeleton = "# memo\n<!-- IRC_CONCENTRATION_BEGIN -->\nbody\n<!-- IRC_CONCENTRATION_END -->\n"
+    with patch("irc.memo.synthesizer.call_chat", side_effect=_fake_call_chat):
+        synthesize_memo(skeleton, raw_ref_pool=[], route=None)  # type: ignore[arg-type]
+    user_msg = next(m for m in captured_messages[0] if m["role"] == "user")["content"]
+    assert "IRC_CONCENTRATION_BEGIN/END" in user_msg
+    assert "原样保留" in user_msg  # the verbatim-lock keyword used by every other marker
