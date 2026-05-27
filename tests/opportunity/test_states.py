@@ -669,3 +669,25 @@ def test_discipline_row_default_advisory_gaps_is_empty_tuple():
         risk_action="none", note_cn="",
     )
     assert drow.advisory_gaps == ()
+
+
+def test_partition_gaps_returns_3_tuple_with_advisory():
+    from irc.opportunity.states import _partition_gaps
+    real, expected, advisory = _partition_gaps((
+        "missing_broker_coverage",
+        "constituent_not_applicable",
+        "top_holdings_broker_thin",
+    ))
+    assert real == ("missing_broker_coverage",)
+    assert expected == ("constituent_not_applicable",)
+    assert advisory == ("top_holdings_broker_thin",)
+
+
+def test_partition_gaps_empty_input_returns_three_empty_tuples():
+    from irc.opportunity.states import _partition_gaps
+    assert _partition_gaps(()) == ((), (), ())
+
+
+def test_advisory_gap_codes_re_exported_from_states():
+    from irc.opportunity.states import ADVISORY_GAP_CODES
+    assert "top_holdings_broker_thin" in ADVISORY_GAP_CODES
