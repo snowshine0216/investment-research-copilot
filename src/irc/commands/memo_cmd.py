@@ -661,7 +661,7 @@ def _build_pick_rows(
             tranche_cap_pct=tranche_cap_pct,
             trigger_status=trigger_status,
             advisory_gaps=_parse_advisory_gaps(
-                op.get("advisory_gaps"), instrument_id=iid,
+                op.get("advisory_gaps"), instrument_id=str(iid_raw),
             ),
         ))
 
