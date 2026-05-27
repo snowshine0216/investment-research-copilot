@@ -240,7 +240,7 @@ def test_render_block_wraps_in_markers_and_lists_rows() -> None:
     assert "513690 港股红利ETF博时：-0.34%" in block
     # The discount row is NOT marked as blocking.
     discount_line = next(
-        l for l in lines if "513690" in l
+        line for line in lines if "513690" in line
     )
     assert "超阈值" not in discount_line
 

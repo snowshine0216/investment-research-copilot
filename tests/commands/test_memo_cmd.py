@@ -199,10 +199,6 @@ def test_memo_cmd_emits_qdii_premium_marker_block_in_risk_notes():
     """AC7 integration: _compose_qdii_premium_projection builds a valid
     projection from scoring rows."""
     from irc.commands.memo_cmd import _compose_qdii_premium_projection
-    from irc.memo.qdii_premium_lines import (
-        QDII_PREMIUM_MARKER_BEGIN,
-        QDII_PREMIUM_MARKER_END,
-    )
 
     scoring = {"scores": [
         {"instrument_id": "159501", "name_cn": "标普消费ETF",
@@ -247,10 +243,12 @@ def test_compose_execution_lines_prefixes_above_threshold_qdii():
         trades, opportunity_rows,
         qdii_premium_rows=qdii_premium_rows,
     )
-    assert any(l.startswith("⛔ qdii_premium_too_high（+6.92% > 5%，已暂缓）｜")
-               for l in lines)
+    assert any(
+        line.startswith("⛔ qdii_premium_too_high（+6.92% > 5%，已暂缓）｜")
+        for line in lines
+    )
     # 513690 (non-blocking) line gets no prefix.
-    line_513690 = next(l for l in lines if "513690" in l)
+    line_513690 = next(line for line in lines if "513690" in line)
     assert not line_513690.startswith("⛔")
 
 
