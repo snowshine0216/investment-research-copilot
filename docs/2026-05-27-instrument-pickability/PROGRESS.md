@@ -9,7 +9,13 @@
 | 002 | concentration panel | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-002` | ✅ `44d0338` | ✅ | ✅ [#77](https://github.com/snowshine0216/investment-research-copilot/pull/77) | ✅ | ✅ | ✅ pass-with-nits | ✅ 2 rounds | ✅ `ad31c56` |
 | 003 | QDII premium snapshot | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-003` | ✅ `1929383` | ✅ | ✅ [#78](https://github.com/snowshine0216/investment-research-copilot/pull/78) | ✅ | ✅ | ✅ pass-with-nits | ✅ 2 rounds | ✅ `3b2a31f` |
 
-**Run-level**: `run-doc-sync` 🔄 · `run-final-verify` ⏳ · `run-close-out` ⏳
+**Run-level**: `run-doc-sync` ✅ · `run-final-verify` ✅ · `run-close-out` ✅ **rollup PR [#79](https://github.com/snowshine0216/investment-research-copilot/pull/79) open — user to land**
+
+## Run-level evidence
+
+- doc-sync: [run-doc-sync.md](run-doc-sync.md) — PASS (7 doc entries verified across CONTEXT.md / ADR 0005 / ADR 0006 / CHANGELOG)
+- final-verify: [run-final-verify.md](run-final-verify.md) — PASS (8 → 7 failures after AC21 fix `6646fdb`, all 7 remaining are pre-existing on main; cross-item flow verified end-to-end on `outputs/2026-05-27/`)
+- final PR: [#79](https://github.com/snowshine0216/investment-research-copilot/pull/79) (autodev/instrument-pickability-feature → main) — user lands
 
 ## Legend
 
