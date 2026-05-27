@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `qdii-premium-memo-surface` (2026-05-27)
+
+QDII premium-to-NAV data (already computed by an earlier scoring stage
+per ADR 0002 §5 F6) is now visible at memo time across four surfaces:
+
+- **§5 picks table**: new 13th column `溢价` renders the signed premium
+  (`+5.42%`, `-0.34%`, `0.00%（场外申赎）` for off-exchange NAV-priced
+  feeders, `—` for missing data).
+- **§6 风险提示**: new `IRC_QDII_PREMIUM_BEGIN/END` marker block replaces
+  the long-standing `"数据未采集——请在交易前查阅各 QDII 二级市场溢价"`
+  placeholder when ≥1 QDII pick exists; lists premium per pick with the
+  blocking threshold called out.
+- **§7 执行要点**: trigger lines for picks with `qdii_premium_too_high`
+  get a `⛔ 二级市场溢价 X.YZ% > 5%，本期暂不执行 ` prefix so the user
+  cannot miss the hard-block.
+- **`outputs/<date>/qdii_premium.json`**: always-written projection
+  artifact (atomic write, sorted keys, `generated_at` non-deterministic
+  by design — not in two-run byte-equality scope).
+
+No new fetcher (the fetcher landed in a prior 2026-05-26 run); no new
+live-test surface. Memo-rendering only. ADR 0006 captures the locked
+13-column migration, projection schema, off-exchange cell convention,
+and §7 prefix wiring at the memo_cmd edge.
+
 ### Added — `concentration-panel-overlap` (2026-05-27)
 
 New pure-analytics module `src/irc/memo/concentration.py` computes pairwise

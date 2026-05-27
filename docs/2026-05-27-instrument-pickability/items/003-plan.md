@@ -52,6 +52,12 @@
 
 ## Task 1: Bootstrap `qdii_premium_lines.py` module — marker constants + threshold re-export
 
+> **Amendment (2026-05-27 drift review — D1):** Tasks 1–7 were submitted as a single commit
+> (`28eabba feat(003): bootstrap qdii_premium_lines`) and tasks 10–13 as a single commit
+> (`23ba912 feat(003): wire qdii_premium_pct + projection + §7 prefix + artefact write`).
+> Per-task commit granularity is scaffolding guidance only; AC coverage is fully preserved.
+> Plan amended to note the consolidated delivery.
+
 **Files:**
 - Create: `src/irc/memo/qdii_premium_lines.py`
 - Test: `tests/memo/test_qdii_premium_lines.py`
@@ -1024,6 +1030,12 @@ Expected: all pass.
 Run: `wc -l src/irc/memo/qdii_premium_lines.py`
 Expected: ≤ 180 lines (spec AC18).
 
+> **Amendment (2026-05-27 drift review — D3):** Actual delivered count is 186 lines — 6 lines over
+> the 180 soft target but under the 200 hard limit. The overage comes from moving all stdlib
+> imports (`json`, `Callable`, `Sequence`, `Path`) to the module top (consolidated from Tasks 1–7)
+> rather than appending them across task steps. AC18 hard limit satisfied; 180 wc target is a
+> planning estimate only.
+
 - [ ] **Step 6: Commit.**
 
 ```bash
@@ -1277,6 +1289,11 @@ git commit -m "feat(memo): synthesizer 7th verbatim-lock clause for IRC_QDII_PRE
 
 ## Task 10: Wire `qdii_premium_pct` into `PickRow` construction (AC1 via memo_cmd)
 
+> **Amendment (2026-05-27 drift review — D2):** Fixture fields `evidence_gaps`, `thesis_evidence`,
+> and `advisory_gaps` use `[]` (list) not `()` (tuple) because `_parse_advisory_gaps` (item 001)
+> enforces list-type at the parse boundary, making tuples incorrect here. Plan fixtures corrected
+> in-place above.
+
 **Files:**
 - Modify: `src/irc/commands/memo_cmd.py`
 - Test: `tests/commands/test_memo_cmd.py`
@@ -1300,12 +1317,12 @@ def test_build_pick_rows_stamps_qdii_premium_pct_from_scoring():
     opportunity = {"rows": [{
         "instrument_id": "159501", "name_cn": "标普消费ETF",
         "asset_class": "us_etf",
-        "evidence_gaps": (),
-        "thesis_evidence": (),
+        "evidence_gaps": [],
+        "thesis_evidence": [],
         "valuation_state": "fair",
         "opportunity_state": "small_watch",
         "opportunity_reason": "—",
-        "advisory_gaps": (),
+        "advisory_gaps": [],
     }]}
     scoring = {"scores": [{
         "instrument_id": "159501",
@@ -1333,12 +1350,12 @@ def test_build_pick_rows_non_qdii_leaves_premium_none():
     opportunity = {"rows": [{
         "instrument_id": "510300", "name_cn": "沪深300ETF",
         "asset_class": "cn_etf",
-        "evidence_gaps": (),
-        "thesis_evidence": (),
+        "evidence_gaps": [],
+        "thesis_evidence": [],
         "valuation_state": "fair",
         "opportunity_state": "core_dca",
         "opportunity_reason": "—",
-        "advisory_gaps": (),
+        "advisory_gaps": [],
     }]}
     scoring = {"scores": [{
         "instrument_id": "510300",

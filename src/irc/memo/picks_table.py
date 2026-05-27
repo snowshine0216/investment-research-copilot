@@ -7,6 +7,7 @@ from irc.decision.sizing import (
     evaluate_trigger,
     resolve_trigger_current_value,
 )
+from irc.memo.qdii_premium_lines import _format_qdii_premium_cell
 from irc.opportunity.types import ThesisEvidence
 
 
@@ -46,6 +47,8 @@ _SCORING_FOOTNOTE = (
     "估值维度缺失的综合分不得单独依据分值高低作为配置优先级依据。"
     "单次定投上限 = 目标权重 ÷ 4（build 模式），表示一次建仓的最大占总资产比例；"
     "触发状态反映第7节触发条件相对当前宏观/净值快照的评估结果。"
+    "溢价反映该 QDII 在二级市场相对单位净值的偏离（正值=溢价，负值=折价），"
+    "数据来源 AkShare fund_etf_spot_em 收盘快照，场外申赎类显示 0.00%（场外申赎）。"
     "详见评分体系说明文档。"
 )
 
@@ -74,6 +77,11 @@ class PickRow:
     tranche_cap_pct: float | None = None
     trigger_status: str = ""
     advisory_gaps: tuple[str, ...] = ()
+    # Item 003 (instrument-pickability): QDII premium-to-NAV from scoring.json.
+    # None for non-QDII rows (qdii_premium_for_row routing); 0.0 + QDII
+    # asset_class for off-exchange synthetic-zero. Spec AC1 / AC12 (default
+    # keeps the 34 call sites — 2 production + 32 test — green).
+    qdii_premium_pct: float | None = None
 
 
 def _action_cn(row: PickRow) -> str:
@@ -183,8 +191,8 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
 
     header = (
         "| 代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | "
-        "主要理由 | 单次定投上限 | 触发状态 | 证据 |\n"
-        "|---|---|---|---|---|---|---|---|---|---|---|---|"
+        "主要理由 | 单次定投上限 | 溢价 | 触发状态 | 证据 |\n"
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|"
     )
     lines = [header]
     for r in unique:
@@ -193,12 +201,13 @@ def render_picks_table(rows: list[PickRow] | tuple[PickRow, ...]) -> str:
         citations_cell = _format_citations_cell(r.citations)
         decision_cell = _DECISION_CN.get(r.decision_status, r.decision_status)
         tranche_cell = _format_tranche_cap_cell(r.tranche_cap_pct)
+        premium_cell = _format_qdii_premium_cell(r.qdii_premium_pct, r.asset_class)
         trigger_cell = _format_trigger_status_cell(r.trigger_status)
         lines.append(
             f"| {r.instrument_id} | {r.name_cn} | {r.role} | "
             f"{weight_str} | {score_str} | {decision_cell} | {r.opportunity_state} | "
             f"{_action_cn(r)} | {r.one_line_reason} | "
-            f"{tranche_cell} | {trigger_cell} | {citations_cell} |"
+            f"{tranche_cell} | {premium_cell} | {trigger_cell} | {citations_cell} |"
         )
     lines.append("")
     lines.append(_SCORING_FOOTNOTE)
