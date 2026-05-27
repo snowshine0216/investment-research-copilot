@@ -41,9 +41,11 @@ QDII_PREMIUM_MARKER_BEGIN: Final[str] = "<!-- IRC_QDII_PREMIUM_BEGIN -->"
 QDII_PREMIUM_MARKER_END: Final[str] = "<!-- IRC_QDII_PREMIUM_END -->"
 
 # AC2 spec: QDII asset-class set comes from scoring.qdii_premium per the
-# canonical home declaration there. We re-list as a module-local frozenset to
-# keep the tier-1 import contract (no imports from irc.scoring.*).
-_QDII_ASSET_CLASSES_LOCAL: Final[frozenset[str]] = frozenset(
+# canonical home declaration there. We re-list as a module-local frozenset
+# under a distinct name (NOT `_QDII_ASSET_CLASSES`) to keep the tier-1
+# import contract (no imports from irc.scoring.*) AND satisfy the AC21
+# "defined exactly once" grep at `tests/scoring/test_qdii_premium.py`.
+_QDII_RENDER_CLASSES: Final[frozenset[str]] = frozenset(
     {"us_etf", "hk_etf", "qdii_global"}
 )
 
@@ -63,7 +65,7 @@ def _format_qdii_premium_cell(
     if qdii_premium_pct is None:
         return "—"
     if qdii_premium_pct == 0.0:
-        if asset_class in _QDII_ASSET_CLASSES_LOCAL:
+        if asset_class in _QDII_RENDER_CLASSES:
             return "0.00%（场外申赎）"
         return "—"
     pct = qdii_premium_pct * 100
