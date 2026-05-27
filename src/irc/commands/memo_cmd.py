@@ -34,7 +34,11 @@ from irc.memo.picks_table import (
     render_failure_sections,
     render_picks_table,
 )
-from irc.memo.template import MemoInputs
+from irc.memo.template import (
+    EVIDENCE_GAP_MARKER_BEGIN,
+    EVIDENCE_GAP_MARKER_END,
+    MemoInputs,
+)
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
 from irc.commands.opportunity_cmd import (
@@ -231,6 +235,30 @@ def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
         "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
         timeliness,
     )
+
+
+def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
+    """Compose the §6 risk-notes 证据缺口 marker block (AC7).
+
+    When ≥1 pick row carries `top_holdings_broker_thin` in its `advisory_gaps`,
+    emit a deterministic 3-line tuple wrapped in IRC_EVIDENCE_GAP_BEGIN/END
+    markers. Picks sorted by `instrument_id` ASC.
+
+    Empty result when no row qualifies — no markers emitted. Pure.
+    """
+    affected = sorted(
+        (r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps),
+        key=lambda r: r.instrument_id,
+    )
+    if not affected:
+        return ()
+    targets_str = "、".join(f"{r.instrument_id} {r.name_cn}" for r in affected)
+    body = (
+        "证据缺口（Top-5 经纪覆盖不足）：以下候选标的的核心持仓中至少 2 只"
+        "（或合计权重 ≥ 20%）缺少券商研报覆盖，证据强度弱于其余候选，"
+        f"触发条件成立时建议优先选择证据更完整的标的：{targets_str}。"
+    )
+    return (EVIDENCE_GAP_MARKER_BEGIN, body, EVIDENCE_GAP_MARKER_END)
 
 
 def _today() -> str:
@@ -430,6 +458,9 @@ def _reconstruct_opportunity_rows(
             opportunity_state=r.get("opportunity_state", "small_watch"),
             opportunity_reason=r.get("opportunity_reason", ""),
             evidence_gaps=tuple(r.get("evidence_gaps", ())),
+            advisory_gaps=_parse_advisory_gaps(
+                r.get("advisory_gaps"), instrument_id=r["instrument_id"],
+            ),
             thesis_evidence=r["thesis_evidence"]
                 if isinstance(r.get("thesis_evidence"), tuple)
                 else tuple(r.get("thesis_evidence") or ()),
@@ -497,6 +528,44 @@ def _decision_status_for_pick(
     )
     allocation_selected = trade is not None
     return compute_decision_status(score_action, blocking, allocation_selected)
+
+def _parse_advisory_gaps(value: object, *, instrument_id: str) -> tuple[str, ...]:
+    """Validate + coerce opportunity.json's `advisory_gaps` field at the boundary.
+
+    Silent coalescing (`x or ()`) would turn a serializer bug into a wrong
+    investment signal: the pick would render in §5 without the 证据缺口 suffix
+    or §6 marker block, and no log would surface the dropped advisory.
+    Refuse explicitly with the instrument_id so the operator can fix the
+    upstream serializer. Pure.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(
+            f"advisory_gaps for {instrument_id!r}: expected list, "
+            f"got {type(value).__name__}={value!r}",
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"advisory_gaps for {instrument_id!r}: every element must be str, "
+                f"got {type(item).__name__}={item!r}",
+            )
+    return tuple(value)
+
+
+def _apply_advisory_partition(pick_rows: list[PickRow]) -> list[PickRow]:
+    """Stable partition: demote rows carrying `top_holdings_broker_thin` to tail.
+
+    Membership check (not truthiness) so future advisory codes added to
+    `ADVISORY_GAP_CODES` do not silently inherit §5 pick-ordering demotion —
+    that's a separate per-code design decision per ADR 0005. Trade-plan
+    iteration order is preserved within each partition (AC8). Pure.
+    """
+    non_demoting = [r for r in pick_rows if "top_holdings_broker_thin" not in r.advisory_gaps]
+    demoting = [r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps]
+    return non_demoting + demoting
+
 
 def _build_pick_rows(
     trades: list[dict],
@@ -591,6 +660,9 @@ def _build_pick_rows(
             decision_status=decision_status,
             tranche_cap_pct=tranche_cap_pct,
             trigger_status=trigger_status,
+            advisory_gaps=_parse_advisory_gaps(
+                op.get("advisory_gaps"), instrument_id=str(iid_raw),
+            ),
         ))
 
     return pick_rows, absent, gapped
@@ -650,6 +722,7 @@ def run_memo(repo_root: str) -> int:
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_return_by_id,
     )
+    pick_rows = _apply_advisory_partition(pick_rows)
     picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
         absent_targets, gapped_targets, fallback_names,
     )
@@ -744,6 +817,11 @@ def run_memo(repo_root: str) -> int:
     role_lines = compose_role_bucket_banner(diag_rows)
     if role_lines:
         risk_notes = tuple(role_lines) + risk_notes
+    # ADR 0005 + Item 001 (instrument-pickability): top_holdings_broker_thin
+    # advisory marker block. Prepended last so it renders FIRST in §6.
+    evidence_gap_lines = _compose_evidence_gap_lines(pick_rows)
+    if evidence_gap_lines:
+        risk_notes = tuple(evidence_gap_lines) + risk_notes
     execution_lines = _compose_execution_lines(
         trades, opportunity.get("rows") or [],
         extra_names=fallback_names,

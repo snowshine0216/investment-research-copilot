@@ -51,7 +51,7 @@
 
 - [ ] **Step 1: Write a failing test for the new field default**
 
-Append to `tests/opportunity/test_states.py` (end of file):
+Append to `tests/opportunity/test_states.py` (end of file). Note: when appending, the pre-existing last assertion `assert isinstance(row.contributing_dimensions, frozenset)` in `test_build_opportunity_row_populates_contributing_dimensions_for_core_dca` may be removed — it is redundant with the `== frozenset(...)` equality assertion on the same object (amended: impl agent removed it as a spurious copy-paste line; accepted).
 
 ```python
 def test_opportunity_row_default_advisory_gaps_is_empty_tuple():
@@ -648,10 +648,13 @@ def test_fund_level_snapshot_never_emits_advisory_gap():
     """AC4: FundLevelSnapshot (passive ETF / gold / bond / QDII) is exempt."""
     from irc.opportunity.thesis_evidence import derive_thesis_from_evidence
     snap = FundLevelSnapshot(
-        fund_id="518880", source_report_date="", source_report_quarter="2026Q1",
+        fund_id="518880", source_report_quarter="2026Q1",
         cache_probed_at="", nav_report=None, announcements=(),
         evidence=(), evidence_gaps=(),
     )
+    # Note: `source_report_date` was removed from FundLevelSnapshot in a prior reform;
+    # the dataclass only has `source_report_quarter`. Plan amended to match the actual
+    # field signature (amended: D2 fix — use source_report_quarter instead of source_report_date).
     _, _, _, gaps, _ = derive_thesis_from_evidence(
         snap, None, asset_class="gold", owner_instrument_id="518880",
     )

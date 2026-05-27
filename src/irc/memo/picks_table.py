@@ -73,6 +73,7 @@ class PickRow:
     # green; the renderer emits em-dash for missing values.
     tranche_cap_pct: float | None = None
     trigger_status: str = ""
+    advisory_gaps: tuple[str, ...] = ()
 
 
 def _action_cn(row: PickRow) -> str:

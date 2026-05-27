@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `top-holdings-broker-thin-advisory` (2026-05-27)
+
+New `OpportunityRow.advisory_gaps` field carries a new advisory gap code
+`top_holdings_broker_thin` that fires when an active fund has ≥2 of Top-5
+holdings (or ≥20% weighted Top-5) marked with `broker_empty:*` failure
+reasons. The gap is emitted through the existing `derive_thesis_from_evidence`
+return slot — `thesis_state` setter invariant is preserved.
+
+The advisory is surfaced in three places so it informs both immediate and
+ongoing decisions:
+
+- §5 picks table — affected rows are stably demoted to the tail of the table
+  (informational; does not block execution)
+- §6 风险提示 — a new `证据缺口（Top-5 经纪覆盖不足）` marker block lists
+  the affected picks
+- `discipline_report.md` section header — appends a `（证据缺口：核心持仓
+  券商覆盖不足）` suffix on affected funds
+
+Pure analytics: no new I/O, no new fetcher, reads cached `ActiveFundSnapshot`
+data already in the opportunity layer. ADR 0005 captures the load-bearing
+design decision (separate field vs. widening `evidence_gaps`).
+
 ### Added — `memo-picks-table-decision-mirror` (2026-05-26)
 
 Memo §5 picks table now mirrors the per-pick `单次定投上限` (tranche cap)

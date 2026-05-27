@@ -155,6 +155,7 @@ class OpportunityRow:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    advisory_gaps: tuple[str, ...] = ()
     contributing_dimensions: frozenset[str] = field(default_factory=frozenset)
     # Item 002: fetch pipeline diagnostics — mirrors DisciplineRow.fetch_types_attempted.
     # Serialized by _row_to_dict so render_failure_sections can populate 已尝试:.
@@ -186,6 +187,7 @@ class ThesisCard:
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
     expected_omissions: tuple[str, ...] = ()
+    advisory_gaps: tuple[str, ...] = ()
     # Item 003: per-constituent structured evidence (threaded from OpportunityRow).
     constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
 
@@ -206,3 +208,4 @@ class DisciplineRow:
     constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
     evidence_gaps: tuple[str, ...] = ()
     fetch_types_attempted: tuple[str, ...] = ()
+    advisory_gaps: tuple[str, ...] = ()

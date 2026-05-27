@@ -131,6 +131,13 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
             "citation_id 与对应行的标的代码绑定，跨标的复用 ref 会触发 wrong_instrument_citation。"
             "禁止改写、合并、新增 row，亦禁止改写 citation 数量或顺序。"
         )
+    # ADR 0005 lock for the §6 advisory-gap marker block.
+    if "<!-- IRC_EVIDENCE_GAP_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第6节『风险提示』在 IRC_EVIDENCE_GAP_BEGIN/END 标记之间的 bullet 必须**原样保留**："
+            "该 bullet 由系统根据 Top-5 持仓券商覆盖证据自动生成，禁止改写、合并、"
+            "新增或删除其中的任何条目，亦禁止改写其中的标的代码与名称。"
+        )
     section_lock_instruction = "\n".join(locked_section_lines)
     user_msg = (
         f"{_GLOSSARY}\n\n"

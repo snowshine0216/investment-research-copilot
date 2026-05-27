@@ -617,6 +617,7 @@ def _discipline_row_from(
         thesis_evidence=row.thesis_evidence,
         constituent_analyses=getattr(row, "constituent_analyses", ()),
         evidence_gaps=row.evidence_gaps,
+        advisory_gaps=row.advisory_gaps,
         fetch_types_attempted=getattr(row, "fetch_types_attempted", ()),
     )
 

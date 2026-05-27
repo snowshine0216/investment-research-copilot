@@ -625,4 +625,69 @@ def test_build_opportunity_row_populates_contributing_dimensions_for_core_dca():
     assert row.contributing_dimensions == frozenset(
         {"valuation", "heat", "thesis", "product_quality"},
     )
-    assert isinstance(row.contributing_dimensions, frozenset)
+
+
+def test_opportunity_row_default_advisory_gaps_is_empty_tuple():
+    """ADR 0005: `advisory_gaps` is a tuple[str, ...] that defaults to ()."""
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+
+    row = OpportunityRow(
+        instrument_id="x", name_cn="x", asset_class="cn_etf", theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="broad_index", key="x", display_cn="x", provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="acceptable", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(),
+    )
+    assert row.advisory_gaps == ()
+
+
+def test_thesis_card_default_advisory_gaps_is_empty_tuple():
+    from irc.opportunity.types import ThesisCard
+
+    card = ThesisCard(
+        instrument_id="x", name_cn="x", asset_class="cn_etf", theme=None,
+        role="", lookthrough_target="x", entry_reason="",
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="acceptable", opportunity_state="core_dca",
+        dca_action="normal_dca", risk_action="none",
+        falsification_triggers=(), trim_triggers=(),
+        do_not_sell_just_because=(), review_cadence="weekly_light_monthly_full",
+        evidence_gaps=(),
+    )
+    assert card.advisory_gaps == ()
+
+
+def test_discipline_row_default_advisory_gaps_is_empty_tuple():
+    from irc.opportunity.types import DisciplineRow
+
+    drow = DisciplineRow(
+        instrument_id="x", name_cn="x", asset_class="cn_etf", theme=None,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="",
+    )
+    assert drow.advisory_gaps == ()
+
+
+def test_partition_gaps_returns_3_tuple_with_advisory():
+    from irc.opportunity.states import _partition_gaps
+    real, expected, advisory = _partition_gaps((
+        "missing_broker_coverage",
+        "constituent_not_applicable",
+        "top_holdings_broker_thin",
+    ))
+    assert real == ("missing_broker_coverage",)
+    assert expected == ("constituent_not_applicable",)
+    assert advisory == ("top_holdings_broker_thin",)
+
+
+def test_partition_gaps_empty_input_returns_three_empty_tuples():
+    from irc.opportunity.states import _partition_gaps
+    assert _partition_gaps(()) == ((), (), ())
+
+
+def test_advisory_gap_codes_re_exported_from_states():
+    from irc.opportunity.states import ADVISORY_GAP_CODES
+    assert "top_holdings_broker_thin" in ADVISORY_GAP_CODES
