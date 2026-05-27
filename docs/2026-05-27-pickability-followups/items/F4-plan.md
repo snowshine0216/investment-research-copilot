@@ -525,8 +525,11 @@ def test_run_scoring_with_non_empty_news_summaries_differentiates_thesis_news():
     )
     scores = {row["instrument_id"]: row for row in out["scores"]}
 
-    gold_thesis = scores["518880"]["factor_breakdown"]["thesis_news"]
-    bond_thesis = scores["511880"]["factor_breakdown"]["thesis_news"]
+    # AMENDMENT (impl agent, 2026-05-27): factor_breakdown["thesis_news"] is a dict
+    # {"score": float, "raw_refs": [...], "components": {...}} per instrument_score.py:59-65.
+    # Plan originally accessed the dict directly; corrected to use ["score"] key.
+    gold_thesis = scores["518880"]["factor_breakdown"]["thesis_news"]["score"]
+    bond_thesis = scores["511880"]["factor_breakdown"]["thesis_news"]["score"]
 
     # Gold row sees real positive news → must escape the 50.0 fallback.
     assert gold_thesis != 50.0, (
