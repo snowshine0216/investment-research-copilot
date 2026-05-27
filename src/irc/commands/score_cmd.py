@@ -11,7 +11,9 @@ from irc.data.akshare_client import fetch_qdii_premium_pct
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import resolve_route
+from irc.research.persistence import load_theme_reports
 from irc.scoring.metrics_loader import load_scoring_metrics
+from irc.scoring.news_summaries import build_news_summaries
 from irc.scoring.pipeline import run_scoring
 from irc.scoring.qdii_premium import qdii_premium_for_row
 
@@ -66,7 +68,10 @@ def run_score(repo_root: str) -> int:
     out = run_scoring(
         watchlist=watchlist,
         metrics=metrics,
-        news_summaries={},
+        news_summaries=build_news_summaries(
+            reports=load_theme_reports(root),
+            watchlist=watchlist,
+        ),
         regime_summary=regime,
         route=route,
         cfg_scoring=bundle.scoring,

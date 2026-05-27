@@ -184,3 +184,123 @@ def test_build_news_summaries_is_deterministic_two_calls_equal():
     # protect against dict-ordering drift in the per-instrument value).
     import json
     assert json.dumps(a, sort_keys=True) == json.dumps(b, sort_keys=True)
+
+
+def test_score_cmd_run_score_passes_non_empty_news_summaries_when_research_exists(
+    tmp_path, monkeypatch,
+):
+    """Plumbing AC #1 + AC #10: when data/research/research_status.json exists
+    with at least one populated theme report, score_cmd.run_score must call
+    run_scoring with a non-empty news_summaries dict (not {}).
+    """
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+
+    # 1) Stage a minimal repo skeleton under tmp_path: configs, watchlist,
+    #    research outputs, and a DuckDB file.
+    repo_root = tmp_path
+    (repo_root / "outputs" / "2099-01-01").mkdir(parents=True)
+    (repo_root / "data" / "research").mkdir(parents=True)
+    (repo_root / "data").mkdir(exist_ok=True)
+    (repo_root / "config").mkdir(exist_ok=True)
+
+    # Minimal watchlist with one gold row (gold maps to three themes).
+    watchlist_df = pd.DataFrame([{
+        "instrument_id": "518880",
+        "ticker": "518880",
+        "name_cn": "黄金ETF",
+        "asset_class": "gold",
+        "market": "cn_on_exchange",
+        "tracked_index": "",
+        "cited_refs": "",
+        "role": "satellite",
+    }])
+    watchlist_df.to_csv(
+        repo_root / "outputs" / "2099-01-01" / "discovered_watchlist.csv",
+        index=False,
+    )
+
+    # Stage one populated theme report (gold_drivers).
+    theme_md = repo_root / "data" / "research" / "gold_drivers.md"
+    theme_md.write_text("# gold_drivers\n\nStrong demand for gold.\n", encoding="utf-8")
+    status = {
+        "generated_at_iso": "2099-01-01T00:00:00+00:00",
+        "overall": "pass",
+        "theme_count": 1,
+        "failure_count": 0,
+        "themes": [{
+            "theme": "gold_drivers",
+            "query": "",
+            "locale": "EN",
+            "report_path": "data/research/gold_drivers.md",
+            "citation_count": 0,
+            "citations": [],
+            "failure_reason": "",
+            "provider_failures": [],
+        }],
+    }
+    (repo_root / "data" / "research" / "research_status.json").write_text(
+        json.dumps(status, ensure_ascii=False), encoding="utf-8",
+    )
+
+    # 2) Pin today() to the staged date and stub the I/O surface so the test
+    #    stays pure-function-shaped (no DuckDB, no LLM).
+    from irc.commands import score_cmd
+
+    monkeypatch.setattr(score_cmd, "_today", lambda: "2099-01-01")
+    monkeypatch.setattr(score_cmd, "_macro_summary", lambda con: "")
+
+    class _StubCon:
+        def execute(self, *a, **kw):  # pragma: no cover - safety net
+            class _R:
+                def fetchall(self_inner): return []
+            return _R()
+        def close(self): pass
+
+    monkeypatch.setattr(score_cmd, "connect", lambda path: _StubCon())
+    monkeypatch.setattr(score_cmd, "ensure_schema", lambda con: None)
+    monkeypatch.setattr(
+        score_cmd, "load_scoring_metrics",
+        lambda con, ids: pd.DataFrame([{"instrument_id": iid} for iid in ids]),
+    )
+    monkeypatch.setattr(score_cmd, "resolve_route", lambda task, llm_cfg: None)
+
+    # Intercept run_scoring to capture the news_summaries kwarg.
+    captured: dict = {}
+
+    def _fake_run_scoring(**kwargs):
+        captured.update(kwargs)
+        return {"scores": [{
+            "instrument_id": "518880",
+            "composite_score": 50.0,
+            "action": "hold",
+            "conviction": "low",
+            "factor_breakdown": {},
+            "data_completeness": 0.0,
+            "missing_data": [],
+            "weights_version": "v1",
+        }]}
+
+    monkeypatch.setattr(score_cmd, "run_scoring", _fake_run_scoring)
+
+    # 3) Use the real load_repo_configs from the project repo; copy the
+    #    config tree into tmp_path so loader resolves.
+    import shutil
+    project_root = Path(__file__).resolve().parents[2]
+    shutil.copytree(project_root / "config", repo_root / "config", dirs_exist_ok=True)
+    shutil.copytree(project_root / "inputs", repo_root / "inputs", dirs_exist_ok=True)
+
+    rc = score_cmd.run_score(str(repo_root))
+    assert rc == 0
+    assert "news_summaries" in captured
+    ns = captured["news_summaries"]
+    # AC #1: dict is non-empty (every watchlist row gets a key).
+    assert ns, f"news_summaries should be non-empty when research exists; got {ns!r}"
+    # AC #1 specifically: the gold row resolves to a non-empty tuple
+    # because gold_drivers is populated.
+    assert ns["518880"], (
+        f"gold row should map to non-empty news prose; got {ns['518880']!r}"
+    )
+    assert any("Strong demand for gold" in s for s in ns["518880"])
