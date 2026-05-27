@@ -176,3 +176,44 @@ def test_discipline_section_header_no_suffix_when_advisory_gaps_empty():
     )
     rendered = _render_section("今日可定投", [drow])
     assert "证据缺口" not in rendered
+
+
+def test_advisory_gap_does_not_add_to_thesis_evidence():
+    """AC10 + AC11: the new gap MUST NOT contribute to thesis_evidence,
+    citation_id format, or the data/information leg shape."""
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import OpportunityInput, ThesisEvidence
+
+    ev = ThesisEvidence(
+        type="filing", source="600519", url="https://x/a",
+        date="2026-04-15", summary="x",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="005827", parent_fund_id="005827",
+        constituent_key="600519", holding_weight_pct=6.2,
+    )
+    analyses = (
+        ConstituentAnalysis(
+            symbol="A", name_cn="A", weight_pct=8.0,
+            evidence=(ev,), failure_reasons=("broker_empty:A",),
+            one_line_view="",
+        ),
+        ConstituentAnalysis(
+            symbol="B", name_cn="B", weight_pct=7.0,
+            evidence=(), failure_reasons=("broker_empty:B",),
+            one_line_view="",
+        ),
+    )
+    snap = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="", source_report_quarter="2026Q1",
+        cache_probed_at="", constituent_analyses=analyses,
+        failure_reasons_by_symbol={},
+    )
+    inp = OpportunityInput(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    # The advisory gap is set:
+    assert "top_holdings_broker_thin" in row.advisory_gaps
+    # ...and thesis_evidence remains exactly the original constituent evidence:
+    assert row.thesis_evidence == (ev,)
