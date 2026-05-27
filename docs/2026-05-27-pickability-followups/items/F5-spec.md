@@ -89,18 +89,30 @@ Each item below is independently verifiable. All must be green.
 
 1. **Subheading-skip rule.** `_summary_from_theme_report(report)` skips any
    prose line whose `stripped` form (a) starts with `##` (markdown
-   subheading at any depth), or (b) is entirely wrapped in `**...**` /
-   `__...__` (a bold-only line with no trailing prose), or (c) is empty.
-   The first prose line is the FIRST line not matching any of those
-   three skip conditions. Bullet markers (`- `, `* `, `+ `) are still
-   stripped as today (preserves substance of bullet content).
+   subheading at any depth), or ~~(b) is entirely wrapped in `**...**` /
+   `__...__` (a bold-only line with no trailing prose)~~ — corrected by
+   grill: predicate tightened to `re.fullmatch(r"\*\*[^*]+\*\*", stripped)`
+   / `re.fullmatch(r"__[^_]+__", stripped)` so lines like
+   `**政策优化信号**：…` (bold marker followed by trailing prose) DO NOT
+   skip, while pure bold-only lines like `**1. Bond Market Pressure and
+   Policy Response**` DO skip — or (c) is empty BEFORE any prose line has
+   entered the accumulator buffer (blank lines AFTER the first prose
+   line behave per rule (iii) in AC #2, not as skips). The first prose
+   line is the FIRST line not matching any of those three skip
+   conditions. Bullet markers (`- `, `* `, `+ `) are still stripped as
+   today (preserves substance of bullet content) — and ALSO stripped from
+   continuation lines during accumulation (per grill resolution Q10).
 
 2. **Paragraph-depth rule.** After locating the first prose line, the
    extractor accumulates additional non-skip lines until **either** (i) it
    has collected ≥3 sentence-ending punctuation marks
    (`{".", "。", "！", "!", "?", "？"}`) **or** (ii) the joined text reaches
    ≥150 visible characters (excluding leading/trailing whitespace), **or**
-   (iii) a blank line is encountered. Whichever condition fires first
+   ~~(iii) a blank line is encountered~~ — corrected by grill: (iii) a
+   blank line is encountered AFTER `≥1` prose line is in the buffer.
+   Blank lines BEFORE the first prose line are skipped, not terminating
+   (otherwise reports starting `### subheading\n\n本文论述...` would
+   short-circuit to empty). Whichever condition fires first
    stops accumulation. The result is joined with a single ASCII space
    between lines (mirrors the existing "compact paragraph" rendering
    convention used by `cn_equity_property_policy` which already reads
@@ -108,11 +120,14 @@ Each item below is independently verifiable. All must be green.
 
 3. **Hard char cap retained.** The combined paragraph is truncated to
    `max_chars=400` (raised from 220 — paragraph-shaped excerpts need
-   more room; cap of 400 chosen so memo §2 stays under ~15 visible
-   lines for all 7 themes). When truncated, suffix `…` (single
-   horizontal-ellipsis char) is appended. The existing per-call
-   `max_chars` kwarg is preserved as a kwarg-only override so tests can
-   pin behaviour at smaller caps.
+   more room; ~~cap of 400 chosen so memo §2 stays under ~15 visible
+   lines for all 7 themes~~ — corrected by grill: worst-case is
+   7 × 400 / ~50 ≈ **~25 visible lines**, typical 10–15 because the
+   150-char floor fires more often than the 400-char ceiling. §2
+   remains a single-screen dashboard either way). When truncated,
+   suffix `…` (single horizontal-ellipsis char) is appended. The
+   existing per-call `max_chars` kwarg is preserved as a kwarg-only
+   override so tests can pin behaviour at smaller caps.
 
 4. **Empty-content fallback unchanged.** When the prose is empty (no
    prose lines or all lines hit the skip rules), return the existing
@@ -137,7 +152,13 @@ Each item below is independently verifiable. All must be green.
    render at minimum ≥1 sentence-ending punctuation mark, never a bare
    subheading. Regression test loads `outputs/2026-05-27/memo.md`,
    extracts the §2 block between `<!-- IRC_MACRO_LINES_BEGIN -->` /
-   `<!-- IRC_MACRO_LINES_END -->`, and asserts the count.
+   `<!-- IRC_MACRO_LINES_END -->`, and asserts the count. **Grill-added
+   sub-criterion:** the §3 gold-evidence block, similarly bounded by
+   `<!-- IRC_GOLD_EVIDENCE_BEGIN -->` / `<!-- IRC_GOLD_EVIDENCE_END -->`,
+   contains paragraph-shaped excerpts for both included themes
+   (`gold_drivers`, `geopolitics`) under the same ≥150-char-OR-≥3-sentence
+   depth definition — §3 inherits the fix because it reads the SAME
+   `ThemeReportRef.summary` field as §2.
 
 7. **memo §2 deterministic markers preserved.** The
    `<!-- IRC_MACRO_LINES_BEGIN -->` / `<!-- IRC_MACRO_LINES_END -->`
@@ -201,11 +222,16 @@ Each item below is independently verifiable. All must be green.
     stays < 30 lines (currently ~25). If the new logic pushes it
     over, extract a private helper
     `_first_prose_paragraph(prose: str, *, max_chars: int) -> str`
-    co-located in `gold_cmd.py` or a new tiny module
+    co-located in `gold_cmd.py` ~~or a new tiny module
     `src/irc/research/excerpt.py` (< 200 lines). Prefer the new
     module because the same paragraph-extraction logic could later be
     consumed by `news_summaries._summary_for_theme` (F4's analogue);
-    grill phase to confirm placement.
+    grill phase to confirm placement.~~ — corrected by grill (Q6): keep
+    `_first_prose_paragraph` PRIVATE inside `gold_cmd.py`. The
+    speculative consolidation with `news_summaries._summary_for_theme`
+    is rejected — `news_summaries` consumes the WHOLE prose for keyword
+    scoring, not the first paragraph; sharing the helper would silently
+    change the scoring rubric's input. YAGNI applies. No new module.
 
 14. **ADR 0008 lands with this item.** New
     `docs/adr/0008-macro-research-excerpt-depth.md` documents:
@@ -217,15 +243,28 @@ Each item below is independently verifiable. All must be green.
     (prose-extraction invariant — F5 builds on top of
     `extract_prose_from_report_md`, never bypasses it).
 
-15. **`F5-followup-prompt-eval` SKIPPED entry.** A new entry in
+15. **`F5-followup-prompt-eval` SKIPPED entry.** ~~A new entry in
     **this run's** `docs/2026-05-27-pickability-followups/SKIPPED.md`
     (or, if that file does not exist yet, this item creates it with
-    just this entry) captures:
+    just this entry)~~ — corrected by grill (Q9): the file
+    `docs/2026-05-27-pickability-followups/SKIPPED.md` already exists
+    in the run dir; F5 APPENDS the entry. Entry captures:
     - the LLM-prompt-redesign + 5-week eval bench scope
     - the eval-corpus prerequisite (5 weekly snapshots of `data/research/`)
     - the success rubric (≥4/5 weeks improved, where "improved" is
       defined as per AC #6 paragraph-depth metric)
     - a pointer back to ADR 0008 and this spec
+
+16. **(Grill-added)** Cross-stage citation universe integrity. Memo
+    §2/§3 `[ref:...]` markers MUST resolve to the post-F5 citation_ids
+    present in `gold_regime.json["evidence"]`. By construction this
+    holds — both surfaces are rendered from the same `evidence_by_source`
+    map populated from the (now-longer) `ThemeReportRef.summary`. The
+    publishable-set lockdown integration test
+    (`tests/integration/test_publishable_set_lockdown.py` AC19) reads
+    the citation universe from `opportunity_report.json["rows"]` ∪
+    `gold_regime.json["evidence"]` and stays green. F5 introduces no
+    citation_ids outside that universe.
 
 ---
 
@@ -476,3 +515,127 @@ this is a one-line regex strip; not blocking the spec.
 - **Respects locked invariants** — H3, SAME-3, deterministic memo
   markers, citation-format, FP/immutable, effects-at-edges, all
   preserved.
+
+---
+
+## Resolved decisions
+
+Twelve questions resolved during the grill-with-docs session (autonomous
+mode — no user in loop, recommendations auto-accepted). Each Q/A pair
+below records the question, the auto-accepted recommendation, the
+rationale, and the documentation impact.
+
+- **Q1: Does the `##`-prefix skip rule actually catch the offending
+  `###` subheadings?**
+  A: Yes. `extract_prose_from_report_md` already strips lines starting
+  with single `#`; only `##`+ survives. `stripped.startswith("##")`
+  catches `## subheading`, `### subsubheading`, and deeper. AC #1
+  wording is correct as-is.
+  Rationale: verified against `src/irc/research/persistence.py`.
+  Doc impact: none.
+
+- **Q2: What counts as "entirely wrapped in `**...**`"?**
+  A: Tighten to regex `re.fullmatch(r"\*\*[^*]+\*\*", stripped)` /
+  `re.fullmatch(r"__[^_]+__", stripped)`. Lines like
+  `**政策优化信号**：…` (bold marker + trailing prose) DO NOT skip;
+  lines like `**1. Bond Market Pressure...**` (pure bold) DO skip.
+  Rationale: the original AC #1 wording "entirely wrapped" is
+  ambiguous — the regex makes it precise.
+  Doc impact: spec AC #1 corrected; CONTEXT.md "Macro excerpt depth"
+  documents the predicate.
+
+- **Q3: Should `_first_prose_paragraph` strip inline `[N]` citation
+  markers from the excerpt?**
+  A: No — leave them in (matches today's behaviour for the 3 themes
+  that already read well).
+  Rationale: stripping changes summary content → changes citation_id
+  → expands F5 churn surface needlessly. Semantic gain is nil; the 3
+  working themes already render fine with `[N]` markers inline.
+  Doc impact: ADR 0008 §1 "Trade-offs considered".
+
+- **Q4: Does `max_chars=400` fit the "~15 visible lines" assertion?**
+  A: No — worst-case is ~25 lines; typical is 10–15. Correct AC #3
+  to acknowledge the worst-case bound honestly.
+  Rationale: 7 themes × 400 chars / ~50 chars-per-line = 56 lines
+  theoretical worst case; the 150-char floor fires far more often
+  than the 400-char ceiling, so empirical typical is 10–15.
+  Doc impact: spec AC #3 corrected; CONTEXT.md "Macro excerpt char
+  cap" documents the bound.
+
+- **Q5: Does the accumulator's "blank line stops" rule fire before
+  the first prose line?**
+  A: No. Rule (iii) "blank line stops accumulation" fires ONLY AFTER
+  `≥1` prose line is in the buffer. Blank lines before the first
+  prose line are skipped, not terminating.
+  Rationale: prevents `### subheading\n\n本文论述...` reports from
+  short-circuiting to empty.
+  Doc impact: spec AC #2 corrected; CONTEXT.md "Macro excerpt depth"
+  documents the buffer-state precondition.
+
+- **Q6: Helper location — new module `src/irc/research/excerpt.py`
+  or private function in `gold_cmd.py`?**
+  A: Private function in `gold_cmd.py`. Reject the speculative
+  consolidation with `news_summaries._summary_for_theme`.
+  Rationale: `news_summaries` scores against the WHOLE prose, not
+  the first paragraph; sharing a helper would silently change the
+  scoring rubric's input. YAGNI applies — only one consumer.
+  Doc impact: spec AC #13 corrected; spec Q5 resolution flipped.
+
+- **Q7: Is the renderer policy change ADR-worthy?**
+  A: Yes — write ADR 0008.
+  Rationale: three-of-three test passes — (a) hard to reverse
+  (citation_id churn), (b) surprising without context (skip-rule +
+  accumulator is non-obvious middle ground), (c) real trade-off
+  (multi-paragraph rejected, prompt redesign deferred, depth-vs-
+  budget calibrated). Captures the deferral of `F5-followup-
+  prompt-eval` as the recorded "explicit no".
+  Doc impact: new ADR `docs/adr/0008-macro-research-excerpt-depth.md`.
+
+- **Q8: Does §3 `IRC_GOLD_EVIDENCE_*` block inherit the depth fix?**
+  A: Yes — verified by reading `src/irc/memo/macro_pillar.py::
+  render_gold_evidence_body`. The §3 block reads
+  `ref.summary` from the same `ThemeReportRef` field §2 reads. Add
+  an explicit sub-criterion to AC #6 so the §3 inheritance is
+  enforced, not just side-noted.
+  Rationale: makes the §3 paragraph-depth assertion regression-
+  testable, not just an unverified comment.
+  Doc impact: spec AC #6 extended.
+
+- **Q9: Does the SKIPPED.md file already exist in the run dir?**
+  A: Yes —
+  `docs/2026-05-27-pickability-followups/SKIPPED.md` already
+  exists. F5 APPENDS the `F5-followup-prompt-eval` entry, does not
+  create the file.
+  Rationale: verified by `ls` on the run dir.
+  Doc impact: spec AC #15 corrected.
+
+- **Q10: How does the accumulator handle bullet-list reports like
+  `geopolitics`?**
+  A: During accumulation, bullet-prefixed continuation lines
+  (`- `, `* `, `+ `) ARE accepted into the buffer with the bullet
+  marker stripped. Treats consecutive bullets as continuation
+  paragraph lines.
+  Rationale: matches the hybrid-rule rationale (bullet reports need
+  accumulation to hit the 150-char floor).
+  Doc impact: spec AC #1 / AC #2 corrected; CONTEXT.md "Macro
+  excerpt depth" documents the bullet-stripping during accumulation.
+
+- **Q11: Does memo §2/§3 `[ref:...]` integrity hold post-F5?**
+  A: Yes — by construction. Both surfaces render markers from the
+  same `evidence_by_source` map populated by the new (longer)
+  `ThemeReportRef.summary`. Add AC #16 to enforce the cross-stage
+  invariant against the publishable-set lockdown integration test.
+  Rationale: makes the cross-stage citation universe assertion
+  explicit rather than inherited from item 008.
+  Doc impact: spec AC #16 added.
+
+- **Q12: Are there CONTEXT.md glossary terms F5 should introduce?**
+  A: Yes — add four terms under a new "Macro excerpt rendering"
+  subsection: `Deterministic theme excerpt`,
+  `Macro excerpt depth (skip-rule + paragraph accumulator)`,
+  `Macro excerpt char cap`, `Theme-excerpt citation_id churn`.
+  Rationale: pre-F5 the user-facing concept of "what we put after
+  the theme name in §2" had no canonical name. Future reviewers of
+  `_summary_from_theme_report` or `_first_prose_paragraph` should
+  land on a glossary entry, not infer the contract from the helper.
+  Doc impact: CONTEXT.md new subsection with 4 terms.
