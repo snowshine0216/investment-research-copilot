@@ -22,6 +22,7 @@ from irc.fundamentals.types import (
     FilingDigest,
     FundLevelSnapshot,
 )
+from irc.opportunity.advisory_gaps import should_emit_top_holdings_broker_thin
 from irc.opportunity.types import ConstituentAnalysis, ThesisEvidence, ThesisState
 from irc.research.theme_research import ThemeReport
 
@@ -375,7 +376,12 @@ def derive_thesis_from_evidence(
         analyses = snapshot.constituent_analyses
         flattened = _flatten_analyses(analyses)
         # Item 003: do NOT stamp evidence_gaps yet; item 006 H2 owns that.
+        # ADR 0005: emit advisory `top_holdings_broker_thin` through the existing
+        # gaps return slot; states._partition_gaps routes it to advisory_gaps
+        # (NOT evidence_gaps — H3 predicate stays unchanged).
         gaps: tuple[str, ...] = ()
+        if should_emit_top_holdings_broker_thin(snapshot):
+            gaps = gaps + ("top_holdings_broker_thin",)
         if flattened:
             state: ThesisState = "intact"
             reason = (
