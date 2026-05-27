@@ -7,9 +7,9 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | 001 | broker_empty propagation | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-001` | ✅ `d4d613b` | ✅ | ✅ [#76](https://github.com/snowshine0216/investment-research-copilot/pull/76) | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `f869bb1` |
 | 002 | concentration panel | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-002` | ✅ `44d0338` | ✅ | ✅ [#77](https://github.com/snowshine0216/investment-research-copilot/pull/77) | ✅ | ✅ | ✅ pass-with-nits | ✅ 2 rounds | ✅ `ad31c56` |
-| 003 | QDII premium snapshot | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | QDII premium snapshot | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-003` | ✅ `1929383` | ✅ | ✅ [#78](https://github.com/snowshine0216/investment-research-copilot/pull/78) | ✅ | ✅ | ✅ pass-with-nits | ✅ 2 rounds | ✅ `3b2a31f` |
 
-**Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
+**Run-level**: `run-doc-sync` 🔄 · `run-final-verify` ⏳ · `run-close-out` ⏳
 
 ## Legend
 
@@ -35,6 +35,15 @@
 - 002 review: [items/002-review.md](items/002-review.md) — PASS; /ship steps 8+9 found 1 P0 + 2 P1 (duplicate-symbol undercount, set-iter non-determinism, FP boundary), all fixed in-branch
 - 002 pr-review: [items/002-pr-review.md](items/002-pr-review.md) — PASS-WITH-NITS; /code-review found 1 latent-bug (double-dash markdown) fixed in commit `79f88d7` + 2 cosmetic nits accepted
 - 002 merge: squash commit `ad31c56` on feature branch
+- 003 spec: [items/003-spec.md](items/003-spec.md) — 18 ACs; **memo-rendering only** (fetcher already existed from prior 2026-05-26 run)
+- 003 grill: [items/003-grill.md](items/003-grill.md) — 11 questions resolved; ADR 0006 created; CONTEXT.md updated with 4 entries
+- 003 plan: [items/003-plan.md](items/003-plan.md) — 14 tasks / ~70 TDD steps
+- 003 drift: [items/003-drift.md](items/003-drift.md) — PASS; 3 plan amendments + 1 recorded portability concern
+- 003 ship: [items/003-ship.md](items/003-ship.md) + PR [#78](https://github.com/snowshine0216/investment-research-copilot/pull/78)
+- 003 verify: [items/003-verify.md](items/003-verify.md) — PASS; **`outputs/2026-05-27/qdii_premium.json` written with 30 rows; 3 blocking picks confirmed: 159501 (+6.92%), 159941 (+6.48%), 513300 (+5.99%)**; AC13 portability fix verified
+- 003 review: [items/003-review.md](items/003-review.md) — PASS; 1 P0 + 3 P1 found, all fixed in-branch
+- 003 pr-review: [items/003-pr-review.md](items/003-pr-review.md) — PASS-WITH-NITS; 1 missed P1 (3rd nan-guard site in `_decision_status_for_pick`) + 2 nits, all fixed in commit `53b8f88`
+- 003 merge: squash commit `3b2a31f` on feature branch
 
 ## Notes
 
