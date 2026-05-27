@@ -147,3 +147,35 @@ def test_synthesize_memo_prompt_forbids_cross_fund_citation_borrow() -> None:
     assert "补充披露" in user_msg
     assert "owner_instrument_id" in user_msg
     assert "wrong_instrument_citation" in user_msg or "cross-borrow" in user_msg
+
+
+def test_synthesizer_prompt_locks_qdii_premium_marker_block() -> None:
+    """Item 003 constraint: when the skeleton contains
+    IRC_QDII_PREMIUM_BEGIN, the synthesizer must be instructed to preserve
+    the block verbatim (7th verbatim-lock clause)."""
+    from unittest.mock import patch
+    from irc.memo.synthesizer import synthesize_memo
+
+    captured_messages: list = []
+
+    def _fake_call_chat(route, messages, **kwargs):
+        captured_messages.append(messages)
+
+        class _Resp:
+            text = "ok"
+            prompt_tokens = 0
+            completion_tokens = 0
+        return _Resp()
+
+    skeleton = (
+        "## 6. 风险提示\n"
+        "<!-- IRC_QDII_PREMIUM_BEGIN -->\n"
+        "溢价/折价：QDII 候选标的二级市场偏离快照（数据截止 2026-05-26，阈值 5%）：\n"
+        " - 159501 标普消费ETF：+6.92%（超阈值，已暂缓执行）\n"
+        "<!-- IRC_QDII_PREMIUM_END -->\n"
+    )
+    with patch("irc.memo.synthesizer.call_chat", side_effect=_fake_call_chat):
+        synthesize_memo(skeleton, raw_ref_pool=[], route=None)  # type: ignore[arg-type]
+    user_msg = next(m for m in captured_messages[0] if m["role"] == "user")["content"]
+    assert "IRC_QDII_PREMIUM_BEGIN/END" in user_msg
+    assert "原样保留" in user_msg

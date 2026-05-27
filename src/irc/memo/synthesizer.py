@@ -145,6 +145,14 @@ def synthesize_memo(skeleton: str, raw_ref_pool: list[str], route: ResolvedRoute
             "该 bullet 由系统根据 Top-10 加权重合度自动生成，禁止改写、合并、"
             "新增或删除其中的任何条目，亦禁止改写其中的标的代码、名称、重合百分比或共同持仓清单。"
         )
+    # Item 003 (instrument-pickability) lock for the §6 QDII premium block.
+    if "<!-- IRC_QDII_PREMIUM_BEGIN -->" in skeleton:
+        locked_section_lines.append(
+            "第6节『风险提示』在 IRC_QDII_PREMIUM_BEGIN/END 标记之间的 bullet 必须**原样保留**："
+            "该 bullet 由系统根据 scoring.json 中的 QDII 溢价/折价快照自动生成，"
+            "禁止改写、合并、新增或删除其中的任何条目，"
+            "亦禁止改写其中的标的代码、名称、溢价百分比或阈值警示文案。"
+        )
     section_lock_instruction = "\n".join(locked_section_lines)
     user_msg = (
         f"{_GLOSSARY}\n\n"
