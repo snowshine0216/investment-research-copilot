@@ -28,3 +28,99 @@ def test_concentration_marker_constants():
     )
     assert CONCENTRATION_MARKER_BEGIN == "<!-- IRC_CONCENTRATION_BEGIN -->"
     assert CONCENTRATION_MARKER_END == "<!-- IRC_CONCENTRATION_END -->"
+
+
+def _analysis(symbol: str, weight: float):
+    """Helper: build a minimal ConstituentAnalysis fixture."""
+    from irc.fundamentals.types import ConstituentAnalysis
+    return ConstituentAnalysis(
+        symbol=symbol, name_cn=symbol, weight_pct=weight,
+        evidence=(), failure_reasons=(), one_line_view="",
+    )
+
+
+def test_weighted_overlap_pct_symmetric():
+    """AC1: weighted_overlap_pct(A, B) == weighted_overlap_pct(B, A)."""
+    from irc.memo.concentration import weighted_overlap_pct
+    a = (_analysis("X", 10.0), _analysis("Y", 8.0), _analysis("Z", 4.0))
+    b = (_analysis("X", 6.0), _analysis("Y", 12.0), _analysis("W", 5.0))
+    assert weighted_overlap_pct(a, b) == weighted_overlap_pct(b, a)
+
+
+def test_weighted_overlap_pct_known_intersection():
+    """AC1: Σ min(w_A[s], w_B[s]) over shared symbols.
+
+    A: X=10, Y=8, Z=4 | B: X=6, Y=12, W=5 | shared = {X, Y}
+    Expected: min(10, 6) + min(8, 12) = 6 + 8 = 14.0
+    """
+    from irc.memo.concentration import weighted_overlap_pct
+    a = (_analysis("X", 10.0), _analysis("Y", 8.0), _analysis("Z", 4.0))
+    b = (_analysis("X", 6.0), _analysis("Y", 12.0), _analysis("W", 5.0))
+    assert weighted_overlap_pct(a, b) == 14.0
+
+
+def test_weighted_overlap_pct_no_overlap_returns_zero():
+    """AC1: Σ over empty intersection is 0.0."""
+    from irc.memo.concentration import weighted_overlap_pct
+    a = (_analysis("X", 10.0),)
+    b = (_analysis("Y", 10.0),)
+    assert weighted_overlap_pct(a, b) == 0.0
+
+
+def test_weighted_overlap_pct_empty_input_returns_zero():
+    """Defensive: empty constituent_analyses on either side → 0.0."""
+    from irc.memo.concentration import weighted_overlap_pct
+    a = (_analysis("X", 10.0),)
+    assert weighted_overlap_pct(a, ()) == 0.0
+    assert weighted_overlap_pct((), a) == 0.0
+    assert weighted_overlap_pct((), ()) == 0.0
+
+
+def test_weighted_overlap_pct_truncates_to_top_n():
+    """AC1: topN ranks by weight_pct desc, symbol asc tiebreaker; tail ignored.
+
+    With Top-10 cap, an 11th holding with the same symbol on both sides must
+    NOT contribute to the overlap.
+    """
+    from irc.memo.concentration import weighted_overlap_pct
+    a = tuple(
+        _analysis(f"S{i:02d}", 50.0 - i) for i in range(11)
+    )  # S00..S10, weights 50,49,...,40
+    b = (
+        _analysis("S10", 100.0),  # would dominate if Top-N were unbounded
+    )
+    # S10 is rank 11 in `a` after topN truncation (Top-10), so intersection
+    # with `b` is empty → 0.0.
+    assert weighted_overlap_pct(a, b) == 0.0
+
+
+def test_weighted_overlap_pct_handles_cardinality_below_top_n():
+    """AC1 cardinality clarification (grill Q4): when len(A) < CONCENTRATION_TOP_N,
+    topN(A) = A.constituent_analyses after the rank sort with no padding;
+    symmetry preserved."""
+    from irc.memo.concentration import weighted_overlap_pct
+    # A has 4 holdings (< Top-10).
+    a = (
+        _analysis("X", 20.0), _analysis("Y", 15.0),
+        _analysis("Z", 10.0), _analysis("W", 5.0),
+    )
+    b = (_analysis("X", 18.0), _analysis("Y", 12.0))
+    # Intersection {X, Y}: min(20,18) + min(15,12) = 18 + 12 = 30.0.
+    assert weighted_overlap_pct(a, b) == 30.0
+    # Symmetry under asymmetric cardinality.
+    assert weighted_overlap_pct(a, b) == weighted_overlap_pct(b, a)
+
+
+def test_weighted_overlap_pct_tiebreak_by_symbol_ascending():
+    """AC1: when two constituents share weight_pct, symbol ASC breaks the tie
+    so two reordered inputs produce the same topN slice."""
+    from irc.memo.concentration import weighted_overlap_pct
+    # Both sides have 11 holdings with weight 10.0 each — only Top-10 by
+    # symbol-asc tiebreaker should participate.
+    syms_a = [f"S{i:02d}" for i in range(11)]  # S00..S10
+    syms_b = [f"S{i:02d}" for i in range(11)]
+    a = tuple(_analysis(s, 10.0) for s in syms_a)
+    b = tuple(_analysis(s, 10.0) for s in syms_b)
+    # Both topN slices are S00..S09 (symbol-asc tiebreaker drops S10);
+    # intersection = S00..S09; overlap = 10 * 10.0 = 100.0.
+    assert weighted_overlap_pct(a, b) == 100.0

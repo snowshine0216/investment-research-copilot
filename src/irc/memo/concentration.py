@@ -33,3 +33,39 @@ CONCENTRATION_OVERLAP_PCT_THRESHOLD: Final[float] = 30.0
 # (producing-module pattern, mirrors macro_pillar.py's MACRO_SECTION_MARKER_*).
 CONCENTRATION_MARKER_BEGIN: Final[str] = "<!-- IRC_CONCENTRATION_BEGIN -->"
 CONCENTRATION_MARKER_END: Final[str] = "<!-- IRC_CONCENTRATION_END -->"
+
+from irc.fundamentals.types import ConstituentAnalysis  # noqa: E402
+
+
+def _top_n_by_weight(
+    analyses: tuple[ConstituentAnalysis, ...],
+    n: int = CONCENTRATION_TOP_N,
+) -> tuple[ConstituentAnalysis, ...]:
+    """Top-N constituents by weight_pct DESC, symbol ASC on tie.
+
+    The secondary `c.symbol` key pins AC1's deterministic topN slice — two
+    AkShare DataFrames with equal-weight holdings reordered must produce
+    identical topN slices and thus identical pair overlaps.
+
+    When len(analyses) < n, the full list (after sort) is returned with
+    no padding (AC1 cardinality clarification / grill Q4).
+    """
+    ranked = sorted(analyses, key=lambda c: (-c.weight_pct, c.symbol))
+    return tuple(ranked[:n])
+
+
+def weighted_overlap_pct(
+    a: tuple[ConstituentAnalysis, ...],
+    b: tuple[ConstituentAnalysis, ...],
+) -> float:
+    """Σ_{s ∈ topN(A) ∩ topN(B)} min(w_A[s], w_B[s]).
+
+    AC1: result in **percent units** (0.0–100.0), NOT a fraction. Symmetric:
+    weighted_overlap_pct(A, B) == weighted_overlap_pct(B, A). Empty input
+    on either side returns 0.0 (defensive — `OpportunityRow` with no
+    constituent_analyses cannot participate per AC6).
+    """
+    top_a = {c.symbol: c.weight_pct for c in _top_n_by_weight(a)}
+    top_b = {c.symbol: c.weight_pct for c in _top_n_by_weight(b)}
+    shared = top_a.keys() & top_b.keys()
+    return sum(min(top_a[s], top_b[s]) for s in shared)
