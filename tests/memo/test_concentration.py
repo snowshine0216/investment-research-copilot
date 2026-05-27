@@ -444,13 +444,14 @@ def test_compose_concentration_lines_renders_at_top_of_six_bullets_format():
         )),
     }
     lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    # Bullets are the pair-line entries — no self-prefixed dash (template wraps).
     body = [
         ln for ln in lines
-        if ln.startswith("- ")
+        if ln.startswith("A ") or ln.startswith("B ")
     ]
     assert len(body) == 1
-    # Exact format: `- {id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`
-    assert body[0] == "- A 甲 ↔ B 乙：加权重合 30.0%，共同持仓 X/Y（2 只）"
+    # Exact format (no leading "- " — template.py:80 prepends it once).
+    assert body[0] == "A 甲 ↔ B 乙：加权重合 30.0%，共同持仓 X/Y（2 只）"
 
 
 def test_concentration_lines_render_through_skeleton_into_section_6():
@@ -463,7 +464,7 @@ def test_concentration_lines_render_through_skeleton_into_section_6():
         risk_notes=(
             "<!-- IRC_CONCENTRATION_BEGIN -->",
             "持仓集中度（Top-10 加权重合 ≥ 30%）：...",
-            "- A 甲 ↔ B 乙：加权重合 50.0%，共同持仓 X/Y（2 只）",
+            "A 甲 ↔ B 乙：加权重合 50.0%，共同持仓 X/Y（2 只）",
             "<!-- IRC_CONCENTRATION_END -->",
             "其他风险条目。",
         ),
@@ -621,6 +622,64 @@ def test_compute_concentration_pairs_threshold_compares_rounded_overlap():
     assert "round(" in src and "CONCENTRATION_OVERLAP_PCT_THRESHOLD" in src, (
         "compute_concentration_pairs must compare a rounded overlap value "
         "against CONCENTRATION_OVERLAP_PCT_THRESHOLD to avoid FP boundary drop."
+    )
+
+
+def test_format_concentration_bullet_does_not_double_prefix_dash():
+    """`/code-review` finding: `_format_concentration_bullet` previously
+    returned `"- {id_a} ..."` with its own `- ` prefix. `template.py:80`
+    then wraps every `risk_notes` entry as `f"- {r}"` — the final memo.md
+    would render `"- - 008382 甲 ↔ ..."` (double-dash, malformed Markdown).
+
+    Fix: the formatter must NOT prefix its own dash. The template wrap
+    is the single source of bullet rendering across all risk_notes
+    entries (mirrors item 001's `_compose_evidence_gap_lines` body — no
+    self-prefix).
+    """
+    from irc.commands.memo_cmd import _format_concentration_bullet
+    from irc.memo.concentration import make_concentration_pair
+
+    pair = make_concentration_pair(
+        iid_x="008382", name_x="甲",
+        iid_y="008555", name_y="乙",
+        overlap_pct_raw=45.0,
+        shared_symbols=("X", "Y"),
+    )
+    bullet = _format_concentration_bullet(pair)
+    assert not bullet.startswith("- "), (
+        f"formatter must not self-prefix dash (template wrap handles it). "
+        f"got: {bullet!r}"
+    )
+    # Sanity: payload is otherwise intact.
+    assert "008382" in bullet and "008555" in bullet
+    assert "加权重合 45.0%" in bullet
+
+
+def test_concentration_bullet_renders_single_dash_through_template():
+    """Integration regression for the double-dash bug. The rendered §6
+    bullet must be `"- 008382 ... ↔ 008555 ..."` not `"- - 008382 ..."`.
+    """
+    from irc.memo.template import MemoInputs, render_skeleton
+    from irc.commands.memo_cmd import _format_concentration_bullet
+    from irc.memo.concentration import make_concentration_pair
+
+    pair = make_concentration_pair(
+        iid_x="008382", name_x="甲",
+        iid_y="008555", name_y="乙",
+        overlap_pct_raw=45.0,
+        shared_symbols=("X", "Y"),
+    )
+    bullet_raw = _format_concentration_bullet(pair)
+    inputs = MemoInputs(
+        date_str="2026-05-27", gold_regime="—", gold_zone="—", gold_tilt="—",
+        allocation_mode="build", macro_summary="—", top_picks=(),
+        risk_notes=(bullet_raw,),
+        tldr_lines=(),
+    )
+    md = render_skeleton(inputs)
+    assert "- 008382" in md, f"missing single-dash bullet in §6. md=\n{md}"
+    assert "- - 008382" not in md, (
+        f"double-dash markdown leaked through to rendered memo. md=\n{md}"
     )
 
 

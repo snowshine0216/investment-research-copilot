@@ -262,8 +262,13 @@ def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
 
 
 def _format_concentration_bullet(pair) -> str:
-    """One bullet per pair per AC9 template:
-    `- {id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`.
+    """One risk_notes entry per pair per AC9 template:
+    `{id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`.
+
+    No leading `"- "` — `template.py` `render_skeleton` wraps every
+    `risk_notes` entry with `f"- {r}"`. Self-prefixing here would emit
+    double-dash (`"- - 008382 ..."`) in the rendered memo (caught by
+    `/code-review` on PR #77, latent bug).
 
     `syms` joins shared_symbols with `/`, capped at 5 followed by `...`
     when more exist (sorted ASC by AC5).
@@ -273,7 +278,7 @@ def _format_concentration_bullet(pair) -> str:
     suffix = "..." if n > 5 else ""
     syms = "/".join(head) + suffix
     return (
-        f"- {pair.instrument_id_a} {pair.name_cn_a} ↔ "
+        f"{pair.instrument_id_a} {pair.name_cn_a} ↔ "
         f"{pair.instrument_id_b} {pair.name_cn_b}："
         f"加权重合 {pair.overlap_pct:.1f}%，共同持仓 {syms}（{n} 只）"
     )
