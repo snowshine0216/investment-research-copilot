@@ -498,6 +498,16 @@ def _decision_status_for_pick(
     allocation_selected = trade is not None
     return compute_decision_status(score_action, blocking, allocation_selected)
 
+def _apply_advisory_partition(pick_rows: list[PickRow]) -> list[PickRow]:
+    """Stable partition: rows without advisory_gaps first, then rows with.
+
+    Trade-plan iteration order is preserved within each partition (AC8). Pure.
+    """
+    non_advisory = [r for r in pick_rows if not r.advisory_gaps]
+    advisory = [r for r in pick_rows if r.advisory_gaps]
+    return non_advisory + advisory
+
+
 def _build_pick_rows(
     trades: list[dict],
     opportunity: dict,
@@ -591,6 +601,7 @@ def _build_pick_rows(
             decision_status=decision_status,
             tranche_cap_pct=tranche_cap_pct,
             trigger_status=trigger_status,
+            advisory_gaps=tuple(op.get("advisory_gaps") or ()),
         ))
 
     return pick_rows, absent, gapped
@@ -650,6 +661,7 @@ def run_memo(repo_root: str) -> int:
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_return_by_id,
     )
+    pick_rows = _apply_advisory_partition(pick_rows)
     picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
         absent_targets, gapped_targets, fallback_names,
     )
