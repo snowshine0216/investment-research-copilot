@@ -536,3 +536,23 @@ def test_compose_concentration_lines_preserves_pick_row_order():
     _ = _compose_concentration_lines(pick_rows, op_rows_by_id)
     post = [r.instrument_id for r in pick_rows]
     assert pre == post
+
+
+def test_compute_concentration_pairs_two_run_byte_equality_with_shuffled_inputs():
+    """AC13: two calls on the same set with shuffled row order produce
+    byte-identical pair tuples (locks the determinism contract that the
+    existing test_publishable_set_lockdown.py::test_two_run_byte_equality_memo
+    will then exercise via the full pipeline)."""
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0))),
+        _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 12.0))),
+        _op_row("C", "丙", (_analysis("X", 17.0), _analysis("Y", 13.0))),
+        _op_row("D", "丁", ()),
+    )
+    shuffled = (rows[2], rows[0], rows[3], rows[1])  # deterministic shuffle
+    a = compute_concentration_pairs(rows)
+    b = compute_concentration_pairs(shuffled)
+    assert a == b
+    # Also assert repr-equality so any silent identity-vs-equality drift is caught.
+    assert repr(a) == repr(b)
