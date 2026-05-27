@@ -16,7 +16,7 @@ from irc.memo.macro_pillar import (
     ThemeReportRef,
     build_macro_evidence,
 )
-from irc.research.persistence import load_theme_reports
+from irc.research.persistence import extract_prose_from_report_md, load_theme_reports
 from irc.research.geopolitical_stress import geopolitical_stress_from_theme_report
 from irc.research.theme_research import ThemeReport
 from irc.scoring.regime_detect import classify_regime
@@ -146,19 +146,19 @@ def _load_macro_snapshots(con) -> tuple[MacroSnapshot, ...]:
 def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 220) -> str:
     """Extract a 1-2 sentence summary from a ThemeReport's markdown body.
 
-    Strategy: take the first non-header, non-empty paragraph and truncate to
-    `max_chars`. Anchor with `…` when truncated. Always returns a non-empty
-    string when the report has any content (so the §2 bullet is meaningful);
-    when the report failed, return the failure_reason verbatim.
+    Strategy: strip the markdown heading and citation footer via the shared
+    ``extract_prose_from_report_md`` helper (ADR 0007 §2 — single source of
+    truth), then take the first non-empty line of the resulting prose and
+    truncate to ``max_chars``. Anchor with ``…`` when truncated. Always
+    returns a non-empty string when the report has content; returns the
+    failure_reason verbatim when the report failed.
     """
     if report.failure_reason:
         return f"研究采集失败：{report.failure_reason}"
-    md = report.report_md or ""
-    for line in md.splitlines():
+    prose = extract_prose_from_report_md(report.report_md or "")
+    for line in prose.splitlines():
         stripped = line.strip()
         if not stripped:
-            continue
-        if stripped.startswith("#"):
             continue
         # Drop markdown bullet markers but keep the substance.
         if stripped.startswith(("- ", "* ", "+ ")):

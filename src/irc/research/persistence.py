@@ -11,6 +11,33 @@ from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
 
 
+def extract_prose_from_report_md(report_md: str) -> str:
+    """Return only the prose body of a persisted theme-report markdown string.
+
+    Strips the ``# <theme>`` heading and the ``## Citations`` footer (and
+    everything after it) so that keyword matching in ``score_thesis_news``
+    operates on news *content* only, not on citation titles or URLs.
+
+    This is the single source of truth for prose extraction — called by both
+    ``news_summaries._summary_for_theme`` and
+    ``gold_cmd._summary_from_theme_report``.  ADR 0007 §2 locks the invariant:
+    the keyword rubric must never match citation metadata.
+
+    Pure function: no I/O, no side effects.
+    """
+    prose_lines: list[str] = []
+    for line in report_md.splitlines():
+        stripped = line.strip()
+        # Stop at the Citations footer (any ## heading signals end of prose)
+        if stripped.startswith("## "):
+            break
+        # Skip the top-level # <theme> heading
+        if stripped.startswith("#"):
+            continue
+        prose_lines.append(line)
+    return "\n".join(prose_lines).strip()
+
+
 def format_report_markdown(report: ThemeReport) -> str:
     if report.failure_reason:
         return f"# {report.theme}\n\n_research failed: {report.failure_reason}_\n"

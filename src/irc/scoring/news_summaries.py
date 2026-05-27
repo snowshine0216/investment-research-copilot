@@ -11,6 +11,7 @@ from typing import Mapping
 
 import pandas as pd
 
+from irc.research.persistence import extract_prose_from_report_md
 from irc.research.theme_research import ThemeReport
 
 
@@ -45,13 +46,18 @@ def _summary_for_theme(theme: str, reports: Mapping[str, ThemeReport]) -> str:
 
     Pure: no I/O. Failed reports (non-empty `failure_reason`) and empty
     `report_md` both return '' so the caller can filter them out uniformly.
+
+    ADR 0007 §2 invariant: the returned string contains prose only —
+    the ``# <theme>`` heading and the ``## Citations`` footer are stripped
+    via ``extract_prose_from_report_md`` so citation titles/URLs never
+    reach the keyword rubric in ``score_thesis_news``.
     """
     report = reports.get(theme)
     if report is None:
         return ""
     if report.failure_reason:
         return ""
-    return report.report_md or ""
+    return extract_prose_from_report_md(report.report_md or "")
 
 
 def build_news_summaries(

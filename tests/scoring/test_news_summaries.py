@@ -4,7 +4,10 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
+from irc.research.persistence import format_report_markdown
+from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
+from irc.scoring.factors.thesis_news import score_thesis_news
 from irc.scoring.news_summaries import (
     THEMES_BY_ASSET_CLASS,
     build_news_summaries,
@@ -406,4 +409,108 @@ def test_score_cmd_run_score_logs_news_coverage(tmp_path, monkeypatch, capsys):
     )
     assert "1/1" in out, (
         f"expected '1/1 instruments' (the gold row has populated news); got: {out!r}"
+    )
+
+
+# ---- Regression: prose-only extraction — citation titles must NOT pollute keyword scoring ----
+
+def _report_with_full_markdown(theme: str, prose: str, citation_titles: list[str]) -> ThemeReport:
+    """Build a ThemeReport whose report_md is the FULL format_report_markdown output.
+
+    The citations have keyword-matchable titles so that, if _summary_for_theme
+    returns the raw report_md verbatim, those titles flow into score_thesis_news
+    and incorrectly inflate the score.
+    """
+    citations = [
+        Citation(index=i + 1, title=title, url=f"https://example.com/{i}")
+        for i, title in enumerate(citation_titles)
+    ]
+    # Start with bare-prose ThemeReport (no citations in report_md yet)
+    bare = ThemeReport(
+        theme=theme,
+        query="",
+        locale="EN",
+        report_md=prose,
+        citations=citations,
+        failure_reason="",
+        provider_failures=(),
+    )
+    # format_report_markdown wraps the prose with # heading + ## Citations footer
+    full_md = format_report_markdown(bare)
+    # Return the report whose report_md is the persisted (full markdown) form —
+    # exactly what load_theme_reports returns after reading from disk.
+    return ThemeReport(
+        theme=theme,
+        query="",
+        locale="EN",
+        report_md=full_md,
+        citations=citations,
+        failure_reason="",
+        provider_failures=(),
+    )
+
+
+def test_build_news_summaries_strips_header_and_citation_footer():
+    """Regression: ADR 0007 §2 — keyword rubric must score prose only.
+
+    When report_md is the full format_report_markdown output (heading + prose
+    + ## Citations footer), build_news_summaries must strip the header and
+    citation footer so that keyword matches in citation titles/URLs do NOT
+    contaminate score_thesis_news.
+
+    Setup: neutral prose ("Central bank meeting scheduled next month.")
+    but citation titles containing positive keywords ("buy", "support",
+    "selloff"). If _summary_for_theme returns raw report_md, score_thesis_news
+    would match those citation-title words and produce a score well above 50.
+    After the fix, the summary contains prose only → catalyst_count=0, risk_count=0
+    → score=50.0.
+    """
+    # Neutral prose — no positive or negative keywords.
+    neutral_prose = "Central bank meeting scheduled next month."
+    # Citation titles stuffed with positive + negative keywords so that if
+    # citation text leaks into the summary, the rubric scores falsely.
+    keyword_rich_titles = [
+        "Goldman buy recommendation: strong support for gold rally",
+        "Market selloff fears: outflow from emerging markets",
+        "Analyst support for demand growth in gold sector",
+        "Buy signal: rally expected after Fed patience statement",
+    ]
+    report = _report_with_full_markdown(
+        theme="gold_drivers",
+        prose=neutral_prose,
+        citation_titles=keyword_rich_titles,
+    )
+    reports = {"gold_drivers": report}
+    wl = _watchlist({"instrument_id": "518880", "asset_class": "gold"})
+
+    summaries_dict = build_news_summaries(reports=reports, watchlist=wl)
+
+    # Exactly one summary string for the gold_drivers theme.
+    assert "518880" in summaries_dict
+    news_tuple = summaries_dict["518880"]
+    # The tuple must be non-empty (report is not failed/empty).
+    assert news_tuple, f"Expected non-empty summaries; got {news_tuple!r}"
+
+    # Core assertion: no citation title text must appear in any summary string.
+    for summary in news_tuple:
+        assert "Goldman" not in summary, (
+            f"Citation title leaked into summary: {summary!r}"
+        )
+        assert "buy recommendation" not in summary.lower(), (
+            f"Citation keyword 'buy recommendation' leaked into summary: {summary!r}"
+        )
+        assert "## Citations" not in summary, (
+            f"Citations section header leaked into summary: {summary!r}"
+        )
+        assert "https://example.com" not in summary, (
+            f"Citation URL leaked into summary: {summary!r}"
+        )
+
+    # Score must be neutral (50.0) because the prose has no keywords.
+    factor_score = score_thesis_news(news_tuple, raw_refs=())
+    assert factor_score.score == 50.0, (
+        f"Expected neutral score 50.0 from prose-only content; "
+        f"got {factor_score.score} (catalyst_count={factor_score.components.get('catalyst_count')}, "
+        f"momentum={factor_score.components.get('momentum')}). "
+        f"Citation title keywords must not flow into scoring."
     )

@@ -70,6 +70,22 @@ FactorScore(score=50.0, raw_refs=raw_refs,
 
 unchanged from the pre-F4 behaviour. Existing test `tests/scoring/factors/test_thesis_news.py::test_no_news_returns_neutral_with_low_completeness` stays green without modification. Cold-start production output is therefore identical to pre-F4 — F4 only changes the warm-state output where `data/research/` exists.
 
+### 3a. Prose-extraction invariant — keyword rubric scores prose only (ADR amendment, 2026-05-27)
+
+`_summary_for_theme` in `src/irc/scoring/news_summaries.py` MUST strip the
+`# <theme>` heading and the `## Citations` footer before returning the summary
+string. When `load_theme_reports` reads persisted `.md` files from disk the
+`report_md` field contains the full `format_report_markdown` output (heading +
+prose + citation lines). Passing that raw string to `score_thesis_news` causes
+citation titles and URLs to be matched against the keyword lexicon, producing
+false positive/negative counts.
+
+**Single source of truth:** `extract_prose_from_report_md(report_md: str) -> str`
+in `src/irc/research/persistence.py`. Both `news_summaries._summary_for_theme`
+and `gold_cmd._summary_from_theme_report` MUST call this helper — not inline
+equivalent logic. Regression-tested in
+`tests/scoring/test_news_summaries.py::test_build_news_summaries_strips_header_and_citation_footer`.
+
 ### 4. Determinism contract — two runs over same inputs → byte-identical `scoring.json`
 
 The plumbing chain MUST be deterministic end-to-end:
