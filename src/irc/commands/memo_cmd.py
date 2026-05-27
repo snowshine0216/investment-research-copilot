@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
 from collections.abc import Sequence
@@ -344,7 +345,6 @@ def _coerce_optional_float(value: object) -> float | None:
     Non-finite guard mirrors `irc.memo.qdii_premium_lines._coerce_premium`
     so the two coerce sites do not drift on the nan/inf defense.
     """
-    import math
     if value is None:
         return None
     try:
@@ -616,11 +616,12 @@ def _decision_status_for_pick(
     except (TypeError, ValueError):
         completeness = 0.0
     venue_status = derive_venue_status(trade)
-    raw_premium = score_row.get("qdii_premium_pct")
-    try:
-        premium_value = float(raw_premium) if raw_premium is not None else None
-    except (TypeError, ValueError):
-        premium_value = None
+    # Use the shared finite-only coerce — local try/except previously let
+    # nan/inf through, silently passing `qdii_premium_too_high=False` (nan
+    # comparison is False) AND `qdii_premium_unknown=False` (value wasn't
+    # None) → actionable_buy on a QDII pick with malformed premium data.
+    # See /code-review on PR #78.
+    premium_value = _coerce_optional_float(score_row.get("qdii_premium_pct"))
     is_qdii_buy = (
         asset_class in _QDII_ASSET_CLASSES
         and score_action in _MEMO_BUY_ACTIONS

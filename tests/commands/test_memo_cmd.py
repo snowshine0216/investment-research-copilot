@@ -106,6 +106,45 @@ def test_decision_status_for_pick_uses_qdii_premium_threshold() -> None:
     assert status == "blocked"
 
 
+def test_decision_status_for_pick_rejects_nan_premium() -> None:
+    """P1 (/code-review on PR #78): the THIRD float-coercion site in
+    `_decision_status_for_pick` (the local `float(raw_premium)` at the
+    `qdii_premium_pct` read) previously lacked the `math.isfinite` guard
+    that the prior fix applied to `_coerce_premium` and
+    `_coerce_optional_float`. With a NaN upstream premium:
+      - `premium_value` becomes `nan` (passes `is not None`)
+      - `qdii_premium_unknown` → False (the data is "known", just nonsense)
+      - `nan > qdii_max_premium_pct` → False (IEEE 754 semantic)
+    → `qdii_premium_too_high` → False, so blocking_reasons doesn't fire
+    → `decision_status` becomes `actionable_buy` — a QDII buy candidate
+    silently passes with garbage premium data.
+
+    Fix: the local coerce must reject non-finite values; `premium_value`
+    must be None on NaN, making `qdii_premium_unknown=True` and blocking.
+    """
+    from irc.commands.memo_cmd import _decision_status_for_pick
+
+    score_row = {
+        "instrument_id": "513650",
+        "asset_class": "us_etf",
+        "action": "buy_candidate",
+        "data_completeness": 1.0,
+        "qdii_premium_pct": float("nan"),  # malformed upstream
+    }
+    trade = {
+        "target": "513650", "asset_class": "us_etf",
+        "venue_compatible": True, "proxy_id": None,
+        "target_weight": 0.2,
+    }
+    op_row = {"instrument_id": "513650", "asset_class": "us_etf"}
+    status = _decision_status_for_pick(
+        score_row, trade, op_row, qdii_max_premium_pct=0.05,
+    )
+    assert status == "blocked", (
+        "NaN premium must NOT silently pass — premium_unknown should fire."
+    )
+
+
 def test_decision_status_for_pick_synthetic_zero_passes() -> None:
     """Off-exchange synthetic 0.0 passes the memo-stage gate."""
     from irc.commands.memo_cmd import _decision_status_for_pick

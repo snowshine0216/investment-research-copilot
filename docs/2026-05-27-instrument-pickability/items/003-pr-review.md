@@ -59,3 +59,30 @@ Intended meaning is likely `（正值=溢价，负值=折价）`.
   pattern, synthesizer marker lock, callers of modified functions
 
 PASS-WITH-NITS: no merge blocker; P1 is a hardening improvement on a pre-existing gap.
+
+## Fix-loop resolution (commit pending)
+
+Finding 1 (P1) addressed in this branch: `_decision_status_for_pick` at
+`src/irc/commands/memo_cmd.py:619-622` now uses `_coerce_optional_float`
+instead of an inline `float(raw_premium)` try/except. The shared coerce
+applies `math.isfinite` so a NaN upstream premium correctly produces
+`premium_value=None` → `qdii_premium_unknown=True` → `decision_status=
+"blocked"` for a QDII pick.
+
+New regression test:
+- `tests/commands/test_memo_cmd.py::test_decision_status_for_pick_rejects_nan_premium`
+  asserts a `score_row` with `qdii_premium_pct=float("nan")` and asset
+  class `us_etf` + `buy_candidate` action yields `status == "blocked"`.
+
+Findings 2 and 3 accepted as nits (cosmetic, not load-bearing):
+- The `import math` placement is a stylistic preference; both modules
+  now have it module-level via a one-line addition in the same commit.
+- The footnote wording is corrected to `（正值=溢价，负值=折价）` in
+  the same commit.
+
+Suite after fix: 847 passed, 1 skipped (zero regressions).
+
+## Final effective verdict on PR HEAD (post-fix): PASS
+
+All findings addressed in-branch with regression tests. Zero blocker
+bugs, zero latent bugs remaining.

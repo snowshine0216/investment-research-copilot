@@ -22,6 +22,7 @@ docs/2026-05-27-instrument-pickability/items/003-spec.md.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable, Sequence
 from datetime import datetime
 from pathlib import Path
@@ -82,7 +83,6 @@ def _coerce_premium(value: object) -> float | None:
     in the projection artifact. Refuse non-finite at the boundary
     (adversarial + silent-failure-hunter P1 finding on PR #78).
     """
-    import math
     if value is None:
         return None
     try:
