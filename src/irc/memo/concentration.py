@@ -19,6 +19,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Final
 
+from irc.fundamentals.types import ConstituentAnalysis
+from irc.opportunity.types import OpportunityRow
+
 
 # AC2 / spec Q2: Top-10 chosen because the 2026-05-27 CPO cluster extends
 # through weight rank 6–8 in several active funds.
@@ -33,9 +36,6 @@ CONCENTRATION_OVERLAP_PCT_THRESHOLD: Final[float] = 30.0
 # (producing-module pattern, mirrors macro_pillar.py's MACRO_SECTION_MARKER_*).
 CONCENTRATION_MARKER_BEGIN: Final[str] = "<!-- IRC_CONCENTRATION_BEGIN -->"
 CONCENTRATION_MARKER_END: Final[str] = "<!-- IRC_CONCENTRATION_END -->"
-
-from irc.fundamentals.types import ConstituentAnalysis  # noqa: E402
-from irc.opportunity.types import OpportunityRow  # noqa: E402
 
 
 def _top_n_by_weight(
