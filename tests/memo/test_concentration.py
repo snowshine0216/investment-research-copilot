@@ -499,3 +499,40 @@ def test_synthesizer_locks_concentration_block_when_marker_present():
     user_msg = next(m for m in captured_messages[0] if m["role"] == "user")["content"]
     assert "IRC_CONCENTRATION_BEGIN/END" in user_msg
     assert "原样保留" in user_msg  # the verbatim-lock keyword used by every other marker
+
+
+def test_compute_concentration_pairs_does_not_mutate_input_rows():
+    """AC11: pure transform — input OpportunityRows are not mutated.
+
+    The frozen dataclass guarantee already enforces this at runtime; this
+    test pins the expectation in case a future refactor adds a non-frozen
+    wrapper.
+    """
+    from dataclasses import replace
+    from irc.memo.concentration import compute_concentration_pairs
+    a = _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0)))
+    b = _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 12.0)))
+    snapshot_a = replace(a)
+    snapshot_b = replace(b)
+    _ = compute_concentration_pairs((a, b))
+    # Equality on frozen dataclasses → field-wise equality.
+    assert a == snapshot_a
+    assert b == snapshot_b
+
+
+def test_compose_concentration_lines_preserves_pick_row_order():
+    """AC12: concentration analytic does NOT reorder pick_rows.
+
+    The caller's `pick_rows` list is read-only (iterated in place). After
+    the helper returns, pick ordering must be unchanged.
+    """
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    pick_rows = [_pick("B", "乙"), _pick("A", "甲")]
+    op_rows_by_id = {
+        "A": _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0))),
+        "B": _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 12.0))),
+    }
+    pre = [r.instrument_id for r in pick_rows]
+    _ = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    post = [r.instrument_id for r in pick_rows]
+    assert pre == post
