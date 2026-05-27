@@ -101,3 +101,45 @@ def test_active_fund_advisory_gap_goes_to_advisory_gaps_not_evidence_gaps():
     # Other unrelated structural gaps may still be present (e.g.
     # missing_valuation_data) — the assertion that matters is the advisory
     # gap does NOT leak into evidence_gaps.
+
+
+def test_row_to_dict_serializes_advisory_gaps():
+    from irc.opportunity.report import _row_to_dict
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import OpportunityInput
+    snap = _active_snap(
+        _analysis("A", 8.0, ("broker_empty:A",)),
+        _analysis("B", 7.0, ("broker_empty:B",)),
+        _analysis("C", 6.0, ()),
+    )
+    inp = OpportunityInput(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    d = _row_to_dict(row)
+    assert d["advisory_gaps"] == ["top_holdings_broker_thin"]
+
+
+def test_card_to_dict_serializes_advisory_gaps():
+    from irc.opportunity.cards import build_thesis_card
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.report import _card_to_dict
+    from irc.opportunity.states import build_opportunity_row
+    from irc.opportunity.types import OpportunityInput
+    snap = _active_snap(
+        _analysis("A", 8.0, ("broker_empty:A",)),
+        _analysis("B", 7.0, ("broker_empty:B",)),
+        _analysis("C", 6.0, ()),
+    )
+    inp = OpportunityInput(
+        instrument_id="005827", asset_class="cn_equity_fund",
+        market="cn_off_exchange", name_cn="易方达蓝筹精选",
+    )
+    row = build_opportunity_row(inp, None, snapshot=snap)
+    pos = PositionContext(is_holding=False, drawdown_since_entry=None,
+                         portfolio_weight=None, target_band_low=None,
+                         target_band_high=None)
+    card = build_thesis_card(row, pos, role="", entry_reason="")
+    d = _card_to_dict(card)
+    assert d["advisory_gaps"] == ["top_holdings_broker_thin"]
