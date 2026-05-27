@@ -1,7 +1,7 @@
 """Stable-partition test for §5 picks-table advisory demotion (AC8)."""
 from __future__ import annotations
 
-from irc.memo.picks_table import PickRow, render_picks_table
+from irc.memo.picks_table import PickRow
 
 
 def _pick(iid: str, *, advisory: tuple[str, ...] = ()) -> PickRow:
