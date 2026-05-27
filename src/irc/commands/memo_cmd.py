@@ -339,13 +339,21 @@ def _compose_concentration_lines(
 
 
 def _coerce_optional_float(value: object) -> float | None:
-    """Best-effort optional float; None or unparseable → None."""
+    """Best-effort optional float; None, unparseable, or non-finite → None.
+
+    Non-finite guard mirrors `irc.memo.qdii_premium_lines._coerce_premium`
+    so the two coerce sites do not drift on the nan/inf defense.
+    """
+    import math
     if value is None:
         return None
     try:
-        return float(value)
+        f = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(f):
+        return None
+    return f
 
 
 def _utc8_now() -> datetime:

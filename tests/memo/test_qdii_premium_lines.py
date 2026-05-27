@@ -364,3 +364,75 @@ def test_write_snapshot_emits_above_threshold_row_with_blocking_flag(
     assert by_iid["159501"]["render_cell"] == "+6.92%"
     assert by_iid["513690"]["blocking"] is False
     assert by_iid["513690"]["render_cell"] == "-0.34%"
+
+
+# === Review-fix tests (post /ship steps 8+9) =================================
+# Adversarial elevated the hardcoded-cwd to P0 (CI silent-pass risk).
+# Silent-failure-hunter + adversarial both flagged nan/inf passthrough as P1
+# (silent threshold bypass). Code-reviewer flagged missing 5.0% boundary
+# coverage as P1. RED → GREEN below.
+
+
+def test_coerce_premium_returns_none_for_nan() -> None:
+    """P1 (adversarial + silent-failure): `_coerce_premium(nan)` previously
+    returned `nan` (passes the `is None` guard, bypasses the threshold
+    because `nan > THRESHOLD` is False). User saw `"nan%"` in §5 + no §7
+    hard-block. Refuse non-finite at the boundary."""
+    import math
+    from irc.memo.qdii_premium_lines import _coerce_premium
+    assert _coerce_premium(float("nan")) is None
+    assert _coerce_premium(math.nan) is None
+
+
+def test_coerce_premium_returns_none_for_inf() -> None:
+    """P1: positive infinity and negative infinity must coerce to None
+    for the same reason as nan — non-finite values are not legitimate
+    premium data."""
+    from irc.memo.qdii_premium_lines import _coerce_premium
+    assert _coerce_premium(float("inf")) is None
+    assert _coerce_premium(float("-inf")) is None
+
+
+def test_coerce_premium_still_accepts_finite_floats() -> None:
+    """Regression guard: the non-finite refusal must not break the happy
+    path. 0.0, positive, negative, very-small, very-large all pass."""
+    from irc.memo.qdii_premium_lines import _coerce_premium
+    assert _coerce_premium(0.0) == 0.0
+    assert _coerce_premium(0.05) == 0.05
+    assert _coerce_premium(-0.02) == -0.02
+    assert _coerce_premium(1e-10) == 1e-10
+    assert _coerce_premium(1e10) == 1e10
+
+
+def test_project_row_exactly_threshold_5pct_does_not_block() -> None:
+    """P1 (code-reviewer): the spec says blocking fires `>` (strict), so
+    a premium of exactly 5.0% must NOT block. Lock the semantics so a
+    future refactor to `>=` would surface here, not in production."""
+    from irc.memo.qdii_premium_lines import _project_row
+    score_row = {
+        "instrument_id": "017641",
+        "name_cn": "摩根标普500指数(QDII)人民币A",
+        "asset_class": "us_qdii",
+        "market": "cn_on_exchange",
+        "qdii_premium_pct": 0.05,  # exactly 5.0% — the strict-`>` boundary
+    }
+    out = _project_row(score_row)
+    assert out is not None
+    assert out["qdii_premium_pct"] == 0.05
+    assert out["blocking"] is False, (
+        "Boundary semantic: strict `>` means exactly-5.0% does NOT block. "
+        "If this assertion fails, someone changed the comparator to `>=`."
+    )
+
+
+def test_project_row_just_above_threshold_does_block() -> None:
+    """Companion boundary: 5.001% must block."""
+    from irc.memo.qdii_premium_lines import _project_row
+    score_row = {
+        "instrument_id": "017641", "name_cn": "x",
+        "asset_class": "us_qdii", "market": "cn_on_exchange",
+        "qdii_premium_pct": 0.05001,
+    }
+    out = _project_row(score_row)
+    assert out is not None
+    assert out["blocking"] is True

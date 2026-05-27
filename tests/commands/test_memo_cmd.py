@@ -254,16 +254,26 @@ def test_compose_execution_lines_prefixes_above_threshold_qdii():
 
 def test_no_qdii_premium_high_synonym_in_src():
     """AC13: codename unification — `qdii_premium_high` must NOT appear
-    anywhere in src/irc/. The canonical name is `qdii_premium_too_high`."""
+    anywhere in src/irc/. The canonical name is `qdii_premium_too_high`.
+
+    Uses the repo root derived from `__file__` rather than a hardcoded
+    absolute path so the test runs on any machine / CI runner (adversarial
+    + code-reviewer P0/P1 finding — the prior hardcoded `/Users/snow/...`
+    would either crash with FileNotFoundError or pass spuriously elsewhere).
+    """
     import subprocess
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[2]
     result = subprocess.run(
         ["grep", "-rn", "qdii_premium_high", "src/irc/"],
         capture_output=True, text=True,
-        cwd="/Users/snow/Documents/Repository/investment-research-copilot",
+        cwd=str(repo_root),
     )
     # grep returns 1 when no matches — that's the success path.
     assert result.returncode == 1, (
-        f"Unexpected `qdii_premium_high` token in src/:\n{result.stdout}"
+        f"Unexpected `qdii_premium_high` token in src/ (cwd={repo_root}):\n"
+        f"stdout={result.stdout!r}\nstderr={result.stderr!r}\n"
+        f"returncode={result.returncode}"
     )
 
 

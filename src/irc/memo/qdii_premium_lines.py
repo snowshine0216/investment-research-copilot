@@ -71,14 +71,27 @@ def _format_qdii_premium_cell(
 
 
 def _coerce_premium(value: object) -> float | None:
-    """Best-effort float coercion. Returns None when value is None or
-    can't be parsed — same pattern as `_decision_status_for_pick`."""
+    """Best-effort float coercion. Returns None when value is None,
+    unparseable, or non-finite (nan / inf / -inf) — same pattern as
+    `_decision_status_for_pick`.
+
+    Non-finite guard is load-bearing: `nan > THRESHOLD` evaluates `False`,
+    so a `nan` premium from a malformed upstream scorer would silently
+    bypass the §7 hard-block and render as `"nan%"` / `"-nan%"` in §5.
+    `json.dumps` would also emit literal `NaN` (not valid per RFC 8259)
+    in the projection artifact. Refuse non-finite at the boundary
+    (adversarial + silent-failure-hunter P1 finding on PR #78).
+    """
+    import math
     if value is None:
         return None
     try:
-        return float(value)
+        f = float(value)
     except (TypeError, ValueError):
         return None
+    if not math.isfinite(f):
+        return None
+    return f
 
 
 def _project_row(score_row: dict) -> dict | None:
