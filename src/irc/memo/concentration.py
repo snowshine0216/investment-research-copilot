@@ -16,7 +16,7 @@ and CONTEXT.md entries for `IRC_CONCENTRATION_BEGIN/END`,
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Final
 
 from irc.fundamentals.types import ConstituentAnalysis
@@ -42,16 +42,31 @@ def _top_n_by_weight(
     analyses: tuple[ConstituentAnalysis, ...],
     n: int = CONCENTRATION_TOP_N,
 ) -> tuple[ConstituentAnalysis, ...]:
-    """Top-N constituents by weight_pct DESC, symbol ASC on tie.
+    """Top-N constituents by SUMMED weight_pct DESC, symbol ASC on tie.
 
-    The secondary `c.symbol` key pins AC1's deterministic topN slice — two
+    Duplicate symbols within `analyses` (rare AkShare data anomaly — multiple
+    share-class rows for the same underlying, or a malformed cache row) are
+    merged by summing `weight_pct` BEFORE the topN cut. Without this, the
+    dict comprehension in `weighted_overlap_pct` would silently keep only
+    the later (lower-weight after DESC sort) entry, understating the true
+    holding and dropping a real concentrated pair below the threshold.
+
+    Secondary `c.symbol` key pins AC1's deterministic topN slice — two
     AkShare DataFrames with equal-weight holdings reordered must produce
     identical topN slices and thus identical pair overlaps.
 
-    When len(analyses) < n, the full list (after sort) is returned with
-    no padding (AC1 cardinality clarification / grill Q4).
+    When the merged set has fewer than n entries, the full list (after sort)
+    is returned with no padding (AC1 cardinality clarification / grill Q4).
     """
-    ranked = sorted(analyses, key=lambda c: (-c.weight_pct, c.symbol))
+    sums: dict[str, float] = {}
+    first_seen: dict[str, ConstituentAnalysis] = {}
+    for c in analyses:
+        sums[c.symbol] = sums.get(c.symbol, 0.0) + c.weight_pct
+        first_seen.setdefault(c.symbol, c)
+    merged = tuple(
+        replace(first_seen[s], weight_pct=sums[s]) for s in sums
+    )
+    ranked = sorted(merged, key=lambda c: (-c.weight_pct, c.symbol))
     return tuple(ranked[:n])
 
 
@@ -68,7 +83,10 @@ def weighted_overlap_pct(
     """
     top_a = {c.symbol: c.weight_pct for c in _top_n_by_weight(a)}
     top_b = {c.symbol: c.weight_pct for c in _top_n_by_weight(b)}
-    shared = top_a.keys() & top_b.keys()
+    # Sort the intersection so FP summation order is pinned. Set iteration
+    # order is PYTHONHASHSEED-dependent; IEEE 754 addition is non-commutative
+    # for very small values, so empirical determinism is fragile (code-reviewer P1).
+    shared = sorted(top_a.keys() & top_b.keys())
     return sum(min(top_a[s], top_b[s]) for s in shared)
 
 
@@ -159,7 +177,11 @@ def compute_concentration_pairs(
             overlap = weighted_overlap_pct(
                 row_a.constituent_analyses, row_b.constituent_analyses,
             )
-            if overlap < CONCENTRATION_OVERLAP_PCT_THRESHOLD:
+            # Compare the rounded (display) overlap against the threshold so
+            # the filter and the user-visible pct agree by construction. A
+            # raw multi-symbol FP sum can land at 29.9999...96 for a true
+            # 30.0% pair (silent-failure-hunter P1).
+            if round(overlap, 1) < CONCENTRATION_OVERLAP_PCT_THRESHOLD:
                 continue
             shared = _shared_symbols(
                 row_a.constituent_analyses, row_b.constituent_analyses,

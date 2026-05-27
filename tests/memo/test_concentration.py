@@ -556,3 +556,90 @@ def test_compute_concentration_pairs_two_run_byte_equality_with_shuffled_inputs(
     assert a == b
     # Also assert repr-equality so any silent identity-vs-equality drift is caught.
     assert repr(a) == repr(b)
+
+
+# === Review-fix tests (post /ship steps 8+9) =================================
+# Adversarial review surfaced 1 P0 (duplicate-symbol undercount), code-reviewer
+# surfaced 2 P1 (set-iteration determinism, FP boundary instability) + 1
+# missing-coverage (n=5 boundary). RED → GREEN below.
+
+
+def test_weighted_overlap_pct_dedupes_duplicate_symbol_within_fund():
+    """P0 (adversarial): if AkShare returns the same symbol twice in one fund's
+    constituent_analyses, the dict comprehension `{c.symbol: c.weight_pct}`
+    silently keeps only the LAST entry (which is the lower-weight one after
+    DESC sort), understating the overlap. A pair that should be ≥30% silently
+    drops below threshold — false negative concentration suppression.
+
+    Fix: dedupe by symbol with SUM-of-weights before topN selection.
+    """
+    from irc.memo.concentration import weighted_overlap_pct
+    # Fund A: X appears twice (15 + 10 → should merge to 25). Y at 5.
+    a = (
+        _analysis("X", 15.0),
+        _analysis("X", 10.0),
+        _analysis("Y", 5.0),
+    )
+    # Fund B: X at 18 (single entry).
+    b = (_analysis("X", 18.0),)
+    # With dedupe-by-sum, A's X effective weight is 25, overlap = min(25, 18) = 18.
+    # Without dedupe (the bug), only the later 10 wins, overlap = min(10, 18) = 10.
+    assert weighted_overlap_pct(a, b) == 18.0
+
+
+def test_weighted_overlap_pct_iterates_shared_symbols_in_deterministic_order():
+    """P1 (code-reviewer): set intersection iteration is PYTHONHASHSEED-dependent.
+    Float addition is non-commutative in IEEE 754; iteration order matters
+    even though empirically deterministic with current data. Pin order
+    explicitly with sorted() — also makes the function's determinism provable.
+    """
+    import inspect
+    from irc.memo import concentration
+    src = inspect.getsource(concentration.weighted_overlap_pct)
+    # Either `sorted(...)` over the intersection, or an explicit pre-sort step.
+    assert "sorted(" in src, (
+        "weighted_overlap_pct must iterate the shared-symbols set in sorted "
+        "order to pin FP summation determinism."
+    )
+
+
+def test_compute_concentration_pairs_threshold_compares_rounded_overlap():
+    """P1 (silent-failure-hunter): the threshold check `overlap < THRESHOLD`
+    uses the raw float sum BEFORE rounding. With realistic multi-symbol
+    summation, a true 30.0%-overlap pair can compute as 29.9999...96 and be
+    excluded. The displayed pct (rounded to 1dp inside make_concentration_pair)
+    would then be 30.0, but the pair was filtered out — an invisible miss.
+
+    Fix: compare `round(overlap, 1) >= THRESHOLD` so the displayed value and
+    the threshold check agree by construction.
+    """
+    import inspect
+    from irc.memo import concentration
+    src = inspect.getsource(concentration.compute_concentration_pairs)
+    # The threshold check must operate on the rounded value (overlap_pct on
+    # the pair, OR an explicit round() before the < / >= comparison).
+    assert "round(" in src and "CONCENTRATION_OVERLAP_PCT_THRESHOLD" in src, (
+        "compute_concentration_pairs must compare a rounded overlap value "
+        "against CONCENTRATION_OVERLAP_PCT_THRESHOLD to avoid FP boundary drop."
+    )
+
+
+def test_compose_concentration_lines_exactly_5_shared_symbols_no_ellipsis():
+    """Coverage gap surfaced by code-reviewer: the 5-symbol cap with ellipsis
+    is tested at n=6 but not at the boundary n=5 (no cap, no ellipsis).
+    """
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    syms = ["A1", "A2", "A3", "A4", "A5"]  # exactly 5
+    analyses_a = tuple(_analysis(s, 7.0) for s in syms)
+    analyses_b = tuple(_analysis(s, 7.0) for s in syms)
+    pick_rows = [_pick("X", "甲"), _pick("Y", "乙")]
+    op_rows_by_id = {
+        "X": _op_row("X", "甲", analyses_a),
+        "Y": _op_row("Y", "乙", analyses_b),
+    }
+    lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    joined = "\n".join(lines)
+    # All 5 ASC; NO ellipsis, NO "（N 只）" elision suffix beyond the exact count.
+    assert "A1/A2/A3/A4/A5" in joined
+    assert "A1/A2/A3/A4/A5..." not in joined
+    assert "（5 只）" in joined
