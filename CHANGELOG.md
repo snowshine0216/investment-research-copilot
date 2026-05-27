@@ -7,6 +7,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `qdii-premium-memo-surface` (2026-05-27)
+
+QDII premium-to-NAV data (already computed by an earlier scoring stage
+per ADR 0002 §5 F6) is now visible at memo time across four surfaces:
+
+- **§5 picks table**: new 13th column `溢价` renders the signed premium
+  (`+5.42%`, `-0.34%`, `0.00%（场外申赎）` for off-exchange NAV-priced
+  feeders, `—` for missing data).
+- **§6 风险提示**: new `IRC_QDII_PREMIUM_BEGIN/END` marker block replaces
+  the long-standing `"数据未采集——请在交易前查阅各 QDII 二级市场溢价"`
+  placeholder when ≥1 QDII pick exists; lists premium per pick with the
+  blocking threshold called out.
+- **§7 执行要点**: trigger lines for picks with `qdii_premium_too_high`
+  get a `⛔ 二级市场溢价 X.YZ% > 5%，本期暂不执行 ` prefix so the user
+  cannot miss the hard-block.
+- **`outputs/<date>/qdii_premium.json`**: always-written projection
+  artifact (atomic write, sorted keys, `generated_at` non-deterministic
+  by design — not in two-run byte-equality scope).
+
+No new fetcher (the fetcher landed in a prior 2026-05-26 run); no new
+live-test surface. Memo-rendering only. ADR 0006 captures the locked
+13-column migration, projection schema, off-exchange cell convention,
+and §7 prefix wiring at the memo_cmd edge.
+
+### Added — `concentration-panel-overlap` (2026-05-27)
+
+New pure-analytics module `src/irc/memo/concentration.py` computes pairwise
+weighted-overlap of Top-10 holdings across every pair of active-fund picks.
+When a pair's weighted overlap (Σ min(w_A[s], w_B[s])) is ≥30%, a new
+`IRC_CONCENTRATION_BEGIN/END` marker block in §6 风险提示 surfaces the pair
+with its overlap percentage and shared symbols (top-5 shared with elision).
+
+This closes a long-standing gap in the discipline doc: previously the user
+could see five different-looking "growth" funds in the `small_watch` list
+(e.g. 008382 / 008555 / 018956 / 005825 / 519770) whose Top-5 holdings were
+60–80% identical (新易盛 / 中际旭创 / 天孚通信 etc. repeated across all of
+them) — buying 3 of them would have been effectively the same CPO bet 3×.
+The concentration panel now flags this explicitly before execution.
+
+Memo-only: no new `advisory_gaps` code (concentration is a pair-level
+signal, `advisory_gaps` is row-level — ADR 0005 boundary preserved). No
+new I/O, reads cached `OpportunityRow.constituent_analyses`. Two-run byte
+equality maintained.
+
+### Added — `top-holdings-broker-thin-advisory` (2026-05-27)
+
+New `OpportunityRow.advisory_gaps` field carries a new advisory gap code
+`top_holdings_broker_thin` that fires when an active fund has ≥2 of Top-5
+holdings (or ≥20% weighted Top-5) marked with `broker_empty:*` failure
+reasons. The gap is emitted through the existing `derive_thesis_from_evidence`
+return slot — `thesis_state` setter invariant is preserved.
+
+The advisory is surfaced in three places so it informs both immediate and
+ongoing decisions:
+
+- §5 picks table — affected rows are stably demoted to the tail of the table
+  (informational; does not block execution)
+- §6 风险提示 — a new `证据缺口（Top-5 经纪覆盖不足）` marker block lists
+  the affected picks
+- `discipline_report.md` section header — appends a `（证据缺口：核心持仓
+  券商覆盖不足）` suffix on affected funds
+
+Pure analytics: no new I/O, no new fetcher, reads cached `ActiveFundSnapshot`
+data already in the opportunity layer. ADR 0005 captures the load-bearing
+design decision (separate field vs. widening `evidence_gaps`).
+
 ### Added — `memo-picks-table-decision-mirror` (2026-05-26)
 
 Memo §5 picks table now mirrors the per-pick `单次定投上限` (tranche cap)

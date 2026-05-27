@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sys
+from collections.abc import Sequence
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -34,7 +36,11 @@ from irc.memo.picks_table import (
     render_failure_sections,
     render_picks_table,
 )
-from irc.memo.template import MemoInputs
+from irc.memo.template import (
+    EVIDENCE_GAP_MARKER_BEGIN,
+    EVIDENCE_GAP_MARKER_END,
+    MemoInputs,
+)
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
 from irc.commands.opportunity_cmd import (
@@ -53,6 +59,11 @@ from irc.decision.sizing import suggest_tranche_pct
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
+from irc.memo.qdii_premium_lines import (
+    build_qdii_premium_projection,
+    format_qdii_premium_prefix,
+    write_qdii_premium_snapshot,
+)
 from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
 
@@ -153,6 +164,8 @@ def _compose_execution_lines(
     opportunity_rows: list[dict],
     extra_names: dict[str, str] | None = None,
     require_opportunity_row: bool = False,
+    *,
+    qdii_premium_rows: Sequence[dict] | None = None,
 ) -> tuple[str, ...]:
     """Build one bullet per trade row for memo section 7.
 
@@ -172,6 +185,12 @@ def _compose_execution_lines(
     extra_names = extra_names or {}
     name_by_id = {str(r.get("instrument_id")): r.get("name_cn", "")
                   for r in opportunity_rows}
+    prefix_by_iid: dict[str, str] = {}
+    for r in (qdii_premium_rows or ()):
+        iid = str(r.get("instrument_id") or "")
+        prefix = format_qdii_premium_prefix(r)
+        if iid and prefix:
+            prefix_by_iid[iid] = prefix
     lines: list[str] = []
     for t in trades:
         iid = str(t.get("target", ""))
@@ -196,12 +215,13 @@ def _compose_execution_lines(
             triggers = formatted[0]
         else:
             triggers = "满足任一：" + "；".join(formatted)
-        bullet = (
+        bullet_body = (
             f"**{label}** | 目标权重 ≤ {weight*100:.1f}% | "
             f"建仓方式 {t.get('buy_method', 'unknown')} ({t.get('granularity', 'default')}) | "
             f"触发 {triggers} | 渠道 {venue_note}"
         )
-        lines.append(bullet)
+        qdii_prefix = prefix_by_iid.get(iid, "")
+        lines.append(qdii_prefix + bullet_body)
     return tuple(lines)
 
 
@@ -230,6 +250,130 @@ def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
         "但该关系并非稳定规律，不构成对未来走势的预测；执行前须自行核实风险承受能力。",
         "渠道与汇率：venue_compatible=false的标的不可执行，仅观察。",
         timeliness,
+    )
+
+
+def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
+    """Compose the §6 risk-notes 证据缺口 marker block (AC7).
+
+    When ≥1 pick row carries `top_holdings_broker_thin` in its `advisory_gaps`,
+    emit a deterministic 3-line tuple wrapped in IRC_EVIDENCE_GAP_BEGIN/END
+    markers. Picks sorted by `instrument_id` ASC.
+
+    Empty result when no row qualifies — no markers emitted. Pure.
+    """
+    affected = sorted(
+        (r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps),
+        key=lambda r: r.instrument_id,
+    )
+    if not affected:
+        return ()
+    targets_str = "、".join(f"{r.instrument_id} {r.name_cn}" for r in affected)
+    body = (
+        "证据缺口（Top-5 经纪覆盖不足）：以下候选标的的核心持仓中至少 2 只"
+        "（或合计权重 ≥ 20%）缺少券商研报覆盖，证据强度弱于其余候选，"
+        f"触发条件成立时建议优先选择证据更完整的标的：{targets_str}。"
+    )
+    return (EVIDENCE_GAP_MARKER_BEGIN, body, EVIDENCE_GAP_MARKER_END)
+
+
+def _format_concentration_bullet(pair) -> str:
+    """One risk_notes entry per pair per AC9 template:
+    `{id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`.
+
+    No leading `"- "` — `template.py` `render_skeleton` wraps every
+    `risk_notes` entry with `f"- {r}"`. Self-prefixing here would emit
+    double-dash (`"- - 008382 ..."`) in the rendered memo (caught by
+    `/code-review` on PR #77, latent bug).
+
+    `syms` joins shared_symbols with `/`, capped at 5 followed by `...`
+    when more exist (sorted ASC by AC5).
+    """
+    n = len(pair.shared_symbols)
+    head = pair.shared_symbols[:5]
+    suffix = "..." if n > 5 else ""
+    syms = "/".join(head) + suffix
+    return (
+        f"{pair.instrument_id_a} {pair.name_cn_a} ↔ "
+        f"{pair.instrument_id_b} {pair.name_cn_b}："
+        f"加权重合 {pair.overlap_pct:.1f}%，共同持仓 {syms}（{n} 只）"
+    )
+
+
+def _compose_concentration_lines(
+    pick_rows: list[PickRow],
+    op_rows_by_id: dict,
+) -> tuple[str, ...]:
+    """Compose the §6 风险提示 持仓集中度 marker block (item 002 AC9).
+
+    Looks up each `PickRow.instrument_id` in `op_rows_by_id` (built by the
+    caller from the same `opportunity_rows` already in scope per AC7 /
+    grill Q11 — NOT inside this helper, NOT cached on a module-level
+    global). Active-fund-only because `compute_concentration_pairs`
+    silently skips rows with empty `constituent_analyses` (AC6).
+
+    Empty result (zero qualifying pairs) → no marker block emitted at all,
+    mirroring the `IRC_EVIDENCE_GAP_*` empty-case (AC9). Pure.
+    """
+    from irc.memo.concentration import (
+        CONCENTRATION_MARKER_BEGIN,
+        CONCENTRATION_MARKER_END,
+        CONCENTRATION_OVERLAP_PCT_THRESHOLD,
+        compute_concentration_pairs,
+    )
+    candidates = tuple(
+        op_rows_by_id[r.instrument_id]
+        for r in pick_rows
+        if r.instrument_id in op_rows_by_id
+    )
+    pairs = compute_concentration_pairs(candidates)
+    if not pairs:
+        return ()
+    header = (
+        f"持仓集中度（Top-10 加权重合 ≥ "
+        f"{CONCENTRATION_OVERLAP_PCT_THRESHOLD:.0f}%）："
+        "以下候选标的实质表达相近的底层敞口，触发条件成立后只应择一执行；"
+        "同时持有将放大单一主题回撤风险。"
+    )
+    body_lines = [_format_concentration_bullet(p) for p in pairs]
+    return (CONCENTRATION_MARKER_BEGIN, header, *body_lines, CONCENTRATION_MARKER_END)
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    """Best-effort optional float; None, unparseable, or non-finite → None.
+
+    Non-finite guard mirrors `irc.memo.qdii_premium_lines._coerce_premium`
+    so the two coerce sites do not drift on the nan/inf defense.
+    """
+    if value is None:
+        return None
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(f):
+        return None
+    return f
+
+
+def _utc8_now() -> datetime:
+    """UTC+8 clock; centralised so the writer is testable via stubs."""
+    return datetime.now(timezone(timedelta(hours=8)))
+
+
+def _compose_qdii_premium_projection(
+    scoring: dict,
+    *,
+    evidence_cutoff: str | None,
+) -> dict:
+    """Build the projection consumed by §6 marker block, §7 prefix, and
+    the `qdii_premium.json` artefact (AC6 / AC14). Pure — clock injected
+    via the local _utc8_now closure for two-run byte equality."""
+    score_rows = list(scoring.get("scores") or [])
+    return build_qdii_premium_projection(
+        score_rows,
+        evidence_cutoff=evidence_cutoff,
+        now_fn=_utc8_now,
     )
 
 
@@ -430,6 +574,9 @@ def _reconstruct_opportunity_rows(
             opportunity_state=r.get("opportunity_state", "small_watch"),
             opportunity_reason=r.get("opportunity_reason", ""),
             evidence_gaps=tuple(r.get("evidence_gaps", ())),
+            advisory_gaps=_parse_advisory_gaps(
+                r.get("advisory_gaps"), instrument_id=r["instrument_id"],
+            ),
             thesis_evidence=r["thesis_evidence"]
                 if isinstance(r.get("thesis_evidence"), tuple)
                 else tuple(r.get("thesis_evidence") or ()),
@@ -469,11 +616,12 @@ def _decision_status_for_pick(
     except (TypeError, ValueError):
         completeness = 0.0
     venue_status = derive_venue_status(trade)
-    raw_premium = score_row.get("qdii_premium_pct")
-    try:
-        premium_value = float(raw_premium) if raw_premium is not None else None
-    except (TypeError, ValueError):
-        premium_value = None
+    # Use the shared finite-only coerce — local try/except previously let
+    # nan/inf through, silently passing `qdii_premium_too_high=False` (nan
+    # comparison is False) AND `qdii_premium_unknown=False` (value wasn't
+    # None) → actionable_buy on a QDII pick with malformed premium data.
+    # See /code-review on PR #78.
+    premium_value = _coerce_optional_float(score_row.get("qdii_premium_pct"))
     is_qdii_buy = (
         asset_class in _QDII_ASSET_CLASSES
         and score_action in _MEMO_BUY_ACTIONS
@@ -497,6 +645,44 @@ def _decision_status_for_pick(
     )
     allocation_selected = trade is not None
     return compute_decision_status(score_action, blocking, allocation_selected)
+
+def _parse_advisory_gaps(value: object, *, instrument_id: str) -> tuple[str, ...]:
+    """Validate + coerce opportunity.json's `advisory_gaps` field at the boundary.
+
+    Silent coalescing (`x or ()`) would turn a serializer bug into a wrong
+    investment signal: the pick would render in §5 without the 证据缺口 suffix
+    or §6 marker block, and no log would surface the dropped advisory.
+    Refuse explicitly with the instrument_id so the operator can fix the
+    upstream serializer. Pure.
+    """
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(
+            f"advisory_gaps for {instrument_id!r}: expected list, "
+            f"got {type(value).__name__}={value!r}",
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"advisory_gaps for {instrument_id!r}: every element must be str, "
+                f"got {type(item).__name__}={item!r}",
+            )
+    return tuple(value)
+
+
+def _apply_advisory_partition(pick_rows: list[PickRow]) -> list[PickRow]:
+    """Stable partition: demote rows carrying `top_holdings_broker_thin` to tail.
+
+    Membership check (not truthiness) so future advisory codes added to
+    `ADVISORY_GAP_CODES` do not silently inherit §5 pick-ordering demotion —
+    that's a separate per-code design decision per ADR 0005. Trade-plan
+    iteration order is preserved within each partition (AC8). Pure.
+    """
+    non_demoting = [r for r in pick_rows if "top_holdings_broker_thin" not in r.advisory_gaps]
+    demoting = [r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps]
+    return non_demoting + demoting
+
 
 def _build_pick_rows(
     trades: list[dict],
@@ -591,6 +777,10 @@ def _build_pick_rows(
             decision_status=decision_status,
             tranche_cap_pct=tranche_cap_pct,
             trigger_status=trigger_status,
+            advisory_gaps=_parse_advisory_gaps(
+                op.get("advisory_gaps"), instrument_id=str(iid_raw),
+            ),
+            qdii_premium_pct=_coerce_optional_float(sc.get("qdii_premium_pct")),
         ))
 
     return pick_rows, absent, gapped
@@ -650,6 +840,7 @@ def run_memo(repo_root: str) -> int:
         macro_snapshot=macro_snapshot,
         weekly_return_by_id=weekly_return_by_id,
     )
+    pick_rows = _apply_advisory_partition(pick_rows)
     picks_table_md = render_picks_table(pick_rows) + render_failure_sections(
         absent_targets, gapped_targets, fallback_names,
     )
@@ -736,7 +927,18 @@ def run_memo(repo_root: str) -> int:
     if _usd_tol and len(_usd_tol) >= 2:
         usd_tol_pair = (float(_usd_tol[0]), float(_usd_tol[1]))
     fx_policy = getattr(getattr(bundle.preferences, "fx_hedge", None), "policy", None)
-    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair, fx_hedge_policy=fx_policy)
+    # Item 003 (instrument-pickability): build the QDII premium projection
+    # once at this dependency-injection edge so §6, §7, and qdii_premium.json
+    # all use the same data (AC6 / AC7 / AC14 / G-Q5).
+    qdii_projection = _compose_qdii_premium_projection(
+        scoring, evidence_cutoff=cutoff,
+    )
+    fx_lines = compose_fx_qdii_lines(
+        alloc, usd_tol_pair,
+        fx_hedge_policy=fx_policy,
+        qdii_premium_rows=qdii_projection["rows"],
+        evidence_cutoff=cutoff,
+    )
     if fx_lines:
         risk_notes = tuple(fx_lines) + risk_notes
     # Role-bucket banner (item 010): adversarial review §E.
@@ -744,10 +946,25 @@ def run_memo(repo_root: str) -> int:
     role_lines = compose_role_bucket_banner(diag_rows)
     if role_lines:
         risk_notes = tuple(role_lines) + risk_notes
+    # ADR 0005 + Item 001 (instrument-pickability): top_holdings_broker_thin
+    # advisory marker block. Prepended last so it renders FIRST in §6.
+    evidence_gap_lines = _compose_evidence_gap_lines(pick_rows)
+    if evidence_gap_lines:
+        risk_notes = tuple(evidence_gap_lines) + risk_notes
+    # Item 002 (instrument-pickability): 持仓集中度 marker block. Active-fund
+    # picks with Top-10 weighted overlap >= 30% surface here. op_rows_by_id
+    # is built once at this call-site per AC7 / grill Q11 (NOT inside the
+    # pure helper) — dependency-injection edge.
+    _op_rows_for_concentration = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    op_rows_by_id = {r.instrument_id: r for r in _op_rows_for_concentration}
+    concentration_lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    if concentration_lines:
+        risk_notes = tuple(concentration_lines) + risk_notes
     execution_lines = _compose_execution_lines(
         trades, opportunity.get("rows") or [],
         extra_names=fallback_names,
         require_opportunity_row=True,
+        qdii_premium_rows=qdii_projection["rows"],
     )
 
     # §2: prefer the dynamic macro_summary_md (carries real values + refs);
@@ -776,6 +993,9 @@ def run_memo(repo_root: str) -> int:
 
     out_dir = root / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Item 003 (instrument-pickability): always-written QDII premium
+    # projection artefact (AC6 / G-Q5). Missing file = build error.
+    write_qdii_premium_snapshot(qdii_projection, out_dir=out_dir)
     # Audit-blocking gate (item 009, 2026-05-19): if the auditor returned
     # 审核未通过 OR P-tier 高风险 findings, refuse to publish memo.md;
     # write memo_blocked.md instead and exit non-zero.

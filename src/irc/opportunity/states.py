@@ -21,6 +21,7 @@ from irc.opportunity.types import (
     ThesisState,
     ValuationState,
 )
+from irc.opportunity.advisory_gaps import ADVISORY_GAP_CODES
 from irc.research.theme_research import ThemeReport
 
 
@@ -31,21 +32,24 @@ EXPECTED_OMISSION_CODES: frozenset[str] = frozenset({
 
 def _partition_gaps(
     gaps: tuple[str, ...] | list[str],
-) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """Split a flat gap list into (real_gaps, expected_omissions).
+) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, ...]]:
+    """Split a flat gap list into (real_gaps, expected_omissions, advisory_gaps).
 
-    Real gaps are signals the operator can act on. Expected omissions are
-    structural non-features (e.g. an asset class that has no constituents
-    by design) that we surface separately so they don't pollute the
-    actionable list.
+    - real_gaps: row-blocking signals (H3 routes any non-empty value to gapped_rows).
+    - expected_omissions: structural non-features by design (e.g.
+      `constituent_not_applicable` for asset classes without constituents).
+    - advisory_gaps: non-blocking advisories that publishable rows still surface
+      (ADR 0005). H3 partition predicate stays `evidence_gaps == ()` — orthogonal.
     """
-    real, expected = [], []
+    real, expected, advisory = [], [], []
     for g in gaps:
         if g in EXPECTED_OMISSION_CODES:
             expected.append(g)
+        elif g in ADVISORY_GAP_CODES:
+            advisory.append(g)
         else:
             real.append(g)
-    return tuple(real), tuple(expected)
+    return tuple(real), tuple(expected), tuple(advisory)
 
 
 _FETCH_TYPE_ORDER: tuple[str, ...] = (
@@ -535,7 +539,9 @@ def build_opportunity_row(
     target = map_lookthrough(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
     combined_gaps = tuple(structural_gaps) + tuple(thesis_gaps)
-    evidence_gaps_filtered, expected_omissions = _partition_gaps(combined_gaps)
+    evidence_gaps_filtered, expected_omissions, advisory_gaps = (
+        _partition_gaps(combined_gaps)
+    )
     return OpportunityRow(
         instrument_id=inp.instrument_id,
         name_cn=inp.name_cn,
@@ -550,6 +556,7 @@ def build_opportunity_row(
         opportunity_reason=reason,
         evidence_gaps=evidence_gaps_filtered,
         expected_omissions=expected_omissions,
+        advisory_gaps=advisory_gaps,
         thesis_evidence=evidence,
         contributing_dimensions=dimensions,
         fetch_types_attempted=derive_fetch_types_attempted(snapshot),

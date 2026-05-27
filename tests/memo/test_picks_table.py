@@ -283,7 +283,9 @@ def test_pick_row_trigger_status_defaults_to_empty_string():
 
 
 def test_picks_table_header_contains_tranche_cap_and_trigger_status_columns():
-    """Header order locked: ... | 主要理由 | 单次定投上限 | 触发状态 | 证据 |."""
+    """Header order locked: ... | 主要理由 | 单次定投上限 | 溢价 | 触发状态 | 证据 |.
+    Item 003 (instrument-pickability) extended the 12-column lock to 13 by
+    inserting 溢价 between 单次定投上限 and 触发状态."""
     row = PickRow(
         instrument_id="A", name_cn="ai", asset_class="x", role="r",
         target_weight=0.1, composite_score=50.0,
@@ -294,11 +296,109 @@ def test_picks_table_header_contains_tranche_cap_and_trigger_status_columns():
     header_line = next(line for line in md.split("\n") if line.startswith("| 代码"))
     cols = [c.strip() for c in header_line.strip("|").split("|")]
     assert "单次定投上限" in cols
+    assert "溢价" in cols
     assert "触发状态" in cols
-    # Order: 主要理由 → 单次定投上限 → 触发状态 → 证据
+    # Order: 主要理由 → 单次定投上限 → 溢价 → 触发状态 → 证据
     assert cols.index("单次定投上限") == cols.index("主要理由") + 1
-    assert cols.index("触发状态") == cols.index("单次定投上限") + 1
+    assert cols.index("溢价") == cols.index("单次定投上限") + 1
+    assert cols.index("触发状态") == cols.index("溢价") + 1
     assert cols.index("证据") == cols.index("触发状态") + 1
+
+
+def test_pick_row_qdii_premium_pct_defaults_to_none():
+    """AC12: existing 32 test call sites stay green — new field optional."""
+    row = PickRow(
+        instrument_id="A", name_cn="ai", asset_class="cn_etf", role="r",
+        target_weight=0.1, composite_score=50.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+    )
+    assert row.qdii_premium_pct is None
+
+
+def test_pick_row_qdii_premium_pct_accepts_negative_float():
+    """AC1: -0.34% premium (513690 discount) survives the frozen dataclass."""
+    row = PickRow(
+        instrument_id="513690", name_cn="港股红利ETF博时",
+        asset_class="hk_etf", role="satellite_hk_equity",
+        target_weight=0.05, composite_score=55.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        qdii_premium_pct=-0.0034,
+    )
+    assert row.qdii_premium_pct == -0.0034
+
+
+def test_pick_row_qdii_premium_pct_accepts_positive_float():
+    """AC1: 6.48% premium (above threshold) survives."""
+    row = PickRow(
+        instrument_id="159501", name_cn="标普消费ETF",
+        asset_class="us_etf", role="satellite_us_consumer",
+        target_weight=0.05, composite_score=52.6,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="x",
+        qdii_premium_pct=0.0648,
+    )
+    assert row.qdii_premium_pct == 0.0648
+
+
+def test_picks_table_renders_signed_premium_cell_for_qdii_pick():
+    """AC2 end-to-end: 6.48% premium QDII row produces a `+6.48%` cell
+    in the rendered markdown table."""
+    row = PickRow(
+        instrument_id="159501", name_cn="标普消费ETF",
+        asset_class="us_etf", role="satellite_us_consumer",
+        target_weight=0.05, composite_score=52.6,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="x",
+        qdii_premium_pct=0.0648,
+    )
+    md = render_picks_table([row])
+    assert "+6.48%" in md
+
+
+def test_picks_table_renders_off_exchange_suffix_for_synthetic_zero_qdii():
+    """AC2 + G-Q4: off-exchange feeder shows `0.00%（场外申赎）` not bare zero."""
+    row = PickRow(
+        instrument_id="017641", name_cn="国泰纳指联接",
+        asset_class="us_etf", role="core_us_equity",
+        target_weight=0.05, composite_score=60.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        qdii_premium_pct=0.0,
+    )
+    md = render_picks_table([row])
+    assert "0.00%（场外申赎）" in md
+
+
+def test_picks_table_renders_em_dash_for_non_qdii_row():
+    """AC2 branch 1: cn_etf has no premium signal → cell is `—`."""
+    row = PickRow(
+        instrument_id="510300", name_cn="沪深300ETF",
+        asset_class="cn_etf", role="core_a_share",
+        target_weight=0.1, composite_score=55.0,
+        opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", one_line_reason="x",
+        qdii_premium_pct=None,
+    )
+    md = render_picks_table([row])
+    data_line = next(line for line in md.split("\n") if line.startswith("| 510300"))
+    cells = [c.strip() for c in data_line.strip("|").split("|")]
+    # 13 cells total; index 10 is 溢价 (after the 10 leading cells:
+    # 代码 名称 角色 权重上限 综合分* 决策 机会状态 本期行动 主要理由 单次定投上限).
+    assert cells[10] == "—"
+
+
+def test_scoring_footnote_includes_premium_explainer_sentence():
+    """AC4: footnote gains the 溢价反映 sentence; existing 触发状态
+    sentence stays byte-unchanged."""
+    from irc.memo.picks_table import _SCORING_FOOTNOTE
+
+    assert "溢价反映" in _SCORING_FOOTNOTE
+    assert "fund_etf_spot_em" in _SCORING_FOOTNOTE
+    assert "场外申赎" in _SCORING_FOOTNOTE
+    # Existing sentence preserved verbatim (regression lock).
+    assert "触发状态反映第7节触发条件相对当前宏观/净值快照的评估结果。" in _SCORING_FOOTNOTE
 
 
 def test_picks_table_tranche_cap_renders_with_two_decimals_and_le_prefix():

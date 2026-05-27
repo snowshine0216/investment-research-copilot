@@ -128,3 +128,70 @@ def test_accept_unhedged_without_tolerance_omits_band_claim() -> None:
     assert "容忍带内" not in lines[2]
     assert "政策" in lines[2]
     assert "未对冲" in lines[2]
+
+
+def test_fx_qdii_lines_keeps_3_tuple_with_empty_projection() -> None:
+    """AC8: empty projection → element [1] is the legacy placeholder;
+    3-tuple shape preserved (back-compat for the existing call site)."""
+    alloc = _alloc([
+        {"instrument_id": "X", "asset_class": "us_etf", "target_weight": 0.30},
+    ])
+    lines = compose_fx_qdii_lines(
+        alloc, usd_tolerance=(0.25, 0.45),
+        qdii_premium_rows=None,
+        evidence_cutoff="2026-05-26",
+    )
+    assert len(lines) == 3
+    assert lines[1] == "溢价/折价：数据未采集——请在交易前查阅各 QDII 二级市场溢价。"
+
+
+def test_fx_qdii_lines_swaps_placeholder_for_marker_block() -> None:
+    """AC7: non-empty projection → element [1] is the IRC_QDII_PREMIUM_BEGIN/END
+    wrapped marker block (a single string, newline-separated)."""
+    from irc.memo.qdii_premium_lines import (
+        QDII_PREMIUM_MARKER_BEGIN,
+        QDII_PREMIUM_MARKER_END,
+    )
+
+    alloc = _alloc([
+        {"instrument_id": "X", "asset_class": "us_etf", "target_weight": 0.30},
+    ])
+    projection_rows = [
+        {"instrument_id": "513690", "name_cn": "港股红利ETF博时",
+         "asset_class": "hk_etf", "market": "cn_on_exchange",
+         "qdii_premium_pct": -0.0034, "blocking": False,
+         "render_cell": "-0.34%"},
+        {"instrument_id": "159501", "name_cn": "标普消费ETF",
+         "asset_class": "us_etf", "market": "cn_on_exchange",
+         "qdii_premium_pct": 0.0692, "blocking": True,
+         "render_cell": "+6.92%"},
+    ]
+    lines = compose_fx_qdii_lines(
+        alloc, usd_tolerance=(0.25, 0.45),
+        qdii_premium_rows=projection_rows,
+        evidence_cutoff="2026-05-26",
+    )
+    assert len(lines) == 3
+    block = lines[1]
+    assert QDII_PREMIUM_MARKER_BEGIN in block
+    assert QDII_PREMIUM_MARKER_END in block
+    assert "数据截止 2026-05-26" in block
+    assert "159501 标普消费ETF：+6.92%（超阈值，已暂缓执行）" in block
+    assert "513690 港股红利ETF博时：-0.34%" in block
+    # Element [0] (header) and [2] (hedge) unchanged shape.
+    assert "外汇与QDII敞口提醒" in lines[0]
+    assert "对冲成本" in lines[2]
+
+
+def test_fx_qdii_lines_below_floor_still_returns_empty() -> None:
+    """AC8 + back-compat: when QDII weight is below the floor the function
+    still returns () regardless of qdii_premium_rows kwarg."""
+    alloc = _alloc([
+        {"instrument_id": "X", "asset_class": "us_etf", "target_weight": 0.05},
+    ])
+    lines = compose_fx_qdii_lines(
+        alloc, usd_tolerance=(0.25, 0.45),
+        qdii_premium_rows=[{"instrument_id": "X", "blocking": False}],
+        evidence_cutoff="2026-05-26",
+    )
+    assert lines == ()

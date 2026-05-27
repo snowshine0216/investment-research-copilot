@@ -52,3 +52,21 @@ def test_render_skeleton_inlines_picks_table_md_and_no_placeholder():
     assert "| 518880 | 华安黄金ETF |" in md
     assert "（待填写）" not in md
     assert "由AI合成器填充" in md  # section 7 still LLM-driven
+
+
+def test_render_execution_section_is_premium_unaware():
+    """AC10: _render_execution_section takes pre-prefixed strings verbatim
+    and emits them. No premium-awareness inside template.py — FP 'effects
+    at edges'."""
+    from irc.memo.template import _render_execution_section
+
+    lines = (
+        "⛔ qdii_premium_too_high（+6.92% > 5%，已暂缓）｜**159501 X** | ...",
+        "**513690 Y** | ...",
+    )
+    rendered = _render_execution_section(lines)
+    # Both lines emit as-is, each wrapped with `- ` bullet prefix.
+    assert "- ⛔ qdii_premium_too_high（+6.92% > 5%，已暂缓）｜**159501 X**" in rendered
+    assert "- **513690 Y**" in rendered
+    # template.py never reads premium/blocking — it can't have changed.
+    assert "qdii_premium_pct" not in rendered

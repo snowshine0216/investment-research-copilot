@@ -31,6 +31,7 @@ def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
         "opportunity_reason": row.opportunity_reason,
         "evidence_gaps": list(row.evidence_gaps),
         "expected_omissions": list(row.expected_omissions),
+        "advisory_gaps": list(row.advisory_gaps),
         # New schema (item 002):
         "thesis_evidence": [asdict(e) for e in row.thesis_evidence],
         "contributing_dimensions": sorted(row.contributing_dimensions),
@@ -64,7 +65,7 @@ def _card_to_dict(card: ThesisCard) -> dict[str, Any]:
     d = asdict(card)
     for key in ("falsification_triggers", "trim_triggers",
                 "do_not_sell_just_because", "evidence_gaps",
-                "expected_omissions"):
+                "expected_omissions", "advisory_gaps"):
         d[key] = list(d.get(key, []))
     # Every ThesisEvidence dict must carry its citation_id (computed in
     # __post_init__; never empty after construction).
@@ -216,9 +217,15 @@ def _render_section(title: str, rows: list[DisciplineRow]) -> str:
         return f"## {title}\n\n（无）\n"
     lines = [f"## {title}\n"]
     for r in rows:
+        advisory_suffix = (
+            " ｜ 证据缺口：核心持仓券商覆盖不足"
+            if "top_holdings_broker_thin" in getattr(r, "advisory_gaps", ())
+            else ""
+        )
         lines.append(
             f"- **{r.instrument_id} {r.name_cn}** "
-            f"｜ {r.opportunity_state} ｜ dca={r.dca_action} ｜ risk={r.risk_action} "
+            f"｜ {r.opportunity_state} ｜ dca={r.dca_action} ｜ risk={r.risk_action}"
+            f"{advisory_suffix} "
             f"｜ {r.note_cn}"
         )
         # Item 007 D3a: nested thesis_evidence bullets (top-3 via select_citations).
