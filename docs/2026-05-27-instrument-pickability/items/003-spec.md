@@ -58,9 +58,9 @@ Each criterion is independently verifiable by a single test (or a single grep ov
 
 10. **AC10 — Execution-line prefix is composed at memo_cmd, not template.** Following the FP "effects at edges" rule, `template.py::_render_execution_section` accepts the `execution_lines` tuple verbatim (no logic added). The prefix is **prepended in `memo_cmd.py::_build_execution_lines`** (or its existing equivalent) where the projection rows from AC6 are already in scope. `template.py` remains a pure shape renderer over strings — no premium awareness. Test: `_render_execution_section` is fed two strings, one pre-prefixed and one not, and emits them verbatim wrapped in markers.
 
-11. **AC11 — Picks-table column lock migration.** The previous run's item 003 introduced a 12-column lock (`代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | 主要理由 | 单次定投上限 | 触发状态 | 证据`). This spec **extends** the lock to 13 columns by inserting `溢价` before `触发状态`. The fixture file `tests/integration/test_publishable_set_lockdown.py` (and any sibling lockdown fixture under `tests/integration/`) is migrated **in the same commit** as the production code change — no two-step migration. Test: the existing publishable-set lockdown two-run byte-equality assertion passes against the new 13-column header. A separate test asserts the column order in `render_picks_table` is exactly `[代码, 名称, 角色, 权重上限, 综合分*, 决策, 机会状态, 本期行动, 主要理由, 单次定投上限, 溢价, 触发状态, 证据]`.
+11. **AC11 — Picks-table column lock migration.** The previous run's item 003 introduced a 12-column lock (`代码 | 名称 | 角色 | 权重上限 | 综合分* | 决策 | 机会状态 | 本期行动 | 主要理由 | 单次定投上限 | 触发状态 | 证据`). This spec **extends** the lock to 13 columns by inserting `溢价` before `触发状态`. The canonical column-order lock lives at **`tests/memo/test_picks_table.py::test_picks_table_header_contains_tranche_cap_and_trigger_status_columns` (lines 285–301)**, which currently asserts `cols.index("触发状态") == cols.index("单次定投上限") + 1` and `cols.index("证据") == cols.index("触发状态") + 1`. This assertion is migrated **in the same commit** as the production code change to walk `单次定投上限 → 溢价 → 触发状态 → 证据`. ~~The fixture file `tests/integration/test_publishable_set_lockdown.py` (and any sibling lockdown fixture under `tests/integration/`) is migrated **in the same commit** as the production code change — no two-step migration.~~ (Strikethrough correction: the integration `test_publishable_set_lockdown.py` does NOT directly assert the picks-table column count — it asserts two-run byte equality of `memo.md` against a regenerated baseline, which will absorb the new column row automatically once `render_picks_table` produces it. No fixture file edit is needed there; the two-run byte-equality assertion is the regression coverage.) Test: a unit test asserts the column order in `render_picks_table` is exactly `[代码, 名称, 角色, 权重上限, 综合分*, 决策, 机会状态, 本期行动, 主要理由, 单次定投上限, 溢价, 触发状态, 证据]`.
 
-12. **AC12 — Backwards compatibility for the 21 PickRow call sites.** The new field defaults to `None` on `PickRow`. All existing `PickRow(...)` constructions (test fixtures, helpers in `memo/picks_table.py`, the production builder in `memo_cmd.py`) keep working without keyword migration. Test: `PickRow(instrument_id="x", name_cn="X", asset_class="cn_etf", role="r", target_weight=0.01, composite_score=50.0, opportunity_state="small_watch", dca_action="hold", risk_action="hold", one_line_reason="...")` succeeds with `qdii_premium_pct == None`.
+12. **AC12 — Backwards compatibility for the ~~21~~ 34 PickRow call sites.** The new field defaults to `None` on `PickRow`. All existing `PickRow(...)` constructions (verified count: 2 production sites in `src/irc/` + 32 in `tests/`) keep working without keyword migration. Test: `PickRow(instrument_id="x", name_cn="X", asset_class="cn_etf", role="r", target_weight=0.01, composite_score=50.0, opportunity_state="small_watch", dca_action="hold", risk_action="hold", one_line_reason="...")` succeeds with `qdii_premium_pct == None`.
 
 13. **AC13 — `qdii_premium_too_high` code-name unification.** The new code does NOT introduce `qdii_premium_high` — the existing `qdii_premium_too_high` from `decision/gates.py::compute_blocking_reasons` is used in the §7 prefix, the §6 line marker, and the `qdii_premium.json::blocking` flag. The MASTER-SPEC row 003's text "hard `qdii_premium_high` gate" is interpreted as colloquial language, not a literal new identifier. Test: a grep over `src/irc/` for the literal token `qdii_premium_high` returns zero matches (the existing `qdii_premium_too_high` is the one and only canonical name).
 
@@ -157,3 +157,70 @@ Each Q is the question asked during brainstorming; A is the auto-accepted answer
   **A:** None blocking. Two soft items for the run's CHANGELOG.md:
   - The 3-watched-above-threshold gap (NG2) — explicitly out of scope; the artefact carries them so the follow-up is a pure rendering change.
   - The 161716 asset_class tagging (Q8) — note that the universe metadata may be misleading (a LOF with both NAV subscription AND on-exchange ticker is tagged `us_etf` + `cn_off_exchange`); not this item's concern, but worth a glossary footnote so the next item that touches universe metadata doesn't re-trip the same ambiguity.
+
+## Resolved decisions (grill pass, 2026-05-27)
+
+Auto-accepted answers from the grill-with-docs session. Each Q is a question the spec ambiguously answered (or didn't); A locks the canonical decision and points at the code/doc that enforces it.
+
+- **G-Q1: Where exactly is the picks-table column count locked?**
+  **A:** `tests/memo/test_picks_table.py::test_picks_table_header_contains_tranche_cap_and_trigger_status_columns` (lines 285–301) asserts the column-order chain `主要理由 → 单次定投上限 → 触发状态 → 证据` via three `cols.index(...) == cols.index(prev) + 1` chains. The migration extends the chain to four checks: `主要理由 → 单次定投上限 → 溢价 → 触发状态 → 证据`. The integration `test_publishable_set_lockdown.py` does NOT lock the column count directly — it locks two-run byte equality of the rendered memo, which absorbs the new column automatically once `render_picks_table` produces it. AC11 strikethrough applied to remove the incorrect fixture-edit claim.
+
+- **G-Q2: Where exactly is the `qdii_premium.json` projection consumed in §6, and how does the marker block compose?**
+  **A:** `compose_fx_qdii_lines` in `src/irc/memo/diagnostics.py:136` keeps its 3-tuple return shape `(header, premium_block, hedge)`. When `qdii_premium_rows` is supplied AND non-empty, `premium_block` becomes a single newline-separated string wrapped in `<!-- IRC_QDII_PREMIUM_BEGIN -->` / `<!-- IRC_QDII_PREMIUM_END -->`:
+  ```
+  <!-- IRC_QDII_PREMIUM_BEGIN -->
+  溢价/折价：QDII 候选标的二级市场偏离快照（数据截止 {evidence_cutoff}，阈值 {threshold_pct*100:.0f}%）：
+   - 513690 港股红利ETF博时：-0.34%
+   - 159501 标普消费ETF：+6.92%（超阈值，已暂缓执行）
+  <!-- IRC_QDII_PREMIUM_END -->
+  ```
+  Rows sorted by `instrument_id` ASC (same ordering as the JSON projection). The whole block is element [1] of the returned tuple so the existing `_compose_fx_qdii_lines` call site in `memo_cmd.py` needs no restructuring. Empty / None projection → element [1] keeps the legacy "数据未采集——请在交易前查阅各 QDII 二级市场溢价。" placeholder. (Note: the marker pair belongs to `qdii_premium_lines.py` as the producing module — `diagnostics.py` imports `QDII_PREMIUM_MARKER_BEGIN/END` constants. This matches the producing-module pattern from CONTEXT.md "`IRC_CONCENTRATION_BEGIN/END` marker".)
+
+- **G-Q3: §7 prefix exact format — does it compose with the existing trigger_status?**
+  **A:** Yes. Existing §7 bullet (per `_compose_execution_lines` in `memo_cmd.py:155–209`) is `**{label}** | 目标权重 ≤ {weight*100:.1f}% | 建仓方式 {buy_method} ({granularity}) | 触发 {triggers} | 渠道 {venue_note}`. The new prefix is prepended verbatim INSIDE the bullet body (after the leading `- `, before the `**{label}**`):
+  ```
+  - ⛔ qdii_premium_too_high（{render_cell} > {threshold_pct*100:.0f}%，已暂缓）｜**{label}** | 目标权重 ≤ ... | 触发 ... | 渠道 ...
+  ```
+  Separator is `｜` (full-width vertical bar U+FF5C) to visually distinguish from the existing `|` (half-width) column separators in the rest of the bullet. The prefix is composed at `memo_cmd.py` level (where the QDII projection rows are in scope), NOT at `template.py::_render_execution_section` (which stays a pure shape renderer per AC10 + FP "effects at edges").
+
+- **G-Q4: Off-exchange `0.00%（场外申赎）` cell — is the longer form really better than `—`?**
+  **A:** Yes — confirmed and locked. `—` would imply "data missing" and trigger operator anxiety; the synthetic-zero IS the economically-correct value (off-exchange feeders transact at NAV by construction per CONTEXT.md "Off-exchange synthetic-zero premium policy"). The `（场外申赎）` suffix (full-width parens) is the disambiguation channel. Six extra CJK characters in one cell is the right cost.
+
+- **G-Q5: Empty-case for `qdii_premium.json` — always written or omitted?**
+  **A:** Always written with `rows: []`. The "always-written invariant" makes monitoring deterministic — a missing file becomes a build error, not "no QDII this week." Schema fields `generated_at`, `threshold_pct`, `evidence_cutoff` are still populated; only `rows` is empty. Cost: ~150 bytes per run on weeks with no QDII candidates. AC6 already mandates this (re-reading: "the artefact is keyed by all rows whose `qdii_premium_pct is not None` in scoring" → when zero such rows exist, `rows: []`).
+
+- **G-Q6: Top-level vs `data/` subdir — is the top-level placement consistent with the convention?**
+  **A:** Yes. Verified inventory of `outputs/2026-05-27/` at grill time:
+  ```
+  citation_audit.json    discipline_report.md      gold_band.yaml
+  gold_regime.json       memo_blocked.md           memo_traceability.json
+  opportunity_report.json proposed_allocation.yaml rejections.json
+  scoring.json           thesis_cards.yaml         trade_plan.yaml
+  ```
+  Plus `discovered_watchlist.csv`, `discovery_diagnostics.csv`, `discovery_rejections.csv`. Zero `data/` subdir at output-time. `data/` is reserved for the DuckDB cache (`data/fundamentals/{quarter}/...`) at repo-root level, NOT for per-date memo outputs. Top-level placement is the convention; Q10 answer stands.
+
+- **G-Q7: Rule-of-three test for ADR 0006 — does all three trigger?**
+  **A:** Yes — created. All three legs pass:
+  - **Hard to reverse**: 13-column lock + lockdown migration; top-level `qdii_premium.json` establishes a downstream contract; both require a second migration to walk back. PASS.
+  - **Surprising without context**: `0.00%（场外申赎）` vs `—` rendering split; `qdii_premium_unknown` vs `qdii_premium_too_high` dual existence; memo-time projection vs re-fetch choice — all surprising six months out without an ADR pointing back to ADR 0002 §5 F6 and CONTEXT.md "QDII premium-to-NAV". PASS.
+  - **Real tradeoff**: column-add vs cell-overload (AC2 vs Q9 alternative); §7 prefix vs §5 column (AC9 vs Q9); top-level vs `data/` (Q10); empty file vs omit (G-Q5). All documented with rationale. PASS.
+  ADR file: `docs/adr/0006-qdii-premium-memo-surface.md`.
+
+- **G-Q8: ADR 0002 §5 F6 cross-reference — accurate?**
+  **A:** Yes. ADR 0002 §5 F6 (lines 150–151) documents the existing fetcher `fetch_qdii_premium_pct` and explicitly notes "the fetcher's output is a scalar score-row field (`qdii_premium_pct`), not a `ThesisEvidence` record — it feeds the decision-stage `qdii_premium_too_high` gate, not the dual-coverage gate." This ADR 0006 closes the memo-rendering loop on top of that — no contradiction; ADR 0002 §5 F6 stays accurate.
+
+- **G-Q9: CONTEXT.md additions — what new terms?**
+  **A:** Four new entries under "QDII premium-to-NAV":
+  - `QDII_PREMIUM_THRESHOLD_PCT` (re-export alias bound to `QDII_MAX_PREMIUM_DEFAULT`)
+  - 溢价 column (13th picks-table column)
+  - `qdii_premium.json` projection (top-level artefact)
+  - `IRC_QDII_PREMIUM_BEGIN/END` marker (deterministic §6 marker block)
+
+  All four added in this grill pass; each cross-references ADR 0006.
+
+- **G-Q10: PickRow call-site count — is the "21" figure in AC12 accurate?**
+  **A:** No — verified count via `grep -rn "PickRow(" src/irc/ tests/` is **2 production + 32 test = 34 call sites**. AC12 text corrected via strikethrough to reflect the actual count. Backwards-compat claim (default `None` keeps all sites green) stays unchanged.
+
+- **G-Q11: `name_cn` availability for the projection — is it in scope at projection-build time?**
+  **A:** Yes. `_build_pick_rows` in `commands/memo_cmd.py` already reads `name_cn` from `opportunity_rows` (which mirror `opportunity_report.json` rows) before constructing each `PickRow`. The projection helper `_compose_qdii_premium_projection` reads from the same `opportunity_rows` + `score_rows` pair the rest of `_build_pick_rows` consumes — no new I/O path, no DuckDB lookup, no live fetch.
+
