@@ -350,3 +350,104 @@ def test_compute_concentration_pairs_two_argument_orderings_byte_equal():
     a = _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0)))
     b = _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 12.0)))
     assert compute_concentration_pairs((a, b)) == compute_concentration_pairs((b, a))
+
+
+def _pick(iid: str, name: str):
+    """Helper: minimal PickRow."""
+    from irc.memo.picks_table import PickRow
+    return PickRow(
+        instrument_id=iid, name_cn=name, asset_class="cn_equity_fund",
+        role="alpha", target_weight=0.05, composite_score=70.0,
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", one_line_reason="x",
+    )
+
+
+def test_compose_concentration_lines_returns_empty_when_no_pair_qualifies():
+    """AC9 empty case: no marker block emitted, no §6 lines at all."""
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    pick_rows = [_pick("A", "甲"), _pick("B", "乙")]
+    op_rows_by_id = {
+        "A": _op_row("A", "甲", (_analysis("X", 5.0),)),
+        "B": _op_row("B", "乙", (_analysis("Y", 5.0),)),
+    }
+    assert _compose_concentration_lines(pick_rows, op_rows_by_id) == ()
+
+
+def test_compose_concentration_lines_emits_marker_block_when_pair_qualifies():
+    """AC9: marker-wrapped tuple with header + one bullet per pair."""
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    pick_rows = [_pick("008382", "融通产业趋势股票"),
+                 _pick("008555", "华商龙头优势混合")]
+    op_rows_by_id = {
+        "008382": _op_row("008382", "融通产业趋势股票", (
+            _analysis("300502", 20.0), _analysis("300308", 15.0),
+        )),
+        "008555": _op_row("008555", "华商龙头优势混合", (
+            _analysis("300502", 18.0), _analysis("300308", 14.0),
+        )),
+    }
+    lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    assert lines
+    joined = "\n".join(lines)
+    assert "<!-- IRC_CONCENTRATION_BEGIN -->" in joined
+    assert "<!-- IRC_CONCENTRATION_END -->" in joined
+    assert "持仓集中度（Top-10 加权重合 ≥ 30%）" in joined
+    assert "008382 融通产业趋势股票" in joined
+    assert "008555 华商龙头优势混合" in joined
+    assert "加权重合" in joined
+    # Body bullet format per AC9.
+    assert "↔" in joined
+    assert "共同持仓" in joined
+
+
+def test_compose_concentration_lines_skips_picks_missing_from_op_rows():
+    """AC7: pick lookup tolerates missing op rows (e.g. venue proxy that
+    doesn't appear in opportunity_report.json) — they cannot contribute."""
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    pick_rows = [_pick("A", "甲"), _pick("missing", "缺失")]
+    op_rows_by_id = {
+        "A": _op_row("A", "甲", (_analysis("X", 20.0),)),
+    }
+    assert _compose_concentration_lines(pick_rows, op_rows_by_id) == ()
+
+
+def test_compose_concentration_lines_caps_shared_symbols_at_5_with_ellipsis():
+    """AC9: sym_list capped at 5 symbols with `...` when more than 5 exist."""
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    # Six shared symbols, each weighted heavily on both sides.
+    syms = ["A1", "A2", "A3", "A4", "A5", "A6"]
+    analyses_a = tuple(_analysis(s, 6.0) for s in syms)
+    analyses_b = tuple(_analysis(s, 6.0) for s in syms)
+    pick_rows = [_pick("X", "甲"), _pick("Y", "乙")]
+    op_rows_by_id = {
+        "X": _op_row("X", "甲", analyses_a),
+        "Y": _op_row("Y", "乙", analyses_b),
+    }
+    lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    joined = "\n".join(lines)
+    # First 5 ASC: A1/A2/A3/A4/A5; A6 elided.
+    assert "A1/A2/A3/A4/A5..." in joined
+    assert "（6 只）" in joined
+
+
+def test_compose_concentration_lines_renders_at_top_of_six_bullets_format():
+    """AC9: body bullet format exactly matches the spec template."""
+    from irc.commands.memo_cmd import _compose_concentration_lines
+    pick_rows = [_pick("A", "甲"), _pick("B", "乙")]
+    op_rows_by_id = {
+        "A": _op_row("A", "甲", (
+            _analysis("X", 20.0), _analysis("Y", 15.0),
+        )),
+        "B": _op_row("B", "乙", (
+            _analysis("X", 18.0), _analysis("Y", 12.0),
+        )),
+    }
+    lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    body = [
+        ln for ln in lines
+        if ln.startswith("- ")
+    ]
+    assert len(body) == 1
+    # Exact format: `- {id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`
+    assert body[0] == "- A 甲 ↔ B 乙：加权重合 30.0%，共同持仓 X/Y（2 只）"

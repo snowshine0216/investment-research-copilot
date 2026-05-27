@@ -261,6 +261,63 @@ def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
     return (EVIDENCE_GAP_MARKER_BEGIN, body, EVIDENCE_GAP_MARKER_END)
 
 
+def _format_concentration_bullet(pair) -> str:
+    """One bullet per pair per AC9 template:
+    `- {id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`.
+
+    `syms` joins shared_symbols with `/`, capped at 5 followed by `...`
+    when more exist (sorted ASC by AC5).
+    """
+    n = len(pair.shared_symbols)
+    head = pair.shared_symbols[:5]
+    suffix = "..." if n > 5 else ""
+    syms = "/".join(head) + suffix
+    return (
+        f"- {pair.instrument_id_a} {pair.name_cn_a} ↔ "
+        f"{pair.instrument_id_b} {pair.name_cn_b}："
+        f"加权重合 {pair.overlap_pct:.1f}%，共同持仓 {syms}（{n} 只）"
+    )
+
+
+def _compose_concentration_lines(
+    pick_rows: list[PickRow],
+    op_rows_by_id: dict,
+) -> tuple[str, ...]:
+    """Compose the §6 风险提示 持仓集中度 marker block (item 002 AC9).
+
+    Looks up each `PickRow.instrument_id` in `op_rows_by_id` (built by the
+    caller from the same `opportunity_rows` already in scope per AC7 /
+    grill Q11 — NOT inside this helper, NOT cached on a module-level
+    global). Active-fund-only because `compute_concentration_pairs`
+    silently skips rows with empty `constituent_analyses` (AC6).
+
+    Empty result (zero qualifying pairs) → no marker block emitted at all,
+    mirroring the `IRC_EVIDENCE_GAP_*` empty-case (AC9). Pure.
+    """
+    from irc.memo.concentration import (
+        CONCENTRATION_MARKER_BEGIN,
+        CONCENTRATION_MARKER_END,
+        CONCENTRATION_OVERLAP_PCT_THRESHOLD,
+        compute_concentration_pairs,
+    )
+    candidates = tuple(
+        op_rows_by_id[r.instrument_id]
+        for r in pick_rows
+        if r.instrument_id in op_rows_by_id
+    )
+    pairs = compute_concentration_pairs(candidates)
+    if not pairs:
+        return ()
+    header = (
+        f"持仓集中度（Top-10 加权重合 ≥ "
+        f"{CONCENTRATION_OVERLAP_PCT_THRESHOLD:.0f}%）："
+        "以下候选标的实质表达相近的底层敞口，触发条件成立后只应择一执行；"
+        "同时持有将放大单一主题回撤风险。"
+    )
+    body_lines = [_format_concentration_bullet(p) for p in pairs]
+    return (CONCENTRATION_MARKER_BEGIN, header, *body_lines, CONCENTRATION_MARKER_END)
+
+
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
