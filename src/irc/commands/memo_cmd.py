@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+from collections.abc import Sequence
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -57,6 +58,11 @@ from irc.decision.sizing import suggest_tranche_pct
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 from irc.memo.numeric_audit import find_missing_pick_citations, find_uncited_conclusions
+from irc.memo.qdii_premium_lines import (
+    build_qdii_premium_projection,
+    format_qdii_premium_prefix,
+    write_qdii_premium_snapshot,
+)
 from irc.opportunity.citation_map import build_cited_map, build_constituent_cited_map
 
 
@@ -157,6 +163,8 @@ def _compose_execution_lines(
     opportunity_rows: list[dict],
     extra_names: dict[str, str] | None = None,
     require_opportunity_row: bool = False,
+    *,
+    qdii_premium_rows: Sequence[dict] | None = None,
 ) -> tuple[str, ...]:
     """Build one bullet per trade row for memo section 7.
 
@@ -176,6 +184,12 @@ def _compose_execution_lines(
     extra_names = extra_names or {}
     name_by_id = {str(r.get("instrument_id")): r.get("name_cn", "")
                   for r in opportunity_rows}
+    prefix_by_iid: dict[str, str] = {}
+    for r in (qdii_premium_rows or ()):
+        iid = str(r.get("instrument_id") or "")
+        prefix = format_qdii_premium_prefix(r)
+        if iid and prefix:
+            prefix_by_iid[iid] = prefix
     lines: list[str] = []
     for t in trades:
         iid = str(t.get("target", ""))
@@ -200,12 +214,13 @@ def _compose_execution_lines(
             triggers = formatted[0]
         else:
             triggers = "满足任一：" + "；".join(formatted)
-        bullet = (
+        bullet_body = (
             f"**{label}** | 目标权重 ≤ {weight*100:.1f}% | "
             f"建仓方式 {t.get('buy_method', 'unknown')} ({t.get('granularity', 'default')}) | "
             f"触发 {triggers} | 渠道 {venue_note}"
         )
-        lines.append(bullet)
+        qdii_prefix = prefix_by_iid.get(iid, "")
+        lines.append(qdii_prefix + bullet_body)
     return tuple(lines)
 
 
@@ -321,6 +336,37 @@ def _compose_concentration_lines(
     )
     body_lines = [_format_concentration_bullet(p) for p in pairs]
     return (CONCENTRATION_MARKER_BEGIN, header, *body_lines, CONCENTRATION_MARKER_END)
+
+
+def _coerce_optional_float(value: object) -> float | None:
+    """Best-effort optional float; None or unparseable → None."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _utc8_now() -> datetime:
+    """UTC+8 clock; centralised so the writer is testable via stubs."""
+    return datetime.now(timezone(timedelta(hours=8)))
+
+
+def _compose_qdii_premium_projection(
+    scoring: dict,
+    *,
+    evidence_cutoff: str | None,
+) -> dict:
+    """Build the projection consumed by §6 marker block, §7 prefix, and
+    the `qdii_premium.json` artefact (AC6 / AC14). Pure — clock injected
+    via the local _utc8_now closure for two-run byte equality."""
+    score_rows = list(scoring.get("scores") or [])
+    return build_qdii_premium_projection(
+        score_rows,
+        evidence_cutoff=evidence_cutoff,
+        now_fn=_utc8_now,
+    )
 
 
 def _today() -> str:
@@ -725,6 +771,7 @@ def _build_pick_rows(
             advisory_gaps=_parse_advisory_gaps(
                 op.get("advisory_gaps"), instrument_id=str(iid_raw),
             ),
+            qdii_premium_pct=_coerce_optional_float(sc.get("qdii_premium_pct")),
         ))
 
     return pick_rows, absent, gapped
@@ -871,7 +918,18 @@ def run_memo(repo_root: str) -> int:
     if _usd_tol and len(_usd_tol) >= 2:
         usd_tol_pair = (float(_usd_tol[0]), float(_usd_tol[1]))
     fx_policy = getattr(getattr(bundle.preferences, "fx_hedge", None), "policy", None)
-    fx_lines = compose_fx_qdii_lines(alloc, usd_tol_pair, fx_hedge_policy=fx_policy)
+    # Item 003 (instrument-pickability): build the QDII premium projection
+    # once at this dependency-injection edge so §6, §7, and qdii_premium.json
+    # all use the same data (AC6 / AC7 / AC14 / G-Q5).
+    qdii_projection = _compose_qdii_premium_projection(
+        scoring, evidence_cutoff=cutoff,
+    )
+    fx_lines = compose_fx_qdii_lines(
+        alloc, usd_tol_pair,
+        fx_hedge_policy=fx_policy,
+        qdii_premium_rows=qdii_projection["rows"],
+        evidence_cutoff=cutoff,
+    )
     if fx_lines:
         risk_notes = tuple(fx_lines) + risk_notes
     # Role-bucket banner (item 010): adversarial review §E.
@@ -897,6 +955,7 @@ def run_memo(repo_root: str) -> int:
         trades, opportunity.get("rows") or [],
         extra_names=fallback_names,
         require_opportunity_row=True,
+        qdii_premium_rows=qdii_projection["rows"],
     )
 
     # §2: prefer the dynamic macro_summary_md (carries real values + refs);
@@ -925,6 +984,9 @@ def run_memo(repo_root: str) -> int:
 
     out_dir = root / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Item 003 (instrument-pickability): always-written QDII premium
+    # projection artefact (AC6 / G-Q5). Missing file = build error.
+    write_qdii_premium_snapshot(qdii_projection, out_dir=out_dir)
     # Audit-blocking gate (item 009, 2026-05-19): if the auditor returned
     # 审核未通过 OR P-tier 高风险 findings, refuse to publish memo.md;
     # write memo_blocked.md instead and exit non-zero.

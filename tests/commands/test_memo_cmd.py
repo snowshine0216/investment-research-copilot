@@ -127,3 +127,167 @@ def test_decision_status_for_pick_synthetic_zero_passes() -> None:
         score_row, trade, op_row, qdii_max_premium_pct=0.05,
     )
     assert status == "actionable_buy"
+
+
+def test_build_pick_rows_stamps_qdii_premium_pct_from_scoring():
+    """AC1 integration: a hand-rolled scoring row with qdii_premium_pct=0.0648
+    produces a PickRow whose qdii_premium_pct == 0.0648."""
+    from irc.commands.memo_cmd import _build_pick_rows
+
+    trades = [{
+        "target": "159501", "role": "satellite_us_consumer",
+        "target_weight": 0.05, "asset_class": "us_etf",
+        "triggers": (), "buy_method": "limit", "granularity": "weekly",
+        "venue_note": "ok",
+    }]
+    opportunity = {"rows": [{
+        "instrument_id": "159501", "name_cn": "标普消费ETF",
+        "asset_class": "us_etf",
+        "evidence_gaps": [],
+        "thesis_evidence": [],
+        "valuation_state": "fair",
+        "opportunity_state": "small_watch",
+        "opportunity_reason": "—",
+        "advisory_gaps": [],
+    }]}
+    scoring = {"scores": [{
+        "instrument_id": "159501",
+        "composite_score": 52.6,
+        "action": "watch",
+        "asset_class": "us_etf",
+        "qdii_premium_pct": 0.0648,
+        "data_completeness": 0.8,
+    }]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, scoring)
+    assert len(pick_rows) == 1
+    assert pick_rows[0].qdii_premium_pct == 0.0648
+
+
+def test_build_pick_rows_non_qdii_leaves_premium_none():
+    """AC1: cn_etf rows (no qdii_premium_pct in scoring) keep the field None."""
+    from irc.commands.memo_cmd import _build_pick_rows
+
+    trades = [{
+        "target": "510300", "role": "core_a_share",
+        "target_weight": 0.10, "asset_class": "cn_etf",
+        "triggers": (), "buy_method": "limit", "granularity": "weekly",
+        "venue_note": "ok",
+    }]
+    opportunity = {"rows": [{
+        "instrument_id": "510300", "name_cn": "沪深300ETF",
+        "asset_class": "cn_etf",
+        "evidence_gaps": [],
+        "thesis_evidence": [],
+        "valuation_state": "fair",
+        "opportunity_state": "core_dca",
+        "opportunity_reason": "—",
+        "advisory_gaps": [],
+    }]}
+    scoring = {"scores": [{
+        "instrument_id": "510300",
+        "composite_score": 55.0,
+        "action": "watch",
+        "asset_class": "cn_etf",
+        "data_completeness": 0.8,
+    }]}
+    pick_rows, _, _ = _build_pick_rows(trades, opportunity, scoring)
+    assert len(pick_rows) == 1
+    assert pick_rows[0].qdii_premium_pct is None
+
+
+def test_memo_cmd_emits_qdii_premium_marker_block_in_risk_notes():
+    """AC7 integration: _compose_qdii_premium_projection builds a valid
+    projection from scoring rows."""
+    from irc.commands.memo_cmd import _compose_qdii_premium_projection
+    from irc.memo.qdii_premium_lines import (
+        QDII_PREMIUM_MARKER_BEGIN,
+        QDII_PREMIUM_MARKER_END,
+    )
+
+    scoring = {"scores": [
+        {"instrument_id": "159501", "name_cn": "标普消费ETF",
+         "asset_class": "us_etf", "qdii_premium_pct": 0.0692},
+        {"instrument_id": "513690", "name_cn": "港股红利ETF博时",
+         "asset_class": "hk_etf", "qdii_premium_pct": -0.0034},
+    ]}
+    proj = _compose_qdii_premium_projection(
+        scoring, evidence_cutoff="2026-05-26",
+    )
+    assert proj["evidence_cutoff"] == "2026-05-26"
+    iids = [r["instrument_id"] for r in proj["rows"]]
+    assert iids == ["159501", "513690"]
+    # blocking flag correct
+    by_iid = {r["instrument_id"]: r for r in proj["rows"]}
+    assert by_iid["159501"]["blocking"] is True
+    assert by_iid["513690"]["blocking"] is False
+
+
+def test_compose_execution_lines_prefixes_above_threshold_qdii():
+    """AC9 / G-Q3: a pick with blocking=True receives the
+    `⛔ qdii_premium_too_high（{cell} > 5%，已暂缓）｜` prefix."""
+    from irc.commands.memo_cmd import _compose_execution_lines
+
+    trades = [
+        {"target": "159501", "target_weight": 0.05,
+         "buy_method": "limit", "granularity": "weekly",
+         "triggers": [], "venue_note": "ok"},
+        {"target": "513690", "target_weight": 0.05,
+         "buy_method": "limit", "granularity": "weekly",
+         "triggers": [], "venue_note": "ok"},
+    ]
+    opportunity_rows = [
+        {"instrument_id": "159501", "name_cn": "标普消费ETF"},
+        {"instrument_id": "513690", "name_cn": "港股红利ETF博时"},
+    ]
+    qdii_premium_rows = [
+        {"instrument_id": "159501", "blocking": True, "render_cell": "+6.92%"},
+        {"instrument_id": "513690", "blocking": False, "render_cell": "-0.34%"},
+    ]
+    lines = _compose_execution_lines(
+        trades, opportunity_rows,
+        qdii_premium_rows=qdii_premium_rows,
+    )
+    assert any(l.startswith("⛔ qdii_premium_too_high（+6.92% > 5%，已暂缓）｜")
+               for l in lines)
+    # 513690 (non-blocking) line gets no prefix.
+    line_513690 = next(l for l in lines if "513690" in l)
+    assert not line_513690.startswith("⛔")
+
+
+def test_no_qdii_premium_high_synonym_in_src():
+    """AC13: codename unification — `qdii_premium_high` must NOT appear
+    anywhere in src/irc/. The canonical name is `qdii_premium_too_high`."""
+    import subprocess
+    result = subprocess.run(
+        ["grep", "-rn", "qdii_premium_high", "src/irc/"],
+        capture_output=True, text=True,
+        cwd="/Users/snow/Documents/Repository/investment-research-copilot",
+    )
+    # grep returns 1 when no matches — that's the success path.
+    assert result.returncode == 1, (
+        f"Unexpected `qdii_premium_high` token in src/:\n{result.stdout}"
+    )
+
+
+def test_run_memo_writes_qdii_premium_json_always(tmp_path):
+    """AC6 / G-Q5: qdii_premium.json is written on every memo run, even
+    when zero QDII rows exist."""
+    import json
+    from irc.memo.qdii_premium_lines import (
+        QDII_PREMIUM_THRESHOLD_PCT,
+        build_qdii_premium_projection,
+        write_qdii_premium_snapshot,
+    )
+
+    proj = build_qdii_premium_projection(
+        score_rows=[],
+        evidence_cutoff="2026-05-26",
+        now_fn=lambda: __import__("datetime").datetime(2026, 5, 27),
+    )
+    write_qdii_premium_snapshot(proj, out_dir=tmp_path)
+    assert (tmp_path / "qdii_premium.json").exists()
+    payload = json.loads(
+        (tmp_path / "qdii_premium.json").read_text(encoding="utf-8")
+    )
+    assert payload["threshold_pct"] == QDII_PREMIUM_THRESHOLD_PCT
+    assert payload["rows"] == []
