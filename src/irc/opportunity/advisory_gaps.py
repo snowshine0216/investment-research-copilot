@@ -33,10 +33,14 @@ def _has_broker_empty(analysis: ConstituentAnalysis) -> bool:
 def _top_n_by_weight(
     snapshot: ActiveFundSnapshot, n: int = _TOP_N,
 ) -> tuple[ConstituentAnalysis, ...]:
-    """Return the Top-N constituents by weight_pct descending."""
+    """Return the Top-N constituents by weight_pct descending, symbol ASC on tie.
+
+    The secondary `c.symbol` key keeps AC12 (two-run byte equality) stable
+    when AkShare returns equal-weight holdings in different orders.
+    """
     ranked = sorted(
         snapshot.constituent_analyses,
-        key=lambda c: -c.weight_pct,
+        key=lambda c: (-c.weight_pct, c.symbol),
     )
     return tuple(ranked[:n])
 

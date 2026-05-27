@@ -58,3 +58,29 @@ def test_stable_partition_preserves_order_when_all_advisory():
     ]
     partitioned = _apply_advisory_partition(rows)
     assert [r.instrument_id for r in partitioned] == ["A", "B"]
+
+
+def test_stable_partition_does_not_demote_unknown_advisory_codes():
+    """AC8: demotion is specific to `top_holdings_broker_thin`.
+
+    Any future advisory code added to `ADVISORY_GAP_CODES` must not silently
+    inherit the §5 pick-ordering demotion — that's a separate design decision
+    per ADR 0005. This test pins the membership-check semantic against the
+    over-broad `not r.advisory_gaps` check.
+
+    Input order is [B-unknown, A-clean, C-broker_thin] specifically so that the
+    over-broad check (current bug) produces a different order than the
+    membership check (the fix). The over-broad check would demote B and C
+    together, yielding [A, B, C]; the correct fix keeps B in its slot,
+    yielding [B, A, C].
+    """
+    from irc.commands.memo_cmd import _apply_advisory_partition
+
+    rows = [
+        _pick("B", advisory=("hypothetical_future_code",)),  # unknown advisory
+        _pick("A"),  # non-advisory
+        _pick("C", advisory=("top_holdings_broker_thin",)),  # demoting code
+    ]
+    partitioned = _apply_advisory_partition(rows)
+    # B keeps its leading position; only C is demoted to tail.
+    assert [r.instrument_id for r in partitioned] == ["B", "A", "C"]

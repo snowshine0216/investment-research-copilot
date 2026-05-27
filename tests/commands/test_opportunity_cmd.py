@@ -378,6 +378,58 @@ def test_discipline_row_from_propagates_evidence_gaps_and_thesis_evidence():
     assert drow.fetch_types_attempted == ()
 
 
+def test_discipline_row_from_propagates_advisory_gaps():
+    """P0 fix: _discipline_row_from must propagate `advisory_gaps` so the
+    discipline_report.md header suffix (AC9) renders.
+
+    Without this, the §6 memo advisory and §5 demotion fire correctly but
+    the discipline report — the document the user consults for ongoing
+    position management — silently shows no warning. The user sees a
+    cleaner risk picture than the data warrants.
+    """
+    from irc.commands.opportunity_cmd import _discipline_row_from
+    from irc.opportunity.discipline import PositionContext
+    from irc.opportunity.types import LookthroughTarget, OpportunityRow
+
+    row = OpportunityRow(
+        instrument_id="005827", name_cn="x",
+        asset_class="cn_equity_fund", theme="growth",
+        lookthrough_target=LookthroughTarget("active_fund", "005827", "x"),
+        valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", opportunity_reason="r",
+        evidence_gaps=(),
+        advisory_gaps=("top_holdings_broker_thin",),
+    )
+    drow = _discipline_row_from(row, PositionContext(0.05, 0.0, 0.30, None, True))
+    assert drow.advisory_gaps == ("top_holdings_broker_thin",)
+
+
+def test_reconstruct_opportunity_rows_round_trips_advisory_gaps():
+    """P1 fix: memo's _reconstruct_opportunity_rows must round-trip
+    advisory_gaps from the JSON dict so downstream consumers (current or
+    future) see the field, not a silent default `()`.
+    """
+    from irc.commands.memo_cmd import _reconstruct_opportunity_rows
+
+    rebuilt = [{
+        "instrument_id": "005827", "name_cn": "x",
+        "asset_class": "cn_equity_fund",
+        "lookthrough_target": "x", "lookthrough_kind": "active_fund",
+        "lookthrough_key": "005827",
+        "valuation_state": "fair", "heat_state": "normal",
+        "thesis_state": "intact", "product_quality_state": "acceptable",
+        "opportunity_state": "small_watch", "opportunity_reason": "r",
+        "evidence_gaps": [],
+        "advisory_gaps": ["top_holdings_broker_thin"],
+        "thesis_evidence": [],
+        "constituent_analyses": [],
+    }]
+    rows = _reconstruct_opportunity_rows(rebuilt)
+    assert len(rows) == 1
+    assert rows[0].advisory_gaps == ("top_holdings_broker_thin",)
+
+
 def test_discipline_row_from_passes_through_constituent_analyses():
     """Until item 003 lands, constituent_analyses is empty by default; the
     propagator still threads it (default → default) so the field exists on

@@ -34,7 +34,11 @@ from irc.memo.picks_table import (
     render_failure_sections,
     render_picks_table,
 )
-from irc.memo.template import MemoInputs
+from irc.memo.template import (
+    EVIDENCE_GAP_MARKER_BEGIN,
+    EVIDENCE_GAP_MARKER_END,
+    MemoInputs,
+)
 from irc.memo.pipeline import extract_evidence_cutoff, run_memo_pipeline
 from irc.opportunity.types import ThesisEvidence
 from irc.commands.opportunity_cmd import (
@@ -242,8 +246,6 @@ def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
 
     Empty result when no row qualifies — no markers emitted. Pure.
     """
-    from irc.memo.template import EVIDENCE_GAP_MARKER_BEGIN, EVIDENCE_GAP_MARKER_END
-
     affected = sorted(
         (r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps),
         key=lambda r: r.instrument_id,
@@ -456,6 +458,9 @@ def _reconstruct_opportunity_rows(
             opportunity_state=r.get("opportunity_state", "small_watch"),
             opportunity_reason=r.get("opportunity_reason", ""),
             evidence_gaps=tuple(r.get("evidence_gaps", ())),
+            advisory_gaps=_parse_advisory_gaps(
+                r.get("advisory_gaps"), instrument_id=r["instrument_id"],
+            ),
             thesis_evidence=r["thesis_evidence"]
                 if isinstance(r.get("thesis_evidence"), tuple)
                 else tuple(r.get("thesis_evidence") or ()),
@@ -524,14 +529,42 @@ def _decision_status_for_pick(
     allocation_selected = trade is not None
     return compute_decision_status(score_action, blocking, allocation_selected)
 
-def _apply_advisory_partition(pick_rows: list[PickRow]) -> list[PickRow]:
-    """Stable partition: rows without advisory_gaps first, then rows with.
+def _parse_advisory_gaps(value: object, *, instrument_id: str) -> tuple[str, ...]:
+    """Validate + coerce opportunity.json's `advisory_gaps` field at the boundary.
 
-    Trade-plan iteration order is preserved within each partition (AC8). Pure.
+    Silent coalescing (`x or ()`) would turn a serializer bug into a wrong
+    investment signal: the pick would render in §5 without the 证据缺口 suffix
+    or §6 marker block, and no log would surface the dropped advisory.
+    Refuse explicitly with the instrument_id so the operator can fix the
+    upstream serializer. Pure.
     """
-    non_advisory = [r for r in pick_rows if not r.advisory_gaps]
-    advisory = [r for r in pick_rows if r.advisory_gaps]
-    return non_advisory + advisory
+    if value is None:
+        return ()
+    if not isinstance(value, list):
+        raise ValueError(
+            f"advisory_gaps for {instrument_id!r}: expected list, "
+            f"got {type(value).__name__}={value!r}",
+        )
+    for item in value:
+        if not isinstance(item, str):
+            raise ValueError(
+                f"advisory_gaps for {instrument_id!r}: every element must be str, "
+                f"got {type(item).__name__}={item!r}",
+            )
+    return tuple(value)
+
+
+def _apply_advisory_partition(pick_rows: list[PickRow]) -> list[PickRow]:
+    """Stable partition: demote rows carrying `top_holdings_broker_thin` to tail.
+
+    Membership check (not truthiness) so future advisory codes added to
+    `ADVISORY_GAP_CODES` do not silently inherit §5 pick-ordering demotion —
+    that's a separate per-code design decision per ADR 0005. Trade-plan
+    iteration order is preserved within each partition (AC8). Pure.
+    """
+    non_demoting = [r for r in pick_rows if "top_holdings_broker_thin" not in r.advisory_gaps]
+    demoting = [r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps]
+    return non_demoting + demoting
 
 
 def _build_pick_rows(
@@ -627,7 +660,9 @@ def _build_pick_rows(
             decision_status=decision_status,
             tranche_cap_pct=tranche_cap_pct,
             trigger_status=trigger_status,
-            advisory_gaps=tuple(op.get("advisory_gaps") or ()),
+            advisory_gaps=_parse_advisory_gaps(
+                op.get("advisory_gaps"), instrument_id=iid,
+            ),
         ))
 
     return pick_rows, absent, gapped

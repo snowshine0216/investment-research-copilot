@@ -109,3 +109,19 @@ def test_threshold_constants_are_named():
     )
     assert TOP_HOLDINGS_BROKER_THIN_COUNT_THRESHOLD == 2
     assert TOP_HOLDINGS_BROKER_THIN_WEIGHT_PCT_THRESHOLD == 20.0
+
+
+def test_top_n_by_weight_deterministic_on_equal_weight():
+    """Equal-weight tie-break is by symbol ASC, not insertion order.
+
+    AC12 (two-run byte equality) breaks if AkShare returns constituents in
+    a different order across fetches and the Top-5 set changes.
+    """
+    from irc.opportunity.advisory_gaps import _top_n_by_weight
+    snap = _snap(
+        _analysis("C", 10.0, ()),
+        _analysis("A", 10.0, ()),
+        _analysis("B", 10.0, ()),
+    )
+    top = _top_n_by_weight(snap, n=3)
+    assert [c.symbol for c in top] == ["A", "B", "C"]
