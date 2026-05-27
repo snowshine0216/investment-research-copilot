@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `concentration-panel-overlap` (2026-05-27)
+
+New pure-analytics module `src/irc/memo/concentration.py` computes pairwise
+weighted-overlap of Top-10 holdings across every pair of active-fund picks.
+When a pair's weighted overlap (Σ min(w_A[s], w_B[s])) is ≥30%, a new
+`IRC_CONCENTRATION_BEGIN/END` marker block in §6 风险提示 surfaces the pair
+with its overlap percentage and shared symbols (top-5 shared with elision).
+
+This closes a long-standing gap in the discipline doc: previously the user
+could see five different-looking "growth" funds in the `small_watch` list
+(e.g. 008382 / 008555 / 018956 / 005825 / 519770) whose Top-5 holdings were
+60–80% identical (新易盛 / 中际旭创 / 天孚通信 etc. repeated across all of
+them) — buying 3 of them would have been effectively the same CPO bet 3×.
+The concentration panel now flags this explicitly before execution.
+
+Memo-only: no new `advisory_gaps` code (concentration is a pair-level
+signal, `advisory_gaps` is row-level — ADR 0005 boundary preserved). No
+new I/O, reads cached `OpportunityRow.constituent_analyses`. Two-run byte
+equality maintained.
+
 ### Added — `top-holdings-broker-thin-advisory` (2026-05-27)
 
 New `OpportunityRow.advisory_gaps` field carries a new advisory gap code
