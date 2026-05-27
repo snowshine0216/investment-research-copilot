@@ -5,7 +5,7 @@
 
 | id | title | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| F4 | thesis_news real-content scoring | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F4` | ✅ `245f868` | ✅ | ✅ [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80) | ⏳ | ✅ pass-with-nits | ⏳ | ⏳ | ⏳ |
+| F4 | thesis_news real-content scoring | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F4` | ✅ `245f868` | ✅ | ✅ [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 2 rounds | ✅ `21fb9ca` |
 | F5 | §2 macro research excerpt depth | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | F6 | filings evidence role (drop vs normalize) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -31,6 +31,10 @@
 - F4 drift: [items/F4-drift.md](items/F4-drift.md) — PASS, 2 accepted, 0 unimplemented (commit `2c36df4`)
 - F4 ship: [items/F4-ship.md](items/F4-ship.md) + PR [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80); /ship inline-fixed 1 P1 observability gap (commit `43662e6`); PATCH bump 0.9.0 → 0.9.1
 - F4 review: [items/F4-review.md](items/F4-review.md) — PASS-WITH-NITS (0 blocker / 0 latent after inline fix / 2 nits accepted)
+- F4 verify: [items/F4-verify.md](items/F4-verify.md) — PASS; live `uv run irc run --only score` produced `news coverage: 127/127 instruments`; 10/10 ACs verified (AC #4 measured, no SKIPPED follow-up needed)
+- F4 pr-review: [items/F4-pr-review.md](items/F4-pr-review.md) — round 1 FAIL (citation contamination) → round 2 FAIL (extended scope to geopolitical_stress + over-aggressive stop marker) → round 3 PASS-WITH-NITS (1 nit on gold_cmd._summary_from_theme_report subheading edge case)
+- F4 fix: 2 rounds. Round 1 commit `45c715b` extracted shared `extract_prose_from_report_md` helper + ADR 0007 §3a invariant. Round 2 commit `44e07dc` tightened stop marker to `^##\s*(Citations|References)\b` + extended helper to `geopolitical_stress_from_theme_report` (third call site) + 10 new helper tests.
+- F4 merge: squash commit `21fb9ca` on feature branch (PR #80 squash-merged)
 
 ## Notes
 
