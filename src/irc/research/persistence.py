@@ -11,6 +11,48 @@ from irc.research.synthesize import Citation
 from irc.research.theme_research import ThemeReport
 
 
+import re as _re
+
+_FOOTER_HEADING_RE = _re.compile(r"^##\s*(Citations|References)\b", _re.IGNORECASE)
+
+
+def extract_prose_from_report_md(report_md: str) -> str:
+    """Return only the prose body of a persisted theme-report markdown string.
+
+    Strips the ``# <theme>`` heading and the ``## Citations`` (or
+    ``## References``) footer — and everything after it — so that keyword
+    matching in ``score_thesis_news`` and ``geopolitical_stress_from_theme_report``
+    operates on news *content* only, not on citation titles or URLs.
+
+    Internal ``## <subheading>`` lines (e.g. ``## Key Risks``, ``## Key Drivers``)
+    are preserved verbatim; only the specific footer headings trigger the stop.
+    The no-space variant ``##Citations`` is also treated as a stop marker: it
+    cannot appear in valid prose (``format_report_markdown`` always emits the
+    well-formed ``## Citations``) so passing it through would silently leak
+    citation content.
+
+    This is the single source of truth for prose extraction — called by both
+    ``news_summaries._summary_for_theme``,
+    ``gold_cmd._summary_from_theme_report``, and
+    ``geopolitical_stress.geopolitical_stress_from_theme_report``.
+    ADR 0007 §3a locks the invariant: the keyword rubric must never match
+    citation metadata.
+
+    Pure function: no I/O, no side effects.
+    """
+    prose_lines: list[str] = []
+    for line in report_md.splitlines():
+        stripped = line.strip()
+        # Stop at the Citations / References footer — exact match only.
+        if _FOOTER_HEADING_RE.match(stripped):
+            break
+        # Skip the top-level # <theme> heading
+        if stripped.startswith("#") and not stripped.startswith("##"):
+            continue
+        prose_lines.append(line)
+    return "\n".join(prose_lines).strip()
+
+
 def format_report_markdown(report: ThemeReport) -> str:
     if report.failure_reason:
         return f"# {report.theme}\n\n_research failed: {report.failure_reason}_\n"

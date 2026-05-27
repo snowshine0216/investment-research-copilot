@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `thesis-news-scoring-plumbing` (2026-05-27, F4)
+
+Wires per-instrument research summaries into `thesis_news` scoring so the
+factor actually differentiates picks instead of returning the empty-input
+fallback (`50.0`) for every instrument. The factor function
+`score_thesis_news` already implemented a real keyword-based rubric; the
+gap was in `src/irc/commands/score_cmd.py`, which called `run_scoring`
+with `news_summaries={}` so the call site at `scoring/pipeline.py:117`
+resolved every instrument to `()`.
+
+- New pure module `src/irc/scoring/news_summaries.py` exporting
+  `themes_for_instrument(asset_class) -> tuple[str, ...]` and
+  `build_news_summaries(reports, watchlist) -> dict[str, tuple[str, ...]]`.
+  Theme tuples sorted ASC for determinism (two runs on same inputs →
+  byte-identical scores per ADR 0007 §4).
+- Theme→asset_class mapping locked in `THEMES_BY_ASSET_CLASS` against the
+  real seven `asset_class` values in `config/universe/*.yaml`
+  (`cn_bond_fund`, `cn_equity_fund`, `cn_etf`, `gold`, `hk_etf`,
+  `qdii_global`, `us_etf`).
+- `src/irc/commands/score_cmd.py` now calls `build_news_summaries(...)`
+  and prints a `news coverage: <k>/<N> instruments` line so a zero-
+  coverage run (missing or broken research stage) is immediately
+  visible — required for ADR 0007 §5 "deferred-to-SKIPPED if rubric
+  inadequate" path to be observable.
+
+Empty-input fallback at `factors/thesis_news.py:47` preserved (instruments
+without populated news prose still score 50.0). `derive_thesis_from_evidence`
+unchanged. Keyword-only — no LLM call introduced (deferred to a
+follow-up `F4-followup-llm-rubric` SKIPPED entry if the rubric proves
+inadequate post-deployment). ADR 0007 captures the locked decisions.
+
 ### Added — `qdii-premium-memo-surface` (2026-05-27)
 
 QDII premium-to-NAV data (already computed by an earlier scoring stage

@@ -78,3 +78,57 @@ def test_agreement_substring_in_disagreement_is_not_a_calm_hit():
     not move when only 'disagreement' is present."""
     r = _report(report_md="There is a disagreement between the parties.")
     assert geopolitical_stress_from_theme_report(r) == GEOPOLITICAL_STRESS_DEFAULT
+
+
+# ---------------------------------------------------------------------------
+# Citation-contamination regression (Finding 1, round 2 PR review)
+# ---------------------------------------------------------------------------
+
+def test_stress_keywords_in_citation_titles_do_not_inflate_score():
+    """Regression: geopolitical_stress_from_theme_report must strip citation
+    titles before counting stress/calm hits.
+
+    A report with neutral prose but stress-laden citation titles (e.g.
+    'Russia-Ukraine war sanction tariff strike') must score at the default,
+    not above it.  Pre-fix, the function passed raw report_md (including the
+    '## Citations' section) to _count_hits, causing citation titles to inflate
+    the geo_stress value flowing into compute_gold_score.
+
+    Constructing the report string as format_report_markdown would produce it —
+    i.e. the full persisted form with heading + prose + ## Citations footer.
+    """
+    from irc.research.persistence import format_report_markdown
+    from irc.research.synthesize import Citation
+    from irc.research.theme_research import ThemeReport
+
+    # Neutral prose — should produce default score.
+    # Deliberately avoids any stress OR calm tokens (no "war", "sanction",
+    # "peace", "diplomat", etc.) so the prose itself contributes net=0 hits.
+    prose = "Gold prices rose amid uncertainty about interest rate decisions."
+    # Citation titles saturated with stress keywords
+    citations = [
+        Citation(index=1, title="Russia-Ukraine war escalation sanction tariff", url="https://a.com"),
+        Citation(index=2, title="Strike attack missile conflict invasion", url="https://b.com"),
+        Citation(index=3, title="制裁 冲突 战争 升级 导弹", url="https://c.com"),
+    ]
+    report = ThemeReport(
+        theme="geopolitics", query="q", locale="en",
+        report_md=prose,
+        citations=citations,
+        failure_reason="",
+    )
+    # Build the persisted form (heading + prose + ## Citations section)
+    persisted_md = format_report_markdown(report)
+
+    # Wrap in a ThemeReport with report_md = persisted form (as load_theme_reports produces)
+    persisted_report = ThemeReport(
+        theme="geopolitics", query="q", locale="en",
+        report_md=persisted_md,
+        citations=citations,
+        failure_reason="",
+    )
+    score = geopolitical_stress_from_theme_report(persisted_report)
+    assert score == GEOPOLITICAL_STRESS_DEFAULT, (
+        f"Expected {GEOPOLITICAL_STRESS_DEFAULT} (neutral prose only), got {score}. "
+        "Citation titles are leaking into stress keyword counting."
+    )
