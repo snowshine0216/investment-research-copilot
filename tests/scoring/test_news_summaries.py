@@ -303,3 +303,107 @@ def test_score_cmd_run_score_passes_non_empty_news_summaries_when_research_exist
         f"gold row should map to non-empty news prose; got {ns['518880']!r}"
     )
     assert any("Strong demand for gold" in s for s in ns["518880"])
+
+
+def test_score_cmd_run_score_logs_news_coverage(tmp_path, monkeypatch, capsys):
+    """Observability: score_cmd MUST emit a single coverage line so an
+    operator can tell whether build_news_summaries produced non-empty
+    tuples for any instruments. Without it, a missing or broken research
+    stage silently degrades thesis_news to all-50 with no signal.
+
+    Format: `news coverage: <k>/<N> instruments` (k = non-empty, N = total).
+    """
+    import json
+    from pathlib import Path
+
+    import pandas as pd
+
+    repo_root = tmp_path
+    (repo_root / "outputs" / "2099-01-01").mkdir(parents=True)
+    (repo_root / "data" / "research").mkdir(parents=True)
+    (repo_root / "config").mkdir(exist_ok=True)
+
+    watchlist_df = pd.DataFrame([{
+        "instrument_id": "518880",
+        "ticker": "518880",
+        "name_cn": "黄金ETF",
+        "asset_class": "gold",
+        "market": "cn_on_exchange",
+        "tracked_index": "",
+        "cited_refs": "",
+        "role": "satellite",
+    }])
+    watchlist_df.to_csv(
+        repo_root / "outputs" / "2099-01-01" / "discovered_watchlist.csv",
+        index=False,
+    )
+
+    theme_md = repo_root / "data" / "research" / "gold_drivers.md"
+    theme_md.write_text("# gold_drivers\n\nStrong demand for gold.\n", encoding="utf-8")
+    status = {
+        "generated_at_iso": "2099-01-01T00:00:00+00:00",
+        "overall": "pass",
+        "theme_count": 1,
+        "failure_count": 0,
+        "themes": [{
+            "theme": "gold_drivers",
+            "query": "",
+            "locale": "EN",
+            "report_path": "data/research/gold_drivers.md",
+            "citation_count": 0,
+            "citations": [],
+            "failure_reason": "",
+            "provider_failures": [],
+        }],
+    }
+    (repo_root / "data" / "research" / "research_status.json").write_text(
+        json.dumps(status, ensure_ascii=False), encoding="utf-8",
+    )
+
+    from irc.commands import score_cmd
+
+    monkeypatch.setattr(score_cmd, "_today", lambda: "2099-01-01")
+    monkeypatch.setattr(score_cmd, "_macro_summary", lambda con: "")
+
+    class _StubCon:
+        def execute(self, *a, **kw):  # pragma: no cover
+            class _R:
+                def fetchall(self_inner): return []
+            return _R()
+        def close(self): pass
+
+    monkeypatch.setattr(score_cmd, "connect", lambda path: _StubCon())
+    monkeypatch.setattr(score_cmd, "ensure_schema", lambda con: None)
+    monkeypatch.setattr(
+        score_cmd, "load_scoring_metrics",
+        lambda con, ids: pd.DataFrame([{"instrument_id": iid} for iid in ids]),
+    )
+    monkeypatch.setattr(score_cmd, "resolve_route", lambda task, llm_cfg: None)
+    monkeypatch.setattr(
+        score_cmd, "run_scoring",
+        lambda **kw: {"scores": [{
+            "instrument_id": "518880",
+            "composite_score": 50.0,
+            "action": "hold",
+            "conviction": "low",
+            "factor_breakdown": {},
+            "data_completeness": 0.0,
+            "missing_data": [],
+            "weights_version": "v1",
+        }]},
+    )
+
+    import shutil
+    project_root = Path(__file__).resolve().parents[2]
+    shutil.copytree(project_root / "config", repo_root / "config", dirs_exist_ok=True)
+    shutil.copytree(project_root / "inputs", repo_root / "inputs", dirs_exist_ok=True)
+
+    rc = score_cmd.run_score(str(repo_root))
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "news coverage:" in out, (
+        f"expected 'news coverage:' line in stdout; got: {out!r}"
+    )
+    assert "1/1" in out, (
+        f"expected '1/1 instruments' (the gold row has populated news); got: {out!r}"
+    )

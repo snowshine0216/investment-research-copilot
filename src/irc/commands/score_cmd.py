@@ -65,13 +65,17 @@ def run_score(repo_root: str) -> int:
             symbol=symbol,
         )
 
+    news_summaries = build_news_summaries(
+        reports=load_theme_reports(root),
+        watchlist=watchlist,
+    )
+    populated = sum(1 for v in news_summaries.values() if v)
+    print(f"news coverage: {populated}/{len(news_summaries)} instruments")
+
     out = run_scoring(
         watchlist=watchlist,
         metrics=metrics,
-        news_summaries=build_news_summaries(
-            reports=load_theme_reports(root),
-            watchlist=watchlist,
-        ),
+        news_summaries=news_summaries,
         regime_summary=regime,
         route=route,
         cfg_scoring=bundle.scoring,
