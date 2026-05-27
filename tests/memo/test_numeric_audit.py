@@ -774,21 +774,23 @@ def test_find_uncited_conclusions_ignores_grouped_pause_wait_no_add_phrase() -> 
 
 def test_find_uncited_conclusions_ignores_scoring_footnote_definitions() -> None:
     """The picks-table footnote defines scoring and weight semantics; it is not
-    an executable portfolio conclusion."""
+    an executable portfolio conclusion.
+
+    Locks against the actual ``_SCORING_FOOTNOTE`` constant so that any future
+    extension of the footnote (e.g. Item 003 added the 单次定投上限 /
+    触发状态 explainer on 2026-05-26) is caught here before it halts the memo
+    stage at the citation gate.
+    """
     from irc.memo.numeric_audit import find_uncited_conclusions
-    prose = (
-        "> 综合分由内部多因子模型生成，仅作为辅助参考，不构成投资建议。"
-        "表中权重均为上限约束（≤），非强制建仓目标；"
-        "条件性减速定投在第7节触发条件未满足时实际执行量为零。"
-    )
+    from irc.memo.picks_table import _SCORING_FOOTNOTE
     findings = find_uncited_conclusions(
-        prose=prose,
+        prose=_SCORING_FOOTNOTE,
         cited_map={},
         instrument_aliases={"519770": "519770"},
         constituent_aliases={},
         constituent_cited_map={},
     )
-    assert findings == []
+    assert findings == [], f"footnote tripped audit: {findings}"
 
 
 def test_find_uncited_conclusions_ignores_not_prioritized_for_building() -> None:
