@@ -2,9 +2,9 @@ Verdict: PASS
 Subagent: opus
 Questions resolved: 24
 Docs touched:
-  - CONTEXT.md (commit TBD)
-  - docs/adr/0007-thesis-news-scoring.md (commit TBD)
-Spec refined: items/F4-spec.md (commit TBD)
+  - CONTEXT.md (commit ded282c)
+  - docs/adr/0007-thesis-news-scoring.md (commit ded282c)
+Spec refined: items/F4-spec.md (commit ded282c)
 
 ## Resolved decisions
 
