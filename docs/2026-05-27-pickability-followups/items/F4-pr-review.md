@@ -1,9 +1,7 @@
-Verdict: FAIL
+Verdict: PASS-WITH-NITS
 
-Source: /code-review on PR #80 (round 2 — after fix 45c715b)
-Round 1: FAIL — see commit history; both findings fixed in 45c715b
-Round 2 PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/80#issuecomment-4553837265
-Findings: 3
-  - src/irc/research/geopolitical_stress.py:93 — latent-bug — geopolitical_stress_from_theme_report reads report.report_md verbatim (same citation-contamination class as the round-1 blocker). Citation titles containing 'war', 'sanction', 'escalation', 'ceasefire' falsely shift the geo-stress score: confirmed live — neutral prose + stress citation titles yields geo_stress=0.70 vs correct 0.40. Flows into GoldDriverInputs.geopolitical_stress_0to1 → compute_gold_score. Fix: call extract_prose_from_report_md before _count_hits, same pattern as the two callers already fixed.
-  - src/irc/research/persistence.py:32 — latent-bug — extract_prose_from_report_md stops at ANY '## ' heading, not only '## Citations'. LLM prompt in synthesize.py does not forbid ## subheadings; real LLM output commonly uses '## Key Risks', '## Outlook' etc. A prose block starting with '## Key Drivers\nDemand rising.\n## Key Risks\nEscalation.' returns '' (breaks at first ##), silently feeding score_thesis_news an empty string and producing the neutral-50 fallback the PR aimed to eliminate.
-  - tests/research/test_persistence.py — nit — No dedicated unit tests for the new extract_prose_from_report_md helper. Unexercised edge cases include ##Citations-no-space (citation lines after it leak into prose), ## subheadings in prose body, and failure-report passthrough.
+Source: /code-review on PR #80 (round 3 — after 44e07dc fix)
+Rounds 1+2: FAIL (commits 45c715b + 44e07dc)
+Round 3 PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/80#issuecomment-4553955965
+Findings: 1
+  - src/irc/commands/gold_cmd.py:159 — nit — _summary_from_theme_report can return a raw '## Key Risks' heading as the §2 macro evidence summary. Round-1 removed the `if stripped.startswith("#"): continue` guard because the old extract_prose stopped at all ## lines. Round-2 changed extract_prose to preserve internal ## subheadings, but didn't restore the guard in gold_cmd. If LLM output starts with a subheading before any intro paragraph (common in markdown reports), the loop returns the heading text verbatim.
