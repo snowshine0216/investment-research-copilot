@@ -124,3 +124,67 @@ def test_weighted_overlap_pct_tiebreak_by_symbol_ascending():
     # Both topN slices are S00..S09 (symbol-asc tiebreaker drops S10);
     # intersection = S00..S09; overlap = 10 * 10.0 = 100.0.
     assert weighted_overlap_pct(a, b) == 100.0
+
+
+def test_concentration_pair_is_frozen():
+    """AC5: ConcentrationPair is a frozen dataclass."""
+    from dataclasses import FrozenInstanceError
+    from irc.memo.concentration import ConcentrationPair
+    pair = ConcentrationPair(
+        instrument_id_a="A", instrument_id_b="B",
+        name_cn_a="a", name_cn_b="b",
+        overlap_pct=50.0, shared_symbols=("X",),
+    )
+    try:
+        pair.overlap_pct = 60.0  # type: ignore[misc]
+        raise AssertionError("expected FrozenInstanceError")
+    except FrozenInstanceError:
+        pass
+
+
+def test_make_concentration_pair_sorts_instrument_ids_alphabetically():
+    """AC5: factory enforces instrument_id_a < instrument_id_b (strict)."""
+    from irc.memo.concentration import make_concentration_pair
+    pair = make_concentration_pair(
+        iid_x="510300", name_x="沪深300",
+        iid_y="005827", name_y="易方达蓝筹",
+        overlap_pct_raw=42.5, shared_symbols=("000001", "600519"),
+    )
+    assert pair.instrument_id_a == "005827"
+    assert pair.instrument_id_b == "510300"
+    assert pair.name_cn_a == "易方达蓝筹"
+    assert pair.name_cn_b == "沪深300"
+
+
+def test_make_concentration_pair_argument_order_invariant():
+    """AC5: passing the two funds in either order produces byte-identical pairs."""
+    from irc.memo.concentration import make_concentration_pair
+    p1 = make_concentration_pair(
+        iid_x="A", name_x="甲", iid_y="B", name_y="乙",
+        overlap_pct_raw=64.27, shared_symbols=("X", "Y"),
+    )
+    p2 = make_concentration_pair(
+        iid_x="B", name_x="乙", iid_y="A", name_y="甲",
+        overlap_pct_raw=64.27, shared_symbols=("Y", "X"),
+    )
+    assert p1 == p2
+
+
+def test_make_concentration_pair_rounds_overlap_to_one_decimal():
+    """AC5 / grill Q6: overlap_pct is set ONCE at construction via round(_, 1)."""
+    from irc.memo.concentration import make_concentration_pair
+    pair = make_concentration_pair(
+        iid_x="A", name_x="甲", iid_y="B", name_y="乙",
+        overlap_pct_raw=64.27, shared_symbols=("X",),
+    )
+    assert pair.overlap_pct == 64.3
+
+
+def test_make_concentration_pair_sorts_shared_symbols_ascending():
+    """AC5: shared_symbols sorted ASC (pins determinism on render)."""
+    from irc.memo.concentration import make_concentration_pair
+    pair = make_concentration_pair(
+        iid_x="A", name_x="甲", iid_y="B", name_y="乙",
+        overlap_pct_raw=50.0, shared_symbols=("ZZZ", "AAA", "MMM"),
+    )
+    assert pair.shared_symbols == ("AAA", "MMM", "ZZZ")

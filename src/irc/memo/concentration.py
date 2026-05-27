@@ -69,3 +69,48 @@ def weighted_overlap_pct(
     top_b = {c.symbol: c.weight_pct for c in _top_n_by_weight(b)}
     shared = top_a.keys() & top_b.keys()
     return sum(min(top_a[s], top_b[s]) for s in shared)
+
+
+@dataclass(frozen=True)
+class ConcentrationPair:
+    """One pairwise Top-N weighted-overlap record between two active-fund picks.
+
+    Class-level invariant `instrument_id_a < instrument_id_b` (strict,
+    alphabetical) — the factory `make_concentration_pair` sorts the two
+    IDs before assignment so the two argument-orderings of the same fund
+    pair produce byte-identical records.
+
+    `overlap_pct` is `round(weighted_overlap_pct, 1)` set ONCE at
+    construction (never re-rounded downstream — pins determinism by
+    construction per grill Q6). `shared_symbols` sorted ASC.
+    """
+    instrument_id_a: str
+    instrument_id_b: str
+    name_cn_a: str
+    name_cn_b: str
+    overlap_pct: float
+    shared_symbols: tuple[str, ...]
+
+
+def make_concentration_pair(
+    *,
+    iid_x: str, name_x: str,
+    iid_y: str, name_y: str,
+    overlap_pct_raw: float,
+    shared_symbols: tuple[str, ...],
+) -> ConcentrationPair:
+    """Factory enforcing AC5 invariants: alphabetic ID ordering, rounded
+    overlap_pct (1dp), symbol-ASC sorted shared_symbols.
+    """
+    if iid_x < iid_y:
+        a_id, a_name, b_id, b_name = iid_x, name_x, iid_y, name_y
+    else:
+        a_id, a_name, b_id, b_name = iid_y, name_y, iid_x, name_x
+    return ConcentrationPair(
+        instrument_id_a=a_id,
+        instrument_id_b=b_id,
+        name_cn_a=a_name,
+        name_cn_b=b_name,
+        overlap_pct=round(overlap_pct_raw, 1),
+        shared_symbols=tuple(sorted(shared_symbols)),
+    )
