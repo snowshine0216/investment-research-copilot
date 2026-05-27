@@ -451,3 +451,26 @@ def test_compose_concentration_lines_renders_at_top_of_six_bullets_format():
     assert len(body) == 1
     # Exact format: `- {id_a} {name_a} ↔ {id_b} {name_b}：加权重合 {pct:.1f}%，共同持仓 {syms}（{n} 只）`
     assert body[0] == "- A 甲 ↔ B 乙：加权重合 30.0%，共同持仓 X/Y（2 只）"
+
+
+def test_concentration_lines_render_through_skeleton_into_section_6():
+    """Integration: a non-empty concentration tuple flows through
+    `MemoInputs.risk_notes` (prepended) and renders inside §6."""
+    from irc.memo.template import MemoInputs, render_skeleton
+    inputs = MemoInputs(
+        date_str="2026-05-27", gold_regime="—", gold_zone="—", gold_tilt="—",
+        allocation_mode="build", macro_summary="—", top_picks=(),
+        risk_notes=(
+            "<!-- IRC_CONCENTRATION_BEGIN -->",
+            "持仓集中度（Top-10 加权重合 ≥ 30%）：...",
+            "- A 甲 ↔ B 乙：加权重合 50.0%，共同持仓 X/Y（2 只）",
+            "<!-- IRC_CONCENTRATION_END -->",
+            "其他风险条目。",
+        ),
+        tldr_lines=(),
+    )
+    md = render_skeleton(inputs)
+    assert "## 6. 风险提示" in md
+    assert "<!-- IRC_CONCENTRATION_BEGIN -->" in md
+    assert "<!-- IRC_CONCENTRATION_END -->" in md
+    assert "其他风险条目" in md

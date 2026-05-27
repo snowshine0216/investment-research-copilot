@@ -879,6 +879,15 @@ def run_memo(repo_root: str) -> int:
     evidence_gap_lines = _compose_evidence_gap_lines(pick_rows)
     if evidence_gap_lines:
         risk_notes = tuple(evidence_gap_lines) + risk_notes
+    # Item 002 (instrument-pickability): 持仓集中度 marker block. Active-fund
+    # picks with Top-10 weighted overlap >= 30% surface here. op_rows_by_id
+    # is built once at this call-site per AC7 / grill Q11 (NOT inside the
+    # pure helper) — dependency-injection edge.
+    _op_rows_for_concentration = _reconstruct_opportunity_rows(rebuilt_op_rows)
+    op_rows_by_id = {r.instrument_id: r for r in _op_rows_for_concentration}
+    concentration_lines = _compose_concentration_lines(pick_rows, op_rows_by_id)
+    if concentration_lines:
+        risk_notes = tuple(concentration_lines) + risk_notes
     execution_lines = _compose_execution_lines(
         trades, opportunity.get("rows") or [],
         extra_names=fallback_names,
