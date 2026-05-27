@@ -233,6 +233,32 @@ def _compose_risk_notes(cutoff: str | None) -> tuple[str, ...]:
     )
 
 
+def _compose_evidence_gap_lines(pick_rows: list[PickRow]) -> tuple[str, ...]:
+    """Compose the §6 risk-notes 证据缺口 marker block (AC7).
+
+    When ≥1 pick row carries `top_holdings_broker_thin` in its `advisory_gaps`,
+    emit a deterministic 3-line tuple wrapped in IRC_EVIDENCE_GAP_BEGIN/END
+    markers. Picks sorted by `instrument_id` ASC.
+
+    Empty result when no row qualifies — no markers emitted. Pure.
+    """
+    from irc.memo.template import EVIDENCE_GAP_MARKER_BEGIN, EVIDENCE_GAP_MARKER_END
+
+    affected = sorted(
+        (r for r in pick_rows if "top_holdings_broker_thin" in r.advisory_gaps),
+        key=lambda r: r.instrument_id,
+    )
+    if not affected:
+        return ()
+    targets_str = "、".join(f"{r.instrument_id} {r.name_cn}" for r in affected)
+    body = (
+        "证据缺口（Top-5 经纪覆盖不足）：以下候选标的的核心持仓中至少 2 只"
+        "（或合计权重 ≥ 20%）缺少券商研报覆盖，证据强度弱于其余候选，"
+        f"触发条件成立时建议优先选择证据更完整的标的：{targets_str}。"
+    )
+    return (EVIDENCE_GAP_MARKER_BEGIN, body, EVIDENCE_GAP_MARKER_END)
+
+
 def _today() -> str:
     return datetime.now(timezone(timedelta(hours=8))).date().isoformat()
 
@@ -756,6 +782,11 @@ def run_memo(repo_root: str) -> int:
     role_lines = compose_role_bucket_banner(diag_rows)
     if role_lines:
         risk_notes = tuple(role_lines) + risk_notes
+    # ADR 0005 + Item 001 (instrument-pickability): top_holdings_broker_thin
+    # advisory marker block. Prepended last so it renders FIRST in §6.
+    evidence_gap_lines = _compose_evidence_gap_lines(pick_rows)
+    if evidence_gap_lines:
+        risk_notes = tuple(evidence_gap_lines) + risk_notes
     execution_lines = _compose_execution_lines(
         trades, opportunity.get("rows") or [],
         extra_names=fallback_names,
