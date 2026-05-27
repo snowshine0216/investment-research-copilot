@@ -5,8 +5,8 @@
 
 | id | title | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| 001 | broker_empty propagation | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 002 | concentration panel | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | broker_empty propagation | ✅ | ✅ | ✅ | ✅ `claude/instrument-pickability-001` | ✅ `d4d613b` | ✅ | ✅ [#76](https://github.com/snowshine0216/investment-research-copilot/pull/76) | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `f869bb1` |
+| 002 | concentration panel | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | QDII premium snapshot | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
@@ -20,6 +20,12 @@
 - 001 spec: [items/001-spec.md](items/001-spec.md) — 13 acceptance criteria, no new ADR needed (thesis_state invariant preserved)
 - 001 grill: [items/001-grill.md](items/001-grill.md) — Verdict: PASS, 13 questions resolved, ADR 0005 created, CONTEXT.md updated with `advisory_gaps` + `top_holdings_broker_thin` (commit `43a61bf`)
 - 001 plan: [items/001-plan.md](items/001-plan.md) — 11 tasks, ~58 TDD steps, 4 new test files + 2 extensions (commit `ad99d94`)
+- 001 drift: [items/001-drift.md](items/001-drift.md) — PASS, 2 amend-able findings (commit `8856ab0`)
+- 001 ship: [items/001-ship.md](items/001-ship.md) + PR [#76](https://github.com/snowshine0216/investment-research-copilot/pull/76)
+- 001 verify: [items/001-verify.md](items/001-verify.md) — PASS; concrete evidence on disk (discipline_report.md line 408 shows 证据缺口 suffix on fund 003304; AC12 two-run determinism confirmed)
+- 001 review: [items/001-review.md](items/001-review.md) — PASS; /ship steps 8+9 found 1 P0 + 4 P1, all fixed in-branch with 9 follow-up tests
+- 001 pr-review: [items/001-pr-review.md](items/001-pr-review.md) — PASS, 0 findings (`/code-review` 7-angle sweep)
+- 001 merge: squash commit `f869bb1` on feature branch
 
 ## Notes
 
