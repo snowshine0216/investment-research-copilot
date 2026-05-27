@@ -188,3 +188,165 @@ def test_make_concentration_pair_sorts_shared_symbols_ascending():
         overlap_pct_raw=50.0, shared_symbols=("ZZZ", "AAA", "MMM"),
     )
     assert pair.shared_symbols == ("AAA", "MMM", "ZZZ")
+
+
+def _op_row(iid: str, name: str, analyses: tuple = ()):
+    """Helper: minimal OpportunityRow with constituent_analyses."""
+    from irc.fundamentals.types import LookthroughTarget
+    from irc.opportunity.types import OpportunityRow
+    return OpportunityRow(
+        instrument_id=iid, name_cn=name, asset_class="cn_equity_fund",
+        theme=None,
+        lookthrough_target=LookthroughTarget(
+            kind="active_fund", key=iid, display_cn=name, provider_symbol="",
+        ),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="acceptable", opportunity_state="core_dca",
+        opportunity_reason="", evidence_gaps=(),
+        constituent_analyses=analyses,
+    )
+
+
+def test_compute_concentration_pairs_returns_empty_below_threshold():
+    """AC4: when no pair crosses the 30.0% threshold, result is empty tuple."""
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (
+            _analysis("X", 10.0), _analysis("Y", 5.0),
+        )),
+        _op_row("B", "乙", (
+            _analysis("Z", 10.0), _analysis("W", 5.0),
+        )),
+    )
+    assert compute_concentration_pairs(rows) == ()
+
+
+def test_compute_concentration_pairs_emits_one_pair_above_threshold():
+    """AC4: a single qualifying pair is surfaced exactly once."""
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (
+            _analysis("X", 20.0), _analysis("Y", 15.0),
+        )),
+        _op_row("B", "乙", (
+            _analysis("X", 18.0), _analysis("Y", 12.0),
+        )),
+    )
+    # Overlap = min(20,18) + min(15,12) = 18 + 12 = 30.0 → boundary inclusive.
+    pairs = compute_concentration_pairs(rows)
+    assert len(pairs) == 1
+    assert pairs[0].instrument_id_a == "A"
+    assert pairs[0].instrument_id_b == "B"
+    assert pairs[0].overlap_pct == 30.0
+    assert pairs[0].shared_symbols == ("X", "Y")
+
+
+def test_compute_concentration_pairs_threshold_strict_below_excluded():
+    """AC3: pairs strictly below 30.0% are NOT surfaced."""
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 9.0))),
+        _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 11.0))),
+    )
+    # Overlap = min(20,18) + min(9,11) = 18 + 9 = 27.0 → below threshold.
+    assert compute_concentration_pairs(rows) == ()
+
+
+def test_compute_concentration_pairs_skips_rows_with_empty_constituents():
+    """AC6: rows with constituent_analyses=() are silently skipped.
+
+    A passive ETF (FundLevelSnapshot path) has empty constituent_analyses
+    and cannot participate in a holdings-level overlap.
+    """
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0))),
+        _op_row("B", "乙", ()),  # passive — empty constituents
+        _op_row("C", "丙", (_analysis("X", 18.0), _analysis("Y", 12.0))),
+    )
+    pairs = compute_concentration_pairs(rows)
+    # Only A↔C is eligible (B is skipped).
+    assert len(pairs) == 1
+    assert (pairs[0].instrument_id_a, pairs[0].instrument_id_b) == ("A", "C")
+
+
+def test_compute_concentration_pairs_three_funds_three_qualifying_pairs():
+    """AC4: a fully-overlapping 3-fund set produces C(3,2) = 3 pairs."""
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0))),
+        _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 14.0))),
+        _op_row("C", "丙", (_analysis("X", 17.0), _analysis("Y", 13.0))),
+    )
+    pairs = compute_concentration_pairs(rows)
+    assert len(pairs) == 3
+    pair_ids = [(p.instrument_id_a, p.instrument_id_b) for p in pairs]
+    # AC4: each unordered pair appears exactly once (never (A,B) AND (B,A)).
+    assert pair_ids == sorted(set(pair_ids), key=lambda t: t)
+
+
+def test_compute_concentration_pairs_render_order_overlap_desc_then_id_asc():
+    """AC8: pairs in result sorted by (overlap_pct DESC, id_a ASC, id_b ASC).
+
+    Build three distinct pairs with one high-overlap and two tied-overlap values
+    to lock both the primary DESC sort and the alphabetical tiebreaker.
+
+    Fixture design: A↔B share X+Y (overlap=60.0); B↔C share only X (overlap=35.0);
+    C↔D share only X (overlap=35.0). A↔C, A↔D do not share enough to qualify
+    (A has X=40,Y=20; C has X=35,Z=10 — only X shared → min(40,35)=35 >= 30 ✓,
+    but we need them excluded). Use non-overlapping symbols for A↔C/A↔D by
+    giving C and D a symbol A does not hold. Refined: A=(X=40,Y=20), B=(X=40,Y=20,Z=5),
+    C=(X=35,P=10) where P not in A/B, D=(X=35,Q=10) where Q not in A/B.
+
+    Simplest clean fixture: make A/B overlap at 60 on X+Y; make B/C and C/D overlap
+    at 35 on a UNIQUE per-pair symbol so there are exactly 3 pairs:
+      A=(X=40,Y=20), B=(X=18,Y=12,M=30) — A↔B: X+Y overlap = min(40,18)+min(20,12)=30; no
+    Better: give each pair a dedicated shared symbol with enough weight.
+      A=(S=45, T=20), B=(S=35, U=10) — A↔B=35.0; B=(S=35, U=10), C=(S=35, V=10) — B↔C=35.0;
+      but then A↔C also overlaps at S=35 → still messy.
+
+    Cleanest approach: use non-overlapping symbol sets so each intended pair is
+    the ONLY pair that shares symbols. Give every pair a UNIQUE shared symbol:
+      A holds (SHARED_AB=40), B holds (SHARED_AB=38, SHARED_BC=35),
+      C holds (SHARED_BC=33, SHARED_CD=32), D holds (SHARED_CD=30).
+    A↔B: min(40,38)=38.0 (only SHARED_AB in common).
+    B↔C: min(35,33)=33.0 (only SHARED_BC in common).
+    C↔D: min(32,30)=30.0 (only SHARED_CD in common; boundary inclusive).
+    A↔C, A↔D, B↔D: no symbols in common → 0.0 → excluded.
+    """
+    from irc.memo.concentration import compute_concentration_pairs
+    rows = (
+        _op_row("A", "甲", (_analysis("AB", 40.0),)),
+        _op_row("B", "乙", (_analysis("AB", 38.0), _analysis("BC", 35.0))),
+        _op_row("C", "丙", (_analysis("BC", 33.0), _analysis("CD", 32.0))),
+        _op_row("D", "丁", (_analysis("CD", 30.0),)),
+    )
+    pairs = compute_concentration_pairs(rows)
+    # Sorted: 38.0 DESC, then 33.0, then 30.0 — no ties; alphabetical tiebreaker
+    # is the same ordering so the primary sort alone determines output.
+    ids = [(p.overlap_pct, p.instrument_id_a, p.instrument_id_b) for p in pairs]
+    assert ids == [(38.0, "A", "B"), (33.0, "B", "C"), (30.0, "C", "D")]
+
+
+def test_compute_concentration_pairs_render_order_tiebreak_by_id():
+    """AC8 tiebreaker: when overlap_pct ties, sort by id_a ASC then id_b ASC."""
+    from irc.memo.concentration import compute_concentration_pairs
+    # B↔C and A↔D both overlap at exactly 32.0 (using distinct shared symbols).
+    rows = (
+        _op_row("A", "甲", (_analysis("AD", 32.0),)),
+        _op_row("B", "乙", (_analysis("BC", 32.0),)),
+        _op_row("C", "丙", (_analysis("BC", 32.0),)),
+        _op_row("D", "丁", (_analysis("AD", 32.0),)),
+    )
+    pairs = compute_concentration_pairs(rows)
+    ids = [(p.overlap_pct, p.instrument_id_a, p.instrument_id_b) for p in pairs]
+    # Both pairs tie at 32.0; A↔D comes before B↔C alphabetically by id_a.
+    assert ids == [(32.0, "A", "D"), (32.0, "B", "C")]
+
+
+def test_compute_concentration_pairs_two_argument_orderings_byte_equal():
+    """AC5 + AC13: input rows in two orderings produce byte-identical pair tuples."""
+    from irc.memo.concentration import compute_concentration_pairs
+    a = _op_row("A", "甲", (_analysis("X", 20.0), _analysis("Y", 15.0)))
+    b = _op_row("B", "乙", (_analysis("X", 18.0), _analysis("Y", 12.0)))
+    assert compute_concentration_pairs((a, b)) == compute_concentration_pairs((b, a))

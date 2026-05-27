@@ -35,6 +35,7 @@ CONCENTRATION_MARKER_BEGIN: Final[str] = "<!-- IRC_CONCENTRATION_BEGIN -->"
 CONCENTRATION_MARKER_END: Final[str] = "<!-- IRC_CONCENTRATION_END -->"
 
 from irc.fundamentals.types import ConstituentAnalysis  # noqa: E402
+from irc.opportunity.types import OpportunityRow  # noqa: E402
 
 
 def _top_n_by_weight(
@@ -114,3 +115,61 @@ def make_concentration_pair(
         overlap_pct=round(overlap_pct_raw, 1),
         shared_symbols=tuple(sorted(shared_symbols)),
     )
+
+
+def _eligible_rows(
+    rows: tuple[OpportunityRow, ...] | list[OpportunityRow],
+) -> tuple[OpportunityRow, ...]:
+    """AC6: only rows with non-empty constituent_analyses participate.
+
+    Sorted by instrument_id ASC so the pair-enumeration loop's `i < j`
+    canonicalisation (AC4) emits each unordered pair exactly once.
+    """
+    eligible = [r for r in rows if r.constituent_analyses]
+    return tuple(sorted(eligible, key=lambda r: r.instrument_id))
+
+
+def _shared_symbols(
+    a: tuple[ConstituentAnalysis, ...],
+    b: tuple[ConstituentAnalysis, ...],
+) -> tuple[str, ...]:
+    """Symbols present in both topN slices, sorted ASC for renderer determinism."""
+    top_a = {c.symbol for c in _top_n_by_weight(a)}
+    top_b = {c.symbol for c in _top_n_by_weight(b)}
+    return tuple(sorted(top_a & top_b))
+
+
+def compute_concentration_pairs(
+    active_picks: tuple[OpportunityRow, ...] | list[OpportunityRow],
+) -> tuple[ConcentrationPair, ...]:
+    """Enumerate every pair of eligible rows; surface pairs whose
+    weighted_overlap_pct >= CONCENTRATION_OVERLAP_PCT_THRESHOLD.
+
+    Pure function. AC4: pairs deduplicated by sorting input by
+    instrument_id ASC and iterating `i < j`. AC8: result sorted by
+    (overlap_pct DESC, instrument_id_a ASC, instrument_id_b ASC). The
+    round-then-sort sequence (NOT the inverse) ensures stability across
+    float-equal pairs.
+    """
+    eligible = _eligible_rows(active_picks)
+    pairs: list[ConcentrationPair] = []
+    for i in range(len(eligible)):
+        for j in range(i + 1, len(eligible)):
+            row_a, row_b = eligible[i], eligible[j]
+            overlap = weighted_overlap_pct(
+                row_a.constituent_analyses, row_b.constituent_analyses,
+            )
+            if overlap < CONCENTRATION_OVERLAP_PCT_THRESHOLD:
+                continue
+            shared = _shared_symbols(
+                row_a.constituent_analyses, row_b.constituent_analyses,
+            )
+            pairs.append(make_concentration_pair(
+                iid_x=row_a.instrument_id, name_x=row_a.name_cn,
+                iid_y=row_b.instrument_id, name_y=row_b.name_cn,
+                overlap_pct_raw=overlap, shared_symbols=shared,
+            ))
+    return tuple(sorted(
+        pairs,
+        key=lambda p: (-p.overlap_pct, p.instrument_id_a, p.instrument_id_b),
+    ))
