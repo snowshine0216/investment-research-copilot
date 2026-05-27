@@ -5,7 +5,6 @@ import pandas as pd
 import pytest
 
 from irc.research.theme_research import ThemeReport
-from irc.research.synthesize import Citation
 from irc.scoring.news_summaries import (
     THEMES_BY_ASSET_CLASS,
     build_news_summaries,
