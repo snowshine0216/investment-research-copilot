@@ -50,13 +50,14 @@ _UNDERSCORE_BOLD_RE = _re.compile(r"__[^_]+__")
 # Sentence terminators counted toward the ≥3-terminator stop rule.
 _SENTENCE_TERMINATORS: frozenset[str] = frozenset({".", "。", "！", "!", "?", "？"})
 
-# F5 P0 fix: LLM source-citation markers (e.g. `[1]`, `[12]`) emitted INSIDE
-# the prose by the LLM. Without stripping they collide visually with the
-# memo's downstream `[N]` footnote numerals (rendered by
+# F5 P0 fix: LLM source-citation markers (e.g. `[1]`, `[12]`, `[100]`) emitted
+# INSIDE the prose by the LLM. Without stripping they collide visually with
+# the memo's downstream `[N]` footnote numerals (rendered by
 # `memo/footnote_renderer.py`). Strip from accepted prose lines before
 # accumulation so neither the 150-char floor nor the 400-char cap can land
-# inside one of these brackets.
-_LLM_REF_MARKER_RE = _re.compile(r"\s*\[\d{1,2}\]\s*")
+# inside one of these brackets. `\d+` covers `[0]`–`[\d+]` rather than capping
+# at 2 digits — citation lists with ≥100 entries should still strip cleanly.
+_LLM_REF_MARKER_RE = _re.compile(r"\s*\[\d+\]\s*")
 
 # Paragraph accumulator stop thresholds (per ADR 0008 §1).
 _PARAGRAPH_CHAR_FLOOR: int = 150
