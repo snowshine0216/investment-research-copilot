@@ -160,15 +160,32 @@ summary text change CAN change citation_ids; this needs the ADR amendment to
 acknowledge and accept the one-time hash re-roll for affected entries — same
 shape as item 002's breaking-change absorption).
 
+**Grill-phase clarification — legacy `_filing_evidence` line 98 is also a
+normalisation claim.** The legacy path currently renders
+`f"{f.symbol} {f.fiscal_period} 营收同比 {f.revenue_yoy:+.1%}。"` — already a
+percent-formatted number with `+/-` sign and one decimal place. That is the
+*same class* of unverified-confidence claim the new policy forbids, just
+rendered through `:+.1%` instead of `={raw}`. The grill resolution brings
+the legacy path into the new template too: `f"{f.symbol} {f.fiscal_period}
+财报已披露（口径未核实）"`. Both filing-emitting code paths converge on the
+single locked phrase so the appendix trigger and the synthesizer prompt
+clause both have a single substring to match against.
+
 ## Acceptance criteria
 
 1. **No `revenue_yoy=<raw>` substring appears inline in any `ThesisEvidence.summary`
    field after this change.** `_evidence_for_constituent` (CN + HK paths) and
    `_filing_evidence` (legacy path) emit a `summary` of the form
-   `f"{symbol} {fiscal_period} 财报已披露（口径未核实）"` (Chinese; exact wording
-   per spec self-review). Verified by a unit test that builds an
+   `f"{symbol} {fiscal_period} 财报已披露（口径未核实）"` ~~(Chinese; exact wording
+   per spec self-review)~~ — **locked by grill**: the literal phrase
+   `财报已披露（口径未核实）` is the canonical filing-summary template; it is
+   simultaneously (i) the user-visible disclosure-existence anchor and (ii)
+   the substring trigger for AC #6's appendix caveat (both surfaces share the
+   same literal — single locus, no drift). Full-width parentheses （ ） per
+   project Chinese-prose convention. Verified by a unit test that builds an
    `ActiveFundSnapshot` with one CN holding and asserts the resulting
-   `ThesisEvidence.summary` does not contain `"revenue_yoy="`.
+   `ThesisEvidence.summary` does not contain `"revenue_yoy="` AND contains the
+   literal phrase `财报已披露（口径未核实）`.
 2. **Policy B rule 3 keeps firing iff the underlying filing fetch failed
    (NOT because of the summary change).** Existing
    `tests/opportunity/test_policy_b.py` cases that build `type="filing"`
@@ -192,11 +209,17 @@ shape as item 002's breaking-change absorption).
    moves to a structural condition — either (a) the evidence's
    `type == "filing"` AND it carries a new flag indicating
    disclosure-existence-only semantics, OR (b) a dedicated
-   `_appendix_caveat_for_evidence_kind` lookup keyed on evidence type. Final
-   wiring choice is locked in the grill. Either way, the appendix line in
-   `outputs/<date>/memo.md` for a filing row still renders the
-   `⚠️ 合规警示：…` prefix (so user-facing compliance posture is unchanged)
-   AND no longer false-negatives if the summary template is edited.
+   `_appendix_caveat_for_evidence_kind` lookup keyed on evidence type. ~~Final
+   wiring choice is locked in the grill.~~ — corrected by grill: trigger is
+   a **textual substring match on the new locked phrase `财报已披露（口径未核实）`**,
+   not a structural flag or evidence-kind lookup. The appendix line-builder
+   `memo/pipeline.py::_format_appendix_line` only sees the rendered ref-line
+   string; adding an evidence-kind lookup would require plumbing the parsed
+   ref tuple through, which is out-of-scope churn. The Chinese phrase is
+   non-ASCII and LLM-prompt-locked so it cannot drift. Either way, the
+   appendix line in `outputs/<date>/memo.md` for a filing row still renders
+   the `⚠️ 合规警示：…` prefix (so user-facing compliance posture is
+   unchanged) AND no longer false-negatives if the summary template is edited.
 7. **Citation-id hash re-roll is acknowledged in the ADR amendment.** Since
    the citation-id preimage uses `summary[:64]` as the URL-empty fallback
    (ADR 0001 §2), filing summaries that previously hashed `… revenue_yoy=…`
@@ -355,3 +378,166 @@ new filing summary template (`财报已披露（口径未核实）` vs alternati
 is intentionally left as a small grill-phase decision — the test in
 criterion 1 keys on the absence of `"revenue_yoy="`, not on the presence of
 a specific Chinese string, so wording iteration won't churn tests.
+
+---
+
+## Resolved decisions
+
+Auto-resolved by grill (2026-05-28) under autonomy override; no user in loop;
+recommended answer auto-accepted for each question. Spec amendments above are
+struck-through and corrected inline; this section consolidates the Q/A pairs.
+
+- **Q1: Exact final wording of the new filing summary template.**
+  A: `f"{symbol} {fiscal_period} 财报已披露（口径未核实）"` — full-width
+  parentheses （） matching project Chinese-prose convention. Quarter-period
+  token still leading so `## 持仓明细` appendix `summary[:24]` fragment
+  renders a stable identifier (`"600519.SH 2026Q1 财报已"`).
+  Rationale: shorter alternatives (e.g. `财报已披露`) collide with too many
+  generic prose lines and weaken the appendix-trigger substring match.
+  Doc impact: AC #1 corrected; CONTEXT.md "Filing summary template";
+  ADR 0001 §5 Addendum.
+
+- **Q2: Caveat trigger replacement — structural flag on evidence vs.
+  type-based lookup vs. substring on the new locked phrase?**
+  A: **Substring match on the locked Chinese phrase
+  `财报已披露（口径未核实）`** in `memo/pipeline.py::_format_appendix_line`.
+  Rationale: zero schema change to `ThesisEvidence` (avoids cache migration);
+  appendix line-builder already only sees the rendered ref-line string, so
+  plumbing the parsed-ref tuple through is out-of-scope churn; the Chinese
+  phrase is non-ASCII and locked by both the producer summaries AND the
+  synthesizer prompt clause, so it cannot drift in practice.
+  Doc impact: AC #6 corrected; CONTEXT.md "Filing summary template";
+  ADR 0001 §5.2.
+
+- **Q3: Does the new substring trigger remain robust against the
+  synthesizer paraphrasing it?**
+  A: Yes — the synthesizer-prompt clause at `memo/synthesizer.py:55-56` is
+  updated in lock-step to: "filing 证据条目格式为 `{symbol} {fiscal_period}
+  财报已披露（口径未核实）`；不得自行换算或推断同比数值，禁止在任何段落输出
+  `revenue_yoy=…` 这类原始字段；如需引用 filing，请仅引用披露事实与日期。"
+  `sanitize_unverified_revenue_yoy` stays in place as belt-and-braces.
+  Rationale: producers emit the locked phrase verbatim into `summary`; the
+  appendix appendix-ref rendering is identifier-only (`[ref:HEX]`) plus the
+  raw summary, so the literal phrase always appears in the rendered ref line.
+  Doc impact: AC #8 narrowed; ADR 0001 §5.1 references the updated prompt.
+
+- **Q4: Should the legacy `_filing_evidence` summary line
+  (`thesis_evidence.py:98`) also be reframed?**
+  A: Yes — convergence to the same locked phrase. The legacy line currently
+  renders `f"{f.symbol} {f.fiscal_period} 营收同比 {f.revenue_yoy:+.1%}。"`,
+  which is the same class of unverified-confidence claim the new policy
+  forbids, just rendered as `+.1%` instead of `={raw}`. Both filing-emitting
+  code paths converge on `f"{symbol} {fiscal_period} 财报已披露（口径未核实）"`.
+  Rationale: single locus for the appendix trigger and the prompt clause to
+  match against; the legacy path also feeds passive ETF + tracked-index
+  rows where the same epistemic posture applies.
+  Doc impact: "smaller surface" paragraph extended with the grill-phase
+  clarification noting the legacy path also needs reframing.
+
+- **Q5: Citation-id one-time re-roll — same handling as F5 churn?**
+  A: Yes — ADR 0001 §2 explicitly carries no cross-run id stability
+  contract; mirror F5's documented churn precedent. Note however that
+  filing-typed evidence rows carry source URLs (`FilingDigest.source_url`)
+  in the canonical case, so the URL dominates the citation-id preimage and
+  the summary change does NOT churn the id for non-empty-URL filings. Only
+  the (rare, defensive) degraded-path filings with empty URL re-roll once.
+  Rationale: ADR 0001 §2 preimage formula is `url or
+  f"{source}:{date}:{summary[:64]}"` — URL takes precedence when present.
+  Doc impact: ADR 0001 §5.3 acknowledgement (more precise than the original
+  spec's "the citation_id WILL change for affected entries").
+
+- **Q6: ADR target — 0001 alone, or 0001 + 0003 cross-reference?**
+  A: ADR 0001 hosts the new addendum subsection `## Addendum — 2026-05-28:
+  Filing evidence semantics`; ADR 0003 §1 rule 3 gets a one-line pointer
+  back to the addendum.
+  Rationale: ADR 0001 governs the citation data model — what a citation IS,
+  including what its summary should and should not contain. ADR 0003
+  governs the audit policy — when a missing data leg causes rejection. The
+  change is purely about the meaning + display of a filing citation; Policy
+  B rule 3 still reads `citation_kind="data"` and is semantically
+  unchanged. Cross-reference gives reader navigability without splitting
+  authority. Mirrors precedent: ADR 0005 cross-refs ADR 0003 H3;
+  ADR 0008 cross-refs ADR 0007 §3a.
+  Doc impact: ADR 0001 §5 Addendum added; ADR 0003 §1 rule 3 pointer added.
+
+- **Q7: Subsection title for the ADR 0001 amendment?**
+  A: `## Addendum — 2026-05-28: Filing evidence semantics` — same
+  `Addendum — <date>: <topic>` pattern as the existing 2026-05-25
+  footnote-numbering veneer addendum already in ADR 0001 (lines 92-98).
+  Rationale: precedent-consistent; chronological scan of ADR addenda gives
+  a quick history of the citation model's evolution.
+  Doc impact: ADR 0001 §5 (the addendum subsection title) is locked.
+
+- **Q8: Should `derive_thesis_from_evidence` `_TYPE_RANK` change?**
+  A: No — `_TYPE_RANK = {"filing": 0, "broker": 1, "news": 2}` reflects
+  display ordering (filing rendered first per holding). That ordering
+  remains correct for the disclosure-existence form: a citation that
+  anchors "this issuer disclosed on date X" is still the most foundational
+  evidence row, and broker commentary + news still build on top of it.
+  Rationale: confirmed by reading `opportunity/thesis_evidence.py:285` —
+  `_flatten_analyses` sorts by `weight_pct desc, type_rank asc, citation_id
+  asc`; the type rank exists to make filings the visually prominent
+  citation per holding. The disclosure-existence anchor framing preserves
+  that role exactly.
+  Doc impact: none beyond the spec's pre-existing Q5 resolution.
+
+- **Q9: Does the `_yoy_split` direction-only invariant need a cross-provider
+  sign-convention audit before F6 ships?**
+  A: No — defer empirical sign-convention check across providers
+  (`akshare_filing.py` / `hkex_client.py` / `edgar_client.py`) to a SKIPPED
+  follow-up `F6-followup-yoy-sign-convention`. F6's claim is that the
+  **displayed** scalar is never exposed; the legacy `_yoy_split` classifier
+  reading `f.revenue_yoy > 0` continues to feed the deterministic
+  `thesis_state` literal. Direction is robust to scale errors as long as
+  sign conventions agree — an empirical audit can land in a future, narrower
+  follow-up without blocking F6.
+  Rationale: F6 is a display + framing change, not a fundamentals-data
+  rewrite (out-of-scope per the spec's Non-goals).
+  Doc impact: SKIPPED follow-up captured in
+  `docs/2026-05-27-pickability-followups/SKIPPED.md` (the per-run skip log,
+  which F4/F5 already use).
+
+- **Q10: Does the existing two-run byte-equality lockdown (item 008) break?**
+  A: No structural break. The lockdown asserts byte-equality of two
+  **consecutive** runs over the same input; F6 changes the input → output
+  shape uniformly, so two consecutive post-F6 runs remain byte-identical.
+  The pre-F6 vs post-F6 cross-deploy diff is one-time and expected — same
+  shape as F5's documented macro-theme citation_id churn. Coverage stays
+  green by re-recording the post-F6 baseline in the same PR.
+  Rationale: byte-equality lockdown contract is two-run-same-input, not
+  cross-deploy-stability. ADR 0001 §2 collision invariant + no-cross-run-id
+  contract already names this distinction.
+  Doc impact: ADR 0001 §5.3 cross-references the F5 precedent.
+
+- **Q11: CONTEXT.md glossary — which new entries to add?**
+  A: Four entries under a new "Filing evidence semantics" subsection:
+  - `Filing evidence semantics` (disclosure-existence anchor meaning).
+  - `Filing summary template` (locked Chinese phrase + load-bearing
+    properties).
+  - `Constituent-scope data evidence` (single-producer mapping, motivation
+    for "do not drop").
+  - `F6 reframe-vs-drop-vs-normalize rationale` (one-paragraph pointer).
+  Rationale: pre-F6 the disclosure-existence-anchor concept had no
+  canonical name; future reviewers should land on glossary entries first,
+  not infer contract from helper internals.
+  Doc impact: CONTEXT.md gains a new subsection placed AFTER "Thesis-news
+  scoring" and BEFORE "Holdings ingest policy".
+
+- **Q12: Is the spec's chosen position (Option C — reframe) ADR-worthy
+  (three-of-three test)?**
+  A: Yes — write the ADR 0001 §5 Addendum.
+  - Hard to reverse: producers' summary templates land in three files
+    (`fundamentals/snapshot.py`, `opportunity/thesis_evidence.py`,
+    `memo/synthesizer.py`); the appendix trigger lands in `memo/pipeline.py`;
+    citation_ids churn once on deploy. Reversing would require coordinated
+    edits across all four sites + a second citation_id re-roll.
+  - Surprising without context: a future contributor reading either ADR
+    0001 §4 (audit-gate consumer list) or ADR 0003 §1 rule 3 (per-holding
+    data leg) would naturally ask "why is filing evidence accepted as the
+    data leg if its scalar is unverified?" — the addendum is exactly that
+    answer.
+  - Real trade-off: drop / normalize / reframe were genuine alternatives;
+    each has structurally distinct downstream consequences (Policy B
+    coverage loss vs unbacked confidence claim vs display-only fix).
+  Rationale: meets all three of the grill's ADR-worthiness criteria.
+  Doc impact: ADR 0001 §5 Addendum authored as part of this grill phase.

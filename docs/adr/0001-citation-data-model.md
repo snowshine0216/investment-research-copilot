@@ -96,3 +96,52 @@ These gates run immediately before `atomic_write_text` of `opportunity_report.js
 This veneer does NOT change the citation-id contract defined in this ADR. Every internal surface — the LLM raw-ref pool, the synthesizer prompt, the auditor input, `citation_audit.json`, `memo_traceability.json`, `numeric_audit._MARKER_RE`, `find_uncited_conclusions`, `find_hallucinated_citations`, the alias-builder, `check_traceability` — continues to consume the canonical `\[ref:[0-9a-f]{16}\]` form. The hex is still grep-discoverable in the published memo via the appendix tail.
 
 The post-pass also drops the `_MAX_REFS = 40` cap on the appendix renderer; the cap still constrains the synthesizer prompt input (a prompt-size budget) but the appendix renders every ref in the raw pool so no inline citation can be missing from the appendix.
+
+## Addendum — 2026-05-28: Filing evidence semantics
+
+**Status:** Accepted (2026-05-28, pickability-followups item F6).
+**Spec:** `docs/2026-05-27-pickability-followups/items/F6-spec.md`.
+
+A `ThesisEvidence` row with `type="filing"` is a **disclosure-existence anchor** — the canonical evidence that the issuer published a fiscal-period report on a specific date. It is NOT a quantitative performance claim. The displayed `summary` field MUST NOT expose the raw `revenue_yoy` scalar inline; every filing-evidence producer emits the locked template phrase:
+
+```
+{symbol} {fiscal_period} 财报已披露（口径未核实）
+```
+
+Producers (locked):
+
+- `_evidence_for_constituent` (CN active-fund branch, `src/irc/fundamentals/snapshot.py:341-346`).
+- `_evidence_for_constituent` (HK active-fund branch, `src/irc/fundamentals/snapshot.py:392-397`).
+- `_filing_evidence` (legacy `ConstituentSnapshot` path for passive ETFs / tracked indices, `src/irc/opportunity/thesis_evidence.py:75-105`).
+
+### 5.1 What did NOT change
+
+- `citation_kind="data"` and `scope="constituent"` (active-fund branch) / `scope="instrument"` (legacy branch) are preserved. Filing rows continue to satisfy the dual-coverage gate's data leg (§4 of this ADR), Policy B rule 3's per-holding data-leg requirement ([ADR 0003 §1 rule 3](0003-failure-mode-policy-b.md)), and `select_citations`'s data slot ([ADR 0004 §3 SAME-3 invariant](0004-renderer-determinism-and-alias-policy.md)).
+- `FilingDigest.revenue_yoy` is still produced by the fetch adapters (`akshare_filing.py`, `hkex_client.py`, `edgar_client.py`) and still drives the legacy `_yoy_split` classifier in `thesis_evidence.py` that feeds the deterministic `thesis_state` literal (`intact` / `under_pressure` / `falsified`). The classifier reads sign-of-fraction only — magnitude is never asserted.
+- The synthesizer-prompt clause forbidding LLM percentage conversion (`src/irc/memo/synthesizer.py:55-56`) is updated to reference the new template phrase but still forbids any free-text `revenue_yoy=` output. `sanitize_unverified_revenue_yoy` (`src/irc/memo/pipeline.py:97-100`) stays as a belt-and-braces defense.
+
+### 5.2 Appendix caveat trigger — substring switch
+
+`memo/pipeline.py::_format_appendix_line` previously triggered the `⚠️ 合规警示：该字段含义及换算口径未经核实，数值不得作为业绩依据引用，仅作原始数据存档。` line when the rendered ref contained the substring `revenue_yoy=`. The trigger substring becomes `财报已披露（口径未核实）` — the load-bearing literal phrase named in §5 above. The caveat **text itself is preserved verbatim** — operator-facing compliance posture is unchanged. The trigger phrase MUST NOT be rephrased without simultaneously updating the trigger substring in `pipeline.py` AND the producer summaries in `snapshot.py` / `thesis_evidence.py`; locked by an acceptance test that asserts (a) no production summary contains `"revenue_yoy="` and (b) every filing-typed ref in the appendix carries the warning prefix.
+
+### 5.3 Citation-id one-time re-roll — acknowledged
+
+Per §2 of this ADR, the citation-id preimage uses `summary[:64]` as the URL-empty fallback. Filing-typed evidence rows do carry source URLs (from `FilingDigest.source_url`), so the URL component dominates the preimage and the summary change does NOT churn citation_ids for any filing row whose `source_url` is non-empty. For the (rare, defensive) filing rows that arrive with an empty URL — e.g. an adapter degraded path — the summary participates in the hash, and changing it from `… revenue_yoy=…` to `… 财报已披露…` re-rolls the citation_id once.
+
+This mirrors the precedent set by:
+
+- Item 002 (`docs/2026-05-22-thesis-cards-evidence-gap/items/002-spec.md`) absorbing `ThesisEvidence` field additions in a single slice.
+- F5 ([ADR 0008 §3](0008-macro-research-excerpt-depth.md)) acknowledging citation_id churn on the macro-theme deploy run.
+
+No persistent consumer keys on a specific filing citation_id across the change boundary (citation_ids are recomputed on every run from live evidence). The only call sites that pin specific hex citation_ids are test fixtures; those are updated in the same PR. ADR 0001's no-cross-run-stability contract (§2 collision invariant + §3 deterministic selector) is unchanged.
+
+### 5.4 Why NOT drop filings; why NOT normalize the scalar
+
+Two alternatives were considered and rejected:
+
+- **Drop filings from constituent-scope evidence entirely.** Rejected — would cause Policy B rule 3 (`incomplete_constituent_data`) to fire for every CN active fund not routed through rule 2.5 (foreign-heavy). The only producer of `citation_kind="data" AND scope="constituent"` in V1 is `_evidence_for_constituent` emitting `type="filing"`; macro and fund-level paths emit different scopes. Re-routing all active funds through `_build_fund_level_snapshot` (QDII-style) would strip `constituent_analyses`, breaking the `## 持仓明细` appendix renderer — the same trade-off [ADR 0003 §7](0003-failure-mode-policy-b.md) rejected for foreign-heavy funds.
+- **Normalize `revenue_yoy` to a comparable percentage at display time.** Rejected — per-provider unit conventions (fraction vs percent vs percent-of-percent) and accounting-period alignment are not validated; asserting `-0.0771 ⇒ -7.7%` everywhere is a confidence claim that cannot be backed today. A full unit-normalisation pass is the start of a fundamentals-data rewrite and is out of scope for this ADR.
+
+### 5.5 Cross-reference
+
+[ADR 0003 §1 rule 3](0003-failure-mode-policy-b.md) carries a one-line pointer back to this addendum so a reader landing in the Policy B precedence list sees the filing-evidence-semantics rationale.
