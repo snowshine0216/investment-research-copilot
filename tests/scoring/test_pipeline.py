@@ -154,3 +154,77 @@ def test_pipeline_instrument_missing_from_metrics_uses_defaults(mock_macro) -> N
         "downside_capture",
         "manager_tenure_years",
     ]
+
+
+def test_run_scoring_with_non_empty_news_summaries_differentiates_thesis_news():
+    """Regression for F4: when news_summaries is non-empty, the thesis_news
+    factor must escape the empty-input 50.0 fallback for the matching row.
+    Locks the call-site contract at src/irc/scoring/pipeline.py:116-119.
+    """
+    import pandas as pd
+
+    from irc.config_loader import load_repo_configs
+    from irc.scoring.pipeline import run_scoring
+
+    # Two-row watchlist: gold has positive news, cn_bond_fund has none.
+    watchlist = pd.DataFrame([
+        {
+            "instrument_id": "518880",
+            "ticker": "518880",
+            "name_cn": "黄金ETF",
+            "asset_class": "gold",
+            "market": "cn_on_exchange",
+            "tracked_index": "",
+            "cited_refs": "",
+            "role": "satellite",
+        },
+        {
+            "instrument_id": "511880",
+            "ticker": "511880",
+            "name_cn": "国债ETF",
+            "asset_class": "cn_bond_fund",
+            "market": "cn_on_exchange",
+            "tracked_index": "",
+            "cited_refs": "",
+            "role": "core",
+        },
+    ])
+    metrics = pd.DataFrame([
+        {"instrument_id": "518880"},
+        {"instrument_id": "511880"},
+    ])
+    news_summaries = {
+        # Hits two _POS terms ("demand", "buy"): momentum +1, base 80.
+        "518880": ("Strong demand and central bank buy signals.",),
+        # No mapped theme content → fallback path.
+        "511880": (),
+    }
+
+    # load_repo_configs needs a real repo root for scoring weights; the test
+    # repo is the project root itself.
+    from pathlib import Path
+    repo_root = Path(__file__).resolve().parents[2]
+    bundle = load_repo_configs(repo_root)
+
+    out = run_scoring(
+        watchlist=watchlist,
+        metrics=metrics,
+        news_summaries=news_summaries,
+        regime_summary="",
+        route=None,  # macro_fit catches None and returns neutral 50
+        cfg_scoring=bundle.scoring,
+        qdii_premium_resolver=None,
+    )
+    scores = {row["instrument_id"]: row for row in out["scores"]}
+
+    gold_thesis = scores["518880"]["factor_breakdown"]["thesis_news"]["score"]
+    bond_thesis = scores["511880"]["factor_breakdown"]["thesis_news"]["score"]
+
+    # Gold row sees real positive news → must escape the 50.0 fallback.
+    assert gold_thesis != 50.0, (
+        f"thesis_news for gold should differentiate from 50.0 fallback; got {gold_thesis}"
+    )
+    # Bond row has empty summaries → preserves the empty-input invariant.
+    assert bond_thesis == 50.0, (
+        f"thesis_news for cn_bond_fund must preserve 50.0 fallback; got {bond_thesis}"
+    )

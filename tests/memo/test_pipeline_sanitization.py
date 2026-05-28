@@ -54,16 +54,20 @@ def test_evidence_appendix_keeps_every_ref_verbatim():
 
 
 def test_evidence_appendix_adds_revenue_yoy_caveat_after_verbatim_ref():
-    ref = (
-        "[stock:300308] [ref:abc] filing · 300308.SZ · 2026-03-31: "
-        "300308.SZ 2026Q1 revenue_yoy=1.921169094232574"
-    )
-    out = _render_evidence_appendix([ref])
-    assert ref in out
+    # F6: trigger substring is now the locked disclosure-existence
+    # phrase `财报已披露（口径未核实）`, not `revenue_yoy=`. The
+    # caveat text itself is unchanged (operator-facing wording is
+    # preserved verbatim per ADR 0001 §5.2).
+    refs = [
+        "akshare:filing:300308:2026-04-28 — "
+        "300308.SZ 2026Q1 财报已披露（口径未核实）"
+    ]
+    out = _render_evidence_appendix(refs)
     assert "合规警示" in out
-    assert "字段含义及换算口径未经核实" in out
-    assert "不得作为业绩依据引用" in out
-    assert out.index("合规警示") < out.index("revenue_yoy=")
+    assert "该字段含义及换算口径未经核实" in out
+    assert "数值不得作为业绩依据引用" in out
+    assert "原始证据：" in out
+    assert out.index("合规警示") < out.index("财报已披露")
 
 
 def test_evidence_appendix_adds_score_caveat_for_insufficient_valuation_ref():
@@ -162,3 +166,61 @@ def test_check_inputs_same_date_warns_on_mixed_dates():
         check_inputs_same_date(inputs, "2026-05-07")
     assert any(issubclass(warning.category, MixedDateWarning) for warning in w)
     assert any("2026-05-06" in str(warning.message) for warning in w)
+
+
+# ── F6: appendix caveat trigger substring switch ─────────────────────────────
+
+def test_appendix_caveat_fires_on_new_disclosure_existence_phrase() -> None:
+    """F6 AC #6 — `_format_appendix_line` triggers the
+    `⚠️ 合规警示：…` prefix when the rendered ref carries the locked
+    F6 phrase `财报已披露（口径未核实）`, matching the new producer
+    templates in `snapshot.py` and `thesis_evidence.py`.
+    """
+    from irc.memo.pipeline import _format_appendix_line
+
+    ref = (
+        "[ref:abcdef0123456789] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 财报已披露（口径未核实）"
+    )
+    out = _format_appendix_line(ref)
+    assert out.startswith("- ⚠️ 合规警示：")
+    assert "原始证据：" in out
+    assert ref in out
+
+
+def test_appendix_caveat_fires_on_legacy_revenue_yoy_substring_too() -> None:
+    """F6 post-ship hardening (silent-failure-hunter P0):
+    snapshot caches written BEFORE F6 still serialize summaries in the
+    legacy `{symbol} {period} revenue_yoy=<scalar>` shape. Those rehydrate
+    cleanly (citation_id is source_url-keyed for filings) and flow into
+    the appendix renderer with the legacy substring intact.
+
+    The trigger MUST fire on both the new disclosure-existence phrase
+    `财报已披露（口径未核实）` AND the legacy `revenue_yoy=` substring
+    during the cache-transition window. The previous expectation
+    (trigger does NOT fire on legacy) would silently drop the compliance
+    caveat for every memo backed by a 2026Q1 cached snapshot — exactly
+    the operator-facing risk F6 was meant to fix.
+
+    Once the next `irc fundamentals snapshot --target all` rewrites
+    every cache to the new shape, the legacy branch will be dead code
+    that can be removed.
+    """
+    from irc.memo.pipeline import _format_appendix_line
+
+    ref_legacy = (
+        "[ref:abcdef0123456789] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 revenue_yoy=-0.0771"
+    )
+    out_legacy = _format_appendix_line(ref_legacy)
+    # Legacy cache shape — trigger MUST fire so the compliance caveat
+    # is preserved across the cache transition.
+    assert out_legacy.startswith("- ⚠️ 合规警示：")
+
+    ref_new = (
+        "[ref:1234567890abcdef] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 财报已披露（口径未核实）"
+    )
+    out_new = _format_appendix_line(ref_new)
+    # New shape — also fires.
+    assert out_new.startswith("- ⚠️ 合规警示：")

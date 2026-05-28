@@ -7,6 +7,105 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `filing-evidence-summary-reframe` (2026-05-28, F6)
+
+Filing-evidence rows previously rendered summary text as
+`{symbol} {fiscal_period} revenue_yoy=<raw decimal>` — but the accompanying
+appendix caveat said the numeric value "不得作为业绩依据引用". A row that
+shouldn't be trusted as a performance number still emitted that number
+verbatim in inline picks/§5/§6 citations. ADR 0001 §5 (new "Filing
+evidence semantics" addendum) locks the resolution:
+
+- New filing summary template: `{symbol} {fiscal_period} 财报已披露（口径未核实）`.
+  This is the disclosure-existence anchor — explicit that a filing was
+  published for the period and explicit that the project does not
+  endorse the numbers. The substring is the single locus that BOTH
+  the user-visible content AND the appendix caveat trigger.
+- Three producer sites changed to emit the new template:
+  `opportunity/thesis_evidence.py::_filing_evidence`,
+  `fundamentals/snapshot.py::_evidence_for_constituent` (CN + HK paths).
+- `memo/pipeline.py::_format_appendix_line` trigger updated to match
+  the new phrase. **Plus a cache-transition guard** (post-ship hardening
+  from /ship step 8): 71 pre-F6 active-fund cache files in
+  `data/fundamentals/2026Q1/` still contain `revenue_yoy=<scalar>`
+  summaries; the trigger also matches the legacy substring so the
+  compliance caveat is NOT silently dropped during the cache-turnover
+  window. Once `irc fundamentals snapshot --target all` rewrites the
+  caches, the legacy branch becomes dead code.
+- `_TYPE_RANK` order, Policy B rule 3 semantics, citation_selector
+  shape, `find_uncited_opportunity_rows` audit gate — ALL UNCHANGED.
+  Filings still produce constituent-scope data evidence; only the
+  user-facing summary text changed.
+
+Citation_id one-time re-roll expected (content-derived per ADR 0001
+§2). Filings have non-empty source_urls so the canonical key remains
+the URL — citation_ids actually stay stable across this change for
+the filing path. Synthesizer prompt rule 5 updated to forbid the
+legacy raw-token shape while naming the new locked phrase.
+
+### Changed — `macro-research-excerpt-depth` (2026-05-28, F5)
+
+Memo §2 macro pillar previously rendered the FIRST non-empty LINE of each
+theme report's prose — which for 4/7 themes (cn_monetary, geopolitics,
+us_fiscal_politics, cn_equity_property_policy) was a bold subheading
+(`**时间范围：…**`) or a `### subheading`, so §2 read as heading fragments
+rather than paragraphs. ADR 0008 locks the new policy:
+
+- `_summary_from_theme_report` (private in `gold_cmd.py`) now uses a
+  skip-list (`##/###` subheadings, pure-bold `**foo**` / `__foo__`)
+  + paragraph accumulator (stop at ≥3 sentence terminators OR ≥150
+  chars OR blank line after first prose OR 400-char cap with `…`).
+- Bullet markers (`- `, `* `, `+ `) stripped per accepted line so
+  bullet-shaped reports (geopolitics) hit the 150-char floor with
+  content not markers.
+- `（报告内容均为标题/小节，未找到正文段落）` distinct sentinel for
+  populated-but-all-skipped reports; `（报告为空）` reserved for truly-
+  empty prose. Distinguishing both cases prevents the legacy sentinel
+  from masking renderer/skip-rule bugs as "no content".
+- LLM source-citation markers (`[1]`, `[12]`) stripped from accepted
+  prose so they don't collide with downstream footnote numerals.
+
+Existing `extract_prose_from_report_md` (from F4) UNCHANGED — F5 lives
+strictly downstream of it. Memo `IRC_*_BEGIN/END` markers UNCHANGED.
+H3/SAME-3 invariants UNCHANGED. Citation universe integrity preserved
+(every theme still gets a `[ref:HEXID]` row in §2 via `_build_theme_refs`).
+22 tests in `test_gold_cmd.py` cover the skip-list, accumulator floors,
+bullet stripping, both sentinels, and `[N]` marker stripping. A 5-week
+LLM prompt-eval bench was considered but deferred to a follow-up SKIPPED
+entry (`F5-followup-prompt-eval`) — building the corpus + harness dwarfs
+the benefit of a deterministic-extractor improvement.
+
+### Added — `thesis-news-scoring-plumbing` (2026-05-27, F4)
+
+Wires per-instrument research summaries into `thesis_news` scoring so the
+factor actually differentiates picks instead of returning the empty-input
+fallback (`50.0`) for every instrument. The factor function
+`score_thesis_news` already implemented a real keyword-based rubric; the
+gap was in `src/irc/commands/score_cmd.py`, which called `run_scoring`
+with `news_summaries={}` so the call site at `scoring/pipeline.py:117`
+resolved every instrument to `()`.
+
+- New pure module `src/irc/scoring/news_summaries.py` exporting
+  `themes_for_instrument(asset_class) -> tuple[str, ...]` and
+  `build_news_summaries(reports, watchlist) -> dict[str, tuple[str, ...]]`.
+  Theme tuples sorted ASC for determinism (two runs on same inputs →
+  byte-identical scores per ADR 0007 §4).
+- Theme→asset_class mapping locked in `THEMES_BY_ASSET_CLASS` against the
+  real seven `asset_class` values in `config/universe/*.yaml`
+  (`cn_bond_fund`, `cn_equity_fund`, `cn_etf`, `gold`, `hk_etf`,
+  `qdii_global`, `us_etf`).
+- `src/irc/commands/score_cmd.py` now calls `build_news_summaries(...)`
+  and prints a `news coverage: <k>/<N> instruments` line so a zero-
+  coverage run (missing or broken research stage) is immediately
+  visible — required for ADR 0007 §5 "deferred-to-SKIPPED if rubric
+  inadequate" path to be observable.
+
+Empty-input fallback at `factors/thesis_news.py:47` preserved (instruments
+without populated news prose still score 50.0). `derive_thesis_from_evidence`
+unchanged. Keyword-only — no LLM call introduced (deferred to a
+follow-up `F4-followup-llm-rubric` SKIPPED entry if the rubric proves
+inadequate post-deployment). ADR 0007 captures the locked decisions.
+
 ### Added — `qdii-premium-memo-surface` (2026-05-27)
 
 QDII premium-to-NAV data (already computed by an earlier scoring stage
