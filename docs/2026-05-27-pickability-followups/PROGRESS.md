@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | F4 | thesis_news real-content scoring | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F4` | ✅ `245f868` | ✅ | ✅ [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 2 rounds | ✅ `21fb9ca` |
 | F5 | §2 macro research excerpt depth | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F5` | ✅ `51144b4` (orchestrator-recovered after impl-agent socket drop) | ✅ | ✅ [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 1 round | ✅ `79979d5` |
-| F6 | filings evidence role (drop vs normalize) | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F6` | ✅ `a7ee6f6` | ✅ | ✅ [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82) | ⏳ | ✅ pass-with-nits | ⏳ | ⏳ | ⏳ |
+| F6 | filings evidence role (drop vs normalize) | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F6` | ✅ `a7ee6f6` | ✅ | ✅ [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ inline | ✅ `ae3514c` |
 
 **Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
 
@@ -53,6 +53,9 @@
 - F6 drift: [items/F6-drift.md](items/F6-drift.md) — PASS, 4 minor accepted findings; critical UNCHANGED constraints all verified in diff
 - F6 ship: [items/F6-ship.md](items/F6-ship.md) + PR [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82); /ship inline-fixed 1 P0 (cache-transition silent caveat bypass — 71 pre-F6 cache files would have lost the compliance caveat) in commit `9cb6765`; PATCH bump 0.9.2 → 0.9.3
 - F6 review: [items/F6-review.md](items/F6-review.md) — PASS-WITH-NITS (0 blocker / 0 latent after inline P0 fix / 1 P1 sanitizer-regex-transition-dependency comment accepted as note)
+- F6 verify: [items/F6-verify.md](items/F6-verify.md) — PASS, 10/10 ACs; cache-transition guard confirmed working (legacy `revenue_yoy=` and new `财报已披露（口径未核实）` both trigger)
+- F6 pr-review: [items/F6-pr-review.md](items/F6-pr-review.md) — PASS-WITH-NITS (2 nits: ADR §5.2 dual-trigger sync needed [fixed inline `7c00166`] + Policy B test assertion weakened slightly [accepted as nit])
+- F6 merge: squash commit `ae3514c` on feature branch (PR #82 squash-merged)
 
 ## Notes
 
