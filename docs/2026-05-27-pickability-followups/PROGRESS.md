@@ -6,7 +6,7 @@
 | id | title | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | F4 | thesis_news real-content scoring | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F4` | ✅ `245f868` | ✅ | ✅ [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 2 rounds | ✅ `21fb9ca` |
-| F5 | §2 macro research excerpt depth | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F5` | ✅ `51144b4` (orchestrator-recovered after impl-agent socket drop) | ✅ | ✅ [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81) | ⏳ | ✅ pass-with-nits | ⏳ | ⏳ | ⏳ |
+| F5 | §2 macro research excerpt depth | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F5` | ✅ `51144b4` (orchestrator-recovered after impl-agent socket drop) | ✅ | ✅ [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 1 round | ✅ `79979d5` |
 | F6 | filings evidence role (drop vs normalize) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
@@ -42,6 +42,10 @@
 - F5 drift: [items/F5-drift.md](items/F5-drift.md) — PASS, 2 minor findings (1 amended at `fb9c659`, 1 accepted)
 - F5 ship: [items/F5-ship.md](items/F5-ship.md) + PR [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81); /ship inline-fixed 2 P0 (over-skip sentinel + LLM `[N]` markers) in `997e418`; PATCH bump 0.9.1 → 0.9.2
 - F5 review: [items/F5-review.md](items/F5-review.md) — PASS-WITH-NITS (0 blocker / 0 latent after inline P0 fixes / 1 P1 accepted as nit / 1 P1 noted for future hardening)
+- F5 verify: round 1 FAIL → round 2 PASS [items/F5-verify.md](items/F5-verify.md); resolved AC#15 SKIPPED entry + AC#13 nit accepted
+- F5 pr-review: round 1 PASS-WITH-NITS → round 2 PASS-WITH-NITS [items/F5-pr-review.md](items/F5-pr-review.md); doc-code drift resolved + regex widened + 3-digit marker test added
+- F5 fix: 1 round, commits `ea54292` (regex widening + doc sync + SKIPPED entry) + `593c4af` (3-digit regression test)
+- F5 merge: squash commit `79979d5` on feature branch (PR #81 squash-merged)
 
 ## Notes
 
