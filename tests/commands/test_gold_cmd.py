@@ -359,6 +359,24 @@ def test_summary_strips_llm_source_citation_markers_from_excerpt() -> None:
     assert "符合预期" in out
 
 
+def test_summary_strips_three_digit_llm_markers() -> None:
+    """F5 round-2 fix: `_LLM_REF_MARKER_RE` was widened from `\\d{1,2}`
+    to `\\d+` so citation lists with ≥100 entries strip cleanly. Lock
+    the widening with an explicit ≥3-digit case so a future tightening
+    would surface as a regression."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "Long-term yields surged on hawkish guidance [100]，"
+        "and equity markets repriced sharply [123]。"
+        "Risk premia widened across DM credit [256]。"
+    )
+    out = _summary_from_theme_report(report)
+    assert "[100]" not in out
+    assert "[123]" not in out
+    assert "[256]" not in out
+    assert "Long-term yields surged" in out
+
+
 def test_summary_returns_failure_string_when_report_failed() -> None:
     """The existing failure-reason branch is untouched."""
     from irc.commands.gold_cmd import _summary_from_theme_report
