@@ -7,7 +7,7 @@
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | F4 | thesis_news real-content scoring | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F4` | ✅ `245f868` | ✅ | ✅ [#80](https://github.com/snowshine0216/investment-research-copilot/pull/80) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 2 rounds | ✅ `21fb9ca` |
 | F5 | §2 macro research excerpt depth | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F5` | ✅ `51144b4` (orchestrator-recovered after impl-agent socket drop) | ✅ | ✅ [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 1 round | ✅ `79979d5` |
-| F6 | filings evidence role (drop vs normalize) | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| F6 | filings evidence role (drop vs normalize) | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F6` | ✅ `a7ee6f6` | ✅ | ✅ [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82) | ⏳ | ✅ pass-with-nits | ⏳ | ⏳ | ⏳ |
 
 **Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
 
@@ -46,6 +46,13 @@
 - F5 pr-review: round 1 PASS-WITH-NITS → round 2 PASS-WITH-NITS [items/F5-pr-review.md](items/F5-pr-review.md); doc-code drift resolved + regex widened + 3-digit marker test added
 - F5 fix: 1 round, commits `ea54292` (regex widening + doc sync + SKIPPED entry) + `593c4af` (3-digit regression test)
 - F5 merge: squash commit `79979d5` on feature branch (PR #81 squash-merged)
+- F6 spec: [items/F6-spec.md](items/F6-spec.md) — 10 ACs; Option C (reframe summary, keep structural role); identifies F4-style 3rd option (neither drop nor normalize)
+- F6 grill: [items/F6-grill.md](items/F6-grill.md) — 12 Qs resolved; ADR 0001 §5 amendment "Filing evidence semantics" written; ADR 0003 §1 rule 3 cross-reference added; CONTEXT.md updated
+- F6 plan: [items/F6-plan.md](items/F6-plan.md) — 12 tasks; covers all 3 producer sites (legacy + active-fund CN + active-fund HK)
+- F6 impl: branch `claude/pickability-followups-F6`, final SHA `a7ee6f6`; 794 tests passed in scope; structural constraints (TYPE_RANK / policy_b / citation_selector / citation_id minting) all UNCHANGED
+- F6 drift: [items/F6-drift.md](items/F6-drift.md) — PASS, 4 minor accepted findings; critical UNCHANGED constraints all verified in diff
+- F6 ship: [items/F6-ship.md](items/F6-ship.md) + PR [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82); /ship inline-fixed 1 P0 (cache-transition silent caveat bypass — 71 pre-F6 cache files would have lost the compliance caveat) in commit `9cb6765`; PATCH bump 0.9.2 → 0.9.3
+- F6 review: [items/F6-review.md](items/F6-review.md) — PASS-WITH-NITS (0 blocker / 0 latent after inline P0 fix / 1 P1 sanitizer-regex-transition-dependency comment accepted as note)
 
 ## Notes
 
