@@ -188,21 +188,39 @@ def test_appendix_caveat_fires_on_new_disclosure_existence_phrase() -> None:
     assert ref in out
 
 
-def test_appendix_caveat_no_longer_keys_on_revenue_yoy_substring() -> None:
-    """F6 AC #6 — defensive: the old `revenue_yoy=` substring is no
-    longer the trigger (because producers no longer emit it).
+def test_appendix_caveat_fires_on_legacy_revenue_yoy_substring_too() -> None:
+    """F6 post-ship hardening (silent-failure-hunter P0):
+    snapshot caches written BEFORE F6 still serialize summaries in the
+    legacy `{symbol} {period} revenue_yoy=<scalar>` shape. Those rehydrate
+    cleanly (citation_id is source_url-keyed for filings) and flow into
+    the appendix renderer with the legacy substring intact.
 
-    This is a single-locus guard — if a regression re-introduces the
-    `revenue_yoy=` substring keying, this test fires.
+    The trigger MUST fire on both the new disclosure-existence phrase
+    `财报已披露（口径未核实）` AND the legacy `revenue_yoy=` substring
+    during the cache-transition window. The previous expectation
+    (trigger does NOT fire on legacy) would silently drop the compliance
+    caveat for every memo backed by a 2026Q1 cached snapshot — exactly
+    the operator-facing risk F6 was meant to fix.
+
+    Once the next `irc fundamentals snapshot --target all` rewrites
+    every cache to the new shape, the legacy branch will be dead code
+    that can be removed.
     """
     from irc.memo.pipeline import _format_appendix_line
 
-    ref_with_old_phrase = (
+    ref_legacy = (
         "[ref:abcdef0123456789] filing · 600519.SH · 2026-03-31: "
         "600519 2026Q1 revenue_yoy=-0.0771"
     )
-    out = _format_appendix_line(ref_with_old_phrase)
-    # The producer no longer emits this phrase, so the trigger MUST
-    # NOT fire on it. (Belt-and-braces: stops a future engineer
-    # from accidentally re-keying on the legacy substring.)
-    assert not out.startswith("- ⚠️ 合规警示：")
+    out_legacy = _format_appendix_line(ref_legacy)
+    # Legacy cache shape — trigger MUST fire so the compliance caveat
+    # is preserved across the cache transition.
+    assert out_legacy.startswith("- ⚠️ 合规警示：")
+
+    ref_new = (
+        "[ref:1234567890abcdef] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 财报已披露（口径未核实）"
+    )
+    out_new = _format_appendix_line(ref_new)
+    # New shape — also fires.
+    assert out_new.startswith("- ⚠️ 合规警示：")
