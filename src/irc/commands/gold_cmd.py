@@ -256,7 +256,7 @@ def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 400) -> 
     kwarg is preserved as a test override.
 
     Returns the failure_reason verbatim when the report failed; returns
-    the legacy `（報告为空）` sentinel when no prose line is found.
+    the legacy `（报告为空）` sentinel when no prose line is found.
     """
     if report.failure_reason:
         return f"研究采集失败：{report.failure_reason}"
