@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `macro-research-excerpt-depth` (2026-05-28, F5)
+
+Memo §2 macro pillar previously rendered the FIRST non-empty LINE of each
+theme report's prose — which for 4/7 themes (cn_monetary, geopolitics,
+us_fiscal_politics, cn_equity_property_policy) was a bold subheading
+(`**时间范围：…**`) or a `### subheading`, so §2 read as heading fragments
+rather than paragraphs. ADR 0008 locks the new policy:
+
+- `_summary_from_theme_report` (private in `gold_cmd.py`) now uses a
+  skip-list (`##/###` subheadings, pure-bold `**foo**` / `__foo__`)
+  + paragraph accumulator (stop at ≥3 sentence terminators OR ≥150
+  chars OR blank line after first prose OR 400-char cap with `…`).
+- Bullet markers (`- `, `* `, `+ `) stripped per accepted line so
+  bullet-shaped reports (geopolitics) hit the 150-char floor with
+  content not markers.
+- `（报告内容均为标题/小节，未找到正文段落）` distinct sentinel for
+  populated-but-all-skipped reports; `（报告为空）` reserved for truly-
+  empty prose. Distinguishing both cases prevents the legacy sentinel
+  from masking renderer/skip-rule bugs as "no content".
+- LLM source-citation markers (`[1]`, `[12]`) stripped from accepted
+  prose so they don't collide with downstream footnote numerals.
+
+Existing `extract_prose_from_report_md` (from F4) UNCHANGED — F5 lives
+strictly downstream of it. Memo `IRC_*_BEGIN/END` markers UNCHANGED.
+H3/SAME-3 invariants UNCHANGED. Citation universe integrity preserved
+(every theme still gets a `[ref:HEXID]` row in §2 via `_build_theme_refs`).
+22 tests in `test_gold_cmd.py` cover the skip-list, accumulator floors,
+bullet stripping, both sentinels, and `[N]` marker stripping. A 5-week
+LLM prompt-eval bench was considered but deferred to a follow-up SKIPPED
+entry (`F5-followup-prompt-eval`) — building the corpus + harness dwarfs
+the benefit of a deterministic-extractor improvement.
+
 ### Added — `thesis-news-scoring-plumbing` (2026-05-27, F4)
 
 Wires per-instrument research summaries into `thesis_news` scoring so the
