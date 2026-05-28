@@ -50,6 +50,14 @@ _UNDERSCORE_BOLD_RE = _re.compile(r"__[^_]+__")
 # Sentence terminators counted toward the ≥3-terminator stop rule.
 _SENTENCE_TERMINATORS: frozenset[str] = frozenset({".", "。", "！", "!", "?", "？"})
 
+# F5 P0 fix: LLM source-citation markers (e.g. `[1]`, `[12]`) emitted INSIDE
+# the prose by the LLM. Without stripping they collide visually with the
+# memo's downstream `[N]` footnote numerals (rendered by
+# `memo/footnote_renderer.py`). Strip from accepted prose lines before
+# accumulation so neither the 150-char floor nor the 400-char cap can land
+# inside one of these brackets.
+_LLM_REF_MARKER_RE = _re.compile(r"\s*\[\d{1,2}\]\s*")
+
 # Paragraph accumulator stop thresholds (per ADR 0008 §1).
 _PARAGRAPH_CHAR_FLOOR: int = 150
 _PARAGRAPH_TERMINATOR_FLOOR: int = 3
@@ -232,8 +240,11 @@ def _first_prose_paragraph(prose: str, *, max_chars: int) -> str:
             # Blank line + buffer has prose → terminate.
             break
         accepted = _strip_bullet_marker(stripped)
+        # F5 P0 fix: strip `[N]` LLM source-citation markers so they don't
+        # collide with downstream footnote numerals in §2 / §3 rendering.
+        accepted = _LLM_REF_MARKER_RE.sub(" ", accepted).strip()
         if not accepted:
-            # Bullet marker stripped down to empty — treat as skip.
+            # Bullet marker / marker-only stripped down to empty — treat as skip.
             continue
         buffer.append(accepted)
         char_count += len(accepted) + (1 if len(buffer) > 1 else 0)
@@ -262,9 +273,15 @@ def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 400) -> 
         return f"研究采集失败：{report.failure_reason}"
     prose = extract_prose_from_report_md(report.report_md or "")
     paragraph = _first_prose_paragraph(prose, max_chars=max_chars)
-    if not paragraph:
+    if paragraph:
+        return paragraph
+    # F5 P0 fix: distinguish truly-empty prose ("（报告为空）") from a
+    # populated body whose every line was skipped by the skip-rule
+    # ("（报告内容均为标题/小节，未找到正文段落）"). Collapsing both into
+    # one sentinel masks renderer/skip-rule bugs as "report has no content".
+    if not prose.strip():
         return "（报告为空）"
-    return paragraph
+    return "（报告内容均为标题/小节，未找到正文段落）"
 
 
 def _evidence_to_dict(ev) -> dict:

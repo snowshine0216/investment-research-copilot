@@ -313,10 +313,11 @@ def test_summary_strips_bullet_markers_on_first_and_continuation_lines() -> None
     assert "台海风险维持高位" in out
 
 
-def test_summary_returns_empty_sentinel_when_all_lines_are_skipped() -> None:
-    """Edge case: prose body is ONLY subheadings + pure-bold lines + blank
-    lines. The accumulator finds no prose; the function returns the
-    legacy `（报告为空）` sentinel for graceful empty rendering."""
+def test_summary_returns_overskip_sentinel_when_lines_exist_but_all_skipped() -> None:
+    """F5 P0 fix: when the prose body is populated but every line is
+    a subheading or pure-bold line, return the DISTINCT over-skip sentinel
+    so the user/operator can tell this from a truly-empty report. The legacy
+    `（报告为空）` would mask renderer/skip-rule bugs as 'no content'."""
     from irc.commands.gold_cmd import _summary_from_theme_report
     report = _make_report(
         "## Section A\n"
@@ -326,7 +327,36 @@ def test_summary_returns_empty_sentinel_when_all_lines_are_skipped() -> None:
         "**Bold only line two**\n"
     )
     out = _summary_from_theme_report(report)
+    assert out == "（报告内容均为标题/小节，未找到正文段落）"
+
+
+def test_summary_returns_empty_sentinel_when_prose_is_truly_empty() -> None:
+    """F5 P0 fix: truly-empty prose (e.g. only the `# heading` and
+    `## Citations` footer that F4's extract_prose_from_report_md strips
+    out) returns `（报告为空）`. Distinct from the over-skip sentinel above."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report("")  # report_md becomes empty after extract_prose
+    out = _summary_from_theme_report(report)
     assert out == "（报告为空）"
+
+
+def test_summary_strips_llm_source_citation_markers_from_excerpt() -> None:
+    """F5 P0 fix: LLM source-citation markers like `[1]`, `[12]` inside the
+    prose collide visually with the memo's downstream footnote numerals.
+    Strip them so neither the 150-char floor nor the 400-char cap can land
+    inside one of these brackets."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "美联储维持利率不变 [1]，市场押注年内降息 [2]。"
+        "通胀放缓至 3.2% [3]，符合预期 [4]。"
+    )
+    out = _summary_from_theme_report(report)
+    assert "[1]" not in out
+    assert "[2]" not in out
+    assert "[3]" not in out
+    assert "[4]" not in out
+    assert "美联储维持利率不变" in out
+    assert "符合预期" in out
 
 
 def test_summary_returns_failure_string_when_report_failed() -> None:
@@ -404,11 +434,11 @@ def test_macro_pillar_renders_paragraph_shaped_excerpt_post_f5() -> None:
     assert re.search(r"\[ref:[0-9a-f]{16}\]", body) is not None
 
 
-def test_macro_pillar_renders_empty_sentinel_for_skip_only_report() -> None:
+def test_macro_pillar_renders_overskip_sentinel_for_skip_only_report() -> None:
     """Edge case: a theme report whose prose is only subheadings + bold
-    lines renders the legacy `（报告为空）` sentinel in §2. The
-    citation_id is still minted (the row exists in gold_regime.json) — F5
-    does not delete rows, only changes content."""
+    lines renders the DISTINCT over-skip sentinel in §2 (per F5 P0 fix).
+    The citation_id is still minted (the row exists in gold_regime.json)
+    — F5 does not delete rows, only changes content."""
     from irc.commands.gold_cmd import _build_theme_refs
     from irc.memo.macro_pillar import (
         build_macro_evidence,
@@ -423,11 +453,11 @@ def test_macro_pillar_renders_empty_sentinel_for_skip_only_report() -> None:
     )
     reports = {"us_monetary": report}
     refs = _build_theme_refs(reports, today="2026-05-27")
-    assert refs[0].summary == "（报告为空）"
+    assert refs[0].summary == "（报告内容均为标题/小节，未找到正文段落）"
     # Renderer still produces a valid §2 body with marker (no crash).
     evidence = build_macro_evidence((), refs)
     by_src = evidence_by_source_key(evidence)
     body = render_macro_section_body((), refs, by_src)
-    assert "（报告为空）" in body
+    assert "（报告内容均为标题/小节，未找到正文段落）" in body
     ev = by_src["research:us_monetary"]
     assert f"[ref:{ev.citation_id}]" in body
