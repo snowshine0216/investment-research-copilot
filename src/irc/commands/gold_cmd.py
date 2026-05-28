@@ -3,6 +3,7 @@ from datetime import datetime, timezone, timedelta
 from dataclasses import asdict
 from pathlib import Path
 import json
+import re as _re
 import yaml
 import pandas as pd
 from dataclasses import asdict as _dc_asdict
@@ -34,6 +35,33 @@ from irc.scoring.gold_score import (
 _TILT_ORDER: tuple[GoldTilt, ...] = (
     "underweight", "neutral_minus", "neutral", "neutral_plus", "overweight",
 )
+
+
+# F5: paragraph-accumulator constants (per ADR 0008).
+#
+# `_BOLD_ONLY_RE` matches lines whose stripped form is ENTIRELY wrapped in
+# `**...**` with NO trailing prose. Pure bold subheadings (e.g.
+# `**1. Bond Market Pressure...**`) skip; bold + trailing prose (e.g.
+# `**政策优化信号**：本周国常会…`) DOES NOT skip — the trailing colon and
+# prose disqualifies the fullmatch. Same shape for underscore-bold.
+_BOLD_ONLY_RE = _re.compile(r"\*\*[^*]+\*\*")
+_UNDERSCORE_BOLD_RE = _re.compile(r"__[^_]+__")
+
+# Sentence terminators counted toward the ≥3-terminator stop rule.
+_SENTENCE_TERMINATORS: frozenset[str] = frozenset({".", "。", "！", "!", "?", "？"})
+
+# F5 P0 fix: LLM source-citation markers (e.g. `[1]`, `[12]`, `[100]`) emitted
+# INSIDE the prose by the LLM. Without stripping they collide visually with
+# the memo's downstream `[N]` footnote numerals (rendered by
+# `memo/footnote_renderer.py`). Strip from accepted prose lines before
+# accumulation so neither the 150-char floor nor the 400-char cap can land
+# inside one of these brackets. `\d+` covers `[0]`–`[\d+]` rather than capping
+# at 2 digits — citation lists with ≥100 entries should still strip cleanly.
+_LLM_REF_MARKER_RE = _re.compile(r"\s*\[\d+\]\s*")
+
+# Paragraph accumulator stop thresholds (per ADR 0008 §1).
+_PARAGRAPH_CHAR_FLOOR: int = 150
+_PARAGRAPH_TERMINATOR_FLOOR: int = 3
 
 
 def _combine_tilts(
@@ -143,32 +171,118 @@ def _load_macro_snapshots(con) -> tuple[MacroSnapshot, ...]:
     return tuple(out)
 
 
-def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 220) -> str:
-    """Extract a 1-2 sentence summary from a ThemeReport's markdown body.
+def _is_skip_line(stripped: str, *, buffer_has_prose: bool) -> bool:
+    """Return True if this stripped line should be skipped during the
+    paragraph extraction. See ADR 0008 §1 "Skip rule".
 
-    Strategy: strip the markdown heading and citation footer via the shared
-    ``extract_prose_from_report_md`` helper (ADR 0007 §2 — single source of
-    truth), then take the first non-empty line of the resulting prose and
-    truncate to ``max_chars``. Anchor with ``…`` when truncated. Always
-    returns a non-empty string when the report has content; returns the
-    failure_reason verbatim when the report failed.
+    - `##`-prefixed lines (markdown subheading at any depth) ALWAYS skip.
+    - Pure bold-only lines (`**foo**` / `__foo__`) ALWAYS skip.
+    - Empty lines skip only when no prose line is in the buffer yet;
+      they terminate accumulation (not skipped) once buffer is non-empty.
+    """
+    if not stripped:
+        return not buffer_has_prose
+    if stripped.startswith("##"):
+        return True
+    if _BOLD_ONLY_RE.fullmatch(stripped):
+        return True
+    if _UNDERSCORE_BOLD_RE.fullmatch(stripped):
+        return True
+    return False
+
+
+def _strip_bullet_marker(stripped: str) -> str:
+    """Strip a leading `- `, `* `, or `+ ` bullet marker. Per grill Q10
+    this runs on EVERY accepted accumulator line so bullet-list reports
+    (e.g. geopolitics) reach the 150-char floor with content not markers."""
+    if stripped.startswith(("- ", "* ", "+ ")):
+        return stripped[2:].lstrip()
+    return stripped
+
+
+def _truncate_at_cap(text: str, *, max_chars: int) -> str:
+    """If `text` exceeds `max_chars`, truncate to `max_chars - 1` visible
+    chars and append a single `…` (horizontal-ellipsis). Otherwise return
+    `text` unchanged. Per ADR 0008 §2."""
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1] + "…"
+
+
+def _first_prose_paragraph(prose: str, *, max_chars: int) -> str:
+    """Extract the first prose paragraph from a stripped theme-report body.
+
+    Algorithm (locked by ADR 0008 §1):
+      1. Walk lines top-to-bottom.
+      2. For each stripped line, apply `_is_skip_line`; skipped lines do
+         not enter the buffer.
+      3. Once a non-skip prose line is found, strip its bullet marker and
+         append to the buffer.
+      4. Continue accumulating non-skip lines (bullets stripped) until any
+         terminator fires:
+         (i)  buffer's sentence-terminator count ≥ `_PARAGRAPH_TERMINATOR_FLOOR`
+         (ii) buffer's len ≥ `_PARAGRAPH_CHAR_FLOOR`
+         (iii) a blank line is encountered AFTER ≥1 prose line is in the buffer
+      5. Truncate at `max_chars` with `…` suffix per `_truncate_at_cap`.
+      6. Return the buffer joined by single ASCII space. If no prose line
+         was ever found, return the empty string (caller maps to the
+         `（报告为空）` sentinel).
+
+    Pure function — no I/O.
+    """
+    buffer: list[str] = []
+    char_count = 0
+    terminator_count = 0
+    for line in prose.splitlines():
+        stripped = line.strip()
+        if _is_skip_line(stripped, buffer_has_prose=bool(buffer)):
+            continue
+        if not stripped:
+            # Blank line + buffer has prose → terminate.
+            break
+        accepted = _strip_bullet_marker(stripped)
+        # F5 P0 fix: strip `[N]` LLM source-citation markers so they don't
+        # collide with downstream footnote numerals in §2 / §3 rendering.
+        accepted = _LLM_REF_MARKER_RE.sub(" ", accepted).strip()
+        if not accepted:
+            # Bullet marker / marker-only stripped down to empty — treat as skip.
+            continue
+        buffer.append(accepted)
+        char_count += len(accepted) + (1 if len(buffer) > 1 else 0)
+        terminator_count += sum(1 for ch in accepted if ch in _SENTENCE_TERMINATORS)
+        if terminator_count >= _PARAGRAPH_TERMINATOR_FLOOR:
+            break
+        if char_count >= _PARAGRAPH_CHAR_FLOOR:
+            break
+    if not buffer:
+        return ""
+    joined = " ".join(buffer)
+    return _truncate_at_cap(joined, max_chars=max_chars)
+
+
+def _summary_from_theme_report(report: ThemeReport, *, max_chars: int = 400) -> str:
+    """Extract a paragraph-shaped summary from a ThemeReport.
+
+    Per ADR 0008: skip-rule + paragraph accumulator. Default `max_chars`
+    raised to 400 (was 220) so paragraph-shaped excerpts have room. The
+    kwarg is preserved as a test override.
+
+    Returns the failure_reason verbatim when the report failed; returns
+    the legacy `（报告为空）` sentinel when no prose line is found.
     """
     if report.failure_reason:
         return f"研究采集失败：{report.failure_reason}"
     prose = extract_prose_from_report_md(report.report_md or "")
-    for line in prose.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        # Drop markdown bullet markers but keep the substance.
-        if stripped.startswith(("- ", "* ", "+ ")):
-            stripped = stripped[2:].lstrip()
-        if not stripped:
-            continue
-        if len(stripped) <= max_chars:
-            return stripped
-        return stripped[: max_chars - 1] + "…"
-    return "（报告为空）"
+    paragraph = _first_prose_paragraph(prose, max_chars=max_chars)
+    if paragraph:
+        return paragraph
+    # F5 P0 fix: distinguish truly-empty prose ("（报告为空）") from a
+    # populated body whose every line was skipped by the skip-rule
+    # ("（报告内容均为标题/小节，未找到正文段落）"). Collapsing both into
+    # one sentinel masks renderer/skip-rule bugs as "report has no content".
+    if not prose.strip():
+        return "（报告为空）"
+    return "（报告内容均为标题/小节，未找到正文段落）"
 
 
 def _evidence_to_dict(ev) -> dict:
