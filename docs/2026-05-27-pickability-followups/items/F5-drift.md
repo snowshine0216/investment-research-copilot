@@ -10,9 +10,9 @@ Drift findings:
 
   - Step 3.2 (_summary_from_theme_report docstring) — minor divergence, amended inline
     Evidence: gold_cmd.py line 259: `the legacy `（報告为空）` sentinel` uses Traditional Chinese `報` in the docstring, while the actual return literal at line 266 and every other occurrence use Simplified `报`. The plan text consistently used `（报告为空）`.
-    Action: plan amended inline (see commit below); docstring typo fixed.
+    Action: plan amended inline (commit fb9c659); docstring typo fixed in `src/irc/commands/gold_cmd.py` line 259.
 
-Plan amendment commit: see below
+Plan amendment commit: fb9c659
 
 ---
 
