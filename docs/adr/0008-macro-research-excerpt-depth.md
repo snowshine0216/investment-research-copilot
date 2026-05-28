@@ -30,6 +30,12 @@ The helper algorithm is fully specified in CONTEXT.md "Macro excerpt depth (skip
 
 The hybrid stop-rule guarantees ≥150 chars of substance for both paragraph-shaped reports (e.g. `us_monetary`) and bullet-list-shaped reports (e.g. `geopolitics`).
 
+**Sentinel disambiguation** (F5 post-impl P0 fix, commit `997e418`): `_summary_from_theme_report` returns two distinct sentinels when the accumulator produces empty output:
+- `（报告为空）` when `prose.strip()` is also empty (truly-empty report body after F4's `extract_prose_from_report_md` strips the header + citation footer).
+- `（报告内容均为标题/小节，未找到正文段落）` when `prose.strip()` is non-empty but every line was caught by the skip-rule (typical: a report whose body is only `##`/`###` subheadings and pure-bold subtitles).
+
+Collapsing both into a single sentinel would mask renderer/skip-rule bugs as "no content"; the distinct strings make the over-skip case operator-visible.
+
 **Trade-offs considered:**
 
 - *Alternative — naive "first 3 lines".* Rejected: would produce `### Section Heading\n\n**1. First subsection title**\n...` for the offending 4 themes. Reads worse than today.
