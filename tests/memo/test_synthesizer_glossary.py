@@ -79,7 +79,10 @@ def test_synthesize_memo_prompt_balances_positive_logic_with_negative_signals() 
     assert "overheated" in user_msg
     assert "weak" in user_msg
     assert "revenue_yoy" in user_msg
-    assert "不得直接引用为业绩依据" in user_msg
+    # F6: old phrase `不得直接引用为业绩依据` replaced by the F6 guardrail
+    # clause; assert the new equivalent contract is present.
+    assert "财报已披露（口径未核实）" in user_msg
+    assert "禁止在任何段落输出" in user_msg
     assert "必须换算为百分比" not in user_msg
 
 

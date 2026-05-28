@@ -341,7 +341,7 @@ def _evidence_for_constituent(
                 evidence.append(ThesisEvidence(
                     type="filing", source=digest.symbol,
                     url=digest.source_url, date=digest.filed_at_iso,
-                    summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                    summary=f"{digest.symbol} {digest.fiscal_period} 财报已披露（口径未核实）",
                     citation_kind="data", **common,
                 ))
         _broker_exc = False
@@ -392,7 +392,7 @@ def _evidence_for_constituent(
                 evidence.append(ThesisEvidence(
                     type="filing", source=digest.symbol,
                     url=digest.source_url, date=digest.filed_at_iso,
-                    summary=f"{digest.symbol} {digest.fiscal_period} revenue_yoy={digest.revenue_yoy}",
+                    summary=f"{digest.symbol} {digest.fiscal_period} 财报已披露（口径未核实）",
                     citation_kind="data", **common,
                 ))
         # No HK broker adapter in V1.

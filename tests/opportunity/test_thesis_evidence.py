@@ -572,3 +572,126 @@ def test_no_gaps_fund_level_snapshot_reason_is_fallback() -> None:
     assert evidence == ()
     assert gaps == ()
 
+
+# ── F6: filing-evidence summary reframe ──────────────────────────────────────
+
+def test_filing_evidence_summary_uses_disclosure_existence_template_legacy() -> None:
+    """F6 AC #1 — legacy `_filing_evidence` producer.
+
+    The summary must (a) NOT contain `revenue_yoy=` substring, (b) NOT
+    contain `营收同比` substring (the legacy +.1%-formatted phrasing),
+    and (c) contain the locked Chinese phrase `财报已披露（口径未核实）`
+    with full-width parentheses, prefixed by `{symbol} {fiscal_period}`.
+    """
+    from irc.opportunity.thesis_evidence import _filing_evidence
+
+    digest = _filing("600519", -0.0771, period="2026Q1")
+    out = _filing_evidence((digest,), owner_instrument_id="fund-x")
+
+    assert len(out) == 1
+    summary = out[0].summary
+    # AC #1 load-bearing assertion: old scalar substring is gone.
+    assert "revenue_yoy=" not in summary
+    # AC #1 load-bearing assertion: legacy +.1%-formatted phrasing is gone.
+    assert "营收同比" not in summary
+    # AC #1 load-bearing assertion: new template phrase present, leading
+    # with symbol + fiscal_period for stable `summary[:24]` appendix
+    # fragment behaviour.
+    assert summary == "600519 2026Q1 财报已披露（口径未核实）"
+
+
+def test_filing_evidence_preserves_structural_role_legacy() -> None:
+    """F6 AC #2 + AC #3 — non-summary fields unchanged.
+
+    `_TYPE_RANK` ordering and the filing row's structural role
+    (`scope`, `citation_kind`, `type`) MUST be preserved by the
+    summary-only reframe. Confirms Policy B rule 3 and the
+    dual-coverage gate keep seeing what they expect.
+    """
+    from irc.opportunity.thesis_evidence import _filing_evidence, _TYPE_RANK
+
+    digest = _filing("000333", 0.18, period="2026Q1")
+    out = _filing_evidence((digest,), owner_instrument_id="fund-y")
+
+    assert len(out) == 1
+    ev = out[0]
+    assert ev.type == "filing"
+    assert ev.citation_kind == "data"
+    assert ev.scope == "instrument"   # legacy path; active-fund path uses "constituent"
+    assert ev.url == digest.source_url
+    assert ev.date == digest.filed_at_iso
+    # AC #3: filing still ranks first per holding.
+    assert _TYPE_RANK["filing"] == 0
+    assert _TYPE_RANK["filing"] < _TYPE_RANK["broker"] < _TYPE_RANK["news"]
+
+
+def test_evidence_for_constituent_cn_uses_disclosure_existence_template(
+    monkeypatch,
+) -> None:
+    """F6 AC #1 — active-fund CN branch.
+
+    `_evidence_for_constituent` is the only producer of
+    `citation_kind="data" AND scope="constituent"` in V1. Its filing
+    summary MUST converge to the same locked phrase as the legacy
+    producer so Policy B rule 3 + the dual-coverage gate read a
+    user-safe summary while the structural role is preserved.
+    """
+    from irc.fundamentals import snapshot as snap_mod
+    from irc.fundamentals.types import FundHolding
+
+    digest = _filing("600519", -0.0771, period="2026Q1")
+    monkeypatch.setattr(
+        snap_mod, "fetch_cn_filing_digest", lambda sym: digest,
+    )
+    monkeypatch.setattr(
+        snap_mod, "fetch_cn_broker_reports", lambda sym: (),
+    )
+    monkeypatch.setattr(
+        snap_mod, "fetch_cn_stock_news", lambda sym, top_k=3: (),
+    )
+    holding = FundHolding(
+        symbol="600519", name_cn="贵州茅台",
+        exchange="SH", weight_pct=8.0,
+        provider_symbol="600519",
+    )
+    evidence, _failures = snap_mod._evidence_for_constituent(
+        holding, fund_id="005827",
+    )
+    filings = [e for e in evidence if e.type == "filing"]
+    assert len(filings) == 1
+    ev = filings[0]
+    assert ev.scope == "constituent"
+    assert ev.citation_kind == "data"
+    assert "revenue_yoy=" not in ev.summary
+    assert ev.summary == "600519 2026Q1 财报已披露（口径未核实）"
+
+
+def test_evidence_for_constituent_hk_uses_disclosure_existence_template(
+    monkeypatch,
+) -> None:
+    """F6 AC #1 — active-fund HK branch — same template lock."""
+    from irc.fundamentals import snapshot as snap_mod
+    from irc.fundamentals.types import FundHolding
+
+    digest = _filing("00700", 0.12, period="2026H1")
+    monkeypatch.setattr(
+        snap_mod, "fetch_hk_filing_digest", lambda sym: digest,
+    )
+    monkeypatch.setattr(
+        snap_mod, "hk_news_adapter_available", lambda: False,
+    )
+    holding = FundHolding(
+        symbol="00700", name_cn="腾讯控股",
+        exchange="HK", weight_pct=6.5,
+        provider_symbol="00700",
+    )
+    evidence, _failures = snap_mod._evidence_for_constituent(
+        holding, fund_id="005827",
+    )
+    filings = [e for e in evidence if e.type == "filing"]
+    assert len(filings) == 1
+    ev = filings[0]
+    assert ev.scope == "constituent"
+    assert ev.citation_kind == "data"
+    assert "revenue_yoy=" not in ev.summary
+    assert ev.summary == "00700 2026H1 财报已披露（口径未核实）"

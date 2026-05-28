@@ -173,7 +173,22 @@ def _appendix_caveats(ref: str) -> str:
 
 
 def _format_appendix_line(ref: str) -> str:
-    if "revenue_yoy=" in ref:
+    # F6 / ADR 0001 §5.2: trigger substring is the locked
+    # disclosure-existence phrase `财报已披露（口径未核实）` emitted
+    # by every filing-evidence producer.
+    #
+    # Cache-transition guard (F6 post-ship silent-failure-hunter P0):
+    # snapshot caches written before this commit serialize the legacy
+    # `revenue_yoy=<scalar>` summary shape. The cached citation_id is
+    # source_url-keyed (filings always have a non-empty url), so the
+    # cached evidence rehydrates without a citation_id mismatch and
+    # flows here with the legacy summary intact. Trigger on BOTH the
+    # new locked phrase AND the legacy substring so the compliance
+    # caveat is NOT silently dropped during the cache-turnover window
+    # (next `irc fundamentals snapshot --target all` rewrites the
+    # caches to the new shape). The caveat text is the same in either
+    # case — operator-facing posture preserved.
+    if "财报已披露（口径未核实）" in ref or "revenue_yoy=" in ref:
         return f"- {_REVENUE_YOY_APPENDIX_CAVEAT} 原始证据：{ref}"
     return f"- {ref}{_appendix_caveats(ref)}"
 

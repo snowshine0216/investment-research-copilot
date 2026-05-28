@@ -95,7 +95,7 @@ def _filing_evidence(
             source=f.symbol,
             url=f.source_url,
             date=f.filed_at_iso,
-            summary=f"{f.symbol} {f.fiscal_period} 营收同比 {f.revenue_yoy:+.1%}。",
+            summary=f"{f.symbol} {f.fiscal_period} 财报已披露（口径未核实）",
             scope="instrument",            # item 003 rewires to "constituent"
             citation_kind="data",
             owner_instrument_id=owner_instrument_id,
