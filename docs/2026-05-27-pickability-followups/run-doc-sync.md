@@ -1,0 +1,15 @@
+Verdict: FAIL
+
+Subagent: sonnet
+Items reviewed: 3 (F4, F5, F6)
+Doc changes verified:
+  - CONTEXT.md (commits ded282c, d9f2571, 5a832ba) — covers `news_summaries`, `themes_for_instrument`, theme→asset-class mapping table, `build_news_summaries`, `Deterministic theme excerpt`, `Macro excerpt depth (skip-rule + paragraph accumulator)`, `Macro excerpt char cap`, `Theme-excerpt citation_id churn`, `Filing evidence semantics`, `Filing summary template`, `Constituent-scope data evidence (producer mapping)`, `F6 reframe-vs-drop-vs-normalize rationale`
+  - docs/adr/0007-thesis-news-scoring.md (commit ded282c) — covers `thesis_news` plumbing fix (news_summaries={} root cause), theme→asset-class mapping locked to real 7 asset_class values, empty-input fallback invariant, prose-extraction invariant + stop-marker tightened to `^##\s*(Citations|References)\b`, determinism contract (two-run byte-equal scoring.json), deferred LLM-rubric SKIPPED entry
+  - docs/adr/0008-macro-research-excerpt-depth.md (commit d9f2571) — covers skip-rule + paragraph accumulator extractor policy, max_chars=400 cap rationale, LLM `[N]` marker strip (reversal documented), citation_id churn acknowledgement, deferred `F5-followup-prompt-eval` SKIPPED entry
+  - docs/adr/0001-citation-data-model.md §5 Addendum (commit 5a832ba) — covers filing-evidence semantics (disclosure-existence anchor), locked summary template phrase, appendix caveat trigger substring switch (new + legacy dual-trigger for cache transition), citation_id re-roll acknowledgement (URL-keyed stability for non-empty-URL rows), drop/normalize alternatives rejected
+  - docs/adr/0003-failure-mode-policy-b.md §1 rule 3 (commit 5a832ba) — covers cross-reference to ADR 0001 §5 Addendum explaining why filing citations are accepted as the data-leg
+  - README.md — not touched (no new user-facing commands introduced by F4/F5/F6)
+Missing coverage:
+  - F5: `（報告内容均为标题/小节，未找到正文段落）` sentinel (returned by `_summary_from_theme_report` in `gold_cmd.py` when `_first_prose_paragraph` exhausts all lines via the skip-rule but `prose.strip()` is non-empty) is present in the code but absent from both CONTEXT.md "Macro excerpt rendering" subsection and ADR 0008. The sentinel distinguishes the "all-heading body" failure mode from the "empty report" failure mode (`（报告为空）`); an operator seeing this string in memo §2/§3 has no doc anchor to diagnose it. Dispatch explicitly names this sentinel as a change requiring doc coverage.
+
+Manual fix path: In CONTEXT.md, extend the "Macro excerpt depth (skip-rule + paragraph accumulator)" bullet to note: when `_first_prose_paragraph` returns an empty string but `prose.strip()` is non-empty (all lines matched the skip-rule), `_summary_from_theme_report` returns the diagnostic sentinel `（報告内容均为标题/小节，未找到正文段落）` rather than the legacy `（报告为空）` — this distinguishes a structured-but-all-heading report from a genuinely empty one. Optionally add a matching note in ADR 0008 §1 under the skip-rule description. Then re-commit and re-push.
