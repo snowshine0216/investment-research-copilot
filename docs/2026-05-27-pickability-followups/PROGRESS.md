@@ -9,13 +9,13 @@
 | F5 | §2 macro research excerpt depth | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F5` | ✅ `51144b4` (orchestrator-recovered after impl-agent socket drop) | ✅ | ✅ [#81](https://github.com/snowshine0216/investment-research-copilot/pull/81) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ 1 round | ✅ `79979d5` |
 | F6 | filings evidence role (drop vs normalize) | ✅ | ✅ | ✅ | ✅ `claude/pickability-followups-F6` | ✅ `a7ee6f6` | ✅ | ✅ [#82](https://github.com/snowshine0216/investment-research-copilot/pull/82) | ✅ | ✅ pass-with-nits | ✅ pass-with-nits | ✅ inline | ✅ `ae3514c` |
 
-**Run-level**: `run-doc-sync` ⏳ · `run-final-verify` ⏳ · `run-close-out` ⏳
+**Run-level**: `run-doc-sync` ✅ (round 2 PASS) · `run-final-verify` ✅ · `run-close-out` ✅ **rollup PR [#83](https://github.com/snowshine0216/investment-research-copilot/pull/83) open — user to land**
 
 ## Run-level evidence
 
-- doc-sync: _pending_
-- final-verify: _pending_
-- final PR: _pending_
+- doc-sync: [run-doc-sync.md](run-doc-sync.md) — PASS round 2; missing coverage for F5's distinct over-skip sentinel discovered round 1, fixed inline at `feb2d57`, round 2 PASS
+- final-verify: [run-final-verify.md](run-final-verify.md) — PASS; live `IRC_ALLOW_STALE=1 uv run irc memo` smoke-test produced 54k-char memo with F4/F5/F6 all visible; 1327 passed, 1 pre-existing failure, no new regressions
+- final PR: [#83](https://github.com/snowshine0216/investment-research-copilot/pull/83) (autodev/pickability-followups-feature → main) — opened for user to land
 
 ## Legend
 
