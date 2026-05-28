@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — `filing-evidence-summary-reframe` (2026-05-28, F6)
+
+Filing-evidence rows previously rendered summary text as
+`{symbol} {fiscal_period} revenue_yoy=<raw decimal>` — but the accompanying
+appendix caveat said the numeric value "不得作为业绩依据引用". A row that
+shouldn't be trusted as a performance number still emitted that number
+verbatim in inline picks/§5/§6 citations. ADR 0001 §5 (new "Filing
+evidence semantics" addendum) locks the resolution:
+
+- New filing summary template: `{symbol} {fiscal_period} 财报已披露（口径未核实）`.
+  This is the disclosure-existence anchor — explicit that a filing was
+  published for the period and explicit that the project does not
+  endorse the numbers. The substring is the single locus that BOTH
+  the user-visible content AND the appendix caveat trigger.
+- Three producer sites changed to emit the new template:
+  `opportunity/thesis_evidence.py::_filing_evidence`,
+  `fundamentals/snapshot.py::_evidence_for_constituent` (CN + HK paths).
+- `memo/pipeline.py::_format_appendix_line` trigger updated to match
+  the new phrase. **Plus a cache-transition guard** (post-ship hardening
+  from /ship step 8): 71 pre-F6 active-fund cache files in
+  `data/fundamentals/2026Q1/` still contain `revenue_yoy=<scalar>`
+  summaries; the trigger also matches the legacy substring so the
+  compliance caveat is NOT silently dropped during the cache-turnover
+  window. Once `irc fundamentals snapshot --target all` rewrites the
+  caches, the legacy branch becomes dead code.
+- `_TYPE_RANK` order, Policy B rule 3 semantics, citation_selector
+  shape, `find_uncited_opportunity_rows` audit gate — ALL UNCHANGED.
+  Filings still produce constituent-scope data evidence; only the
+  user-facing summary text changed.
+
+Citation_id one-time re-roll expected (content-derived per ADR 0001
+§2). Filings have non-empty source_urls so the canonical key remains
+the URL — citation_ids actually stay stable across this change for
+the filing path. Synthesizer prompt rule 5 updated to forbid the
+legacy raw-token shape while naming the new locked phrase.
+
 ### Changed — `macro-research-excerpt-depth` (2026-05-28, F5)
 
 Memo §2 macro pillar previously rendered the FIRST non-empty LINE of each
