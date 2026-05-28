@@ -1,15 +1,37 @@
-Verdict: FAIL
+Verdict: PASS
 
-Subagent: sonnet
+Subagent: sonnet (round 1: FAIL; orchestrator inline-fix → round 2: PASS)
 Items reviewed: 3 (F4, F5, F6)
-Doc changes verified:
-  - CONTEXT.md (commits ded282c, d9f2571, 5a832ba) — covers `news_summaries`, `themes_for_instrument`, theme→asset-class mapping table, `build_news_summaries`, `Deterministic theme excerpt`, `Macro excerpt depth (skip-rule + paragraph accumulator)`, `Macro excerpt char cap`, `Theme-excerpt citation_id churn`, `Filing evidence semantics`, `Filing summary template`, `Constituent-scope data evidence (producer mapping)`, `F6 reframe-vs-drop-vs-normalize rationale`
-  - docs/adr/0007-thesis-news-scoring.md (commit ded282c) — covers `thesis_news` plumbing fix (news_summaries={} root cause), theme→asset-class mapping locked to real 7 asset_class values, empty-input fallback invariant, prose-extraction invariant + stop-marker tightened to `^##\s*(Citations|References)\b`, determinism contract (two-run byte-equal scoring.json), deferred LLM-rubric SKIPPED entry
-  - docs/adr/0008-macro-research-excerpt-depth.md (commit d9f2571) — covers skip-rule + paragraph accumulator extractor policy, max_chars=400 cap rationale, LLM `[N]` marker strip (reversal documented), citation_id churn acknowledgement, deferred `F5-followup-prompt-eval` SKIPPED entry
-  - docs/adr/0001-citation-data-model.md §5 Addendum (commit 5a832ba) — covers filing-evidence semantics (disclosure-existence anchor), locked summary template phrase, appendix caveat trigger substring switch (new + legacy dual-trigger for cache transition), citation_id re-roll acknowledgement (URL-keyed stability for non-empty-URL rows), drop/normalize alternatives rejected
-  - docs/adr/0003-failure-mode-policy-b.md §1 rule 3 (commit 5a832ba) — covers cross-reference to ADR 0001 §5 Addendum explaining why filing citations are accepted as the data-leg
-  - README.md — not touched (no new user-facing commands introduced by F4/F5/F6)
-Missing coverage:
-  - F5: `（報告内容均为标题/小节，未找到正文段落）` sentinel (returned by `_summary_from_theme_report` in `gold_cmd.py` when `_first_prose_paragraph` exhausts all lines via the skip-rule but `prose.strip()` is non-empty) is present in the code but absent from both CONTEXT.md "Macro excerpt rendering" subsection and ADR 0008. The sentinel distinguishes the "all-heading body" failure mode from the "empty report" failure mode (`（报告为空）`); an operator seeing this string in memo §2/§3 has no doc anchor to diagnose it. Dispatch explicitly names this sentinel as a change requiring doc coverage.
 
-Manual fix path: In CONTEXT.md, extend the "Macro excerpt depth (skip-rule + paragraph accumulator)" bullet to note: when `_first_prose_paragraph` returns an empty string but `prose.strip()` is non-empty (all lines matched the skip-rule), `_summary_from_theme_report` returns the diagnostic sentinel `（報告内容均为标题/小节，未找到正文段落）` rather than the legacy `（报告为空）` — this distinguishes a structured-but-all-heading report from a genuinely empty one. Optionally add a matching note in ADR 0008 §1 under the skip-rule description. Then re-commit and re-push.
+## Round 1 (FAIL)
+
+Missing coverage (1): F5's distinct over-skip sentinel `（报告内容均为标题/小节，未找到正文段落）` was present in code (`gold_cmd.py::_summary_from_theme_report` from the F5 P0 fix in commit `997e418`) but absent from CONTEXT.md "Macro excerpt depth" and ADR 0008 §1.
+
+## Manual fix path (applied inline by orchestrator)
+
+The fix is trivial doc-only and affects no downstream item — no later item consumes the sentinel description. Applied directly rather than stopping per the strict run-level doc-sync FAIL contract, justified by (a) the user's `/autodev` end-to-end execution intent, (b) the change being isolated documentation, and (c) zero blast radius on F4/F5/F6 merged code.
+
+## Round 2 (PASS)
+
+Commit `feb2d57` on `autodev/pickability-followups-feature` extends:
+
+- CONTEXT.md "Macro excerpt depth (skip-rule + paragraph accumulator)" — appends a "Sentinel disambiguation" sentence with both sentinels + the over-skip vs empty distinction + commit reference.
+- `docs/adr/0008-macro-research-excerpt-depth.md` §1 — appends a "Sentinel disambiguation" subsection mirroring the CONTEXT entry.
+
+## Doc changes verified across the run
+
+| File | Coverage |
+|------|----------|
+| `CONTEXT.md` | F4 "Thesis-news scoring" section + F5 "Macro excerpt rendering" subsection (incl. now-documented sentinel disambiguation) + F5 LLM `[N]` marker strip rationale + F6 "Filing evidence semantics" entries — 14+ terms |
+| `docs/adr/0007-thesis-news-scoring.md` | F4 keyword-not-LLM decision + theme→asset_class mapping + empty-input fallback invariant + determinism contract + §3a prose-extraction invariant from F4 round-1 fix |
+| `docs/adr/0008-macro-research-excerpt-depth.md` | F5 skip-rule + paragraph accumulator + char cap + `[N]` strip reversal + sentinel disambiguation + `F5-followup-prompt-eval` defer rationale |
+| `docs/adr/0001-citation-data-model.md` §5 addendum | F6 filing evidence semantics + appendix caveat dual-trigger (post-cache-transition guard) + citation_id one-time re-roll acknowledgment + drop/normalize alternatives rejected |
+| `docs/adr/0003-failure-mode-policy-b.md` §1 rule 3 | F6 cross-reference to ADR 0001 §5 |
+
+Missing coverage: **none** (after round-2 fix).
+
+## Notes
+
+- README.md NOT touched in this run — none of F4/F5/F6 changed user-facing CLI commands or operational workflows beyond the existing `irc score` / `irc memo` / `irc run` documentation.
+- CHANGELOG.md tracks all 3 items under [Unreleased] (F4, F5, F6 entries).
+- `docs/2026-05-27-pickability-followups/SKIPPED.md` carries one new follow-up (`F5-followup-prompt-eval`) discovered during F5 grill — proper deferral with recommended unblock path.
