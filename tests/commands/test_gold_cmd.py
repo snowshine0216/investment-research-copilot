@@ -129,3 +129,305 @@ def test_gold_prefers_real_tips_series_over_nominal_proxy(
 
     assert rc == 0
     assert captured["real_yield"] == 1.25
+
+
+# ─── F5: _summary_from_theme_report / _first_prose_paragraph ──────────────
+
+
+def _make_report(report_md: str, *, theme: str = "us_monetary"):  # -> ThemeReport
+    """Helper: build a minimal ThemeReport carrying the supplied prose body.
+
+    The body is wrapped with the canonical `# <theme>` heading + an empty
+    `## Citations` footer so that `extract_prose_from_report_md` (called by
+    `_summary_from_theme_report`) strips them and hands the raw body
+    untouched to the new accumulator.
+    """
+    from irc.research.theme_research import ThemeReport
+    wrapped = f"# {theme}\n\n{report_md}\n\n## Citations\n"
+    return ThemeReport(
+        theme=theme, query="q", locale="en",
+        report_md=wrapped, citations=[], failure_reason="",
+    )
+
+
+def test_summary_skips_double_hash_subheading() -> None:
+    """`## Key Risks` (markdown subheading) must NOT be returned as the
+    excerpt. The accumulator should walk past it to the next prose line."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "## Key Risks\n"
+        "The Fed signalled a pause this week. "
+        "Markets repriced cuts. Bonds rallied."
+    )
+    out = _summary_from_theme_report(report)
+    assert not out.startswith("## ")
+    assert not out.startswith("Key Risks")
+    assert "Fed signalled a pause" in out
+
+
+def test_summary_skips_triple_hash_subheading() -> None:
+    """`### subsubheading` (deeper markdown level) must also skip."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "### 央行最近一周货币政策操作与表态\n"
+        "本周央行公开市场净投放 5000 亿元。"
+        "MLF 利率维持不变。降准窗口暂未打开。"
+    )
+    out = _summary_from_theme_report(report)
+    assert not out.startswith("###")
+    assert not out.startswith("央行最近一周货币政策操作与表态")
+    assert "公开市场净投放" in out
+
+
+def test_summary_skips_pure_bold_line() -> None:
+    """`**1. Bond Market Pressure and Policy Response**` is pure bold —
+    skip. The fullmatch regex must reject any trailing chars."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "**1. Bond Market Pressure and Policy Response**\n"
+        "Treasuries sold off 18bp on the week. "
+        "The auction tailed. Demand metrics weakened."
+    )
+    out = _summary_from_theme_report(report)
+    assert "1. Bond Market Pressure" not in out
+    assert "Treasuries sold off" in out
+
+
+def test_summary_does_not_skip_bold_with_trailing_prose() -> None:
+    """`**政策优化信号**：…` is bold marker + trailing prose — must NOT
+    skip (per grill Q2 regex refinement)."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "**政策优化信号**：本周国常会强调稳增长。"
+        "财政加码预期上升。地产政策边际放松。"
+    )
+    out = _summary_from_theme_report(report)
+    assert "政策优化信号" in out
+    assert "稳增长" in out
+
+
+def test_summary_skips_pure_underscore_bold_line() -> None:
+    """`__Section Title__` (underscore-bold) is also a pure-bold heading."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "__Section Title__\n"
+        "Real yields fell 8bp this week. DXY weakened. "
+        "Gold caught a bid into Friday."
+    )
+    out = _summary_from_theme_report(report)
+    assert "Section Title" not in out
+    assert "Real yields fell" in out
+
+
+def test_summary_accumulates_until_three_sentence_terminators() -> None:
+    """After the first prose line, keep collecting non-skip lines until
+    we have collected ≥3 sentence-ending punctuation marks total."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    # Three short lines, each ending in '.' — total 3 terminators.
+    # Joined with single ASCII space.
+    report = _make_report(
+        "First sentence.\n"
+        "Second sentence.\n"
+        "Third sentence.\n"
+        "Fourth sentence we should NOT see."
+    )
+    out = _summary_from_theme_report(report)
+    assert "First sentence." in out
+    assert "Second sentence." in out
+    assert "Third sentence." in out
+    assert "Fourth sentence" not in out
+
+
+def test_summary_accumulates_until_150_chars_floor() -> None:
+    """If the prose has no sentence terminators (or fewer than 3),
+    accumulation continues until ≥150 visible chars have been collected.
+    Test with no terminators at all — uses the 150-char floor."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    # 6 lines of 30 chars each = 180 chars total (joined with 5 spaces).
+    # Each is 30 chars of A's; no sentence terminator.
+    line = "A" * 30
+    body = "\n".join([line] * 6)
+    report = _make_report(body)
+    out = _summary_from_theme_report(report)
+    # Buffer hits the 150-char floor between line 5 (150 chars + 4 spaces
+    # = 154) and line 6 (it stops AT >= 150, so probably 5 lines x 30
+    # + 4 spaces = 154 chars). Don't be precise about exact stop; just
+    # assert the floor was respected and the truncation didn't fire.
+    assert len(out) >= 150
+    assert "…" not in out  # under 400-char cap
+
+
+def test_summary_stops_at_blank_line_after_first_prose() -> None:
+    """A blank line AFTER ≥1 prose line in buffer terminates accumulation.
+    A blank line BEFORE the first prose line is skipped (grill Q5)."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    # Leading blank lines are NOT terminators (they get skipped because
+    # the buffer is empty). After the first prose line ("本文论述…"),
+    # a blank line terminates and the trailing paragraph is dropped.
+    report = _make_report(
+        "\n"
+        "\n"
+        "本文论述央行的政策路径。\n"
+        "\n"
+        "下一段不应出现在摘录里。"
+    )
+    out = _summary_from_theme_report(report)
+    assert "本文论述央行的政策路径" in out
+    assert "下一段不应出现在摘录里" not in out
+
+
+def test_summary_truncates_at_400_char_cap_with_ellipsis() -> None:
+    """Default `max_chars=400`. A single very-long line exceeding 400
+    chars must be truncated to 400-1 visible chars + a `…` suffix."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    # 500-char single line with no sentence terminators or blank lines.
+    line = "X" * 500
+    report = _make_report(line)
+    out = _summary_from_theme_report(report)
+    assert len(out) == 400  # 399 visible chars + 1 horizontal-ellipsis
+    assert out.endswith("…")
+    # No mid-string ellipsis or broken-word artifacts; the body is
+    # uniform X's, so the truncation is clean.
+    assert out[:399] == "X" * 399
+
+
+def test_summary_strips_bullet_markers_on_first_and_continuation_lines() -> None:
+    """Bullet markers `- `, `* `, `+ ` are stripped on the first prose line
+    AND on continuation lines (per grill Q10 — bullet-list reports need
+    accumulation to reach the 150-char floor)."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "- 俄乌局势升级，制裁加码。\n"
+        "* 中东油价波动。\n"
+        "+ 台海风险维持高位。"
+    )
+    out = _summary_from_theme_report(report)
+    # Markers gone, content joined with single ASCII space.
+    assert not out.startswith("-")
+    assert not out.startswith("*")
+    assert "- 俄乌" not in out
+    assert "* 中东" not in out
+    assert "+ 台海" not in out
+    assert "俄乌局势升级" in out
+    assert "中东油价波动" in out
+    assert "台海风险维持高位" in out
+
+
+def test_summary_returns_empty_sentinel_when_all_lines_are_skipped() -> None:
+    """Edge case: prose body is ONLY subheadings + pure-bold lines + blank
+    lines. The accumulator finds no prose; the function returns the
+    legacy `（报告为空）` sentinel for graceful empty rendering."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    report = _make_report(
+        "## Section A\n"
+        "**Bold only line one**\n"
+        "\n"
+        "### Section B\n"
+        "**Bold only line two**\n"
+    )
+    out = _summary_from_theme_report(report)
+    assert out == "（报告为空）"
+
+
+def test_summary_returns_failure_string_when_report_failed() -> None:
+    """The existing failure-reason branch is untouched."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    from irc.research.theme_research import ThemeReport
+    report = ThemeReport(
+        theme="us_monetary", query="q", locale="en",
+        report_md="", citations=[],
+        failure_reason="search provider 503",
+    )
+    out = _summary_from_theme_report(report)
+    assert out == "研究采集失败：search provider 503"
+
+
+def test_summary_renders_multi_sentence_prose_for_real_world_shape() -> None:
+    """Sanity-check with the shape of a real `us_monetary` report from
+    `data/research/`. The first prose line is a real sentence (no
+    skip needed), and the accumulator should pull in the next 1-2
+    sentences to hit either the 3-terminator or 150-char rule."""
+    from irc.commands.gold_cmd import _summary_from_theme_report
+    body = (
+        "The Federal Reserve held the policy rate steady this week as "
+        "Chair-designate Warsh signalled a more hawkish stance than "
+        "Powell. Treasury yields rose across the curve. The 10Y reached "
+        "4.55% intraday. Equity markets ignored the move."
+    )
+    report = _make_report(body, theme="us_monetary")
+    out = _summary_from_theme_report(report)
+    # Should contain real content with ≥3 sentence terminators.
+    terminators = sum(out.count(c) for c in ".。!！?？")
+    assert terminators >= 3, f"got {terminators} terminators in: {out!r}"
+    assert "Federal Reserve" in out
+
+
+def test_macro_pillar_renders_paragraph_shaped_excerpt_post_f5() -> None:
+    """End-to-end smoke: feed a multi-paragraph theme report through the
+    F5 extractor → build_macro_evidence → render_macro_section_body, then
+    assert the §2 body has substantive prose (not just a subheading)
+    and a valid `[ref:...]` marker for the theme."""
+    from irc.commands.gold_cmd import _build_theme_refs
+    from irc.memo.macro_pillar import (
+        MACRO_SECTION_MARKER_BEGIN,
+        MACRO_SECTION_MARKER_END,
+        build_macro_evidence,
+        evidence_by_source_key,
+        render_macro_section_body,
+    )
+    # A report whose body starts with a `### subheading` followed by real
+    # prose — the exact failure shape spec F5 fixes.
+    report = _make_report(
+        "### 央行最近一周货币政策操作与表态\n"
+        "本周央行公开市场净投放 5000 亿元。"
+        "MLF 利率维持不变。降准窗口暂未打开。",
+        theme="cn_monetary",
+    )
+    reports = {"cn_monetary": report}
+    refs = _build_theme_refs(reports, today="2026-05-27")
+    assert len(refs) == 1
+    ref = refs[0]
+    # F5 contract: subheading is NOT in the rendered excerpt.
+    assert "央行最近一周货币政策操作与表态" not in ref.summary
+    assert "公开市场净投放" in ref.summary
+    # Citation universe integrity: render → marker present, points at the
+    # correct citation_id.
+    evidence = build_macro_evidence((), refs)
+    by_src = evidence_by_source_key(evidence)
+    body = render_macro_section_body((), refs, by_src)
+    assert MACRO_SECTION_MARKER_BEGIN in body
+    assert MACRO_SECTION_MARKER_END in body
+    ev = by_src["research:cn_monetary"]
+    assert f"[ref:{ev.citation_id}]" in body
+    # `[ref:...]` format invariant (ADR 0001).
+    import re
+    assert re.search(r"\[ref:[0-9a-f]{16}\]", body) is not None
+
+
+def test_macro_pillar_renders_empty_sentinel_for_skip_only_report() -> None:
+    """Edge case: a theme report whose prose is only subheadings + bold
+    lines renders the legacy `（报告为空）` sentinel in §2. The
+    citation_id is still minted (the row exists in gold_regime.json) — F5
+    does not delete rows, only changes content."""
+    from irc.commands.gold_cmd import _build_theme_refs
+    from irc.memo.macro_pillar import (
+        build_macro_evidence,
+        evidence_by_source_key,
+        render_macro_section_body,
+    )
+    report = _make_report(
+        "## Section A\n"
+        "**Pure bold heading only**\n"
+        "### Section B\n",
+        theme="us_monetary",
+    )
+    reports = {"us_monetary": report}
+    refs = _build_theme_refs(reports, today="2026-05-27")
+    assert refs[0].summary == "（报告为空）"
+    # Renderer still produces a valid §2 body with marker (no crash).
+    evidence = build_macro_evidence((), refs)
+    by_src = evidence_by_source_key(evidence)
+    body = render_macro_section_body((), refs, by_src)
+    assert "（报告为空）" in body
+    ev = by_src["research:us_monetary"]
+    assert f"[ref:{ev.citation_id}]" in body
