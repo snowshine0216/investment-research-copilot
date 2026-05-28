@@ -173,7 +173,12 @@ def _appendix_caveats(ref: str) -> str:
 
 
 def _format_appendix_line(ref: str) -> str:
-    if "revenue_yoy=" in ref:
+    # F6 / ADR 0001 §5.2: trigger substring is the locked
+    # disclosure-existence phrase `财报已披露（口径未核实）` emitted
+    # by every filing-evidence producer. The caveat text is
+    # preserved verbatim — operator-facing compliance posture is
+    # unchanged.
+    if "财报已披露（口径未核实）" in ref:
         return f"- {_REVENUE_YOY_APPENDIX_CAVEAT} 原始证据：{ref}"
     return f"- {ref}{_appendix_caveats(ref)}"
 

@@ -54,16 +54,20 @@ def test_evidence_appendix_keeps_every_ref_verbatim():
 
 
 def test_evidence_appendix_adds_revenue_yoy_caveat_after_verbatim_ref():
-    ref = (
-        "[stock:300308] [ref:abc] filing · 300308.SZ · 2026-03-31: "
-        "300308.SZ 2026Q1 revenue_yoy=1.921169094232574"
-    )
-    out = _render_evidence_appendix([ref])
-    assert ref in out
+    # F6: trigger substring is now the locked disclosure-existence
+    # phrase `财报已披露（口径未核实）`, not `revenue_yoy=`. The
+    # caveat text itself is unchanged (operator-facing wording is
+    # preserved verbatim per ADR 0001 §5.2).
+    refs = [
+        "akshare:filing:300308:2026-04-28 — "
+        "300308.SZ 2026Q1 财报已披露（口径未核实）"
+    ]
+    out = _render_evidence_appendix(refs)
     assert "合规警示" in out
-    assert "字段含义及换算口径未经核实" in out
-    assert "不得作为业绩依据引用" in out
-    assert out.index("合规警示") < out.index("revenue_yoy=")
+    assert "该字段含义及换算口径未经核实" in out
+    assert "数值不得作为业绩依据引用" in out
+    assert "原始证据：" in out
+    assert out.index("合规警示") < out.index("财报已披露")
 
 
 def test_evidence_appendix_adds_score_caveat_for_insufficient_valuation_ref():
@@ -162,3 +166,43 @@ def test_check_inputs_same_date_warns_on_mixed_dates():
         check_inputs_same_date(inputs, "2026-05-07")
     assert any(issubclass(warning.category, MixedDateWarning) for warning in w)
     assert any("2026-05-06" in str(warning.message) for warning in w)
+
+
+# ── F6: appendix caveat trigger substring switch ─────────────────────────────
+
+def test_appendix_caveat_fires_on_new_disclosure_existence_phrase() -> None:
+    """F6 AC #6 — `_format_appendix_line` triggers the
+    `⚠️ 合规警示：…` prefix when the rendered ref carries the locked
+    F6 phrase `财报已披露（口径未核实）`, matching the new producer
+    templates in `snapshot.py` and `thesis_evidence.py`.
+    """
+    from irc.memo.pipeline import _format_appendix_line
+
+    ref = (
+        "[ref:abcdef0123456789] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 财报已披露（口径未核实）"
+    )
+    out = _format_appendix_line(ref)
+    assert out.startswith("- ⚠️ 合规警示：")
+    assert "原始证据：" in out
+    assert ref in out
+
+
+def test_appendix_caveat_no_longer_keys_on_revenue_yoy_substring() -> None:
+    """F6 AC #6 — defensive: the old `revenue_yoy=` substring is no
+    longer the trigger (because producers no longer emit it).
+
+    This is a single-locus guard — if a regression re-introduces the
+    `revenue_yoy=` substring keying, this test fires.
+    """
+    from irc.memo.pipeline import _format_appendix_line
+
+    ref_with_old_phrase = (
+        "[ref:abcdef0123456789] filing · 600519.SH · 2026-03-31: "
+        "600519 2026Q1 revenue_yoy=-0.0771"
+    )
+    out = _format_appendix_line(ref_with_old_phrase)
+    # The producer no longer emits this phrase, so the trigger MUST
+    # NOT fire on it. (Belt-and-braces: stops a future engineer
+    # from accidentally re-keying on the legacy substring.)
+    assert not out.startswith("- ⚠️ 合规警示：")

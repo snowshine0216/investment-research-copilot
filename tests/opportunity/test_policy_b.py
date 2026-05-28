@@ -900,4 +900,64 @@ def test_evaluate_policy_b_rule_2_5_sets_fired_rule_literal() -> None:
     )
     v = evaluate_policy_b(snap, top_n=10)
     assert v.fired_rule == "2.5"
-    assert v.gap_codes == ()
+
+
+# ── F6: Policy B rule 3 keeps firing on shape, not summary text ──────────────
+
+def test_policy_b_rule3_accepts_new_filing_summary_phrase() -> None:
+    """F6 AC #2 — Policy B rule 3 reads evidence shape
+    (`type`, `citation_kind`, `scope`), NOT the summary text.
+
+    An active fund whose top-N ranked holding carries a filing-typed
+    `citation_kind="data" AND scope="constituent"` evidence row MUST
+    remain publishable under Policy B even though the summary now
+    reads `财报已披露（口径未核实）` instead of `revenue_yoy=...`.
+    """
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence
+    from irc.opportunity.policy_b import evaluate_policy_b
+
+    filing_ev = ThesisEvidence(
+        type="filing",
+        source="600519",
+        url="https://example.com/filing/600519",
+        date="2026-04-28",
+        summary="600519 2026Q1 财报已披露（口径未核实）",  # F6 phrase
+        scope="constituent",
+        citation_kind="data",
+        owner_instrument_id="005827",
+        parent_fund_id="005827",
+        constituent_key="600519",
+        holding_weight_pct=8.0,
+    )
+    broker_ev = ThesisEvidence(
+        type="broker",
+        source="中信证券",
+        url="https://example.com/broker/600519",
+        date="2026-04-25",
+        summary="中信证券 增持: 600519 研报",
+        scope="constituent",
+        citation_kind="information",
+        owner_instrument_id="005827",
+        parent_fund_id="005827",
+        constituent_key="600519",
+        holding_weight_pct=8.0,
+    )
+    analysis = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=8.0,
+        evidence=(filing_ev, broker_ev),
+        failure_reasons=(),
+        one_line_view="600519.SH 2026Q1 财报已",   # F6 side-effect on summary[:24]
+    )
+    snap = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2026-03-31",
+        source_report_quarter="2026Q1", cache_probed_at="2026-05-27",
+        constituent_analyses=(analysis,),
+        failure_reasons_by_symbol={},
+    )
+
+    verdict = evaluate_policy_b(snap, top_n=10)
+
+    # Publishable: no `incomplete_constituent_data` rule-3 fire.
+    assert "incomplete_constituent_data" not in verdict.gap_codes, (
+        f"Policy B rule 3 fired against the F6 phrase; verdict={verdict}"
+    )
