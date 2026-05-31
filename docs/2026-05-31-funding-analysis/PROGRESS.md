@@ -17,8 +17,8 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 | gate | status |
 |------|--------|
 | run-doc-sync | ✅ PASS (3a13148) — CONTEXT terms + ADR 0009/0010/0011 + README Tushare + CHANGELOG 5 entries; 0 missing |
-| run-final-verify | 🔄 |
-| run-close-out | ⏳ |
+| run-final-verify | ✅ PASS (5158a52) — integrated CLI imports; 001+002+003+004+005 cross-item flows confirmed; 11 LLM tasks load; 794 opportunity+fundamentals tests green |
+| run-close-out | 🔄 |
 
 ## Item titles
 
