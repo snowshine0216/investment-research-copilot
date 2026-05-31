@@ -184,6 +184,14 @@ def test_compose_state_block_inert_for_none_fundamental() -> None:
     assert with_none == legacy == ("core_dca", with_none[1])
 
 
+def test_reason_phrase_neutral_negative_upside_says_downside() -> None:
+    """Finding 002-#1: neutral branch with negative upside must say 下行空间, not 上行空间."""
+    phrase = _fundamental_reason_phrase("neutral", _equity(consensus_upside_pct=-0.05))
+    assert "下行空间" in phrase
+    assert "5%" in phrase
+    assert "上行空间" not in phrase
+
+
 def test_fundamental_block_emits_no_thesis_evidence_or_gap(monkeypatch):
     """AC8: the valuation/core_dca path emits NO new ThesisEvidence and NO new
     gap code; H3 partition (evidence_gaps), SAME-3 (citation set), Policy B,

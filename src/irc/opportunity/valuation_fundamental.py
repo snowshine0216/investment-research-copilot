@@ -58,11 +58,14 @@ def _fundamental_reason_phrase(
     inp: OpportunityInput,
 ) -> str:
     """Chinese caveat describing the consensus-upside read (+ optional pe/pb)."""
+    assert inp.consensus_upside_pct is not None
     upside_pct = f"{inp.consensus_upside_pct:.0%}"
     if signal == "cheap":
         head = f"券商一致目标价隐含上行空间 {upside_pct}，基本面偏便宜。"
     elif signal == "rich":
         head = f"券商一致目标价隐含 {upside_pct} 下行，基本面不便宜。"
+    elif inp.consensus_upside_pct >= 0:
+        head = f"券商一致目标价隐含上行空间 {abs(inp.consensus_upside_pct):.0%}，基本面中性。"
     else:
-        head = f"券商一致目标价隐含上行空间 {upside_pct}，基本面中性。"
+        head = f"券商一致目标价隐含下行空间 {abs(inp.consensus_upside_pct):.0%}，基本面中性。"
     return head + _pe_pb_fragment(inp)
