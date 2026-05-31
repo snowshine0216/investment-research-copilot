@@ -18,6 +18,7 @@ dependencies = [
     "scipy>=1.13",
     "openbb>=4.3",
     "akshare>=1.13",
+    "tushare>=1.4",
     "feedparser>=6.0",
     "rich>=13.0",
 ]
@@ -49,6 +50,7 @@ pythonpath = ["src", "."]
 addopts = ["--strict-markers"]
 markers = [
     "live_akshare: hits the real AkShare network. Run via `pytest -m live_akshare` with IRC_RUN_LIVE_AKSHARE=1. Excluded from default `pytest` runs.",
+    "live_tushare: hits the real Tushare network (api.tushare.pro). Run via `pytest -m live_tushare` with IRC_RUN_LIVE_TUSHARE=1 and a real TUSHARE_TOKEN. Excluded from default `pytest` runs.",
     "integration: integration test exercising multiple modules end-to-end (no external network). Currently used by tests/integration/test_thesis_coverage.py.",
 ]
 
