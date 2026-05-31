@@ -375,9 +375,12 @@ Degrade-to-None contract: unknown index_key → None; any adapter failure or
 empty frame → metrics None (never raises). Matches `fetch_cn_filing_digest`.
 
 NOTE: legulegu PE/PB endpoints carry no dividend-yield column, so
-`dividend_yield` is None in practice (spec §Judgment call 3). `基金概况` is
-NEVER used (forbidden indicator).
+`dividend_yield` is None in practice (spec §Judgment call 3). The forbidden
+fund-profile indicator is never used here (see test_static_profile_invariant).
 """
+# [AMENDED by drift review 001] Removed `基金概况` literal from docstring spec — the
+# literal is forbidden in production code. Impl replaced it with an equivalent
+# English phrase (commit a850f42). Plan error corrected.
 from __future__ import annotations
 
 from datetime import date
@@ -439,26 +442,36 @@ def _extract_latest_value(
     return None if pd.isna(value) else value
 
 
-def _fetch_frame(fn_name: str, cn_name: str) -> pd.DataFrame:
+def _fetch_frame(fn_name: str, cn_name: str) -> pd.DataFrame | None:
+    """Return DataFrame on success, None on adapter exception (distinguishes from empty)."""
+    # [AMENDED by drift review 001] Returns None (not empty DataFrame) on exception so
+    # fetch_cn_index_valuation can distinguish adapter failure from an empty result.
+    # The function returns None only when BOTH fetches return None (total failure).
+    # Plan was internally inconsistent: the code returned IndexValuation (never None)
+    # yet the test asserted "out is None". Impl is correct per ADR 0009 contract.
     try:
         df = _ak_call(fn_name, symbol=cn_name)
     except Exception:
-        return pd.DataFrame()
+        return None
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
 
 def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:
-    """PE/PB for a recognised broad index; None for unknown keys."""
+    """PE/PB for a recognised broad index; None for unknown keys or adapter failure."""
     cn_name = _INDEX_PE_PB_NAME.get(index_key)
     if cn_name is None:
         return None
     pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
     pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    if pe_df is None and pb_df is None:
+        return None
     return IndexValuation(
         index_key=index_key,
-        pe_ttm=_extract_latest_value(pe_df, _PE_COLS),
-        pb=_extract_latest_value(pb_df, _PB_COLS),
-        dividend_yield=_extract_latest_value(pe_df, _DIV_COLS),
+        pe_ttm=_extract_latest_value(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS),
+        pb=_extract_latest_value(pb_df if pb_df is not None else pd.DataFrame(), _PB_COLS),
+        dividend_yield=_extract_latest_value(
+            pe_df if pe_df is not None else pd.DataFrame(), _DIV_COLS
+        ),
         as_of_iso=_today_iso(),
     )
 ```
@@ -466,7 +479,9 @@ def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `uv run pytest tests/fundamentals/test_akshare_index_valuation.py -v`
-Expected: PASS (10 passed).
+Expected: PASS (9 passed).
+# [AMENDED by drift review 001] Plan's code block listed 9 tests (4 extraction + 5 fetcher)
+# but the expected count said "10 passed" — off-by-one error in the plan. Corrected to 9.
 
 - [ ] **Step 5: Verify no circular import**
 
