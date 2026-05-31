@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 
-from irc.opportunity.states import classify_valuation, compose_opportunity_state
+from irc.opportunity.states import build_opportunity_row, classify_valuation, compose_opportunity_state
 from irc.opportunity.types import OpportunityInput
 from irc.opportunity.valuation_fundamental import (
     CHEAP_UPSIDE_THRESHOLD,
@@ -182,3 +182,35 @@ def test_compose_state_block_inert_for_none_fundamental() -> None:
         product_quality="acceptable",
     )
     assert with_none == legacy == ("core_dca", with_none[1])
+
+
+def test_fundamental_block_emits_no_thesis_evidence_or_gap(monkeypatch):
+    """AC8: the valuation/core_dca path emits NO new ThesisEvidence and NO new
+    gap code; H3 partition (evidence_gaps), SAME-3 (citation set), Policy B,
+    and thesis_state derivation are structurally untouched.
+
+    Compare a rich-blocked row against the same row with the fundamental input
+    cleared: thesis_evidence, evidence_gaps, expected_omissions, advisory_gaps,
+    contributing_dimensions, and thesis_state must be IDENTICAL (only
+    opportunity_state / opportunity_reason may differ)."""
+    base = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
+        theme="semiconductor", tracked_index="csi300",
+        valuation_percentile_self=0.15,  # cheap percentile
+        ret_3m=0.02, ret_6m=0.05, expense_ratio=0.0015, aum_cny=20e9,
+    )
+    rich = dataclasses.replace(base, consensus_upside_pct=-0.30)  # 'rich' block
+    none_row = build_opportunity_row(base, theme_thesis={"semiconductor": "intact"})
+    rich_row = build_opportunity_row(rich, theme_thesis={"semiconductor": "intact"})
+
+    # The block changes opportunity_state + reason ONLY.
+    assert none_row.opportunity_state == "core_dca"
+    assert rich_row.opportunity_state == "small_watch"
+    # Everything citation/gap/thesis-shaped is byte-identical.
+    assert rich_row.thesis_evidence == none_row.thesis_evidence == ()
+    assert rich_row.evidence_gaps == none_row.evidence_gaps
+    assert rich_row.expected_omissions == none_row.expected_omissions
+    assert rich_row.advisory_gaps == none_row.advisory_gaps
+    assert rich_row.thesis_state == none_row.thesis_state  # owned by derive_thesis_from_evidence
+    # valuation_state stays cheap on both (AC3-preserving).
+    assert rich_row.valuation_state == none_row.valuation_state == "cheap"
