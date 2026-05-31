@@ -88,17 +88,32 @@ Each is independently verifiable.
 
 4. **`core_dca` gated on cheap-AND-intact, fundamental-aware.** `compose_opportunity_state` keeps its
    existing `cheap_or_low AND quiet_heat AND intact_thesis AND decent_product` precondition AND adds:
-   core_dca is refused when a **fundamental valuation contradiction** is present — i.e. the new pure
-   predicate `fundamental_blocks_core_dca(inp)` returns `True` (the fundamental signal is `"rich"`
-   while the percentile path says cheap). Because `compose_opportunity_state` currently takes only the
-   four sub-states + `venue_compatible`, the fundamental-block signal is threaded in **without
-   widening the citation/partition surface** — either by passing a `valuation_fundamental:
-   Literal[...]|None` parameter (default `None`, so all existing callers/tests stay green) or by
-   computing the block inside `classify_valuation` and refusing the cheap notch (so the composer needs
-   no new parameter). The chosen mechanism is recorded in Open Q4. Tested: cheap+cold+intact+strong
-   with `consensus_upside_pct=None` → `core_dca` (unchanged); same row with `consensus_upside_pct=-0.30`
-   (`"rich"`) → NOT `core_dca` (falls to `small_watch`/`pause_wait` per existing fallthrough), with a
-   reason naming the valuation contradiction.
+   core_dca is refused when a **fundamental valuation contradiction** is present (the fundamental
+   signal is `"rich"` while the percentile path says cheap).
+   ~~i.e. the new pure predicate `fundamental_blocks_core_dca(inp)` returns `True`~~ — corrected by
+   grill (Q-T2): no standalone `fundamental_blocks_core_dca` predicate is added; the block is the
+   `valuation_fundamental == "rich" AND cheap_or_low` test INSIDE `compose_opportunity_state` (see
+   below).
+   ~~Because `compose_opportunity_state` currently takes only the four sub-states + `venue_compatible`, the fundamental-block signal is threaded in **without widening the citation/partition surface** — either by passing a `valuation_fundamental: Literal[...]|None` parameter (default `None`, so all existing callers/tests stay green) or by computing the block inside `classify_valuation` and refusing the cheap notch (so the composer needs no new parameter). The chosen mechanism is recorded in Open Q4.~~
+   — **corrected by grill (Q-T2): the two proposed mechanisms are NOT interchangeable; the
+   `classify_valuation`-notch-refusal mechanism CANNOT implement this AC and the explicit-parameter
+   mechanism is the SINGLE chosen mechanism.** Rationale: AC3 forbids `classify_valuation` from ever
+   moving a state toward more-expensive, so when the percentile path is genuinely `cheap`/`reasonable_low`
+   a `"rich"` fundamental signal *cannot* be expressed by demoting the percentile state — that would
+   violate AC3 and corrupt the `valuation_state` axis (a deeply cheap percentile is a true fact). The
+   only correct place for the contradiction-block is therefore an **explicit gate in
+   `compose_opportunity_state`**: add a `valuation_fundamental: Literal["cheap","rich","neutral"]|None
+   = None` parameter (default `None` keeps every existing caller/test byte-identical); when it is
+   `"rich"` AND `cheap_or_low` is `True`, the composer skips the `core_dca` branch and falls through to
+   `small_watch`/`pause_wait`. `derive_contributing_dimensions` is updated **only** to keep its
+   `core_dca`-branch in lock-step (it still returns all four dims for `core_dca`; the fundamental block
+   only suppresses entry into that branch, so when `core_dca` is NOT reached the existing
+   `small_watch`/`pause_wait` dimension logic already applies — no change needed there). `build_opportunity_row`
+   computes `valuation_fundamental_signal(inp)` once and passes it to `compose_opportunity_state`.
+   Tested: cheap+cold+intact+strong with `consensus_upside_pct=None` → `core_dca` (unchanged);
+   same row with `consensus_upside_pct=-0.30` (`"rich"`) → NOT `core_dca` (falls to `small_watch`),
+   `valuation_state` STAYS `cheap` (AC3-preserving), reason annotates the contradiction. Adds no
+   `ThesisEvidence`/`scope`/`citation_id`/`evidence_gaps` — H3/SAME-3/Policy B structurally untouched.
 
 5. **Bonds, gold, QDII, active funds untouched.** The fundamental anchor and core_dca block apply to
    `_EQUITY_ASSET_CLASSES` only. A test sets `consensus_upside_pct` on a `cn_bond_fund` /
@@ -114,12 +129,26 @@ Each is independently verifiable.
    testable at the state layer: item 002 is inert until item 003 supplies data.
 
 7. **Retire/replace the item-001 inertness lock.** The item-001 AC4 "inertness regression lock"
-   (which asserts `classify_valuation` output is byte-identical for a *populated* row) becomes **false
-   by design** in item 002 (a populated `consensus_upside_pct` may now annotate the reason / adjust the
-   notch). Item 002 **must update that test** to assert the new, intentional behaviour (populated
-   inputs now flow into the reason/state per AC2/AC3) rather than deleting coverage — and must leave a
-   comment pointing at this spec + ADR 0009. No silent deletion; the diff must show the lock evolving
-   from "inert" to "consumes fundamentals as specified."
+   (`tests/opportunity/test_inputs_loader.py::test_population_is_inert_classify_valuation_byte_identical`,
+   which asserts `classify_valuation(populated) == classify_valuation(bare)` for a *populated* row)
+   becomes **false by design** in item 002. Item 002 **must update that test** to assert the new,
+   intentional behaviour rather than deleting coverage — and must leave a comment pointing at this
+   spec + ADR 0009. No silent deletion; the diff must show the lock evolving from "inert" to
+   "consumes `consensus_upside_pct` as specified."
+   ~~(a populated `consensus_upside_pct` may now annotate the reason / adjust the notch)~~
+   — **corrected by grill (Q-T4): for THAT SPECIFIC test row the break is via the REASON ANNOTATION
+   ONLY, not the notch.** The row's price series is flat (300 × 100.0), and `self_history_percentile`
+   uses inclusive ranking (`count_le / len`), so its `valuation_percentile_self` is **1.0** →
+   `classify_valuation` returns **`very_expensive`**, not cheap. Its `consensus_upside_pct` is
+   `120/100 − 1 = 0.20` → `valuation_fundamental_signal == "cheap"`. AC3's one-notch adjustment fires
+   ONLY when the percentile path is `cheap`/`reasonable_low`, so for a `very_expensive` row the notch
+   NEVER fires; the lock breaks solely because AC2 appends the equity fundamental caveat to `reason`.
+   Therefore the updated test must (i) assert the populated row's `reason` now contains the fundamental
+   caveat while its `state` is unchanged at `very_expensive` (annotation-only), AND (ii) add a SECOND
+   row with a genuinely cheap percentile (e.g. `valuation_percentile_self=0.10` + `consensus_upside_pct
+   ≥ 0.20`) to exercise the AC3 one-notch corroboration and confirm `reasonable_low → cheap` /
+   `cheap → cheap`. Provenance is preserved: the test stays in `test_inputs_loader.py`, keeps the
+   guard `assert populated.pe_ttm is not None`, and the docstring + comment cite this spec + ADR 0009.
 
 8. **No citation / partition / Policy-B / thesis_state change.** Grep-level invariants hold:
    `valuation_state` remains a plain `Literal` with no `scope`/`citation_id`/`citation_kind`; the H3
@@ -130,8 +159,11 @@ Each is independently verifiable.
 
 9. **No-network correctness + budgets.** `uv run pytest tests/opportunity` passes; `uv run ruff check
    src tests` is clean. `states.py` stays under the 200-line budget (extract helpers if the anchor
-   pushes it over — `valuation_fundamental_signal` and `fundamental_blocks_core_dca` are small pure
-   functions); new functions stay under the ~20-line ideal.
+   pushes it over — `valuation_fundamental_signal` ~~and `fundamental_blocks_core_dca`~~ — corrected by
+   grill (Q-T2): the block is an inline test inside `compose_opportunity_state`, not a separate
+   predicate — plus the small reason-annotation helper are pure functions); new functions stay under
+   the ~20-line ideal. If `states.py` would exceed budget, `valuation_fundamental_signal` + the
+   reason-annotation helper may move to a small new `src/irc/opportunity/valuation_fundamental.py`.
 
 ## Non-goals (explicit)
 
@@ -158,7 +190,7 @@ Each is independently verifiable.
 - **TDD red→green→refactor.** Each AC is driven by a failing test first; test files mirror source
   (`tests/opportunity/test_states.py` and a new focused test module for the fundamental anchor, e.g.
   `tests/opportunity/test_valuation_fundamental_anchor.py`).
-- **Purity / effects at edges.** `valuation_fundamental_signal`, `fundamental_blocks_core_dca`, the
+- **Purity / effects at edges.** `valuation_fundamental_signal`, ~~`fundamental_blocks_core_dca`~~ (replaced by the inline composer test per Q-T2), the
   reason-annotation helper, and `classify_valuation`/`compose_opportunity_state` stay **pure** —
   no I/O, no mutation. They are unit-tested without mocks.
 - **Immutability.** No argument mutation; any derived `OpportunityRow`/state is built fresh (frozen
@@ -212,18 +244,22 @@ ADRs. These are the grill-phase re-check targets.
 
 4. **How is the fundamental block threaded into `compose_opportunity_state` without widening the
    partition/citation surface?**
-   **Decided: refuse the cheap notch inside `classify_valuation` AND add a defensive explicit guard
-   in `compose_opportunity_state` via an optional defaulted parameter.** Rationale: the cleanest,
-   lowest-blast-radius path is to let the fundamental contradiction (`"rich"` signal) prevent
-   `classify_valuation` from ever *reporting* cheap/reasonable_low for that equity — which
-   automatically removes core_dca eligibility through the existing `cheap_or_low` precondition, with no
-   composer signature change. To make the gate explicit and grill-defensible we ALSO add an optional
-   `valuation_fundamental: Literal[...] | None = None` parameter to `compose_opportunity_state` whose
-   default keeps every existing call/test byte-identical; `build_opportunity_row` passes the computed
-   signal. This is belt-and-suspenders: the state itself already encodes the block, and the explicit
-   parameter documents it and lets `derive_contributing_dimensions` stay correct. Neither path adds any
-   `ThesisEvidence`, `scope`, `citation_id`, or `evidence_gaps` — so H3 partition, SAME-3 equality,
-   dual-coverage, and Policy B are structurally untouched (re-confirmed in AC8).
+   ~~**Decided: refuse the cheap notch inside `classify_valuation` AND add a defensive explicit guard in `compose_opportunity_state` via an optional defaulted parameter.** … This is belt-and-suspenders: the state itself already encodes the block …~~
+   — **corrected by grill (Q-T2): the belt-and-suspenders framing is wrong. The two mechanisms are
+   NOT both valid, and the `classify_valuation`-notch path CANNOT implement the block by itself.**
+   When the percentile path is genuinely `cheap`/`reasonable_low`, AC3 forbids `classify_valuation`
+   from moving the state toward more-expensive — so the `"rich"` signal cannot demote `cheap`→`fair`
+   to break `cheap_or_low`. The notch mechanism can only ever ADD a cheap notch (or refuse to add
+   one); it can never remove an existing cheap percentile state. Therefore the **explicit
+   `compose_opportunity_state` parameter is the SINGLE chosen mechanism (not optional, not
+   belt-and-suspenders).** `compose_opportunity_state` gains
+   `valuation_fundamental: Literal["cheap","rich","neutral"] | None = None`; when `"rich"` AND
+   `cheap_or_low`, it skips the `core_dca` branch → `small_watch`. The default `None` keeps all
+   existing callers/tests byte-identical. `build_opportunity_row` computes the signal once and passes
+   it. `derive_contributing_dimensions` is unchanged (the block only suppresses ENTRY into the
+   `core_dca` branch; the resulting `small_watch`/`pause_wait` already has correct dimension logic).
+   No `ThesisEvidence`/`scope`/`citation_id`/`evidence_gaps` added — H3/SAME-3/dual-coverage/Policy B
+   structurally untouched (AC8).
 
 5. **Does adding a fundamental `valuation_state` input affect H3 / SAME-3 / the opportunity partition
    or citation-set equality?**
@@ -264,16 +300,91 @@ ADRs. These are the grill-phase re-check targets.
    considered here in Open Q1–Q4). It does not clear the 3/3 bar that warranted ADR 0009 (that ADR
    already owns the honesty/degrade-to-None decision this item *consumes*). So: no ADR 0010; instead
    update CONTEXT.md "Valuation-input inertness" to state that item 002 wired `consensus_upside_pct`
-   into `classify_valuation`/`core_dca` per this spec, and that pe/pb remain reason-only. If the grill
-   judges the core_dca-gating to be load-bearing enough for its own ADR, that is the single open
-   escalation.
+   into `classify_valuation`/`core_dca` per this spec, and that pe/pb remain reason-only. ~~If the grill judges the core_dca-gating to be load-bearing enough for its own ADR, that is the single open escalation.~~
+   — **confirmed by grill (Q-T3): no new ADR. The core_dca-gating scores ~1–2/3 (reversible; its only
+   surprise — "a metric that never fires until data lands" — is already owned by ADR 0009; the design
+   choices are bounded within ADR 0009's frame).** CONTEXT.md updated with `valuation_fundamental_signal`
+   + `Fundamental-aware core_dca gate` terms and the amended `Valuation-input inertness` entry.
 
 ## Could-not-fully-resolve (grill targets)
 
 - **Exact threshold values** (`0.20` / `-0.10`) are best-judgment, not validated against a labelled
   dataset (none exists in-repo). They are isolated as named constants so the grill can challenge/move
   them without touching logic. Not a blocker — any value preserves the all-None dormancy lock (AC6).
-- **Whether the explicit `compose_opportunity_state` parameter (Open Q4 belt-and-suspenders) is worth
-  the signature change** vs relying solely on the `classify_valuation` notch-refusal. Both satisfy the
-  ACs; the grill should confirm the preferred mechanism so the plan picks exactly one and
-  `derive_contributing_dimensions` is kept consistent.
+- ~~**Whether the explicit `compose_opportunity_state` parameter (Open Q4 belt-and-suspenders) is worth the signature change** vs relying solely on the `classify_valuation` notch-refusal. Both satisfy the ACs …~~ — **RESOLVED by grill (Q-T2): they do NOT both satisfy the ACs. The notch-refusal mechanism is incapable of blocking core_dca when the percentile is already cheap (AC3 forbids the demotion). The explicit composer parameter is the single, non-optional, load-bearing mechanism.** See revised AC4 and Open Q4 above.
+
+## Resolved decisions
+
+Q/A pairs from the grill-with-docs pass (2026-05-31, autonomous run — no user; each recommended
+answer auto-accepted, grounded in code + CONTEXT.md + ADRs). Verdict: **PASS** (no spec ↔
+load-bearing-ADR/code contradiction that doc updates cannot resolve). All facts below were verified
+against `src/irc/opportunity/states.py`, `…/types.py`, `…/inputs_loader.py`, `…/returns.py`, and the
+item-001 lock test, NOT taken from the spec's own claims.
+
+- **Q-T1 — Are `CHEAP_UPSIDE_THRESHOLD=0.20` / `RICH_UPSIDE_THRESHOLD=-0.10` defensible defaults?**
+  **A: Yes — pin as proposed.** +20% is a conventional "material upside vs analyst consensus" bar for
+  treating a price as cheap; −10% is deliberately asymmetric/tighter so the DCA gate errs conservative
+  (slow to call cheap, quick to withhold the cheap label). No labelled dataset exists in-repo, so they
+  are best-judgment, isolated as module-level named constants so future tuning is a one-line change.
+  Units are ratio (CONTEXT.md `consensus_upside_pct`), never percent. **Rationale:** matches the lone
+  honestly-obtainable, already-relative fundamental valuation scalar; needs no peer/history
+  normalisation (unlike absolute pe/pb). **Doc impact:** CONTEXT.md `valuation_fundamental_signal`.
+
+- **Q-T2 — Threading mechanism: explicit composer parameter vs `classify_valuation` notch-refusal —
+  pick exactly one.** **A: the explicit `compose_opportunity_state` parameter is the SINGLE,
+  non-optional, load-bearing mechanism; it is NOT belt-and-suspenders.** **Rationale:** AC3 forbids
+  `classify_valuation` from moving any state toward more-expensive. When the percentile path is
+  genuinely `cheap`/`reasonable_low`, a `"rich"` fundamental signal therefore CANNOT be expressed by
+  demoting the percentile state to break `cheap_or_low` — the notch mechanism can only add (or refuse
+  to add) a cheap notch, never remove an existing cheap state. So the notch path is structurally
+  incapable of blocking `core_dca` in exactly the case AC4 targets. The block must live in
+  `compose_opportunity_state(valuation_fundamental: Literal[...] | None = None)`; default `None` keeps
+  every existing caller byte-identical; `valuation_state` itself stays `cheap` (the percentile fact is
+  true), only `opportunity_state` falls through to `small_watch`. **Doc impact:** CONTEXT.md
+  `Fundamental-aware core_dca gate`; spec AC4 + Open Q4 + Could-not-fully-resolve corrected in place.
+
+- **Q-T3 — ADR escalation: does the core_dca-gating clear the three-of-three bar?**
+  **A: No new ADR. CONTEXT.md update suffices.** Scored: (1) hard-to-reverse — NO (pure helper +
+  one-notch adjustment + an optional defaulted composer param; revert the helper to undo, no cache or
+  artifact migration); (2) surprising-without-context — the "metric that never fires until data lands"
+  surprise is ALREADY owned by ADR 0009; activation is its documented, expected consequence, not a new
+  surprise; (3) real-trade-off — the augment-vs-replace and threading choices are bounded design calls
+  *within* ADR 0009's frame, not a new architectural-shape decision. Net ~1–2/3, below the 3/3 bar.
+  **Rationale:** ADR 0009 already records the honesty/degrade-to-None decision item 002 *consumes*; a
+  sibling ADR would duplicate it. **Doc impact:** CONTEXT.md `valuation_fundamental_signal` +
+  `Fundamental-aware core_dca gate` + amended `Valuation-input inertness` (no ADR 0010).
+
+- **Q-T4 — Does the item-001 AC4 inertness lock break "by design" via the NOTCH, as the spec claimed?**
+  **A: No — for that specific test row it breaks via the REASON ANNOTATION only; AC7 must be corrected
+  and a second cheap-percentile row added.** **Rationale:** the lock row (`510300`/csi300) seeds a flat
+  300×100.0 price series; `self_history_percentile` uses inclusive ranking (`count_le/len`), giving
+  percentile **1.0** → `classify_valuation` returns **`very_expensive`**, never cheap. Its
+  `consensus_upside_pct` is `120/100−1 = 0.20` → signal `"cheap"`, but AC3's notch fires only on a
+  `cheap`/`reasonable_low` percentile, so the notch NEVER fires here — the byte-difference is purely
+  AC2's appended equity caveat. The updated test must assert annotation-only on this row AND add a
+  genuinely-cheap-percentile row to exercise the AC3 corroboration notch. Provenance preserved (stays
+  in `test_inputs_loader.py`, keeps the population guard, cites spec + ADR 0009). **Doc impact:** spec
+  AC7 corrected in place.
+
+- **Q-T5 — Do the load-bearing invariants (H3/SAME-3, Policy B vs thesis_state, all-None degrade)
+  hold?** **A: Yes — verified against code; spec respects all four.** (a) H3 partitions on
+  `evidence_gaps == ()` ONLY; item 002 emits no gap code → partition unchanged. (b) SAME-3 is set
+  equality over `select_citations(row.thesis_evidence)`; item 002 emits no `ThesisEvidence` → equality
+  untouched. (c) `thesis_state` is set EXCLUSIVELY by `derive_thesis_from_evidence`; `valuation_state`
+  is a separate `Literal` axis and `compose_opportunity_state` never writes `thesis_state`; Policy B
+  (`evaluate_policy_b`) is neither read nor written by any item-002 path — `valuation_state` cannot
+  leak into thesis_state or publishability. (d) All-None degrade: with `consensus_upside_pct is None`,
+  `valuation_fundamental_signal` returns `None`, no annotation/notch fires, and the composer parameter
+  defaults `None` → `classify_valuation`/`build_opportunity_row` are byte-identical to pre-002 (AC6
+  dormancy lock holds; `valuation_state` becomes `evidence_insufficient` only for the EXISTING reason,
+  a missing percentile — never because fundamentals are absent). **Doc impact:** none beyond AC8's
+  existing assertions (confirmation only).
+
+- **Q-T6 — Augment vs replace; do pe/pb participate in the state?** **A: augment-only anchor, never
+  replace; pe/pb are reason-only and never change the state — confirmed.** **Rationale:** the
+  percentile band is the always-available load-bearing signal; `consensus_upside_pct` is `None` in
+  production, so a replacement design would collapse every equity `valuation_state` to
+  `evidence_insufficient` today (a regression). The `earnings_yield` anchor is the exact precedent
+  (annotate, never change state). pe/pb are populated at index level with no self-history/peer
+  percentile context (item 001), so absolute thresholding across the mixed CN/HK/US-QDII universe
+  would be unsound — they enrich the reason only. **Doc impact:** CONTEXT.md `valuation_fundamental_signal`.
