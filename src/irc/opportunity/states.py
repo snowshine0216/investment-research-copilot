@@ -22,6 +22,11 @@ from irc.opportunity.types import (
     ValuationState,
 )
 from irc.opportunity.advisory_gaps import ADVISORY_GAP_CODES
+from irc.opportunity.valuation_fundamental import (
+    ValuationFundamental,
+    _fundamental_reason_phrase,
+    valuation_fundamental_signal,
+)
 from irc.research.theme_research import ThemeReport
 
 
@@ -138,6 +143,7 @@ _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
     "cn_equity_fund", "cn_etf", "us_etf", "hk_etf", "qdii_global",
 })
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
+_NOTCHABLE_VALUATION_STATES: frozenset[str] = frozenset({"cheap", "reasonable_low"})
 
 
 def expected_real_return_positive(inp: OpportunityInput) -> bool | None:
@@ -230,6 +236,14 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
                 f"{reason} 且 earnings_yield - real_yield 非正，"
                 f"长期实际回报预期偏弱。"
             )
+    if inp.asset_class in _EQUITY_ASSET_CLASSES:
+        fundamental = valuation_fundamental_signal(inp)
+        if fundamental is not None:
+            reason = f"{reason} {_fundamental_reason_phrase(fundamental, inp)}"
+            # AC3: corroboration-only one-notch move toward cheaper. Never
+            # toward more-expensive; never promotes fair/expensive/very_expensive.
+            if fundamental == "cheap" and state in _NOTCHABLE_VALUATION_STATES:
+                state = "cheap"
     return state, reason
 
 
@@ -391,8 +405,16 @@ def compose_opportunity_state(
     thesis: ThesisState,
     product_quality: ProductQualityState,
     venue_compatible: bool = True,
+    valuation_fundamental: ValuationFundamental | None = None,
 ) -> tuple[OpportunityState, str]:
-    """Compose final opportunity state from four sub-states."""
+    """Compose final opportunity state from four sub-states.
+
+    `valuation_fundamental` (item 002, grill Q-T2): when `"rich"` AND the
+    percentile path is cheap/reasonable_low, the cheap-AND-intact `core_dca`
+    gate is refused (the row falls through to `small_watch`). Default `None`
+    keeps every existing caller byte-identical. `valuation_state` itself stays
+    `cheap` — only the opportunity state falls through (AC3-preserving).
+    """
     # Priority order: thesis/quality failures → exclude (hardest gate);
     # then valuation/heat signals → pause_wait or core_dca.
     # venue_compatible is tracked separately for execution notes but does NOT
@@ -407,7 +429,11 @@ def compose_opportunity_state(
     intact_thesis = thesis == "intact"
     decent_product = product_quality in ("acceptable", "strong")
 
-    if cheap_or_low and quiet_heat and intact_thesis and decent_product:
+    fundamental_contradiction = valuation_fundamental == "rich" and cheap_or_low
+    if (
+        cheap_or_low and quiet_heat and intact_thesis and decent_product
+        and not fundamental_contradiction
+    ):
         return "core_dca", "估值便宜、热度可控、长期逻辑完好、产品质量合格，适合定投。"
 
     if expensive or hot_heat:
@@ -534,6 +560,7 @@ def build_opportunity_row(
 
     state, state_reason = compose_opportunity_state(
         valuation, heat, thesis, product, inp.venue_compatible,
+        valuation_fundamental=valuation_fundamental_signal(inp),
     )
     dimensions = derive_contributing_dimensions(valuation, heat, thesis, product, state)
     target = map_lookthrough(inp)

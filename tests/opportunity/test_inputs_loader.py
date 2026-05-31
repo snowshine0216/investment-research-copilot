@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import date
 
 import duckdb
@@ -12,6 +13,14 @@ from irc.opportunity import inputs_loader
 from irc.opportunity.inputs_loader import populate_inputs
 from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
+
+
+def dataclasses_replace_upside(inp: OpportunityInput, upside: float) -> OpportunityInput:
+    return dataclasses.replace(inp, consensus_upside_pct=upside)
+
+
+def dataclasses_replace_self_pct(inp: OpportunityInput, pct: float) -> OpportunityInput:
+    return dataclasses.replace(inp, valuation_percentile_self=pct)
 
 
 def _make_db(tmp_path):
@@ -304,11 +313,25 @@ def test_populate_inputs_consensus_upside_computed_when_reports_carry_targets(
     con.close()
 
 
-def test_population_is_inert_classify_valuation_byte_identical(tmp_path, monkeypatch):
-    """AC4 inertness lock: classify_valuation output is byte-identical whether
-    or not pe/pb/dividend/consensus_upside are populated — proving population
-    changes no state until item 002 wires these fields."""
-    con = duckdb.connect(str(tmp_path / "inert.duckdb"))
+def test_population_consumes_consensus_upside_per_item_002(tmp_path, monkeypatch):
+    """Item 002 (AC7) — EVOLVED from item 001's AC4 inertness lock.
+
+    The 001 lock asserted classify_valuation(populated) == classify_valuation(bare).
+    Item 002 INTENTIONALLY makes a populated `consensus_upside_pct` flow into the
+    equity valuation reason, so that equality is now false BY DESIGN. This test is
+    updated (not deleted) to assert the new specified behaviour and the all-None
+    dormancy, per docs/2026-05-31-funding-analysis/items/002-spec.md (AC2/AC3/AC6/AC7)
+    and ADR 0009 (degrade-to-None). Provenance preserved: stays in this file, keeps
+    the population guard.
+
+    Row anatomy (grill Q-T4): 510300/csi300 seeds a flat 300x100.0 price series, so
+    `self_history_percentile` (inclusive count_le/len) gives percentile 1.0 →
+    classify_valuation returns `very_expensive`. target_price=120 / close=100 →
+    consensus_upside_pct=0.20 → signal `"cheap"`. AC3's one-notch adjustment fires
+    only on a cheap/reasonable_low percentile, so for this very_expensive row the
+    notch NEVER fires — the break is ANNOTATION-ONLY (AC2's appended caveat).
+    """
+    con = duckdb.connect(str(tmp_path / "consume.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
     monkeypatch.setattr(
@@ -323,12 +346,61 @@ def test_population_is_inert_classify_valuation_byte_identical(tmp_path, monkeyp
     populated = populate_inputs(
         con, skeleton, holding_entry_date=None, broker_reports=reports
     )
-    # Same row with pe/pb/dividend/consensus_upside forced back to None.
-    import dataclasses
     bare = dataclasses.replace(
         populated, pe_ttm=None, pb=None, dividend_yield=None,
         consensus_upside_pct=None,
     )
     assert populated.pe_ttm is not None  # guard: population actually happened
-    assert classify_valuation(populated) == classify_valuation(bare)
+    assert populated.consensus_upside_pct == pytest.approx(0.20)
+
+    pop_state, pop_reason = classify_valuation(populated)
+    bare_state, bare_reason = classify_valuation(bare)
+
+    # (i) Annotation-only break on THIS row: state unchanged at very_expensive
+    # (percentile 1.0 → notch never fires), but the reason now carries the
+    # equity fundamental caveat that the bare (all-None) row does not.
+    assert pop_state == bare_state == "very_expensive"
+    assert pop_reason != bare_reason
+    assert "上行空间" in pop_reason
+    assert "上行空间" not in bare_reason
+
+    # (ii) All-None dormancy (AC6): the bare row is byte-identical to pre-002.
+    assert classify_valuation(bare) == classify_valuation(
+        dataclasses.replace(bare, consensus_upside_pct=None)
+    )
+    con.close()
+
+
+def test_consensus_upside_notch_fires_on_genuinely_cheap_percentile(tmp_path, monkeypatch):
+    """Item 002 (AC7) — SECOND row exercising the AC3 one-notch corroboration.
+
+    Unlike the flat-series row above (percentile 1.0 → very_expensive), this seeds
+    a deeply cheap percentile and a 'cheap' consensus-upside signal, so the AC3
+    one-notch adjustment fires: reasonable_low → cheap / cheap → cheap. Cites
+    docs/2026-05-31-funding-analysis/items/002-spec.md (AC3) and ADR 0009.
+    """
+    con = duckdb.connect(str(tmp_path / "notch.duckdb"))
+    ensure_schema(con)
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation", _stub_index_valuation
+    )
+    # reasonable_low percentile: build a synthetic input directly (no DB price
+    # path needed — the notch lives in classify_valuation, a pure function).
+    base = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
+        tracked_index="csi300", valuation_percentile_self=0.30,
+    )
+    without = classify_valuation(base)
+    assert without[0] == "reasonable_low"  # baseline percentile band
+
+    with_cheap_signal = classify_valuation(
+        dataclasses_replace_upside(base, 0.25)  # 'cheap' signal
+    )
+    assert with_cheap_signal[0] == "cheap"  # AC3 corroboration notch fired
+
+    # cheap percentile + cheap signal stays cheap (notch no-op)
+    deeply_cheap = dataclasses_replace_upside(
+        dataclasses_replace_self_pct(base, 0.10), 0.25
+    )
+    assert classify_valuation(deeply_cheap)[0] == "cheap"
     con.close()

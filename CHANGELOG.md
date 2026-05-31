@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-002` (2026-05-31)
+
+Make the inert item-001 fundamental inputs **live**: `valuation_state` now
+consumes `consensus_upside_pct` (pe/pb stay reason-only), and `core_dca` gates
+on cheap-**AND**-intact. Inputs remain dormant in production until item 003
+wires real data (`consensus_upside_pct` is `None` today → `evidence_insufficient`,
+ADR 0009):
+
+- New pure module `opportunity/valuation_fundamental.py`:
+  `valuation_fundamental_signal(inp)` maps `consensus_upside_pct` to
+  `cheap`/`rich`/`neutral`/`None` against module-level thresholds
+  (`CHEAP_UPSIDE_THRESHOLD=0.20`, `RICH_UPSIDE_THRESHOLD=-0.10`); a reason
+  annotation describes the consensus-upside read (+ optional pe/pb, sign-correct
+  for up/down).
+- `classify_valuation` appends the fundamental caveat for equities and applies a
+  one-notch **cheap-direction-only** adjustment (`reasonable_low`→`cheap`); it
+  never moves a state toward more-expensive (AC3).
+- `compose_opportunity_state(..., valuation_fundamental=...)` blocks `core_dca`
+  when the fundamental signal is `rich` while the percentile says cheap/low — the
+  row falls through to `small_watch`; `valuation_state` itself is unchanged.
+- Item-001's AC4 inertness lock evolved (renamed
+  `test_population_consumes_consensus_upside_per_item_002`) to assert the new
+  live behaviour; bond/gold/QDII rows keep a byte-identical inertness lock.
+- No change to Policy B, `thesis_state`, the citation set, or the opportunity
+  partition (H3/SAME-3 hold; AC8 structural lock).
+
 ### Added — `funding-analysis-001` (2026-05-31)
 
 Wire fundamental valuation **inputs** end-to-end without changing any decision
