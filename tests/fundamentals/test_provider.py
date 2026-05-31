@@ -178,3 +178,24 @@ def test_fallback_target_price_flows_when_primary_brokers_empty() -> None:
               target_price=2100.0, published_iso="2026-05-30", title="t"),)
     out = FallbackProvider(_Fake(brokers=()), _Fake(brokers=sec)).fetch_broker_reports("600519")
     assert out[0].target_price == 2100.0
+
+
+from unittest.mock import MagicMock  # noqa: E402
+
+from irc.fundamentals.provider import default_cn_provider  # noqa: E402
+
+
+def test_default_provider_is_akshare_only_without_token() -> None:
+    fake_settings = MagicMock()
+    fake_settings.tushare_token.get_secret_value.return_value = ""
+    with patch("irc.fundamentals.provider.Settings", return_value=fake_settings):
+        provider = default_cn_provider()
+    assert isinstance(provider, AkShareProvider)
+
+
+def test_default_provider_is_fallback_with_token() -> None:
+    fake_settings = MagicMock()
+    fake_settings.tushare_token.get_secret_value.return_value = "tok-123"
+    with patch("irc.fundamentals.provider.Settings", return_value=fake_settings):
+        provider = default_cn_provider()
+    assert isinstance(provider, FallbackProvider)

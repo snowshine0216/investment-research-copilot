@@ -20,6 +20,7 @@ from irc.fundamentals.akshare_filing import (
 from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport, FilingDigest
+from irc.settings import Settings
 
 
 @runtime_checkable
@@ -107,3 +108,18 @@ class FallbackProvider:
         if primary is not None:
             return primary
         return _try(lambda: self._secondary.fetch_index_valuation(index_key))
+
+
+def default_cn_provider() -> CnFundamentalsProvider:
+    """Construction edge: read the token from `.env` and pick the provider.
+
+    No token → `AkShareProvider()` alone (byte-identical to pre-003). With a
+    token → `FallbackProvider(AkShareProvider(), TushareProvider(token))`.
+    `TushareProvider` is imported lazily so this module never imports tushare.
+    """
+    token = Settings().tushare_token.get_secret_value().strip()
+    if not token:
+        return AkShareProvider()
+    from irc.fundamentals.tushare_provider import TushareProvider
+
+    return FallbackProvider(AkShareProvider(), TushareProvider(token))
