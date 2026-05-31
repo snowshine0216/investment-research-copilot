@@ -16,8 +16,8 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 
 | gate | status |
 |------|--------|
-| run-doc-sync | ⏳ |
-| run-final-verify | ⏳ |
+| run-doc-sync | ✅ PASS (3a13148) — CONTEXT terms + ADR 0009/0010/0011 + README Tushare + CHANGELOG 5 entries; 0 missing |
+| run-final-verify | 🔄 |
 | run-close-out | ⏳ |
 
 ## Item titles
