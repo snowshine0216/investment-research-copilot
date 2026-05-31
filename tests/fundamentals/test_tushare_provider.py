@@ -1,0 +1,94 @@
+from __future__ import annotations
+
+import pandas as pd
+
+from irc.fundamentals.index_valuation_types import IndexValuation
+from irc.fundamentals.tushare_provider import (
+    _map_fina_to_digest,
+    _map_index_dailybasic,
+    _map_report_rc_to_brokers,
+)
+from irc.fundamentals.types import BrokerReport, FilingDigest
+
+
+# ── fina_indicator → FilingDigest ─────────────────────────────────────────────
+def test_map_fina_to_digest_happy_path() -> None:
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "end_date": ["20241231"],
+        "roe": [18.0],            # Tushare roe is in PERCENT
+        "or_yoy": [25.0],         # revenue YoY, percent
+        "netprofit_yoy": [33.0],  # net income YoY, percent
+        "grossprofit_margin": [40.0],
+    })
+    out = _map_fina_to_digest("600519.SH", fina)
+    assert isinstance(out, FilingDigest)
+    assert out.symbol == "600519.SH"
+    assert out.fiscal_period == "2024FY"
+    assert out.filed_at_iso == "2024-12-31"
+    assert abs(out.revenue_yoy - 0.25) < 1e-9      # percent → ratio
+    assert abs(out.net_income_yoy - 0.33) < 1e-9
+    assert abs(out.gross_margin - 0.40) < 1e-9
+    assert abs(out.roe - 0.18) < 1e-9
+
+
+def test_map_fina_to_digest_empty_frame_returns_none() -> None:
+    assert _map_fina_to_digest("600519.SH", pd.DataFrame()) is None
+
+
+def test_map_fina_to_digest_missing_columns_returns_none() -> None:
+    # No end_date column → cannot derive the period → None (degrade, not raise).
+    assert _map_fina_to_digest("600519.SH", pd.DataFrame({"roe": [18.0]})) is None
+
+
+# ── report_rc → tuple[BrokerReport, ...] ──────────────────────────────────────
+def test_map_report_rc_carries_target_price() -> None:
+    rc = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "org_name": ["中信证券"],
+        "rating": ["买入"],
+        "target_price": [2100.0],
+        "report_date": ["20260530"],
+        "report_title": ["深度报告"],
+    })
+    out = _map_report_rc_to_brokers("600519.SH", rc)
+    assert len(out) == 1
+    r = out[0]
+    assert isinstance(r, BrokerReport)
+    assert r.target_price == 2100.0
+    assert r.published_iso == "2026-05-30"
+    assert r.broker == "中信证券"
+
+
+def test_map_report_rc_empty_returns_empty_tuple() -> None:
+    assert _map_report_rc_to_brokers("600519.SH", pd.DataFrame()) == ()
+
+
+def test_map_report_rc_missing_target_price_column_degrades_to_none_field() -> None:
+    rc = pd.DataFrame({
+        "ts_code": ["600519.SH"], "org_name": ["中信"], "rating": ["买入"],
+        "report_date": ["20260530"], "report_title": ["t"],
+    })
+    out = _map_report_rc_to_brokers("600519.SH", rc)
+    assert len(out) == 1 and out[0].target_price is None
+
+
+# ── index_dailybasic → IndexValuation ─────────────────────────────────────────
+def test_map_index_dailybasic_happy_path() -> None:
+    df = pd.DataFrame({
+        "trade_date": ["20260530"],
+        "pe_ttm": [12.5],
+        "pb": [1.4],
+        "dv_ratio": [2.1],
+    })
+    out = _map_index_dailybasic("csi300", df, as_of_iso="2026-05-31")
+    assert isinstance(out, IndexValuation)
+    assert out.index_key == "csi300"
+    assert out.pe_ttm == 12.5
+    assert out.pb == 1.4
+    assert out.dividend_yield == 2.1
+    assert out.as_of_iso == "2026-05-31"
+
+
+def test_map_index_dailybasic_empty_returns_none() -> None:
+    assert _map_index_dailybasic("csi300", pd.DataFrame(), as_of_iso="2026-05-31") is None
