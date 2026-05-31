@@ -20,10 +20,7 @@ from irc.fundamentals.akshare_fundamentals import (
     fetch_fund_nav_report,
     fetch_hk_index_constituents,
 )
-from irc.fundamentals.akshare_filing import (
-    fetch_cn_broker_reports,
-    fetch_cn_filing_digest,
-)
+from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
 from irc.fundamentals.edgar_client import (
     fetch_us_filing_digest,  # noqa: F401 — re-exported for callers
     fetch_us_filing_digest_diag,
@@ -247,6 +244,7 @@ def build_snapshot(
     *,
     top_n: int = 10,
     as_of_iso: str = "",
+    provider: CnFundamentalsProvider | None = None,
 ) -> ActiveFundSnapshot | ConstituentSnapshot | FundLevelSnapshot:
     """Compose snapshot for a typed `LookthroughTarget`.
 
@@ -260,9 +258,10 @@ def build_snapshot(
     |  sector_theme — w/ provider_symbol  |                                           |
     | (else / empty provider_symbol)      | _build_legacy_snapshot (display-only)     |
     """
+    provider = provider or default_cn_provider()
     timestamp = as_of_iso or _today_iso()
     if target.kind == "active_fund":
-        return _build_active_fund_snapshot(target, top_n=top_n)
+        return _build_active_fund_snapshot(target, top_n=top_n, provider=provider)
     if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
         # Item 016 — QDII funds are CN-registered and DO expose NAV +
         # announcements via the same AkShare endpoints used by gold/bond/
@@ -276,11 +275,14 @@ def build_snapshot(
         return _build_qdii_sentinel_snapshot(target)
     if target.kind in _FUND_LEVEL_KINDS and target.provider_symbol:
         return _build_fund_level_snapshot(target)
-    return _build_legacy_snapshot(target.display_cn, top_n=top_n, as_of_iso=timestamp)
+    return _build_legacy_snapshot(
+        target.display_cn, top_n=top_n, as_of_iso=timestamp, provider=provider
+    )
 
 
 def _build_legacy_snapshot(
     lookthrough_target: str, *, top_n: int, as_of_iso: str,
+    provider: CnFundamentalsProvider,
 ) -> ConstituentSnapshot:
     """Original `build_snapshot(string)` body, unchanged."""
     spec = _TARGET_REGISTRY.get(lookthrough_target)
@@ -292,7 +294,7 @@ def _build_legacy_snapshot(
             failure_reasons=(f"unknown lookthrough_target: {lookthrough_target}",),
         )
     if spec.kind == "cn_index":
-        return _build_cn_snapshot(lookthrough_target, spec, top_n, as_of_iso)
+        return _build_cn_snapshot(lookthrough_target, spec, top_n, as_of_iso, provider)
     if spec.kind == "us_symbols":
         return _build_us_snapshot(lookthrough_target, spec, as_of_iso)
     if spec.kind == "hk_symbols":
@@ -311,6 +313,7 @@ def _evidence_for_constituent(
     holding: FundHolding,
     *,
     fund_id: str,
+    provider: CnFundamentalsProvider,
 ) -> tuple[tuple[ThesisEvidence, ...], list[str], FilingDigest | None]:
     """Fetch market-routed evidence for one holding.
 
@@ -334,7 +337,7 @@ def _evidence_for_constituent(
         # _empty are mutually exclusive (no double-append).
         _filing_exc = False
         try:
-            digest = fetch_cn_filing_digest(holding.symbol)
+            digest = provider.fetch_filing_digest(holding.symbol)
         except Exception as exc:
             failures.append(f"filing_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             digest = None
@@ -352,7 +355,7 @@ def _evidence_for_constituent(
                 ))
         _broker_exc = False
         try:
-            brokers = fetch_cn_broker_reports(holding.symbol)
+            brokers = provider.fetch_broker_reports(holding.symbol)
         except Exception as exc:
             failures.append(f"broker_fetch_failed:{holding.symbol}:{type(exc).__name__}")
             brokers = ()
@@ -521,7 +524,7 @@ def _fetch_active_fund_level_evidence(
 
 
 def _build_active_fund_snapshot(
-    target: LookthroughTarget, *, top_n: int,
+    target: LookthroughTarget, *, top_n: int, provider: CnFundamentalsProvider,
 ) -> ActiveFundSnapshot:
     """Fetch holdings then per-constituent evidence per exchange routing.
 
@@ -557,7 +560,9 @@ def _build_active_fund_snapshot(
     analyses: list[ConstituentAnalysis] = []
     fail_by_symbol: dict[str, tuple[str, ...]] = {}
     for h in holdings.constituents:
-        evidence, failures, _cn_digest = _evidence_for_constituent(h, fund_id=fund_id)
+        evidence, failures, _cn_digest = _evidence_for_constituent(
+            h, fund_id=fund_id, provider=provider
+        )
         if failures:
             fail_by_symbol[h.symbol] = tuple(sorted(failures))
         analyses.append(ConstituentAnalysis(
@@ -582,6 +587,7 @@ def _build_active_fund_snapshot(
 
 def _build_cn_snapshot(
     target: str, spec: _TargetSpec, top_n: int, as_of_iso: str,
+    provider: CnFundamentalsProvider,
 ) -> ConstituentSnapshot:
     constituents = fetch_cn_index_constituents(spec.code, top_n=top_n)
     if not constituents:
@@ -592,12 +598,12 @@ def _build_cn_snapshot(
         )
     filings, broker_reports, failures = [], [], []
     for c in constituents:
-        digest = fetch_cn_filing_digest(c.symbol)
+        digest = provider.fetch_filing_digest(c.symbol)
         if digest is None:
             failures.append(f"missing filing digest: {c.symbol}")
         else:
             filings.append(digest)
-        reports = fetch_cn_broker_reports(c.symbol)
+        reports = provider.fetch_broker_reports(c.symbol)
         broker_reports.extend(reports)
     return ConstituentSnapshot(
         lookthrough_target=target,

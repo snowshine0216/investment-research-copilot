@@ -541,11 +541,12 @@ def test_empty_source_report_quarter_no_cache_written_stamps_failure_reason(tmp_
         source_report_quarter="",   # <-- key: quarter parse failed
     )
 
+    from irc.fundamentals.provider import AkShareProvider
     with patch(
         "irc.fundamentals.snapshot.fetch_cn_etf_holdings",
         return_value=holdings_with_bad_quarter,
-    ):
-        snap = _build_active_fund_snapshot(target, top_n=10)
+    ), patch("irc.fundamentals.akshare_filing._ak_call", return_value=__import__("pandas").DataFrame()):
+        snap = _build_active_fund_snapshot(target, top_n=10, provider=AkShareProvider())
 
     # Must stamp holdings_quarter_parse_failed.
     assert any(

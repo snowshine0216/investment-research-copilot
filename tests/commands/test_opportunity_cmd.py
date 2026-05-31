@@ -749,15 +749,15 @@ def test_evidence_routing_exception_no_double_append() -> None:
         weight_pct=6.2, exchange="SH", provider_symbol="600519",
     )
 
-    def raise_exc(*a, **kw):
-        raise ConnectionError("network down")
+    class _RaisingProvider:
+        def fetch_filing_digest(self, s): raise ConnectionError("network down")
+        def fetch_broker_reports(self, s, **_): raise ConnectionError("network down")
+        def fetch_index_valuation(self, k): return None
 
-    with (
-        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", side_effect=raise_exc),
-        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", side_effect=raise_exc),
-        patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=raise_exc),
-    ):
-        _, failures, _digest = _evidence_for_constituent(holding, fund_id="005827")
+    with patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=ConnectionError("network down")):
+        _, failures, _digest = _evidence_for_constituent(
+            holding, fund_id="005827", provider=_RaisingProvider()
+        )
 
     failure_codes = set(failures)
     # Must have fetch_failed codes.
@@ -789,15 +789,18 @@ def test_cn_news_exception_propagates_to_caller() -> None:
         weight_pct=6.2, exchange="SH", provider_symbol="600519",
     )
 
-    with (
-        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", return_value=None),
-        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", return_value=()),
-        patch(
-            "irc.fundamentals.snapshot.fetch_cn_stock_news",
-            side_effect=ConnectionError("network"),
-        ),
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
+    with patch(
+        "irc.fundamentals.snapshot.fetch_cn_stock_news",
+        side_effect=ConnectionError("network"),
     ):
-        _, failures, _digest = _evidence_for_constituent(holding, fund_id="005827")
+        _, failures, _digest = _evidence_for_constituent(
+            holding, fund_id="005827", provider=_NullProvider()
+        )
 
     assert any("news_fetch_failed:600519:ConnectionError" in f for f in failures), (
         f"expected news_fetch_failed:600519:ConnectionError in failures: {failures}"

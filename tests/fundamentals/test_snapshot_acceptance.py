@@ -27,27 +27,29 @@ def test_g6_a_full_success_30_evidence_entries(monkeypatch) -> None:
         snap_mod, "fetch_cn_etf_holdings",
         lambda sym, top_n=10: _cn_holdings([f"60001{i}" for i in range(10)]),
     )
-    monkeypatch.setattr(
-        snap_mod, "fetch_cn_filing_digest",
-        lambda s: FilingDigest(
-            symbol=s, fiscal_period="2024Q1", filed_at_iso="2024-04-15",
-            revenue_yoy=0.10, net_income_yoy=0.12, gross_margin=0.45,
-            source_url=f"https://x/{s}",
-        ),
-    )
-    monkeypatch.setattr(
-        snap_mod, "fetch_cn_broker_reports",
-        lambda s: (BrokerReport(
-            symbol=s, broker="中信", rating="买入", target_price=100.0,
-            published_iso="2024-04-10", title="买入", source_url="https://x/b",
-        ),),
-    )
+
+    class _FullProvider:
+        def fetch_filing_digest(self, s):
+            return FilingDigest(
+                symbol=s, fiscal_period="2024Q1", filed_at_iso="2024-04-15",
+                revenue_yoy=0.10, net_income_yoy=0.12, gross_margin=0.45,
+                source_url=f"https://x/{s}",
+            )
+
+        def fetch_broker_reports(self, s, **_):
+            return (BrokerReport(
+                symbol=s, broker="中信", rating="买入", target_price=100.0,
+                published_iso="2024-04-10", title="买入", source_url="https://x/b",
+            ),)
+
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(
         snap_mod, "fetch_cn_stock_news",
         lambda s, top_k=3: (NewsItem(s, "新品", "https://x", "2024-04-15", "", "stock_news_em"),),
     )
     target = LookthroughTarget("active_fund", "fund_005827", "fund", "005827")
-    snap = build_snapshot(target, top_n=10)
+    snap = build_snapshot(target, top_n=10, provider=_FullProvider())
     assert isinstance(snap, ActiveFundSnapshot)
     assert len(snap.constituent_analyses) == 10
     total = sum(len(c.evidence) for c in snap.constituent_analyses)
@@ -62,21 +64,20 @@ def test_g6_b_partial_holdings_6_to_10_all_empty(monkeypatch) -> None:
         lambda sym, top_n=10: _cn_holdings(symbols),
     )
 
-    def selective_filing(s):
-        idx = int(s[-2:])
-        if idx >= 5:
-            return None
-        return FilingDigest(s, "2024Q1", "2024-04-15", 0.1, 0.1, 0.3, "", "")
+    class _SelectiveProvider:
+        def fetch_filing_digest(self, s):
+            idx = int(s[-2:])
+            if idx >= 5:
+                return None
+            return FilingDigest(s, "2024Q1", "2024-04-15", 0.1, 0.1, 0.3, "", "")
 
-    monkeypatch.setattr(snap_mod, "fetch_cn_filing_digest", selective_filing)
+        def fetch_broker_reports(self, s, **_):
+            idx = int(s[-2:])
+            if idx >= 5:
+                return ()
+            return (BrokerReport(s, "中信", "买入", None, "2024-04-10", "x", "https://x"),)
 
-    def selective_brokers(s):
-        idx = int(s[-2:])
-        if idx >= 5:
-            return ()
-        return (BrokerReport(s, "中信", "买入", None, "2024-04-10", "x", "https://x"),)
-
-    monkeypatch.setattr(snap_mod, "fetch_cn_broker_reports", selective_brokers)
+        def fetch_index_valuation(self, k): return None
 
     def selective_news(s, top_k=3):
         idx = int(s[-2:])
@@ -86,7 +87,7 @@ def test_g6_b_partial_holdings_6_to_10_all_empty(monkeypatch) -> None:
 
     monkeypatch.setattr(snap_mod, "fetch_cn_stock_news", selective_news)
     target = LookthroughTarget("active_fund", "fund_x", "fund", "005827")
-    snap = build_snapshot(target, top_n=10)
+    snap = build_snapshot(target, top_n=10, provider=_SelectiveProvider())
     assert len(snap.constituent_analyses) == 10
     empties = [c for c in snap.constituent_analyses if not c.evidence]
     assert len(empties) == 5
@@ -102,14 +103,18 @@ def test_g6_c_news_carries_constituent_scope_and_information_kind(monkeypatch) -
         snap_mod, "fetch_cn_etf_holdings",
         lambda sym, top_n=10: _cn_holdings(["600519"]),
     )
-    monkeypatch.setattr(snap_mod, "fetch_cn_filing_digest", lambda s: None)
-    monkeypatch.setattr(snap_mod, "fetch_cn_broker_reports", lambda s: ())
+
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(
         snap_mod, "fetch_cn_stock_news",
         lambda s, top_k=3: (NewsItem(s, "新品", "https://x", "2024-04-15", "", "stock_news_em"),),
     )
     target = LookthroughTarget("active_fund", "fund_x", "fund", "005827")
-    snap = build_snapshot(target, top_n=1)
+    snap = build_snapshot(target, top_n=1, provider=_NullProvider())
     news_ev = [e for e in snap.constituent_analyses[0].evidence if e.type == "news"]
     assert len(news_ev) == 1
     assert news_ev[0].scope == "constituent"
@@ -157,12 +162,15 @@ def test_missing_quarter_column_emits_holdings_quarter_parse_failed(monkeypatch)
         snap_mod, "fetch_cn_etf_holdings",
         lambda sym, top_n=10: result,
     )
-    monkeypatch.setattr(snap_mod, "fetch_cn_filing_digest", lambda s: None)
-    monkeypatch.setattr(snap_mod, "fetch_cn_broker_reports", lambda s: ())
     monkeypatch.setattr(snap_mod, "fetch_cn_stock_news", lambda s, top_k=3: ())
 
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     target = LookthroughTarget("active_fund", "fund_005827", "fund", "005827")
-    snap = build_snapshot(target, top_n=10)
+    snap = build_snapshot(target, top_n=10, provider=_NullProvider())
 
     assert isinstance(snap, ActiveFundSnapshot)
     assert len(snap.constituent_analyses) == 10, (
