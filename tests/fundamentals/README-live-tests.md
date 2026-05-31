@@ -101,3 +101,14 @@ runs.
 The companion file `test_fund_announcement_em_failure_modes.py` runs in
 every default suite invocation — it patches `_ak_call` to lock the
 failure-trace tone and does NOT hit the network.
+
+## Live Tushare tests (item 003)
+
+`test_tushare_provider_live.py` pins the real Tushare endpoint shapes. It is
+TRIPLE-gated: the `live_tushare` marker AND `IRC_RUN_LIVE_TUSHARE=1` AND a
+non-empty `TUSHARE_TOKEN`. The mandatory assertion is scoped to filing-digest
+(`fina_indicator`); the broker-report (`report_rc`/`target_price`) smoke is
+skip-tolerant because that feed is points/paid-tier gated. Run:
+
+    IRC_RUN_LIVE_TUSHARE=1 uv run pytest -m live_tushare \
+        tests/fundamentals/test_tushare_provider_live.py -v -s

@@ -54,15 +54,22 @@ def test_build_snapshot_cn_index_dispatches_to_akshare(monkeypatch, cn_target_re
     monkeypatch.setattr(
         snapshot, "fetch_cn_index_constituents", lambda code, *, top_n=10: constituents,
     )
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_filing_digest",
-        lambda sym: digest if sym == "600519.SH" else None,
+
+    class _FakeProvider:
+        def fetch_filing_digest(self, sym):
+            return digest if sym == "600519.SH" else None
+
+        def fetch_broker_reports(self, sym, **_):
+            return (report,) if sym == "600519.SH" else ()
+
+        def fetch_index_valuation(self, key):
+            return None
+
+    snap = build_snapshot(
+        LookthroughTarget("broad_index", "x", "白酒指数"),
+        top_n=2, as_of_iso="2026-05-15",
+        provider=_FakeProvider(),
     )
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_broker_reports",
-        lambda sym, **_: (report,) if sym == "600519.SH" else (),
-    )
-    snap = build_snapshot(LookthroughTarget("broad_index", "x", "白酒指数"), top_n=2, as_of_iso="2026-05-15")
     assert isinstance(snap, ConstituentSnapshot)
     assert snap.lookthrough_target == "白酒指数"
     assert snap.as_of_iso == "2026-05-15"
@@ -345,11 +352,15 @@ def test_build_snapshot_active_fund_dispatch(monkeypatch) -> None:
     monkeypatch.setattr(
         snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: _holdings_result_cn(),
     )
-    monkeypatch.setattr(snapshot, "fetch_cn_filing_digest", lambda s: None)
-    monkeypatch.setattr(snapshot, "fetch_cn_broker_reports", lambda s: ())
     monkeypatch.setattr(snapshot, "fetch_cn_stock_news", lambda s, top_k=3: ())
+
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     target = LookthroughTarget("active_fund", "fund_005827", "易方达蓝筹精选", "005827")
-    out = build_snapshot(target, top_n=10)
+    out = build_snapshot(target, top_n=10, provider=_NullProvider())
     assert isinstance(out, ActiveFundSnapshot)
     assert out.fund_id == "005827"
     assert out.source_report_quarter == "2024Q1"
@@ -386,14 +397,20 @@ def test_build_snapshot_active_fund_routes_hk_through_hk_adapters(monkeypatch) -
     )
     monkeypatch.setattr(snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: hk_only)
     cn_broker_called = []
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_broker_reports",
-        lambda s: cn_broker_called.append(s) or (),
-    )
+
+    class _TrackingProvider:
+        def fetch_filing_digest(self, s): return None
+
+        def fetch_broker_reports(self, s, **_):
+            cn_broker_called.append(s)
+            return ()
+
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(snapshot, "fetch_hk_filing_digest", lambda s: None)
     monkeypatch.setattr(snapshot, "fetch_hk_stock_news", lambda s, top_k=3: ())
     target = LookthroughTarget("active_fund", "fund_x", "x", "x")
-    build_snapshot(target, top_n=1)
+    build_snapshot(target, top_n=1, provider=_TrackingProvider())
     assert cn_broker_called == []  # never called for HK constituents
 
 
@@ -463,7 +480,7 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
             ),
         )
 
-    def _fake_evidence_for_constituent(holding, *, fund_id):
+    def _fake_evidence_for_constituent(holding, *, fund_id, provider):
         # HK holding hits the no-filings path in real code; emulate empty.
         return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"], None
 
@@ -474,13 +491,14 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
         _snap_mod, "_evidence_for_constituent", _fake_evidence_for_constituent
     )
 
+    from irc.fundamentals.provider import AkShareProvider
     target = LookthroughTarget(
         kind="active_fund",
         key=fund_id,
         display_cn="泰康香港银行指数A",
         provider_symbol=fund_id,
     )
-    snap = _snap_mod._build_active_fund_snapshot(target, top_n=10)
+    snap = _snap_mod._build_active_fund_snapshot(target, top_n=10, provider=AkShareProvider())
 
     assert len(snap.fund_level_evidence) == 2
     kinds = sorted(e.citation_kind for e in snap.fund_level_evidence)
@@ -499,11 +517,15 @@ def test_evidence_for_constituent_returns_cn_digest_third(monkeypatch) -> None:
         symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
         revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
     )
-    monkeypatch.setattr(_snap, "fetch_cn_filing_digest", lambda s: digest)
-    monkeypatch.setattr(_snap, "fetch_cn_broker_reports", lambda s: ())
+
+    class _DigestProvider:
+        def fetch_filing_digest(self, s): return digest
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(_snap, "fetch_cn_stock_news", lambda s, top_k=3: ())
     holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
-    result = _snap._evidence_for_constituent(holding, fund_id="fund_x")
+    result = _snap._evidence_for_constituent(holding, fund_id="fund_x", provider=_DigestProvider())
     assert len(result) == 3  # (evidence, failures, digest)
     evidence, failures, returned_digest = result
     assert returned_digest is digest
@@ -512,11 +534,14 @@ def test_evidence_for_constituent_returns_cn_digest_third(monkeypatch) -> None:
 def test_evidence_for_constituent_digest_none_for_non_cn(monkeypatch) -> None:
     from irc.fundamentals import snapshot as _snap
     from irc.fundamentals.types import FundHolding
+    from irc.fundamentals.provider import AkShareProvider
     monkeypatch.setattr(_snap, "fetch_hk_filing_digest", lambda s: None)
     monkeypatch.setattr(_snap, "fetch_hk_stock_news", lambda s, top_k=3: ())
     monkeypatch.setattr(_snap, "hk_news_adapter_available", lambda: True)
     holding = FundHolding("0700.HK", "腾讯", 10.0, "HK", "00700")
-    evidence, failures, digest = _snap._evidence_for_constituent(holding, fund_id="f")
+    evidence, failures, digest = _snap._evidence_for_constituent(
+        holding, fund_id="f", provider=AkShareProvider()
+    )
     assert digest is None  # HK/US digests are out of scope for ratios (spec non-goal)
 
 

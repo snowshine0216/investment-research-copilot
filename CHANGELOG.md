@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-003` (2026-05-31)
+
+Pluggable CN fundamentals data layer with an optional **Tushare** fallback — a
+behavior-preserving refactor (the AkShare-only path is byte-identical to before)
+plus a new data source that activates only when `TUSHARE_TOKEN` is set. See
+**ADR 0010**.
+
+- New `fundamentals/provider.py`: a `CnFundamentalsProvider` Protocol
+  (`fetch_filing_digest` / `fetch_broker_reports` / `fetch_index_valuation`,
+  reusing the existing return types) with `AkShareProvider` (verbatim delegation
+  to today's fetchers), `TushareProvider`, a per-method `FallbackProvider`
+  (primary miss — `None` / `()` / exception → try secondary; both miss → `None`),
+  and a `default_cn_provider()` edge factory (AkShare-only with no token;
+  AkShare→Tushare fallback when a token is present).
+- New `fundamentals/tushare_provider.py`: routes through a `_tushare_call` edge
+  that lazily imports `tushare` (never at module load), so the package + network
+  are touched only on the live path. Pure frame→DTO mappers degrade to `None` on
+  missing/unrecognized data. The highest-value gap it fills is
+  `BrokerReport.target_price`, which activates the already-wired
+  `consensus_upside_pct` (ADR 0009).
+- The four CN fetch call-sites (`inputs_loader`, `snapshot` ×4) now take an
+  injected `provider` (DI at the command edge; stage cores stay pure). The
+  AkShare default reproduces prior behavior exactly (byte-equality regression
+  lock). The fetch budget and the `fetch_budget_exhausted` sentinel are unchanged
+  — Tushare fallback calls are not metered.
+- Swallowed provider/Tushare errors (including an invalid/expired token) now emit
+  a WARNING (still degrading to `None`) so failures are observable, not silent.
+- `tushare_token` (`SecretStr`, `.env`-only) is wired. New triple-gated live test
+  (`live_tushare` marker + `IRC_RUN_LIVE_TUSHARE=1` + a real token), excluded from
+  the default suite. README documents Tushare setup.
+
 ### Added — `funding-analysis-004` (2026-05-31)
 
 Deterministic, pure key-ratios surface closing the balance-sheet / earnings-quality

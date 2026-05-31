@@ -11,7 +11,7 @@ from irc.opportunity.returns import (
     rolling_returns,
     self_history_percentile,
 )
-from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation
+from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
 from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
@@ -96,13 +96,15 @@ def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
 
 def _index_valuation_metrics(
     tracked_index: str | None,
+    *,
+    provider: CnFundamentalsProvider,
 ) -> tuple[float | None, float | None, float | None]:
     """Return (pe_ttm, pb, dividend_yield) for a recognised broad index, else
     (None, None, None). Index valuation is INERT today (item 002 consumes it)."""
     key = (tracked_index or "").strip().lower() or None
     if key is None or key not in _BROAD_INDEX_KEYS:
         return None, None, None
-    valuation = fetch_cn_index_valuation(key)
+    valuation = provider.fetch_index_valuation(key)
     if valuation is None:
         return None, None, None
     return valuation.pe_ttm, valuation.pb, valuation.dividend_yield
@@ -114,6 +116,7 @@ def populate_inputs(
     *,
     holding_entry_date: date | None,
     broker_reports: tuple[BrokerReport, ...] = (),
+    provider: CnFundamentalsProvider | None = None,
 ) -> OpportunityInput:
     """Return a copy of skeleton with evidence fields filled from DuckDB.
 
@@ -122,6 +125,7 @@ def populate_inputs(
     (ADR 0009). Index pe/pb/dividend are populated only for recognised broad
     indices and are inert until item 002.
     """
+    provider = provider or default_cn_provider()
     meta = _instrument_meta(con, skeleton.instrument_id)
     tracking_err = _tracking_error(con, skeleton.instrument_id)
     series = _price_series(con, skeleton.instrument_id)
@@ -148,7 +152,9 @@ def populate_inputs(
 
     latest_close = float(series.iloc[-1]) if not series.empty else None
     upside = consensus_upside_pct(broker_reports, latest_close)
-    pe_ttm, pb, dividend_yield = _index_valuation_metrics(skeleton.tracked_index)
+    pe_ttm, pb, dividend_yield = _index_valuation_metrics(
+        skeleton.tracked_index, provider=provider
+    )
 
     return replace(
         skeleton,
