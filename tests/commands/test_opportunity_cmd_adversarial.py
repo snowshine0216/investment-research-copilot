@@ -1,9 +1,9 @@
 """Item 005 — --adversarial bull/bear debate (advisory file)."""
 from __future__ import annotations
 
+import json
+import re
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 from irc.opportunity.discipline import PositionContext
 
@@ -44,6 +44,10 @@ def _position():
         portfolio_weight=None, target_band_low=None, target_band_high=None,
         drawdown_since_entry=None, is_holding=False,
     )
+
+
+def _read_report(tmp_path):
+    return json.loads((tmp_path / "opportunity_report.json").read_text(encoding="utf-8"))
 
 
 _CANONICAL = {
@@ -121,3 +125,44 @@ def test_per_row_failure_renders_placeholder_and_keeps_canonical(mock_chat, tmp_
     # Canonical artifacts still written despite LLM failure.
     assert (tmp_path / "opportunity_report.json").exists()
     assert (tmp_path / "thesis_cards.yaml").exists()
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_canonical_artifacts_byte_identical_with_vs_without_flag(mock_chat, tmp_path):
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    mock_chat.return_value = MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}')
+
+    off = tmp_path / "off"
+    on = tmp_path / "on"
+    for d in (off, on):
+        d.mkdir()
+
+    _write_opportunity_outputs(
+        kept_rows=[_row("A")], positions={"A": _position()},
+        qualities={}, roles={}, holdings={}, out_dir=off, today="2026-05-23",
+    )
+    _write_opportunity_outputs(
+        kept_rows=[_row("A")], positions={"A": _position()},
+        qualities={}, roles={}, holdings={}, out_dir=on, today="2026-05-23",
+        debate_route=(MagicMock(), MagicMock()),
+    )
+    for name in _CANONICAL:
+        assert (off / name).read_bytes() == (on / name).read_bytes(), name
+    # The ON dir additionally has the advisory file; the OFF dir does not.
+    assert (on / "thesis_debate.md").exists()
+    assert not (off / "thesis_debate.md").exists()
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_debate_file_introduces_no_citation_id(mock_chat, tmp_path):
+    from irc.commands.opportunity_cmd import _write_opportunity_outputs
+    mock_chat.return_value = MagicMock(
+        text='{"arguments": ["see [ref:abc] prose"], "conditions": ["c"]}'
+    )
+    _write_opportunity_outputs(
+        kept_rows=[_row("A")], positions={"A": _position()},
+        qualities={}, roles={}, holdings={}, out_dir=tmp_path, today="2026-05-23",
+        debate_route=(MagicMock(), MagicMock()),
+    )
+    md = (tmp_path / "thesis_debate.md").read_text(encoding="utf-8")
+    assert not re.search(r"\[ref:[0-9a-f]{16}\]", md)

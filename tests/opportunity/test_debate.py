@@ -1,9 +1,15 @@
 from __future__ import annotations
-from unittest.mock import patch, MagicMock
+
+import re
+from unittest.mock import MagicMock, patch
 
 from irc.opportunity.debate import (
     DefenseResult,
     FalsificationResult,
+    ThesisDebate,
+    compose_thesis_debate_markdown,
+    pair_debate,
+    run_debates,
     run_defend,
     run_falsify,
 )
@@ -31,6 +37,16 @@ def _row(iid="X1", name_cn="测试基金", thesis_state="intact",
         thesis_evidence=evidence,
     )
 
+
+def _debate(iid, name, state, args, conds):
+    return ThesisDebate(
+        instrument_id=iid, name_cn=name, thesis_state=state,
+        defense=DefenseResult(arguments=tuple(args)),
+        falsification=FalsificationResult(conditions=tuple(conds)),
+    )
+
+
+# ── Task 2: result types + defend/falsify runners ────────────────────────────
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_parses_arguments(mock_chat):
@@ -76,8 +92,7 @@ def test_run_defend_caps_item_count(mock_chat):
     assert len(run_defend(_row(), route=MagicMock()).arguments) <= 10
 
 
-from irc.opportunity.debate import ThesisDebate, pair_debate, run_debates
-
+# ── Task 3: pair_debate + run_debates orchestrator ───────────────────────────
 
 def test_pair_debate_is_pure():
     row = _row(iid="P1", thesis_state="intact")
@@ -121,16 +136,7 @@ def test_run_debates_isolates_per_row_failure(mock_chat):
     assert r1.defense.arguments == ()
 
 
-from irc.opportunity.debate import compose_thesis_debate_markdown
-
-
-def _debate(iid, name, state, args, conds):
-    return ThesisDebate(
-        instrument_id=iid, name_cn=name, thesis_state=state,
-        defense=DefenseResult(arguments=tuple(args)),
-        falsification=FalsificationResult(conditions=tuple(conds)),
-    )
-
+# ── Task 4: deterministic markdown renderer ──────────────────────────────────
 
 def test_renderer_section_shape():
     md = compose_thesis_debate_markdown((
@@ -158,7 +164,6 @@ def test_renderer_is_deterministic():
 
 
 def test_renderer_emits_no_citation_marker():
-    import re
     md = compose_thesis_debate_markdown((
         _debate("R1", "甲", "intact", ["see [ref:abc] note"], ["c"]),
     ))
