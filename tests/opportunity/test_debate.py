@@ -169,3 +169,53 @@ def test_renderer_emits_no_citation_marker():
     ))
     # The renderer introduces no NEW 16-hex citation id of its own.
     assert not re.search(r"\[ref:[0-9a-f]{16}\]", md)
+
+
+# ── FIX A: logging on LLM swallow ───────────────────────────────────────────
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_defend_logs_warning_on_exception(mock_chat, caplog):
+    import logging
+    mock_chat.side_effect = RuntimeError("auth 401")
+    with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
+        result = run_defend(_row(iid="W1"), route=MagicMock())
+    assert result.arguments == ()
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_falsify_logs_warning_on_exception(mock_chat, caplog):
+    import logging
+    mock_chat.side_effect = ConnectionError("timeout")
+    with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
+        result = run_falsify(_row(iid="W2"), route=MagicMock())
+    assert result.conditions == ()
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_debates_logs_warning_when_all_empty(mock_chat, caplog):
+    import logging
+    mock_chat.side_effect = RuntimeError("bad token")
+    rows = [_row(iid="E1"), _row(iid="E2")]
+    with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
+        debates = run_debates(rows, routes=(MagicMock(), MagicMock()))
+    assert len(debates) == 2
+    assert all(not d.defense.arguments and not d.falsification.conditions for d in debates)
+    assert any(r.levelno == logging.WARNING for r in caplog.records)
+
+
+# ── FIX C: non-list arguments/conditions guarded ────────────────────────────
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_defend_string_arguments_returns_empty(mock_chat):
+    mock_chat.return_value = MagicMock(text='{"arguments": "a string value"}')
+    result = run_defend(_row(), route=MagicMock())
+    assert result.arguments == ()
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_falsify_string_conditions_returns_empty(mock_chat):
+    mock_chat.return_value = MagicMock(text='{"conditions": "should not iterate chars"}')
+    result = run_falsify(_row(), route=MagicMock())
+    assert result.conditions == ()

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass
 
 from irc.llm._types import ResolvedRoute
 from irc.llm.http_client import call_chat
 from irc.opportunity.types import OpportunityRow
+
+_log = logging.getLogger(__name__)
 
 __all__ = [
     "DefenseResult",
@@ -77,9 +80,14 @@ def run_defend(row: OpportunityRow, route: ResolvedRoute) -> DefenseResult:
             {"role": "system", "content": _DEFEND_SYS},
             {"role": "user", "content": _thesis_card(row)},
         ], timeout_s=30, temperature=0.2)
-        items = json.loads(resp.text).get("arguments", [])[:_MAX_ITEMS]
+        raw = json.loads(resp.text).get("arguments", [])
+        items = (raw if isinstance(raw, list) else [])[:_MAX_ITEMS]
         return DefenseResult(arguments=tuple(_sanitize(i) for i in items))
-    except Exception:
+    except Exception as exc:
+        _log.warning(
+            "run_defend failed for %s (%s): %s",
+            row.instrument_id, row.name_cn, type(exc).__name__,
+        )
         return DefenseResult(arguments=())
 
 
@@ -89,9 +97,14 @@ def run_falsify(row: OpportunityRow, route: ResolvedRoute) -> FalsificationResul
             {"role": "system", "content": _FALSIFY_SYS},
             {"role": "user", "content": _thesis_card(row)},
         ], timeout_s=30, temperature=0.2)
-        items = json.loads(resp.text).get("conditions", [])[:_MAX_ITEMS]
+        raw = json.loads(resp.text).get("conditions", [])
+        items = (raw if isinstance(raw, list) else [])[:_MAX_ITEMS]
         return FalsificationResult(conditions=tuple(_sanitize(i) for i in items))
-    except Exception:
+    except Exception as exc:
+        _log.warning(
+            "run_falsify failed for %s (%s): %s",
+            row.instrument_id, row.name_cn, type(exc).__name__,
+        )
         return FalsificationResult(conditions=())
 
 
@@ -130,7 +143,16 @@ def run_debates(
             out.append(_debate_one(row, defend_route, falsify_route))
         except Exception:
             out.append(pair_debate(row, DefenseResult(()), FalsificationResult(())))
-    return tuple(out)
+    debates = tuple(out)
+    if rows and all(
+        not d.defense.arguments and not d.falsification.conditions for d in debates
+    ):
+        _log.warning(
+            "run_debates: adversarial debate generated no content for any of %d row(s) "
+            "— check LLM route credentials and connectivity",
+            len(rows),
+        )
+    return debates
 
 
 _PLACEHOLDER = "（本行未能生成辩论）"

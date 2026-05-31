@@ -70,6 +70,7 @@ from irc.opportunity.auditor import (
     find_uncited_opportunity_rows,
 )
 from irc.opportunity.citation_map import build_cited_map
+from irc.llm._types import ResolvedRoute
 from irc.opportunity.debate import compose_thesis_debate_markdown, run_debates
 from irc.memo.numeric_audit import find_uncited_discipline_rows
 from irc.schemas.inputs import AccountFile, Holding
@@ -1221,7 +1222,7 @@ def _write_opportunity_outputs(
     pending_verdicts: dict[str, PolicyBVerdict] | None = None,
     snapshot_cache_by_instrument: dict[str, object] | None = None,
     plan_hash: str = "",
-    debate_route: object | None = None,
+    debate_route: tuple[ResolvedRoute, ResolvedRoute] | None = None,
 ) -> None:
     """Compose the per-run opportunity outputs.
 
