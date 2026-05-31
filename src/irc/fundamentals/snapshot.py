@@ -457,11 +457,17 @@ def _one_line_view(
         fragments.append(by_type["news"].summary[:24])
     if not fragments:
         return "证据获取失败"
+    base = " · ".join(fragments)
     if cn_digest is not None:
         ratio_frag = ratios_reason_fragment(compute_ratios(cn_digest))
         if ratio_frag:
-            fragments.append(ratio_frag)
-    return " · ".join(fragments)[:60]
+            candidate = f"{base} · {ratio_frag}"
+            # Append the fragment only if it fits WHOLE within the 60-char cap;
+            # a mid-truncated fragment (orphaned '（' or dangling separator) is
+            # worse than omitting it entirely (FIX C, item 004).
+            if len(candidate) <= 60:
+                return candidate
+    return base[:60]
 
 
 def _fetch_active_fund_level_evidence(

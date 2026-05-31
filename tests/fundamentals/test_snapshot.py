@@ -563,6 +563,65 @@ def test_one_line_view_no_digest_arg_defaults_none() -> None:
     assert _snap._one_line_view(FundHolding("X", "x", 1.0, "SH", "X"), ()) == "证据获取失败"
 
 
+def test_one_line_view_omits_ratios_fragment_whole_when_it_overflows_60() -> None:
+    """FIX C: if appending the ratios fragment would push the join past 60 chars,
+    the fragment must be omitted WHOLE (no dangling '（' or separator)."""
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    # A filing summary + broker summary that together are long enough that
+    # appending the ratios fragment would exceed 60 chars.
+    long_filing = "600519.SH 2026Q1 财报已披露（口径未核实）——超长内容"
+    ev_filing = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary=long_filing,
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    ev_broker = ThesisEvidence(
+        type="broker", source="中信证券", url="", date="2026-04-30",
+        summary="中信证券 买入: 一季报点评：强劲增长，维持推荐！",
+        scope="constituent", citation_kind="information",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev_filing, ev_broker), digest)
+
+    assert len(view) <= 60  # AC11 hard cap still honoured
+    # The ratios fragment must be absent WHOLE: no partial 'ROE'/'毛利' from the fragment,
+    # and the view must not end with a dangling separator.
+    assert not view.endswith(" · ")
+    assert "ROE" not in view
+    assert "口径未核实）" not in view  # the fragment's closing token must not appear
+
+
+def test_one_line_view_includes_fragment_when_it_fits() -> None:
+    """FIX C: when the join WITH fragment is ≤60 chars, the fragment IS present."""
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    # Short filing summary → fragment fits.
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev,), digest)
+    assert "ROE 18%" in view
+    assert "毛利69%" in view
+    assert len(view) <= 60
+
+
 def test_one_line_view_two_run_byte_stable_for_ratio_bearing_row() -> None:
     # AC11: same digest → byte-identical one_line_view across two calls.
     from irc.fundamentals import snapshot as _snap

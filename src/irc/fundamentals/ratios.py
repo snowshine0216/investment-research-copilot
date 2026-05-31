@@ -28,20 +28,29 @@ class KeyRatios:
 
 
 def _finite(value: float | None) -> float | None:
-    """Pass-through a finite float; screen None / NaN to None (no fabrication)."""
-    if value is None or math.isnan(value):
-        return None
-    return value
+    """Pass-through a finite float; screen None / NaN / ±inf to None (no fabrication)."""
+    return value if (value is not None and math.isfinite(value)) else None
 
 
 def compute_ratios(financials: FilingDigest) -> KeyRatios:
     """Pure, deterministic. Same FilingDigest in → equal KeyRatios out.
 
-    roe / gross_margin pass through (NaN → None). debt_equity / fcf_yield have no
+    roe / gross_margin pass through (NaN / ±inf → None). debt_equity / fcf_yield have no
     input line items on FilingDigest today → None (degrade-to-None, ADR 0009).
+
+    ROE unit-error guard: AkShare 净资产收益率 may return percent-scale values (e.g.
+    18.5 for 18.5% ROE) rather than ratio-scale (0.185). Values with abs(roe) > 1.5
+    (±150%) are implausible as ratios for the in-scope CN/HK/US universe and are
+    degraded to None rather than display a 100×-wrong figure (degrade-to-none,
+    ADR 0009 family). TODO: verify AkShare ROE unit via the double-gated live test;
+    consider /100 normalisation if confirmed percent-scale.
     """
+    roe = _finite(financials.roe)
+    # Degrade implausible roe (likely percent-scale unit error) to None.
+    if roe is not None and abs(roe) > 1.5:
+        roe = None
     return KeyRatios(
-        roe=_finite(financials.roe),
+        roe=roe,
         debt_equity=None,
         gross_margin=_finite(financials.gross_margin),
         fcf_yield=None,
