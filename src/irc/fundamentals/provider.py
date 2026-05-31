@@ -51,3 +51,59 @@ class AkShareProvider:
 
     def fetch_index_valuation(self, index_key: str) -> IndexValuation | None:
         return fetch_cn_index_valuation(index_key)
+
+
+def _try(call):
+    """Run `call`, return its value; on any exception return the sentinel `None`.
+
+    Sentinel-agnostic: callers compare the result against their miss value.
+    """
+    try:
+        return call()
+    except Exception:
+        return None
+
+
+class FallbackProvider:
+    """Per-method: try `primary`; on a miss/exception fall back to `secondary`.
+
+    A "miss" is `None` (digest/index) or `()` (brokers). Both-miss returns the
+    primary miss value. Never raises (ADR 0009 degrade-to-None family).
+    """
+
+    def __init__(
+        self,
+        primary: CnFundamentalsProvider,
+        secondary: CnFundamentalsProvider,
+    ) -> None:
+        self._primary = primary
+        self._secondary = secondary
+
+    def fetch_filing_digest(self, symbol: str) -> FilingDigest | None:
+        primary = _try(lambda: self._primary.fetch_filing_digest(symbol))
+        if primary is not None:
+            return primary
+        return _try(lambda: self._secondary.fetch_filing_digest(symbol))
+
+    def fetch_broker_reports(
+        self, symbol: str, *, days: int = 90, max_reports: int = 20
+    ) -> tuple[BrokerReport, ...]:
+        primary = _try(
+            lambda: self._primary.fetch_broker_reports(
+                symbol, days=days, max_reports=max_reports
+            )
+        )
+        if primary:
+            return primary
+        secondary = _try(
+            lambda: self._secondary.fetch_broker_reports(
+                symbol, days=days, max_reports=max_reports
+            )
+        )
+        return secondary or ()
+
+    def fetch_index_valuation(self, index_key: str) -> IndexValuation | None:
+        primary = _try(lambda: self._primary.fetch_index_valuation(index_key))
+        if primary is not None:
+            return primary
+        return _try(lambda: self._secondary.fetch_index_valuation(index_key))

@@ -77,3 +77,104 @@ def test_akshare_provider_passes_kwargs_to_broker_fetch() -> None:
     with patch.object(akshare_filing, "_ak_call", side_effect=_fake):
         AkShareProvider().fetch_broker_reports("600519", days=30, max_reports=5)
     assert captured and captured[0]["fn"] == "stock_research_report_em"
+
+
+from irc.fundamentals.provider import FallbackProvider  # noqa: E402
+from irc.fundamentals.types import BrokerReport as _BR  # noqa: E402
+from irc.fundamentals.index_valuation_types import IndexValuation  # noqa: E402
+
+
+class _Fake:
+    """In-memory provider for routing tests (no network)."""
+
+    def __init__(self, *, digest=None, brokers=(), index=None, raises=False):
+        self._digest = digest
+        self._brokers = brokers
+        self._index = index
+        self._raises = raises
+
+    def fetch_filing_digest(self, symbol):
+        if self._raises:
+            raise RuntimeError("boom")
+        return self._digest
+
+    def fetch_broker_reports(self, symbol, *, days=90, max_reports=20):
+        if self._raises:
+            raise RuntimeError("boom")
+        return self._brokers
+
+    def fetch_index_valuation(self, index_key):
+        if self._raises:
+            raise RuntimeError("boom")
+        return self._index
+
+
+def _digest(symbol="600519.SH"):
+    from irc.fundamentals.types import FilingDigest
+    return FilingDigest(
+        symbol=symbol, fiscal_period="2024FY", filed_at_iso="2024-12-31",
+        revenue_yoy=0.25, net_income_yoy=0.33, gross_margin=0.4,
+    )
+
+
+def test_fallback_satisfies_protocol() -> None:
+    fp = FallbackProvider(AkShareProvider(), AkShareProvider())
+    assert isinstance(fp, CnFundamentalsProvider)
+
+
+def test_fallback_primary_hit_skips_secondary() -> None:
+    primary = _Fake(digest=_digest("P"))
+    secondary = _Fake(digest=_digest("S"))
+    out = FallbackProvider(primary, secondary).fetch_filing_digest("x")
+    assert out is not None and out.symbol == "P"
+
+
+def test_fallback_primary_miss_uses_secondary() -> None:
+    primary = _Fake(digest=None)
+    secondary = _Fake(digest=_digest("S"))
+    out = FallbackProvider(primary, secondary).fetch_filing_digest("x")
+    assert out is not None and out.symbol == "S"
+
+
+def test_fallback_primary_raises_uses_secondary() -> None:
+    primary = _Fake(raises=True)
+    secondary = _Fake(digest=_digest("S"))
+    out = FallbackProvider(primary, secondary).fetch_filing_digest("x")
+    assert out is not None and out.symbol == "S"
+
+
+def test_fallback_both_miss_returns_none_no_raise() -> None:
+    out = FallbackProvider(_Fake(digest=None), _Fake(digest=None)).fetch_filing_digest("x")
+    assert out is None
+
+
+def test_fallback_brokers_empty_primary_uses_secondary() -> None:
+    sec = (_BR(symbol="600519.SH", broker="中信", rating="买入",
+              target_price=2000.0, published_iso="2026-05-30", title="t"),)
+    out = FallbackProvider(_Fake(brokers=()), _Fake(brokers=sec)).fetch_broker_reports("x")
+    assert len(out) == 1 and out[0].target_price == 2000.0
+
+
+def test_fallback_brokers_both_empty_returns_empty_tuple() -> None:
+    out = FallbackProvider(_Fake(brokers=()), _Fake(brokers=())).fetch_broker_reports("x")
+    assert out == ()
+
+
+def test_fallback_primary_raises_secondary_raises_returns_miss() -> None:
+    out = FallbackProvider(_Fake(raises=True), _Fake(raises=True)).fetch_broker_reports("x")
+    assert out == ()
+
+
+def test_fallback_index_primary_miss_uses_secondary() -> None:
+    iv = IndexValuation(index_key="csi300", pe_ttm=10.0, pb=1.0,
+                        dividend_yield=None, as_of_iso="2026-05-31")
+    out = FallbackProvider(_Fake(index=None), _Fake(index=iv)).fetch_index_valuation("csi300")
+    assert out is not None and out.pe_ttm == 10.0
+
+
+def test_fallback_target_price_flows_when_primary_brokers_empty() -> None:
+    # The headline gap: AkShare drops target_price; Tushare-shaped secondary fills it.
+    sec = (_BR(symbol="600519.SH", broker="中信", rating="买入",
+              target_price=2100.0, published_iso="2026-05-30", title="t"),)
+    out = FallbackProvider(_Fake(brokers=()), _Fake(brokers=sec)).fetch_broker_reports("600519")
+    assert out[0].target_price == 2100.0
