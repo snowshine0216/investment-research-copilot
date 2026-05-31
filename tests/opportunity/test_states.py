@@ -668,6 +668,30 @@ def test_build_opportunity_row_populates_contributing_dimensions_for_core_dca():
     )
 
 
+def test_build_opportunity_row_core_dca_when_consensus_upside_none():
+    """AC6: all-None fundamentals → cheap percentile core_dca, unchanged."""
+    inp = _make_full_input(valuation_percentile_self=0.15)  # cheap percentile
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert row.valuation_state == "cheap"
+    assert row.opportunity_state == "core_dca"
+
+
+def test_build_opportunity_row_blocks_core_dca_when_fundamental_rich():
+    """AC4 end-to-end: cheap percentile + rich consensus upside →
+    valuation_state STAYS cheap, opportunity_state falls to small_watch,
+    reason annotates the contradiction. No new ThesisEvidence (AC8)."""
+    inp = _make_full_input(
+        valuation_percentile_self=0.15,  # cheap percentile (fact stays true)
+        consensus_upside_pct=-0.30,      # 'rich' → contradiction
+    )
+    row = build_opportunity_row(inp, theme_thesis={"semiconductor": "intact"})
+    assert row.valuation_state == "cheap"          # AC3-preserving
+    assert row.opportunity_state == "small_watch"  # AC4 block
+    assert "下行" in row.opportunity_reason         # contradiction annotated
+    assert row.thesis_evidence == ()               # AC8: no citation surface
+    assert row.evidence_gaps  # only the pre-existing snapshot/news gaps; no new gap
+
+
 def test_opportunity_row_default_advisory_gaps_is_empty_tuple():
     """ADR 0005: `advisory_gaps` is a tuple[str, ...] that defaults to ()."""
     from irc.fundamentals.types import LookthroughTarget

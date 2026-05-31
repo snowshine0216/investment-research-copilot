@@ -560,6 +560,7 @@ def build_opportunity_row(
 
     state, state_reason = compose_opportunity_state(
         valuation, heat, thesis, product, inp.venue_compatible,
+        valuation_fundamental=valuation_fundamental_signal(inp),
     )
     dimensions = derive_contributing_dimensions(valuation, heat, thesis, product, state)
     target = map_lookthrough(inp)
