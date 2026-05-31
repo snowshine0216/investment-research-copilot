@@ -9,7 +9,7 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 | 001 | ✅ | ✅ | ✅ | ✅ claude/funding-analysis-001 | ✅ a850f42 | ✅ | ✅ #84 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 22baf17 |
 | 002 | ✅ | ✅ | ✅ | ✅ claude/funding-analysis-002 | ✅ bee1a41 | ✅ 915f93f | ✅ #85 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ d3f48cb |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 ## Run-level
