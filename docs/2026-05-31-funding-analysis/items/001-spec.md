@@ -21,9 +21,11 @@ that makes sense for IRC (funds/ETFs/tracked indices, not single A-shares).
 
 - **`OpportunityInput` is built per fund/ETF/tracked-index instrument**, never per single
   A-share. Sole construction site: `src/irc/commands/opportunity_cmd.py::_build_input`
-  (line ~559) → `src/irc/opportunity/inputs_loader.py::populate_inputs`. `populate_inputs`
+  ~~(line ~559)~~ — corrected by grill: `_build_input` is defined at **opportunity_cmd.py:532**;
+  the `OpportunityInput(...)` skeleton is built at :559 and `populate_inputs` is called at :579.
+  → `src/irc/opportunity/inputs_loader.py::populate_inputs` (def at :93). `populate_inputs`
   fills evidence fields from DuckDB; `pe_ttm`/`pb`/`dividend_yield` are **not** populated
-  anywhere today.
+  anywhere today (grill-verified: no non-test reader of these three fields exists in `src/`).
 - **`stock_research_report_em` returns NO target-price column.** Verified against installed
   AkShare source: the `indvAimPriceT`/`indvAimPriceL` (目标价) raw fields are renamed to
   `"-"` and dropped; the final frame exposes only rating, broker, forward-EPS, forward-PE,
@@ -37,7 +39,13 @@ that makes sense for IRC (funds/ETFs/tracked indices, not single A-shares).
   `stock_zh_index_value_csindex` (CSI code — PE + dividend yield, no PB).
 - The lookthrough layer already owns the broad-index key→Chinese-name map
   (`src/irc/opportunity/lookthrough.py::_BROAD_INDEX_DISPLAY`, e.g. `csi300→沪深300`),
-  which is exactly the symbol vocabulary `stock_index_pe_lg`/`stock_index_pb_lg` accept.
+  ~~which is exactly the symbol vocabulary `stock_index_pe_lg`/`stock_index_pb_lg` accept.~~
+  — corrected by grill: `_BROAD_INDEX_DISPLAY` has **9** keys (`csi300`, `csi500`, `csi1000`,
+  `csi_a500`, `sse50`, `star50`, `chinext`, `csi_dividend`, `csi_dividend_lc`), a **subset** of
+  what the legulegu endpoint accepts — not "exactly" its vocabulary. The fetcher's name-map must
+  only claim the keys it can resolve and return `None` for the rest. QDII/sector indices live in
+  the **separate** `_QDII_US_DISPLAY` / `_QDII_HK_DISPLAY` / `_SECTOR_THEME_DISPLAY` maps and are
+  correctly out of scope (they are not CN-broad indices addressable by `stock_index_pe_lg`).
 
 ## Acceptance criteria
 
@@ -78,13 +86,21 @@ Each is independently verifiable.
    when no broker reports / no price are available it stays `None`. A test with a stubbed
    fetcher + in-memory DuckDB asserts: recognised index → pe/pb/div populated; unrecognised
    index/active-fund/gold/bond → all three `None`.
+   - **Inertness lock (added by grill).** A regression test asserts that for a row whose
+     `pe_ttm`/`pb`/`dividend_yield`/`consensus_upside_pct` are now populated, the
+     `classify_valuation` output (state + reason) is **byte-identical** to the pre-item-001
+     result — proving population is inert at the state level until item 002 wires these fields.
+     `consensus_upside_pct` is **ratio units** (`median/close − 1`, e.g. `0.12` = +12%), matching
+     the `qdii_premium_pct` ratio convention; it is NOT percent units. (Term + boundary recorded
+     in CONTEXT.md "Valuation inputs".)
 
 5. **`target_price` remains honestly `None` on the EastMoney path.** `fetch_cn_broker_reports`
    is **not** changed to invent a target price; the existing assertion in
    `tests/fundamentals/test_akshare_fundamentals.py` that `target_price is None` for the
    EastMoney feed stays green. A comment at the `target_price=None` site
-   (`akshare_filing.py:84`) records *why* (no target-price column upstream) and points at the
-   consensus-upside consumer.
+   ~~(`akshare_filing.py:84`)~~ — corrected by grill: the `target_price=None` line is
+   **`akshare_filing.py:83`** — records *why* (no target-price column upstream) and points at the
+   consensus-upside consumer (and at [ADR 0009](../../adr/0009-consensus-upside-degrade-to-none.md)).
 
 6. **No-network correctness of the whole stage.** `uv run pytest tests/fundamentals
    tests/opportunity` passes; `uv run ruff check src tests` is clean. The new files stay
@@ -169,3 +185,56 @@ Each is independently verifiable.
    labels — e.g. `市盈率`/`平均市盈率`/`pe` / `市净率`/`pb` — pick the latest-date row, coerce
    to float, return `None` on miss) and is the single point that a one-line gated live test
    pins during implementation. The pure helper + fixture remain fully testable offline.
+
+## Resolved decisions
+
+Q/A pairs from the grill-with-docs pass (2026-05-31, autonomous — recommended answers
+auto-accepted; no user in the loop). Verdict: **PASS** (no spec ↔ ADR/code contradiction).
+
+- **Q1 — Is `consensus_upside_pct` a new load-bearing term, and what units?**
+  **A:** Yes — add to CONTEXT.md "Valuation inputs". Lock it as **ratio units** (`median/close − 1`,
+  e.g. `0.12` = +12%), matching the closest sibling `qdii_premium_pct` (also a price-vs-reference
+  ratio). The `_pct` suffix in this codebase is units-inconsistent, so the units are stated
+  explicitly in CONTEXT.md to stop item 002 mis-reading it as percent units.
+  **Doc impact:** CONTEXT.md term `consensus_upside_pct`.
+
+- **Q2 — Does pe/pb/upside population interact with the dual-coverage gate, citation scope,
+  H3/SAME-3, or Policy B?**
+  **A:** No — grill-verified by grep: these are plain `float | None` scalars on `OpportunityInput`,
+  not `ThesisEvidence`; they carry no `scope`/`citation_kind`/`citation_id`/`owner_instrument_id`,
+  so ADR 0001's provenance contract, the dual-coverage gate, the citation selector, SAME-3, H3's
+  `evidence_gaps` partition, and Policy B's quorum are all structurally untouched. Recorded so
+  item 002 doesn't re-litigate it. **Doc impact:** CONTEXT.md term `consensus_upside_pct` (property
+  noted) + "Valuation-input inertness" entry.
+
+- **Q3 — Is the item 001 / 002 boundary crisp; does item 001 touch any classifier or `core_dca`?**
+  **A:** Crisp and inert. No classifier reads pe/pb/dividend_yield/consensus_upside today
+  (`classify_valuation` reads only `valuation_percentile_self` + `earnings_yield`/`real_yield_10y`);
+  `OpportunityInput` is never serialised to disk. Item 001 only POPULATES inputs + adds the pure
+  helper/fetcher — it must NOT change `classify_valuation`, `_decide_opportunity_state`, or the
+  `core_dca` gate. Added an **inertness regression lock** to AC4 (classify_valuation output
+  byte-unchanged for a populated row). **Doc impact:** CONTEXT.md "Valuation-input inertness"
+  entry + AC4 clarification.
+
+- **Q4 — Is a new ADR warranted under the three-of-three bar?**
+  **A:** One ADR. *Adding scalar inputs + a pure helper* → 0/3 (reversible, unsurprising, no
+  trade-off) → no ADR. *Populating at index level vs per-A-share* → ~2/3 (a consequence of the
+  existing per-fund instrument granularity, not a new decision) → no ADR. *Wire consensus-upside
+  end-to-end but degrade to `None` rather than fabricate a target price* → **3/3** (hard to
+  reverse plumbing + honesty contract; surprising — "a metric that never fires"; real trade-off —
+  fabricate / drop / wire-degrade). **Doc impact:** **ADR 0009** created.
+
+- **Q5 — Any factual spec error vs. code requiring a strike-through correction?**
+  **A:** Three minor, non-load-bearing line/count errors (struck through, never deleted):
+  (a) `_build_input` is at `opportunity_cmd.py:532` (skeleton at :559, `populate_inputs` call at
+  :579), not "~559"; (b) `target_price=None` is at `akshare_filing.py:83`, not `:84`;
+  (c) `_BROAD_INDEX_DISPLAY` has **9** keys (a subset of the legulegu endpoint's coverage), not
+  "exactly the symbol vocabulary" — and QDII/sector indices live in separate maps, correctly out
+  of scope. None contradict a load-bearing ADR or break the design → Verdict stays PASS.
+  **Doc impact:** none beyond the in-spec strike-throughs.
+
+- **Q6 — Does `consensus_upside_pct` need disambiguation from the existing `_broker_consensus`?**
+  **A:** Yes — one line. `_broker_consensus` (in `opportunity/thesis_evidence.py`) is broker
+  *rating sentiment* (information-leg); `consensus_upside_pct` is a *price-target* valuation scalar.
+  CONTEXT.md states the distinction so the two are not conflated. **Doc impact:** CONTEXT.md term
+  `consensus_upside_pct` (distinction noted).
