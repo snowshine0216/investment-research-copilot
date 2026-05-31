@@ -63,6 +63,21 @@ _REVENUE_YOY_CAVEAT_RE = re.compile(
     r"财务数据字段含义及换算口径待核实，不得直接引用为业绩依据"
 )
 
+# Subsection headings the LLM is forbidden from emitting (synthesizer rule 11).
+# When the LLM ignores the prompt and adds one anyway, the freelance content
+# carries [ref:...] markers without the producer-side owner attestation —
+# downstream the citation gate flags those as wrong_instrument_citation.
+_UNAUTHORISED_DISCLOSURE_HEADERS: tuple[str, ...] = (
+    "补充披露",
+    "底层持仓负面信号",
+    "补充说明",
+)
+_UNAUTHORISED_DISCLOSURE_RE = re.compile(
+    r"\n*^#{3,}\s+(?:" + "|".join(_UNAUTHORISED_DISCLOSURE_HEADERS) + r")[^\n]*\n"
+    r"(?:.*?)(?=^##\s|\Z)",
+    re.MULTILINE | re.DOTALL,
+)
+
 
 def extract_evidence_cutoff(refs: list[str] | tuple[str, ...]) -> str | None:
     """Return the maximum ISO date (`YYYY-MM-DD`) found across raw_refs, or
@@ -92,6 +107,22 @@ def sanitize_refs_for_auditor(refs: tuple[str, ...]) -> tuple[str, ...]:
             clean = pat.sub("[redacted]", clean)
         out.append(clean.strip())
     return tuple(out)
+
+
+def strip_unauthorised_disclosure_sections(text: str) -> str:
+    """Remove LLM-emitted disclosure subsections forbidden by synthesizer rule 11.
+
+    Matches `### {forbidden}` (or any 3+ hash heading) and drops the heading
+    plus all content up to the next `## ` major-section heading (or EOF).
+    Re-runs until the text is stable so two adjacent unauthorised sections
+    can't survive a single pass.
+    """
+    prev = None
+    out = text
+    while out != prev:
+        prev = out
+        out = _UNAUTHORISED_DISCLOSURE_RE.sub("", out)
+    return out
 
 
 def sanitize_unverified_revenue_yoy(text: str) -> str:
@@ -229,7 +260,9 @@ def run_memo_pipeline(
     full_sanitized_refs = list(sanitize_refs_for_auditor(tuple(raw_ref_pool)))
     synth_resp = synthesize_memo(skeleton, sanitized_refs, synthesis_route)
     sanitized_draft = sanitize_compliance_phrasing(
-        sanitize_unverified_revenue_yoy(synth_resp.text)
+        sanitize_unverified_revenue_yoy(
+            strip_unauthorised_disclosure_sections(synth_resp.text)
+        )
     )
     final_draft = sanitized_draft + _render_evidence_appendix(full_sanitized_refs)
     audit_resp = audit_memo(final_draft, audit_route)

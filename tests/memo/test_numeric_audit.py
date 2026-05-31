@@ -1299,3 +1299,65 @@ def test_find_uncited_conclusions_ignores_negated_fund_add_basis_with_particle()
         constituent_cited_map={},
     )
     assert findings == []
+
+
+def test_find_uncited_conclusions_does_not_bleed_markers_across_instrument_paragraphs() -> None:
+    """Two adjacent `**{iid} {name}**:` paragraphs each carry their own
+    dual-leg markers for different instruments. The previous paragraph's
+    markers must NOT bleed into the next paragraph's scope and trigger
+    spurious `wrong_instrument_citation` findings on the new instrument.
+
+    Regression for 2026-05-28 memo gate block: 003318's supplementary
+    disclosure was flagged for citations that only appeared in 519770's
+    paragraph because `prev_markers` carried across the blank-line break.
+    """
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    cited = {
+        "519770": {
+            "aaaa1111aaaa1111": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="519770", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+            "bbbb2222bbbb2222": CitationMeta(
+                scope="instrument", citation_kind="information",
+                owner_instrument_id="519770", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+        "003318": {
+            "cccc3333cccc3333": CitationMeta(
+                scope="instrument", citation_kind="data",
+                owner_instrument_id="003318", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+            "dddd4444dddd4444": CitationMeta(
+                scope="instrument", citation_kind="information",
+                owner_instrument_id="003318", asset_class="cn_equity_fund",
+                parent_fund_id=None, constituent_key=None,
+            ),
+        },
+    }
+    prose = (
+        "**519770 交银优择回报灵活配置混合A**: 该基金状态偏紧，暂停加仓 "
+        "[ref:aaaa1111aaaa1111] [ref:bbbb2222bbbb2222]\n"
+        "\n"
+        "**003318 景顺长城中证500行业中性低波动指数A**: 该基金状态偏紧，暂停加仓 "
+        "[ref:cccc3333cccc3333] [ref:dddd4444dddd4444]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={
+            "519770": "519770",
+            "003318": "003318",
+            "交银优择回报灵活配置混合A": "519770",
+            "景顺长城中证500行业中性低波动指数A": "003318",
+        },
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "wrong_instrument_citation" not in kinds, (
+        f"prev_markers bleed across instrument paragraphs: {findings!r}"
+    )

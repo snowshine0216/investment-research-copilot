@@ -224,3 +224,79 @@ def test_appendix_caveat_fires_on_legacy_revenue_yoy_substring_too() -> None:
     out_new = _format_appendix_line(ref_new)
     # New shape — also fires.
     assert out_new.startswith("- ⚠️ 合规警示：")
+
+
+def test_strip_unauthorised_disclosure_sections_removes_supplementary_disclosure():
+    """Synthesizer rule 11 forbids the LLM from emitting a `### 补充披露`
+    subsection, but production-LLM sometimes ignores it. The producer-side
+    stripper must remove the heading + body up to (but not including) the
+    next `## ` major-section heading, so the downstream citation gate
+    doesn't see freelance LLM prose with cross-borrowed [ref:...] markers.
+    """
+    from irc.memo.pipeline import strip_unauthorised_disclosure_sections
+    draft = (
+        "## 5. 精选标的（含观察标的）\n"
+        "\n"
+        "| 代码 | 行动 |\n"
+        "| --- | --- |\n"
+        "| 519770 | 暂停加仓 |\n"
+        "\n"
+        "### 补充披露\n"
+        "\n"
+        "**519770 交银优择...**: 该基金 ... [ref:303e3f4767303004]\n"
+        "\n"
+        "**003318 景顺长城...**: 该基金 ... [ref:af784cf96ff7e179]\n"
+        "\n"
+        "## 6. 风险提示\n"
+        "\n"
+        "- 数据覆盖不完整\n"
+    )
+    out = strip_unauthorised_disclosure_sections(draft)
+    assert "补充披露" not in out
+    assert "[ref:303e3f4767303004]" not in out
+    assert "[ref:af784cf96ff7e179]" not in out
+    assert "## 5. 精选标的" in out
+    assert "## 6. 风险提示" in out
+    assert "- 数据覆盖不完整" in out
+    assert "| 519770 | 暂停加仓 |" in out
+
+
+def test_strip_unauthorised_disclosure_sections_removes_negative_holdings_section():
+    """`底层持仓负面信号` is also forbidden by rule 11."""
+    from irc.memo.pipeline import strip_unauthorised_disclosure_sections
+    draft = (
+        "## 5. 精选标的\n\nstuff\n\n"
+        "### 底层持仓负面信号\n\n"
+        "freelance prose [ref:abcdef0123456789]\n\n"
+        "## 6. 风险提示\n\nrisks\n"
+    )
+    out = strip_unauthorised_disclosure_sections(draft)
+    assert "底层持仓负面信号" not in out
+    assert "[ref:abcdef0123456789]" not in out
+    assert "## 6. 风险提示" in out
+
+
+def test_strip_unauthorised_disclosure_sections_is_noop_when_absent():
+    """A well-formed memo passes through unchanged."""
+    from irc.memo.pipeline import strip_unauthorised_disclosure_sections
+    draft = (
+        "## 5. 精选标的\n\n"
+        "| 代码 | 行动 |\n| --- | --- |\n"
+        "| 519770 | 暂停加仓 |\n\n"
+        "## 6. 风险提示\n\n- 数据覆盖不完整\n"
+    )
+    assert strip_unauthorised_disclosure_sections(draft) == draft
+
+
+def test_strip_unauthorised_disclosure_sections_handles_eof_terminated_section():
+    """Section reaching end-of-file (no next `## ` heading) must also strip."""
+    from irc.memo.pipeline import strip_unauthorised_disclosure_sections
+    draft = (
+        "## 5. 精选标的\n\nstuff\n\n"
+        "### 补充披露\n\n"
+        "**519770**: freelance\n"
+    )
+    out = strip_unauthorised_disclosure_sections(draft)
+    assert "补充披露" not in out
+    assert "freelance" not in out
+    assert out.rstrip().endswith("stuff")

@@ -294,19 +294,42 @@ def find_uncited_conclusions(
     subsection_spans = _build_subsection_spans(audit_prose)
 
     prev_markers: tuple[str, ...] = ()
+    prev_instrument_hits: frozenset[str] = frozenset()
     for para_start, para in _iter_audit_blocks(audit_prose):
         structured = _is_structured_audit_line(para)
         if not _has_actionable_keyword(para):
-            prev_markers = () if structured else tuple(_MARKER_RE.findall(para))
+            if structured:
+                prev_markers = ()
+                prev_instrument_hits = frozenset()
+            else:
+                prev_markers = tuple(_MARKER_RE.findall(para))
+                prev_instrument_hits = frozenset(
+                    _instrument_alias_hits(para, instrument_aliases)
+                )
             continue
 
         current_markers = tuple(_MARKER_RE.findall(para))
-        scope_markers = current_markers if structured else current_markers + prev_markers
         asset_class = _section_at(section_spans, para_start)
         owner_iid = _subsection_at(subsection_spans, para_start)
 
         instrument_hits = _instrument_alias_hits(para, instrument_aliases)
         constituent_hits = _constituent_alias_hits(para, constituent_aliases)
+
+        # Carry prev_markers only when this paragraph is plausibly a
+        # continuation of the previous paragraph's instrument context.
+        # When both paragraphs name a non-empty, disjoint set of
+        # instruments, prev_markers belong to a different instrument
+        # and must not bleed in — that would emit spurious
+        # wrong_instrument_citation findings against the new instrument.
+        carry_prev = (
+            not instrument_hits
+            or not prev_instrument_hits
+            or bool(instrument_hits & prev_instrument_hits)
+        )
+        effective_prev = prev_markers if carry_prev else ()
+        scope_markers = (
+            current_markers if structured else current_markers + effective_prev
+        )
 
         if not instrument_hits and not constituent_hits:
             # AC8(d) — portfolio-class conclusion path.
@@ -318,6 +341,7 @@ def find_uncited_conclusions(
                     evidence_excerpt=asset_class or "<no_section>",
                 ))
             prev_markers = () if structured else current_markers
+            prev_instrument_hits = frozenset()
             continue
 
         for iid in sorted(instrument_hits):
@@ -353,7 +377,12 @@ def find_uncited_conclusions(
                 constituent_cited_map=constituent_cited_map, paragraph=para,
             ))
 
-        prev_markers = () if structured else current_markers
+        if structured:
+            prev_markers = ()
+            prev_instrument_hits = frozenset()
+        else:
+            prev_markers = current_markers
+            prev_instrument_hits = frozenset(instrument_hits)
 
     return findings
 
