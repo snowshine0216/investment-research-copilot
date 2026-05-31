@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-001` (2026-05-31)
+
+Wire fundamental valuation **inputs** end-to-end without changing any decision
+output — the new fields are inert until items 002/003 consume them (proven by
+an AC4 inertness lock: `classify_valuation` is byte-identical populated vs bare):
+
+- New pure `consensus_upside_pct(reports, latest_close)` helper in
+  `fundamentals/consensus.py` (ratio units, matching `qdii_premium_pct`). Per
+  ADR 0009 it degrades to `None` rather than fabricating a `target_price` (the
+  wired EastMoney broker feed drops its 目标价 column upstream). NaN screened
+  on both legs.
+- New thin AkShare fetchers `fetch_cn_index_valuation` (`stock_index_pe_lg` /
+  `stock_index_pb_lg`) in `fundamentals/akshare_index_valuation.py`, behind the
+  existing `_ak_call` indirection, with one double-gated live test
+  (`live_akshare` marker + `IRC_RUN_LIVE_AKSHARE=1`).
+- `populate_inputs` now fills `pe_ttm`/`pb`/`dividend_yield`/`consensus_upside_pct`
+  on `OpportunityInput` at the fund/index level where a broad index is recognised
+  (`None` otherwise). See ADR 0009.
+
 ### Changed — `filing-evidence-summary-reframe` (2026-05-28, F6)
 
 Filing-evidence rows previously rendered summary text as

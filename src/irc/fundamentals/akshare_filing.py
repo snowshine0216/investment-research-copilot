@@ -80,6 +80,11 @@ def fetch_cn_broker_reports(
             symbol=qualified,
             broker=str(row.get("机构", "") or ""),
             rating=str(row.get("东财评级", "") or ""),
+            # No 目标价 column in EastMoney's stock_research_report_em
+            # (indvAimPriceT/L dropped upstream). Stays None by contract — do
+            # NOT fabricate. Consumed by irc.fundamentals.consensus
+            # .consensus_upside_pct, which degrades to None. See
+            # docs/adr/0009-consensus-upside-degrade-to-none.md.
             target_price=None,
             published_iso=row["_date"].strftime("%Y-%m-%d"),
             title=str(row.get("报告名称", "") or ""),

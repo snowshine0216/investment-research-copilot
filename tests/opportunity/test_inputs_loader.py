@@ -6,7 +6,11 @@ import duckdb
 import pytest
 
 from irc.data.duckdb_helper import ensure_schema
+from irc.fundamentals.index_valuation_types import IndexValuation
+from irc.fundamentals.types import BrokerReport
+from irc.opportunity import inputs_loader
 from irc.opportunity.inputs_loader import populate_inputs
+from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
 
 
@@ -159,4 +163,172 @@ def test_populate_inputs_returns_unchanged_when_instrument_missing(tmp_path):
     assert inp.aum_cny is None
     assert inp.ret_1m is None
     assert inp.valuation_percentile_self is None
+    con.close()
+
+
+def _seed_csi300_instrument_with_prices(con) -> None:
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('510300','510300','cn_on_exchange','沪深300ETF',NULL,'cn_etf','cny',"
+        " DATE '2020-01-01', 0.005, 5.0e10, NULL, 6.0, "
+        " TIMESTAMP '2026-05-15', 'test', 'test:510300')"
+    )
+    base = date(2025, 1, 1)
+    rows = [
+        ("510300", date.fromordinal(base.toordinal() + i), 100.0, 100.0, 100.0, 100.0, 1.0)
+        for i in range(300)
+    ]
+    con.executemany(
+        "INSERT INTO prices VALUES (?,?,?,?,?,?,?, TIMESTAMP '2026-05-15', 'test', 'test:510300')",
+        rows,
+    )
+
+
+def _stub_index_valuation(index_key, *, fetch=None):  # noqa: ARG001
+    return IndexValuation(
+        index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None,
+        as_of_iso="2026-05-31",
+    )
+
+
+def test_populate_inputs_fills_pe_pb_for_recognised_broad_index(tmp_path, monkeypatch):
+    con = duckdb.connect(str(tmp_path / "csi.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation", _stub_index_valuation
+    )
+    skeleton = OpportunityInput(
+        instrument_id="510300",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        tracked_index="csi300",
+        name_cn="沪深300ETF",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm == 12.1
+    assert inp.pb == 1.31
+    assert inp.dividend_yield is None
+    con.close()
+
+
+def test_populate_inputs_leaves_pe_pb_none_for_unrecognised_index(tmp_path, monkeypatch):
+    con = duckdb.connect(str(tmp_path / "unk.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('159999','159999','cn_on_exchange','某主题ETF',NULL,'cn_etf','cny',"
+        " DATE '2020-01-01', 0.005, 1.0e9, NULL, 3.0, "
+        " TIMESTAMP '2026-05-15', 'test', 'test:159999')"
+    )
+
+    def _boom(index_key, *, fetch=None):  # noqa: ARG001
+        raise AssertionError("fetch must NOT be called for an unrecognised index")
+
+    monkeypatch.setattr(inputs_loader, "fetch_cn_index_valuation", _boom)
+    skeleton = OpportunityInput(
+        instrument_id="159999",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        tracked_index="some_sector_theme",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm is None
+    assert inp.pb is None
+    assert inp.dividend_yield is None
+    con.close()
+
+
+def test_populate_inputs_leaves_pe_pb_none_for_gold_and_bond(tmp_path, monkeypatch):
+    con = duckdb.connect(str(tmp_path / "gold.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('518880','518880','cn_on_exchange','黄金ETF',NULL,'gold','cny',"
+        " DATE '2020-01-01', 0.005, 5.0e10, NULL, 6.0, "
+        " TIMESTAMP '2026-05-15', 'test', 'test:518880')"
+    )
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("no fetch for gold")),
+    )
+    skeleton = OpportunityInput(
+        instrument_id="518880",
+        asset_class="gold",
+        market="cn_on_exchange",
+        tracked_index=None,
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm is None and inp.pb is None and inp.dividend_yield is None
+    con.close()
+
+
+def test_populate_inputs_consensus_upside_none_with_no_broker_reports(tmp_path, monkeypatch):
+    con = duckdb.connect(str(tmp_path / "noupside.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation", _stub_index_valuation
+    )
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
+        tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.consensus_upside_pct is None  # no reports passed → None (ADR 0009)
+    con.close()
+
+
+def test_populate_inputs_consensus_upside_computed_when_reports_carry_targets(
+    tmp_path, monkeypatch
+):
+    con = duckdb.connect(str(tmp_path / "upside.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)  # latest close == 100.0
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation", _stub_index_valuation
+    )
+    reports = (
+        BrokerReport("510300", "中信", "买入", 120.0, "2026-05-08", "t"),
+        BrokerReport("510300", "中金", "增持", 100.0, "2026-05-07", "t"),
+    )
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
+        tracked_index="csi300",
+    )
+    inp = populate_inputs(
+        con, skeleton, holding_entry_date=None, broker_reports=reports
+    )
+    # median([120, 100]) = 110 ; 110/100 - 1 = 0.10
+    assert inp.consensus_upside_pct == pytest.approx(0.10)
+    con.close()
+
+
+def test_population_is_inert_classify_valuation_byte_identical(tmp_path, monkeypatch):
+    """AC4 inertness lock: classify_valuation output is byte-identical whether
+    or not pe/pb/dividend/consensus_upside are populated — proving population
+    changes no state until item 002 wires these fields."""
+    con = duckdb.connect(str(tmp_path / "inert.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    monkeypatch.setattr(
+        inputs_loader, "fetch_cn_index_valuation", _stub_index_valuation
+    )
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
+        tracked_index="csi300",
+    )
+    reports = (BrokerReport("510300", "中信", "买入", 120.0, "2026-05-08", "t"),)
+
+    populated = populate_inputs(
+        con, skeleton, holding_entry_date=None, broker_reports=reports
+    )
+    # Same row with pe/pb/dividend/consensus_upside forced back to None.
+    import dataclasses
+    bare = dataclasses.replace(
+        populated, pe_ttm=None, pb=None, dividend_yield=None,
+        consensus_upside_pct=None,
+    )
+    assert populated.pe_ttm is not None  # guard: population actually happened
+    assert classify_valuation(populated) == classify_valuation(bare)
     con.close()

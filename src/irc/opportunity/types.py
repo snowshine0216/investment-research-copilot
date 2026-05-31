@@ -112,6 +112,12 @@ class OpportunityInput:
     # positive expected real return even when its price percentile is high.
     earnings_yield: float | None = None
     real_yield_10y: float | None = None
+    # Item 001: median(non-None broker target_price) / latest_close − 1, in
+    # RATIO units (0.12 = +12%), matching qdii_premium_pct. None today because
+    # no wired broker feed carries target prices (ADR 0009). NOT ThesisEvidence;
+    # no classifier reads it (inert until item 002). See CONTEXT.md
+    # "Valuation inputs".
+    consensus_upside_pct: float | None = None
 
 
 @dataclass(frozen=True)
