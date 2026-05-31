@@ -199,3 +199,34 @@ def test_default_provider_is_fallback_with_token() -> None:
     with patch("irc.fundamentals.provider.Settings", return_value=fake_settings):
         provider = default_cn_provider()
     assert isinstance(provider, FallbackProvider)
+
+
+from irc.fundamentals.tushare_provider import TushareProvider  # noqa: E402
+from irc.fundamentals import tushare_provider as _tp_mod  # noqa: E402
+
+
+def test_default_provider_secondary_is_tushare() -> None:
+    fake_settings = MagicMock()
+    fake_settings.tushare_token.get_secret_value.return_value = "tok-123"
+    with patch("irc.fundamentals.provider.Settings", return_value=fake_settings):
+        provider = default_cn_provider()
+    assert isinstance(provider, FallbackProvider)
+    assert isinstance(provider._secondary, TushareProvider)
+    assert isinstance(provider._primary, AkShareProvider)
+
+
+def test_target_price_flows_through_default_provider_when_akshare_empty() -> None:
+    # AkShare broker fetch returns () (today's reality); Tushare report_rc fills it.
+    rc = pd.DataFrame({
+        "ts_code": ["600519.SH"], "org_name": ["中信"], "rating": ["买入"],
+        "target_price": [2100.0], "report_date": [pd.Timestamp.today().strftime("%Y%m%d")],
+        "report_title": ["t"],
+    })
+    fake_settings = MagicMock()
+    fake_settings.tushare_token.get_secret_value.return_value = "tok-123"
+    with patch("irc.fundamentals.provider.Settings", return_value=fake_settings), patch.object(
+        akshare_filing, "_ak_call", return_value=pd.DataFrame()  # AkShare → ()
+    ), patch.object(_tp_mod, "_tushare_call", return_value=rc):
+        provider = default_cn_provider()
+        out = provider.fetch_broker_reports("600519")
+    assert len(out) == 1 and out[0].target_price == 2100.0
