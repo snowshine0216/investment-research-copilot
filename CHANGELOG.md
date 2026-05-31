@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-005` (2026-05-31)
+
+Optional **bull/bear debate** on the opportunity stage (TradingAgents pattern) —
+a reasoning aid, **not** a trading signal. Opt-in, advisory-only, off by default.
+See **ADR 0011**.
+
+- New `--adversarial` flag on `irc opportunity` (default OFF). When set, runs both
+  a `thesis_defend` (bull) and the existing-shaped `thesis_falsify` (bear) LLM half
+  per publishable row and writes an advisory `thesis_debate.md`. When unset, behavior
+  is byte-identical to before (zero LLM calls, no debate file).
+- New pure module `opportunity/debate.py`: a card-shaped runner (`DefenseResult`,
+  `pair_debate`, deterministic `compose_thesis_debate_markdown`) plus thin LLM-edge
+  wrappers (`run_defend`/`run_falsify`/`run_debates`) that degrade gracefully per row
+  (an LLM failure yields an empty debate for that row, logged at WARNING, without
+  aborting the run). New `thesis_defend` task in the LLM registry (deepseek-reasoner,
+  mirroring `thesis_falsify`).
+- `thesis_debate.md` is a 6th, additive output written **after** the five canonical
+  artifacts, on the post-citation-gate publishable rows. It is **not** a canonical
+  artifact, **not** part of the H3 gapped-row partition or the SAME-3 citation-set
+  equality, and — as an LLM artifact — is exempt from the two-run byte-equality /
+  publishable-set-lockdown determinism contract. No change to `thesis_state`
+  (owned by `derive_thesis_from_evidence`), Policy B, `valuation_state`/`core_dca`,
+  the deterministic memo pillars, or the citation set.
+- The live LLM smoke test is double-gated (`RUN_LIVE_LLM_TESTS=1` + a real key) and
+  excluded from the default suite; unit tests mock the LLM edge.
+
 ### Added — `funding-analysis-003` (2026-05-31)
 
 Pluggable CN fundamentals data layer with an optional **Tushare** fallback — a
