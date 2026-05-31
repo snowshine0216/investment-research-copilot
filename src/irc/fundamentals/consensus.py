@@ -9,6 +9,7 @@ end-to-end but degrades to None today because the only wired broker feed
 """
 from __future__ import annotations
 
+import math
 from statistics import median
 
 from irc.fundamentals.types import BrokerReport
@@ -18,10 +19,19 @@ def consensus_upside_pct(
     reports: tuple[BrokerReport, ...],
     latest_close: float | None,
 ) -> float | None:
-    """Return median target / latest_close − 1, or None when undecidable."""
-    if latest_close is None or latest_close <= 0:
+    """Return median target / latest_close − 1, or None when undecidable.
+
+    NaN is screened explicitly on both legs: a bare ``<= 0`` guard lets NaN
+    through (NaN comparisons are always False), and a NaN ``target_price`` is
+    not None, so either would poison the result with NaN in a ``float | None``
+    field (adversarial review A1).
+    """
+    if latest_close is None or math.isnan(latest_close) or latest_close <= 0:
         return None
-    targets = tuple(r.target_price for r in reports if r.target_price is not None)
+    targets = tuple(
+        r.target_price for r in reports
+        if r.target_price is not None and not math.isnan(r.target_price)
+    )
     if not targets:
         return None
     return median(targets) / latest_close - 1.0

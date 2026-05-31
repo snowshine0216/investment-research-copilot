@@ -60,3 +60,19 @@ def test_latest_close_zero_returns_none() -> None:
 
 def test_latest_close_negative_returns_none() -> None:
     assert consensus_upside_pct((_report(120.0),), -5.0) is None
+
+
+def test_latest_close_nan_returns_none() -> None:
+    # NaN comparisons are always False, so a bare `<= 0` guard would let NaN
+    # through and yield median/nan == nan in a float|None field (adversarial A1).
+    assert consensus_upside_pct((_report(120.0),), float("nan")) is None
+
+
+def test_nan_targets_filtered_like_none() -> None:
+    # A NaN target_price is not None, so it must be filtered explicitly or it
+    # poisons median() -> nan. All-NaN targets behave like all-None: None.
+    reports = (_report(float("nan")), _report(float("nan")))
+    assert consensus_upside_pct(reports, 100.0) is None
+    # Mixed: NaN ignored, real target drives the result.
+    mixed = (_report(float("nan")), _report(120.0))
+    assert consensus_upside_pct(mixed, 100.0) == pytest.approx(0.20)
