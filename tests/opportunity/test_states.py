@@ -216,6 +216,47 @@ def test_core_dca_when_reasonable_low_normal_intact_strong():
     assert state == "core_dca"
 
 
+def test_core_dca_blocked_when_fundamental_rich():
+    """AC4: cheap percentile + 'rich' fundamental → NOT core_dca (falls to small_watch).
+
+    The percentile fact (`valuation == cheap`) stays true; only the opportunity
+    state falls through. Threading is the explicit composer parameter (grill Q-T2).
+    """
+    state, _ = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable", valuation_fundamental="rich",
+    )
+    assert state == "small_watch"
+
+
+def test_core_dca_allowed_when_fundamental_neutral():
+    """AC4: only 'rich' blocks; neutral/cheap/None keep the core_dca path."""
+    state, _ = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable", valuation_fundamental="neutral",
+    )
+    assert state == "core_dca"
+
+
+def test_core_dca_default_param_keeps_existing_callers_green():
+    """AC4: default None keeps every existing caller byte-identical (dormancy)."""
+    state, _ = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable",
+    )
+    assert state == "core_dca"
+
+
+def test_fundamental_rich_does_not_change_pause_wait():
+    """AC4/AC5: the block only suppresses core_dca; an expensive row is
+    pause_wait regardless of the fundamental signal."""
+    state, _ = compose_opportunity_state(
+        valuation="expensive", heat="normal", thesis="intact",
+        product_quality="acceptable", valuation_fundamental="rich",
+    )
+    assert state == "pause_wait"
+
+
 def test_exclude_when_thesis_falsified():
     """Spec test 3: cheap valuation + falsified thesis -> exclude."""
     state, _ = compose_opportunity_state(
