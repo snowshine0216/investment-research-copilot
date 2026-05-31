@@ -158,3 +158,61 @@ def test_module_does_not_import_tushare_at_load() -> None:
     import inspect
     src = inspect.getsource(tp._tushare_call)
     assert "import tushare" in src
+
+
+# ── FIX 1: TushareProvider swallowed exception emits a WARNING and returns sentinel ─
+
+def test_tushare_filing_swallow_emits_warning_and_returns_none(caplog) -> None:
+    """When _tushare_call raises, TushareProvider.fetch_filing_digest must log a WARNING."""
+    import logging
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.tushare_provider"), \
+         patch.object(tp, "_tushare_call", side_effect=RuntimeError("auth failed")):
+        out = TushareProvider("tok").fetch_filing_digest("600519")
+    assert out is None  # sentinel unchanged
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings, "Expected at least one WARNING log when Tushare swallows an exception"
+
+
+# ── FIX 2: _map_fina_to_digest degrades cleanly on unrecognized mmdd ──────────
+
+def test_map_fina_unrecognized_mmdd_returns_none() -> None:
+    """Unrecognized end_date mmdd (e.g. 0228 restatement) must return None, not a malformed period."""
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "end_date": ["20240228"],  # not 1231/0331/0630/0930
+        "roe": [18.0],
+        "or_yoy": [25.0],
+        "netprofit_yoy": [33.0],
+        "grossprofit_margin": [40.0],
+    })
+    assert _map_fina_to_digest("600519.SH", fina) is None
+
+
+def test_map_fina_q1_end_date_yields_q1_period() -> None:
+    """0331 end_date must yield the Q1 fiscal_period form."""
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "end_date": ["20240331"],
+        "roe": [18.0],
+        "or_yoy": [25.0],
+        "netprofit_yoy": [33.0],
+        "grossprofit_margin": [40.0],
+    })
+    out = _map_fina_to_digest("600519.SH", fina)
+    assert out is not None
+    assert out.fiscal_period == "2024Q1"
+
+
+def test_map_fina_fy_end_date_yields_fy_period() -> None:
+    """1231 end_date must yield the FY fiscal_period form."""
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "end_date": ["20241231"],
+        "roe": [18.0],
+        "or_yoy": [25.0],
+        "netprofit_yoy": [33.0],
+        "grossprofit_margin": [40.0],
+    })
+    out = _map_fina_to_digest("600519.SH", fina)
+    assert out is not None
+    assert out.fiscal_period == "2024FY"

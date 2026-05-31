@@ -230,3 +230,17 @@ def test_target_price_flows_through_default_provider_when_akshare_empty() -> Non
         provider = default_cn_provider()
         out = provider.fetch_broker_reports("600519")
     assert len(out) == 1 and out[0].target_price == 2100.0
+
+
+# ── FIX 1: swallowed primary exception emits a WARNING and still returns sentinel ─
+
+def test_fallback_primary_swallow_emits_warning_and_returns_sentinel(caplog) -> None:
+    """When primary raises, FallbackProvider must log a WARNING and still return sentinel."""
+    import logging
+    primary = _Fake(raises=True)
+    secondary = _Fake(digest=None)
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.provider"):
+        out = FallbackProvider(primary, secondary).fetch_filing_digest("600519")
+    assert out is None  # sentinel unchanged
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert warnings, "Expected at least one WARNING log when primary swallows an exception"

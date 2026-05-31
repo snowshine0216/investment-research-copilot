@@ -11,6 +11,7 @@ so this module carries no `tushare` import. See docs/adr/0010-...md.
 """
 from __future__ import annotations
 
+import logging
 from typing import Protocol, runtime_checkable
 
 from irc.fundamentals.akshare_filing import (
@@ -21,6 +22,8 @@ from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport, FilingDigest
 from irc.settings import Settings
+
+_log = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -54,14 +57,21 @@ class AkShareProvider:
         return fetch_cn_index_valuation(index_key)
 
 
-def _try(call):
-    """Run `call`, return its value; on any exception return the sentinel `None`.
+def _try(call, *, label: str = "", key: str = ""):
+    """Run `call`, return its value; on any exception log a WARNING and return `None`.
 
     Sentinel-agnostic: callers compare the result against their miss value.
+    `label` names the method (e.g. "fetch_filing_digest"); `key` is the
+    symbol/index being fetched. Both are included in the WARNING so silent
+    swallows are observable (ADR 0009: degrade-to-None but not silently).
     """
     try:
         return call()
-    except Exception:
+    except Exception as exc:
+        _log.warning(
+            "FallbackProvider swallowed exception in %s(%r): %s: %s",
+            label, key, type(exc).__name__, exc,
+        )
         return None
 
 
@@ -81,10 +91,16 @@ class FallbackProvider:
         self._secondary = secondary
 
     def fetch_filing_digest(self, symbol: str) -> FilingDigest | None:
-        primary = _try(lambda: self._primary.fetch_filing_digest(symbol))
+        primary = _try(
+            lambda: self._primary.fetch_filing_digest(symbol),
+            label="fetch_filing_digest", key=symbol,
+        )
         if primary is not None:
             return primary
-        return _try(lambda: self._secondary.fetch_filing_digest(symbol))
+        return _try(
+            lambda: self._secondary.fetch_filing_digest(symbol),
+            label="fetch_filing_digest", key=symbol,
+        )
 
     def fetch_broker_reports(
         self, symbol: str, *, days: int = 90, max_reports: int = 20
@@ -92,22 +108,30 @@ class FallbackProvider:
         primary = _try(
             lambda: self._primary.fetch_broker_reports(
                 symbol, days=days, max_reports=max_reports
-            )
+            ),
+            label="fetch_broker_reports", key=symbol,
         )
         if primary:
             return primary
         secondary = _try(
             lambda: self._secondary.fetch_broker_reports(
                 symbol, days=days, max_reports=max_reports
-            )
+            ),
+            label="fetch_broker_reports", key=symbol,
         )
         return secondary or ()
 
     def fetch_index_valuation(self, index_key: str) -> IndexValuation | None:
-        primary = _try(lambda: self._primary.fetch_index_valuation(index_key))
+        primary = _try(
+            lambda: self._primary.fetch_index_valuation(index_key),
+            label="fetch_index_valuation", key=index_key,
+        )
         if primary is not None:
             return primary
-        return _try(lambda: self._secondary.fetch_index_valuation(index_key))
+        return _try(
+            lambda: self._secondary.fetch_index_valuation(index_key),
+            label="fetch_index_valuation", key=index_key,
+        )
 
 
 def default_cn_provider() -> CnFundamentalsProvider:

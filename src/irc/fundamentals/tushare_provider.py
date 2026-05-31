@@ -16,6 +16,7 @@ Tushare is CN (api.tushare.pro) → called DIRECT, never through IRC_HTTPS_PROXY
 """
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
@@ -23,6 +24,8 @@ import pandas as pd
 
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport, FilingDigest
+
+_log = logging.getLogger(__name__)
 
 # Candidate column sets (defensive — Tushare labels can shift across tiers).
 _PE_COLS: tuple[str, ...] = ("pe_ttm", "pe")
@@ -75,11 +78,21 @@ def _coerce_float(value: Any) -> float | None:
     return None if pd.isna(f) else f
 
 
-def _period_from_end_date(end_date: str) -> tuple[str, str]:
-    """'YYYYMMDD' → (fiscal_period, filed_at_iso)."""
+def _period_from_end_date(end_date: str) -> tuple[str, str] | None:
+    """'YYYYMMDD' → (fiscal_period, filed_at_iso), or None if mmdd is unrecognized.
+
+    Recognized mmdd values: '1231' (FY), '0331' (Q1), '0630' (Q2), '0930' (Q3).
+    Any other value (e.g. a restatement row dated '0228') returns None so the
+    caller can degrade cleanly instead of emitting a malformed fiscal_period.
+    """
     year, mmdd = end_date[:4], end_date[4:]
     quarter_map = {"0331": "Q1", "0630": "Q2", "0930": "Q3"}
-    period = f"{year}FY" if mmdd == "1231" else f"{year}{quarter_map.get(mmdd, '')}"
+    if mmdd == "1231":
+        period = f"{year}FY"
+    elif mmdd in quarter_map:
+        period = f"{year}{quarter_map[mmdd]}"
+    else:
+        return None
     filed = f"{year}-{mmdd[:2]}-{mmdd[2:]}"
     return period, filed
 
@@ -91,7 +104,10 @@ def _map_fina_to_digest(ts_code: str, df: pd.DataFrame) -> FilingDigest | None:
     end_date = str(row["end_date"])
     if len(end_date) != 8 or not end_date.isdigit():
         return None
-    period, filed = _period_from_end_date(end_date)
+    result = _period_from_end_date(end_date)
+    if result is None:
+        return None
+    period, filed = result
     rev = _first_col(df, _REV_YOY_COLS)
     ni = _first_col(df, _NI_YOY_COLS)
     gm = _first_col(df, _GM_COLS)
@@ -174,7 +190,11 @@ class TushareProvider:
         ts_code = _to_ts_code(symbol)
         try:
             df = _tushare_call(self._token, "fina_indicator", ts_code=ts_code)
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "TushareProvider.fetch_filing_digest(%r) failed: %s: %s",
+                symbol, type(exc).__name__, exc,
+            )
             return None
         return _map_fina_to_digest(ts_code, df)
 
@@ -189,7 +209,11 @@ class TushareProvider:
             df = _tushare_call(
                 self._token, "report_rc", ts_code=ts_code, start_date=start
             )
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "TushareProvider.fetch_broker_reports(%r) failed: %s: %s",
+                symbol, type(exc).__name__, exc,
+            )
             return ()
         return _map_report_rc_to_brokers(ts_code, df)[:max_reports]
 
@@ -201,6 +225,10 @@ class TushareProvider:
             return None
         try:
             df = _tushare_call(self._token, "index_dailybasic", ts_code=ts_code)
-        except Exception:
+        except Exception as exc:
+            _log.warning(
+                "TushareProvider.fetch_index_valuation(%r) failed: %s: %s",
+                index_key, type(exc).__name__, exc,
+            )
             return None
         return _map_index_dailybasic(index_key, df, as_of_iso=_today_iso())
