@@ -7,7 +7,7 @@
 - **Feature branch:** `autodev/funding-analysis-feature`  (sub-branches `claude/funding-analysis-<id>`)
 - **Base for sub-PRs:** `autodev/funding-analysis-feature`  (NOT `main` — main is protected; no opt-in given)
 - **Item order:** 001, 002, 004, 003, 005  (locked after dependency scan — see `dependency-scan.md`)
-- **Soft token ceiling:** ~1.5M (stop + check in if approached)
+- **Soft token ceiling:** lifted by user 2026-05-31 after item 001 ("Continue all 4"); real cost ~700-900K/item, ~2.5-3.5M for items 002/004/003/005. Run to completion, no further cost check-ins unless environmentally blocked.
 
 ## Per-mode skill invocations (backlog — no skips)
 
