@@ -92,3 +92,39 @@ def test_compute_ratios_source_imports_no_io() -> None:
     mod_src = inspect.getsource(mod)
     for forbidden in ("import akshare", "import duckdb", "from irc.llm"):
         assert forbidden not in mod_src
+
+
+from irc.fundamentals.ratios import ratios_reason_fragment  # noqa: E402
+
+
+# ---------- AC7 / G4: compact reason fragment, non-None only ----------
+
+def test_fragment_shows_roe_and_gross_margin_compact() -> None:
+    frag = ratios_reason_fragment(KeyRatios(roe=0.18, gross_margin=0.69))
+    # Compact form fits the [:60] one_line_view cap; caveat present.
+    assert frag == "（ROE 18%·毛利69%，口径未核实）"
+
+
+def test_fragment_omits_none_subfields_never_renders_none() -> None:
+    # debt_equity / fcf_yield are None today → omitted (never the string "None").
+    frag = ratios_reason_fragment(KeyRatios(roe=0.18, gross_margin=0.69))
+    assert "None" not in frag
+    assert "负债" not in frag and "FCF" not in frag
+
+
+def test_fragment_roe_only() -> None:
+    assert ratios_reason_fragment(KeyRatios(roe=0.18)) == "（ROE 18%，口径未核实）"
+
+
+def test_fragment_gross_margin_only() -> None:
+    assert ratios_reason_fragment(KeyRatios(gross_margin=0.69)) == "（毛利69%，口径未核实）"
+
+
+def test_fragment_empty_when_all_none() -> None:
+    assert ratios_reason_fragment(KeyRatios()) == ""
+
+
+def test_fragment_carries_no_ref_marker() -> None:
+    import re
+    frag = ratios_reason_fragment(KeyRatios(roe=0.18, gross_margin=0.69))
+    assert re.search(r"\[ref:[0-9a-f]{16}\]", frag) is None

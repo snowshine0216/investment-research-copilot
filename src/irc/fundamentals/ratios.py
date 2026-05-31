@@ -46,3 +46,27 @@ def compute_ratios(financials: FilingDigest) -> KeyRatios:
         gross_margin=_finite(financials.gross_margin),
         fcf_yield=None,
     )
+
+
+def ratios_reason_fragment(ratios: KeyRatios) -> str:
+    """Optional compact Chinese ratios fragment (reason-only, mirrors
+    valuation_fundamental._pe_pb_fragment). Emits ONLY non-None sub-fields;
+    returns "" when all four are None. Percent display, ratio→% for readability.
+    Carries the 口径未核实 caveat (filing-evidence-semantics, ADR 0001 §5);
+    structurally separate from the locked 财报已披露（口径未核实）summary phrase.
+    Never injects a [ref:...] marker. Best-effort within the one_line_view [:60]
+    cap (debt_equity / fcf_yield are None today, so today's surface is ≤ ~22 chars).
+    """
+    parts: list[str] = []
+    if ratios.roe is not None:
+        parts.append(f"ROE {ratios.roe:.0%}")
+    if ratios.gross_margin is not None:
+        parts.append(f"毛利{ratios.gross_margin:.0%}")
+    # debt_equity / fcf_yield are None today → never appended (omitted, not "None").
+    if ratios.debt_equity is not None:
+        parts.append(f"负债权益{ratios.debt_equity:.2f}")
+    if ratios.fcf_yield is not None:
+        parts.append(f"FCF {ratios.fcf_yield:.0%}")
+    if not parts:
+        return ""
+    return f"（{'·'.join(parts)}，口径未核实）"
