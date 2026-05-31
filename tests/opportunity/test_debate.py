@@ -119,3 +119,48 @@ def test_run_debates_isolates_per_row_failure(mock_chat):
     # R1's defense degraded to empty, falsify still ran.
     r1 = next(d for d in debates if d.instrument_id == "R1")
     assert r1.defense.arguments == ()
+
+
+from irc.opportunity.debate import compose_thesis_debate_markdown
+
+
+def _debate(iid, name, state, args, conds):
+    return ThesisDebate(
+        instrument_id=iid, name_cn=name, thesis_state=state,
+        defense=DefenseResult(arguments=tuple(args)),
+        falsification=FalsificationResult(conditions=tuple(conds)),
+    )
+
+
+def test_renderer_section_shape():
+    md = compose_thesis_debate_markdown((
+        _debate("R1", "测试基金", "intact", ["盈利持续"], ["盈利转负"]),
+    ))
+    assert "### R1 测试基金" in md
+    assert "intact" in md
+    assert "**看多**" in md
+    assert "盈利持续" in md
+    assert "**看空**" in md
+    assert "盈利转负" in md
+
+
+def test_renderer_empty_both_renders_placeholder():
+    md = compose_thesis_debate_markdown((_debate("R2", "空辩论", "intact", [], []),))
+    assert "（本行未能生成辩论）" in md
+
+
+def test_renderer_is_deterministic():
+    debates = (
+        _debate("R1", "甲", "intact", ["a1", "a2"], ["c1"]),
+        _debate("R2", "乙", "under_pressure", ["b1"], ["d1", "d2"]),
+    )
+    assert compose_thesis_debate_markdown(debates) == compose_thesis_debate_markdown(debates)
+
+
+def test_renderer_emits_no_citation_marker():
+    import re
+    md = compose_thesis_debate_markdown((
+        _debate("R1", "甲", "intact", ["see [ref:abc] note"], ["c"]),
+    ))
+    # The renderer introduces no NEW 16-hex citation id of its own.
+    assert not re.search(r"\[ref:[0-9a-f]{16}\]", md)
