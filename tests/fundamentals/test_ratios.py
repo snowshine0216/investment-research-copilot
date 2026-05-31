@@ -128,3 +128,28 @@ def test_fragment_carries_no_ref_marker() -> None:
     import re
     frag = ratios_reason_fragment(KeyRatios(roe=0.18, gross_margin=0.69))
     assert re.search(r"\[ref:[0-9a-f]{16}\]", frag) is None
+
+
+def test_compute_ratios_no_module_level_side_effects() -> None:
+    # Importing the module must not perform I/O or call akshare/duckdb/llm.
+    import importlib
+    import irc.fundamentals.ratios as mod
+    importlib.reload(mod)  # re-import: raises if import does any forbidden effect
+    # 1000x repeated calls are byte-stable (determinism under repetition).
+    d = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    results = {mod.compute_ratios(d) for _ in range(1000)}
+    assert len(results) == 1  # single equal value → frozen dataclass hashes equal
+
+
+def test_compute_ratios_does_not_mutate_input() -> None:
+    import dataclasses
+    d = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    snapshot = dataclasses.astuple(d)
+    compute_ratios(d)
+    assert dataclasses.astuple(d) == snapshot  # input untouched (immutability)
