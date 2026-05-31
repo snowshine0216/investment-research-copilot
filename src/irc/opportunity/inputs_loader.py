@@ -11,6 +11,10 @@ from irc.opportunity.returns import (
     rolling_returns,
     self_history_percentile,
 )
+from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation
+from irc.fundamentals.consensus import consensus_upside_pct
+from irc.fundamentals.types import BrokerReport
+from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
 from irc.opportunity.types import OpportunityInput
 
 
@@ -90,13 +94,34 @@ def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
     return float((series <= latest).mean())
 
 
+def _index_valuation_metrics(
+    tracked_index: str | None,
+) -> tuple[float | None, float | None, float | None]:
+    """Return (pe_ttm, pb, dividend_yield) for a recognised broad index, else
+    (None, None, None). Index valuation is INERT today (item 002 consumes it)."""
+    key = (tracked_index or "").strip().lower() or None
+    if key is None or key not in _BROAD_INDEX_KEYS:
+        return None, None, None
+    valuation = fetch_cn_index_valuation(key)
+    if valuation is None:
+        return None, None, None
+    return valuation.pe_ttm, valuation.pb, valuation.dividend_yield
+
+
 def populate_inputs(
     con: duckdb.DuckDBPyConnection,
     skeleton: OpportunityInput,
     *,
     holding_entry_date: date | None,
+    broker_reports: tuple[BrokerReport, ...] = (),
 ) -> OpportunityInput:
-    """Return a copy of skeleton with evidence fields filled from DuckDB."""
+    """Return a copy of skeleton with evidence fields filled from DuckDB.
+
+    `broker_reports` (default empty) feeds the consensus-upside metric; today
+    no wired feed carries target prices, so the metric degrades to None
+    (ADR 0009). Index pe/pb/dividend are populated only for recognised broad
+    indices and are inert until item 002.
+    """
     meta = _instrument_meta(con, skeleton.instrument_id)
     tracking_err = _tracking_error(con, skeleton.instrument_id)
     series = _price_series(con, skeleton.instrument_id)
@@ -121,6 +146,10 @@ def populate_inputs(
         else None
     )
 
+    latest_close = float(series.iloc[-1]) if not series.empty else None
+    upside = consensus_upside_pct(broker_reports, latest_close)
+    pe_ttm, pb, dividend_yield = _index_valuation_metrics(skeleton.tracked_index)
+
     return replace(
         skeleton,
         expense_ratio=meta.get("expense_ratio"),
@@ -134,4 +163,8 @@ def populate_inputs(
         valuation_percentile_self=percentile,
         drawdown_since_entry=dd,
         cn_bond_yield_percentile=bond_yield_pct,
+        pe_ttm=pe_ttm,
+        pb=pb,
+        dividend_yield=dividend_yield,
+        consensus_upside_pct=upside,
     )
