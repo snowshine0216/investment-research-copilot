@@ -244,3 +244,31 @@ def test_fallback_primary_swallow_emits_warning_and_returns_sentinel(caplog) -> 
     assert out is None  # sentinel unchanged
     warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warnings, "Expected at least one WARNING log when primary swallows an exception"
+
+
+# ── FIX 003: decouple default_cn_provider from the DEEPSEEK key ──────────────
+
+from pydantic import ValidationError as _PydanticValidationError  # noqa: E402
+
+
+def test_default_cn_provider_degrades_to_akshare_when_settings_validation_fails() -> None:
+    """default_cn_provider() must return AkShareProvider (not raise) when Settings()
+    raises ValidationError (e.g. DEEPSEEK_API_KEY absent in a fetch-only context).
+    This test FAILS before the fix and PASSES after. (003 pr-review round 2)
+    """
+    def _raise_validation_error():
+        raise _PydanticValidationError.from_exception_data(
+            title="Settings",
+            line_errors=[{
+                "type": "missing",
+                "loc": ("deepseek_api_key",),
+                "msg": "Field required",
+                "input": {},
+                "ctx": {},
+                "url": "",
+            }],
+        )
+
+    with patch("irc.fundamentals.provider.Settings", side_effect=_raise_validation_error):
+        provider = default_cn_provider()
+    assert isinstance(provider, AkShareProvider)

@@ -14,6 +14,8 @@ from __future__ import annotations
 import logging
 from typing import Protocol, runtime_checkable
 
+from pydantic import ValidationError
+
 from irc.fundamentals.akshare_filing import (
     fetch_cn_broker_reports,
     fetch_cn_filing_digest,
@@ -134,6 +136,17 @@ class FallbackProvider:
         )
 
 
+def _read_tushare_token() -> str:
+    try:
+        return Settings().tushare_token.get_secret_value().strip()
+    except ValidationError:
+        # The Tushare token is optional; a fetch-only run (e.g. `irc
+        # fundamentals snapshot`) may lack DEEPSEEK_API_KEY, which Settings
+        # requires. Degrade to AkShare-only rather than couple the CN fetch
+        # layer to the LLM key. (003 pr-review round 2)
+        return ""
+
+
 def default_cn_provider() -> CnFundamentalsProvider:
     """Construction edge: read the token from `.env` and pick the provider.
 
@@ -141,7 +154,7 @@ def default_cn_provider() -> CnFundamentalsProvider:
     token → `FallbackProvider(AkShareProvider(), TushareProvider(token))`.
     `TushareProvider` is imported lazily so this module never imports tushare.
     """
-    token = Settings().tushare_token.get_secret_value().strip()
+    token = _read_tushare_token()
     if not token:
         return AkShareProvider()
     from irc.fundamentals.tushare_provider import TushareProvider
