@@ -41,3 +41,28 @@ def valuation_fundamental_signal(
     if upside <= RICH_UPSIDE_THRESHOLD:
         return "rich"
     return "neutral"
+
+
+def _pe_pb_fragment(inp: OpportunityInput) -> str:
+    """Optional 'PE x.x / PB x.x' fragment (reason-only; never state, Open Q3)."""
+    parts: list[str] = []
+    if inp.pe_ttm is not None:
+        parts.append(f"PE {inp.pe_ttm}")
+    if inp.pb is not None:
+        parts.append(f"PB {inp.pb}")
+    return f"（指数 {' / '.join(parts)}）" if parts else ""
+
+
+def _fundamental_reason_phrase(
+    signal: ValuationFundamental,
+    inp: OpportunityInput,
+) -> str:
+    """Chinese caveat describing the consensus-upside read (+ optional pe/pb)."""
+    upside_pct = f"{inp.consensus_upside_pct:.0%}"
+    if signal == "cheap":
+        head = f"券商一致目标价隐含上行空间 {upside_pct}，基本面偏便宜。"
+    elif signal == "rich":
+        head = f"券商一致目标价隐含 {upside_pct} 下行，基本面不便宜。"
+    else:
+        head = f"券商一致目标价隐含上行空间 {upside_pct}，基本面中性。"
+    return head + _pe_pb_fragment(inp)
