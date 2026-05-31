@@ -310,13 +310,17 @@ def _evidence_for_constituent(
     holding: FundHolding,
     *,
     fund_id: str,
-) -> tuple[tuple[ThesisEvidence, ...], list[str]]:
+) -> tuple[tuple[ThesisEvidence, ...], list[str], FilingDigest | None]:
     """Fetch market-routed evidence for one holding.
 
-    Returns (evidence_tuple, failure_reasons_list).
+    Returns (evidence_tuple, failure_reasons_list, cn_filing_digest_or_None).
+    The CN digest is threaded out (it is dropped today) so the per-constituent
+    ratios fragment can be appended to one_line_view at the call site (item 004).
+    HK/US digests are NOT surfaced as ratios (spec non-goal) → digest is None.
     """
     failures: list[str] = []
     evidence: list[ThesisEvidence] = []
+    cn_digest: FilingDigest | None = None
     common = dict(
         scope="constituent",
         owner_instrument_id=fund_id,
@@ -338,6 +342,7 @@ def _evidence_for_constituent(
             if digest is None:
                 failures.append(f"filing_empty:{holding.symbol}")
             else:
+                cn_digest = digest
                 evidence.append(ThesisEvidence(
                     type="filing", source=digest.symbol,
                     url=digest.source_url, date=digest.filed_at_iso,
@@ -420,7 +425,7 @@ def _evidence_for_constituent(
         failures.append(f"us_evidence_unsupported:{holding.symbol}")
     else:  # UNKNOWN
         failures.append(f"exchange_unknown:{holding.symbol}")
-    return tuple(evidence), failures
+    return tuple(evidence), failures, cn_digest
 
 
 def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -> str:
@@ -530,7 +535,7 @@ def _build_active_fund_snapshot(
     analyses: list[ConstituentAnalysis] = []
     fail_by_symbol: dict[str, tuple[str, ...]] = {}
     for h in holdings.constituents:
-        evidence, failures = _evidence_for_constituent(h, fund_id=fund_id)
+        evidence, failures, _cn_digest = _evidence_for_constituent(h, fund_id=fund_id)
         if failures:
             fail_by_symbol[h.symbol] = tuple(sorted(failures))
         analyses.append(ConstituentAnalysis(

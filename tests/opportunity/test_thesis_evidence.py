@@ -654,7 +654,7 @@ def test_evidence_for_constituent_cn_uses_disclosure_existence_template(
         exchange="SH", weight_pct=8.0,
         provider_symbol="600519",
     )
-    evidence, _failures = snap_mod._evidence_for_constituent(
+    evidence, _failures, _digest = snap_mod._evidence_for_constituent(
         holding, fund_id="005827",
     )
     filings = [e for e in evidence if e.type == "filing"]
@@ -685,7 +685,7 @@ def test_evidence_for_constituent_hk_uses_disclosure_existence_template(
         exchange="HK", weight_pct=6.5,
         provider_symbol="00700",
     )
-    evidence, _failures = snap_mod._evidence_for_constituent(
+    evidence, _failures, _digest = snap_mod._evidence_for_constituent(
         holding, fund_id="005827",
     )
     filings = [e for e in evidence if e.type == "filing"]

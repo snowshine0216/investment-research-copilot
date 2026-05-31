@@ -465,7 +465,7 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
 
     def _fake_evidence_for_constituent(holding, *, fund_id):
         # HK holding hits the no-filings path in real code; emulate empty.
-        return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"]
+        return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"], None
 
     monkeypatch.setattr(_snap_mod, "fetch_cn_etf_holdings", _fake_holdings)
     monkeypatch.setattr(_snap_mod, "fetch_fund_nav_report", _fake_nav)
@@ -490,3 +490,31 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
         assert e.owner_instrument_id == fund_id
         assert e.parent_fund_id is None
         assert e.constituent_key is None
+
+
+def test_evidence_for_constituent_returns_cn_digest_third(monkeypatch) -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    monkeypatch.setattr(_snap, "fetch_cn_filing_digest", lambda s: digest)
+    monkeypatch.setattr(_snap, "fetch_cn_broker_reports", lambda s: ())
+    monkeypatch.setattr(_snap, "fetch_cn_stock_news", lambda s, top_k=3: ())
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    result = _snap._evidence_for_constituent(holding, fund_id="fund_x")
+    assert len(result) == 3  # (evidence, failures, digest)
+    evidence, failures, returned_digest = result
+    assert returned_digest is digest
+
+
+def test_evidence_for_constituent_digest_none_for_non_cn(monkeypatch) -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding
+    monkeypatch.setattr(_snap, "fetch_hk_filing_digest", lambda s: None)
+    monkeypatch.setattr(_snap, "fetch_hk_stock_news", lambda s, top_k=3: ())
+    monkeypatch.setattr(_snap, "hk_news_adapter_available", lambda: True)
+    holding = FundHolding("0700.HK", "腾讯", 10.0, "HK", "00700")
+    evidence, failures, digest = _snap._evidence_for_constituent(holding, fund_id="f")
+    assert digest is None  # HK/US digests are out of scope for ratios (spec non-goal)

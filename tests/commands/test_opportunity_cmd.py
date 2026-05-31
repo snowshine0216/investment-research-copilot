@@ -757,7 +757,7 @@ def test_evidence_routing_exception_no_double_append() -> None:
         patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", side_effect=raise_exc),
         patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=raise_exc),
     ):
-        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+        _, failures, _digest = _evidence_for_constituent(holding, fund_id="005827")
 
     failure_codes = set(failures)
     # Must have fetch_failed codes.
@@ -797,7 +797,7 @@ def test_cn_news_exception_propagates_to_caller() -> None:
             side_effect=ConnectionError("network"),
         ),
     ):
-        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+        _, failures, _digest = _evidence_for_constituent(holding, fund_id="005827")
 
     assert any("news_fetch_failed:600519:ConnectionError" in f for f in failures), (
         f"expected news_fetch_failed:600519:ConnectionError in failures: {failures}"
