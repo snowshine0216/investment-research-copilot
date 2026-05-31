@@ -1,7 +1,6 @@
 Verdict: PASS-WITH-NITS
-Source: /code-review on PR #87
-PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/87#pullrequestreview-4396792503
-Findings: 3
-  - src/irc/fundamentals/tushare_provider.py:57 — latent-bug — `_to_ts_code` maps Beijing-exchange (BJ) stock codes (head digit '4' or '8') to `.SZ` suffix instead of `.BJ`; Tushare's `fina_indicator` / `report_rc` receives wrong ts_code (e.g. `430047.SZ` instead of `430047.BJ`), returning empty frame or mismatched data. Tushare-only path, token-gated, degrades to None gracefully. Fix: add `head in ('4', '8') → '.BJ'` to match `akshare_fundamentals._parse_exchange_from_ticker:118-119`.
-  - src/irc/fundamentals/tushare_provider.py:167 — nit — `dividend_yield` unit convention is undocumented; Tushare `dv_ratio` is stored as raw percentage points (e.g. 2.5 = 2.5%) via `_coerce_float`, same as AkShare's path — both are consistent today, but no comment states the expected unit. Add a comment to `IndexValuation` or the mapping function.
-  - src/irc/fundamentals/tushare_provider.py:173 — nit — `_INDEX_TS_CODE` covers only 4 of the 9 `_BROAD_INDEX_KEYS` (missing `csi1000`, `csi_a500`, `star50`, `csi_dividend`, `csi_dividend_lc`); Tushare fallback is inert for those 5 indices even with a valid token. No crash; degrade-to-None by design, but the fallback adds no value for the majority of broad indices.
+Source: /code-review on PR #87 (round 2, post-fix)
+PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/87#issuecomment-4586579808
+Round-1 latent bug (_to_ts_code BJ): RESOLVED (commit 3ddbb3c) — verified at HEAD
+Findings (round 2): 1
+  - src/irc/fundamentals/provider.py:144 / src/irc/commands/fundamentals_cmd.py:43 — latent-bug — `default_cn_provider()` calls `Settings()` which validates `deepseek_api_key` (min_length=1); pre-PR `fundamentals_cmd.py` had no Settings call. Post-PR, `irc fundamentals snapshot` now raises `ValidationError` when `DEEPSEEK_API_KEY` is unset, even though fundamentals snapshot has no LLM dependency. Not blocking for users who follow README (DEEPSEEK required), but introduces a new undocumented constraint on a previously LLM-key-free command.
