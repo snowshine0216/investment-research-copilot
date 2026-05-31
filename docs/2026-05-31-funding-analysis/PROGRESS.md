@@ -6,7 +6,7 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | ✅ | ✅ claude/funding-analysis-001 | ✅ a850f42 | ✅ | ✅ #84 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ claude/funding-analysis-001 | ✅ a850f42 | ✅ | ✅ #84 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | 🔄 |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
