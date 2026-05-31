@@ -22,6 +22,10 @@ from irc.opportunity.types import (
     ValuationState,
 )
 from irc.opportunity.advisory_gaps import ADVISORY_GAP_CODES
+from irc.opportunity.valuation_fundamental import (
+    _fundamental_reason_phrase,
+    valuation_fundamental_signal,
+)
 from irc.research.theme_research import ThemeReport
 
 
@@ -230,6 +234,10 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
                 f"{reason} 且 earnings_yield - real_yield 非正，"
                 f"长期实际回报预期偏弱。"
             )
+    if inp.asset_class in _EQUITY_ASSET_CLASSES:
+        fundamental = valuation_fundamental_signal(inp)
+        if fundamental is not None:
+            reason = f"{reason} {_fundamental_reason_phrase(fundamental, inp)}"
     return state, reason
 
 

@@ -5,6 +5,7 @@ ADR 0009: the input is `None` in production today → signal `None` (no opinion)
 """
 from __future__ import annotations
 
+from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
 from irc.opportunity.valuation_fundamental import (
     CHEAP_UPSIDE_THRESHOLD,
@@ -71,3 +72,33 @@ def test_reason_phrase_omits_pe_pb_when_absent() -> None:
     phrase = _fundamental_reason_phrase("neutral", _equity(consensus_upside_pct=0.05))
     assert "PE" not in phrase
     assert "PB" not in phrase
+
+
+def test_classify_valuation_appends_fundamental_phrase_for_equity() -> None:
+    """AC2: equity with consensus_upside_pct gets the 便宜/上行空间 caveat."""
+    inp = _equity(valuation_percentile_self=0.55, consensus_upside_pct=0.25)
+    state, reason = classify_valuation(inp)
+    assert state == "fair"  # AC3: no notch from a `fair` percentile
+    assert "上行空间" in reason
+
+
+def test_classify_valuation_no_fundamental_phrase_for_bond_class() -> None:
+    """AC5: bonds use the yield-percentile anchor — fundamental caveat never fires.
+
+    Mirrors test_classify_valuation_does_not_append_phrase_for_bond_class.
+    """
+    inp = OpportunityInput(
+        instrument_id="000111", asset_class="cn_bond_fund", market="CN",
+        cn_bond_yield_percentile=0.05, consensus_upside_pct=0.25,
+    )
+    state, reason = classify_valuation(inp)
+    assert state == "very_expensive"
+    assert "上行空间" not in reason
+
+
+def test_classify_valuation_no_fundamental_phrase_when_signal_none() -> None:
+    """AC6: consensus_upside_pct None → no caveat, byte-identical to today."""
+    inp = _equity(valuation_percentile_self=0.55)
+    state, reason = classify_valuation(inp)
+    assert state == "fair"
+    assert "上行空间" not in reason
