@@ -9,8 +9,8 @@ Degrade-to-None contract: unknown index_key → None; any adapter failure or
 empty frame → metrics None (never raises). Matches `fetch_cn_filing_digest`.
 
 NOTE: legulegu PE/PB endpoints carry no dividend-yield column, so
-`dividend_yield` is None in practice (spec §Judgment call 3). `基金概况` is
-NEVER used (forbidden indicator).
+`dividend_yield` is None in practice (spec §Judgment call 3). The forbidden
+fund-profile indicator is never used here (see test_static_profile_invariant).
 """
 from __future__ import annotations
 
