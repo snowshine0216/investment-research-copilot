@@ -70,6 +70,7 @@ from irc.opportunity.auditor import (
     find_uncited_opportunity_rows,
 )
 from irc.opportunity.citation_map import build_cited_map
+from irc.opportunity.debate import compose_thesis_debate_markdown, run_debates
 from irc.memo.numeric_audit import find_uncited_discipline_rows
 from irc.schemas.inputs import AccountFile, Holding
 from irc.research.persistence import load_theme_reports
@@ -1220,6 +1221,7 @@ def _write_opportunity_outputs(
     pending_verdicts: dict[str, PolicyBVerdict] | None = None,
     snapshot_cache_by_instrument: dict[str, object] | None = None,
     plan_hash: str = "",
+    debate_route: object | None = None,
 ) -> None:
     """Compose the per-run opportunity outputs.
 
@@ -1447,6 +1449,17 @@ def _write_opportunity_outputs(
     )
     atomic_write_text(out_dir / "discipline_report.md", discipline_md)
 
+    # Item 005 — advisory bull/bear debate (ADR 0011). Written ONLY when
+    # --adversarial set; 6th additive file, NOT a canonical artifact, NOT in
+    # H3/SAME-3, EXEMPT from two-run byte-equality. Runs on the FINAL
+    # post-citation-gate publishable_rows, AFTER all canonical artifacts.
+    if debate_route is not None:
+        debates = run_debates(publishable_rows, debate_route)
+        atomic_write_text(
+            out_dir / "thesis_debate.md",
+            compose_thesis_debate_markdown(debates),
+        )
+
     print(
         f"opportunity OK: {len(publishable_rows)} rows, {len(cards)} cards, "
         f"{len(discipline_rows)} discipline entries, "
@@ -1460,6 +1473,7 @@ def run_opportunity(
     output_dir: str | None = None,
     limit: int | None = None,
     rebuild_fundamentals: bool = False,
+    adversarial: bool = False,
 ) -> int:
     root = Path(repo_root)
     today = _today()
@@ -1476,6 +1490,13 @@ def run_opportunity(
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
         return 1
     bundle = load_repo_configs(root)
+    debate_route = None
+    if adversarial:
+        from irc.llm.gateway import resolve_route
+        debate_route = (
+            resolve_route("thesis_defend", bundle.llm),
+            resolve_route("thesis_falsify", bundle.llm),
+        )
     available_venues: set[str] = {
         v for acc in bundle.account.accounts for v in acc.available_venues
     }
@@ -1523,6 +1544,7 @@ def run_opportunity(
             pending_verdicts=pending_verdicts,
             plan_hash=plan_hash,
             snapshot_cache_by_instrument=snapshot_cache_by_instrument,
+            debate_route=debate_route,
         )
     except FetchBudgetExceeded as exc:
         sys.stderr.write(str(exc) + "\n")
