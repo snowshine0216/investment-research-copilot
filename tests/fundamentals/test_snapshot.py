@@ -518,3 +518,46 @@ def test_evidence_for_constituent_digest_none_for_non_cn(monkeypatch) -> None:
     holding = FundHolding("0700.HK", "腾讯", 10.0, "HK", "00700")
     evidence, failures, digest = _snap._evidence_for_constituent(holding, fund_id="f")
     assert digest is None  # HK/US digests are out of scope for ratios (spec non-goal)
+
+
+def test_one_line_view_appends_ratios_fragment_within_cap() -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev,), digest)
+    assert "ROE 18%" in view
+    assert "毛利69%" in view
+    assert "口径未核实" in view
+    assert len(view) <= 60  # AC11 hard cap NOT raised
+
+
+def test_one_line_view_byte_identical_when_digest_none() -> None:
+    # AC11: rows where the fragment is empty/None are byte-stable vs the old behaviour.
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, ThesisEvidence
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    # digest=None → no fragment → byte-identical to the pre-004 join+cap output.
+    assert _snap._one_line_view(holding, (ev,), None) == ev.summary[:24][:60]
+
+
+def test_one_line_view_no_digest_arg_defaults_none() -> None:
+    # Back-compat: the third arg is defaulted so unrelated call sites are unaffected.
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding
+    assert _snap._one_line_view(FundHolding("X", "x", 1.0, "SH", "X"), ()) == "证据获取失败"

@@ -33,6 +33,7 @@ from irc.fundamentals.hkex_client import (
     fetch_hk_stock_news,
     hk_news_adapter_available,
 )
+from irc.fundamentals.ratios import compute_ratios, ratios_reason_fragment
 from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
     cache_path,
     infer_quarter as _infer_quarter,
@@ -428,8 +429,19 @@ def _evidence_for_constituent(
     return tuple(evidence), failures, cn_digest
 
 
-def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -> str:
-    """≤60-char deterministic label. Empty evidence → '证据获取失败'."""
+def _one_line_view(
+    holding: FundHolding,
+    evidence: tuple[ThesisEvidence, ...],
+    cn_digest: FilingDigest | None = None,
+) -> str:
+    """≤60-char deterministic label. Empty evidence → '证据获取失败'.
+
+    When a CN FilingDigest is supplied (item 004), a compact reason-only ratios
+    fragment (ROE / 毛利 today; debt_equity / fcf_yield omitted while None) is
+    appended, best-effort within the HARD [:60] cap (NOT raised — AC11). The
+    fragment is empty when the digest carries no ROE and no gross_margin, so rows
+    without ratios stay byte-identical to the pre-004 output.
+    """
     if not evidence:
         return "证据获取失败"
     fragments: list[str] = []
@@ -445,6 +457,10 @@ def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -
         fragments.append(by_type["news"].summary[:24])
     if not fragments:
         return "证据获取失败"
+    if cn_digest is not None:
+        ratio_frag = ratios_reason_fragment(compute_ratios(cn_digest))
+        if ratio_frag:
+            fragments.append(ratio_frag)
     return " · ".join(fragments)[:60]
 
 
@@ -544,7 +560,7 @@ def _build_active_fund_snapshot(
             weight_pct=h.weight_pct,
             evidence=evidence,
             failure_reasons=tuple(sorted(failures)),
-            one_line_view=_one_line_view(h, evidence),
+            one_line_view=_one_line_view(h, evidence, _cn_digest),
         ))
     return ActiveFundSnapshot(
         fund_id=fund_id,
