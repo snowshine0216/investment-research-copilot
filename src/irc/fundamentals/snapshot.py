@@ -33,6 +33,7 @@ from irc.fundamentals.hkex_client import (
     fetch_hk_stock_news,
     hk_news_adapter_available,
 )
+from irc.fundamentals.ratios import compute_ratios, ratios_reason_fragment
 from irc.fundamentals.snapshot_cache import (  # noqa: F401 — re-exports
     cache_path,
     infer_quarter as _infer_quarter,
@@ -310,13 +311,17 @@ def _evidence_for_constituent(
     holding: FundHolding,
     *,
     fund_id: str,
-) -> tuple[tuple[ThesisEvidence, ...], list[str]]:
+) -> tuple[tuple[ThesisEvidence, ...], list[str], FilingDigest | None]:
     """Fetch market-routed evidence for one holding.
 
-    Returns (evidence_tuple, failure_reasons_list).
+    Returns (evidence_tuple, failure_reasons_list, cn_filing_digest_or_None).
+    The CN digest is threaded out (it is dropped today) so the per-constituent
+    ratios fragment can be appended to one_line_view at the call site (item 004).
+    HK/US digests are NOT surfaced as ratios (spec non-goal) → digest is None.
     """
     failures: list[str] = []
     evidence: list[ThesisEvidence] = []
+    cn_digest: FilingDigest | None = None
     common = dict(
         scope="constituent",
         owner_instrument_id=fund_id,
@@ -338,6 +343,7 @@ def _evidence_for_constituent(
             if digest is None:
                 failures.append(f"filing_empty:{holding.symbol}")
             else:
+                cn_digest = digest
                 evidence.append(ThesisEvidence(
                     type="filing", source=digest.symbol,
                     url=digest.source_url, date=digest.filed_at_iso,
@@ -420,11 +426,22 @@ def _evidence_for_constituent(
         failures.append(f"us_evidence_unsupported:{holding.symbol}")
     else:  # UNKNOWN
         failures.append(f"exchange_unknown:{holding.symbol}")
-    return tuple(evidence), failures
+    return tuple(evidence), failures, cn_digest
 
 
-def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -> str:
-    """≤60-char deterministic label. Empty evidence → '证据获取失败'."""
+def _one_line_view(
+    holding: FundHolding,
+    evidence: tuple[ThesisEvidence, ...],
+    cn_digest: FilingDigest | None = None,
+) -> str:
+    """≤60-char deterministic label. Empty evidence → '证据获取失败'.
+
+    When a CN FilingDigest is supplied (item 004), a compact reason-only ratios
+    fragment (ROE / 毛利 today; debt_equity / fcf_yield omitted while None) is
+    appended, best-effort within the HARD [:60] cap (NOT raised — AC11). The
+    fragment is empty when the digest carries no ROE and no gross_margin, so rows
+    without ratios stay byte-identical to the pre-004 output.
+    """
     if not evidence:
         return "证据获取失败"
     fragments: list[str] = []
@@ -440,7 +457,17 @@ def _one_line_view(holding: FundHolding, evidence: tuple[ThesisEvidence, ...]) -
         fragments.append(by_type["news"].summary[:24])
     if not fragments:
         return "证据获取失败"
-    return " · ".join(fragments)[:60]
+    base = " · ".join(fragments)
+    if cn_digest is not None:
+        ratio_frag = ratios_reason_fragment(compute_ratios(cn_digest))
+        if ratio_frag:
+            candidate = f"{base} · {ratio_frag}"
+            # Append the fragment only if it fits WHOLE within the 60-char cap;
+            # a mid-truncated fragment (orphaned '（' or dangling separator) is
+            # worse than omitting it entirely (FIX C, item 004).
+            if len(candidate) <= 60:
+                return candidate
+    return base[:60]
 
 
 def _fetch_active_fund_level_evidence(
@@ -530,7 +557,7 @@ def _build_active_fund_snapshot(
     analyses: list[ConstituentAnalysis] = []
     fail_by_symbol: dict[str, tuple[str, ...]] = {}
     for h in holdings.constituents:
-        evidence, failures = _evidence_for_constituent(h, fund_id=fund_id)
+        evidence, failures, _cn_digest = _evidence_for_constituent(h, fund_id=fund_id)
         if failures:
             fail_by_symbol[h.symbol] = tuple(sorted(failures))
         analyses.append(ConstituentAnalysis(
@@ -539,7 +566,7 @@ def _build_active_fund_snapshot(
             weight_pct=h.weight_pct,
             evidence=evidence,
             failure_reasons=tuple(sorted(failures)),
-            one_line_view=_one_line_view(h, evidence),
+            one_line_view=_one_line_view(h, evidence, _cn_digest),
         ))
     return ActiveFundSnapshot(
         fund_id=fund_id,

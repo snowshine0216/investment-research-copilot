@@ -101,6 +101,25 @@ def test_filing_digest_defaults_and_optional_numerics() -> None:
     assert nulled.net_income_yoy is None
 
 
+def test_filing_digest_roe_defaults_none_and_is_settable() -> None:
+    # roe defaults to None (existing call sites/cache files unaffected).
+    default = FilingDigest(
+        symbol="600519.SH",
+        fiscal_period="2026Q1",
+        filed_at_iso="2026-04-30",
+        revenue_yoy=0.06,
+        net_income_yoy=0.04,
+        gross_margin=0.69,
+    )
+    assert default.roe is None
+    # roe is the LAST positional field (after source_url) — preserves the one
+    # fully-positional construction in test_snapshot_acceptance.py:69.
+    positional = FilingDigest(
+        "600519.SH", "2026Q1", "2026-04-30", 0.06, 0.04, 0.69, "", "https://x", 0.18,
+    )
+    assert positional.roe == 0.18
+
+
 def test_broker_report_target_price_optional() -> None:
     r = BrokerReport(
         symbol="600519.SH",
