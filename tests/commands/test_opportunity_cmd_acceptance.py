@@ -149,7 +149,7 @@ def test_limit_caps_active_fund_autobuild_rows(tmp_path: Path, monkeypatch) -> N
 
     from irc.fundamentals.types import ActiveFundSnapshot
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         called_fund_ids.append(target.provider_symbol)
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,
@@ -216,7 +216,7 @@ def test_rebuild_fundamentals_bypasses_cache(tmp_path: Path, monkeypatch) -> Non
 
     build_called: list[str] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         build_called.append(target.provider_symbol)
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,
@@ -256,7 +256,7 @@ def test_budget_exceeded_exits_code_3_before_any_fetch(tmp_path: Path, monkeypat
     # Track any build_snapshot call (should NEVER happen before budget check).
     fetched: list[str] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         fetched.append(target.provider_symbol)
         from irc.fundamentals.types import ActiveFundSnapshot
         return ActiveFundSnapshot(
@@ -347,7 +347,7 @@ def test_resumable_state_skips_completed_funds(tmp_path: Path, monkeypatch) -> N
 
     fetched: list[str] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         fetched.append(target.provider_symbol)
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,
@@ -398,7 +398,7 @@ def test_stale_plan_hash_discarded(tmp_path: Path, monkeypatch) -> None:
 
     fetched: list[str] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         fetched.append(target.provider_symbol)
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,
@@ -446,7 +446,7 @@ def test_stale_plan_hash_discard_is_silent(tmp_path: Path, monkeypatch, capsys) 
     fundamentals_dir.mkdir(parents=True, exist_ok=True)
     write_fetch_state(state, fundamentals_dir, old_hash)
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,
             source_report_date="2024-03-31",
@@ -578,7 +578,7 @@ def test_cache_write_failed_stamped_in_fund_level_failure_reasons(tmp_path: Path
 
     built_snaps: list[ActiveFundSnapshot] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         snap = ActiveFundSnapshot(
             fund_id=target.provider_symbol,
             source_report_date="2024-03-31",
@@ -675,7 +675,7 @@ def test_budget_gate_credits_completed_ids(tmp_path: Path, monkeypatch) -> None:
 
     fetched: list[str] = []
 
-    def mock_build_snapshot(target, top_n=10):
+    def mock_build_snapshot(target, top_n=10, **kwargs):
         fetched.append(target.provider_symbol)
         return ActiveFundSnapshot(
             fund_id=target.provider_symbol,

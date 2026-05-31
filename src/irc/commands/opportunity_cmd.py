@@ -25,6 +25,7 @@ from irc.opportunity.rejection_log import (
     write_rejections_json,
 )
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
@@ -342,6 +343,7 @@ def _resolve_fund_level_snapshot(
     *,
     rebuild: bool,
     today: date_cls,
+    provider: CnFundamentalsProvider,
 ) -> FundLevelSnapshot:
     """Item 005 fund-level + QDII dispatch with cache reuse.
 
@@ -351,7 +353,7 @@ def _resolve_fund_level_snapshot(
       do a full refetch (no cheap probe per grill Q3) and write the cache.
     """
     if target.kind in ("qdii_us", "qdii_hk", "qdii_global"):
-        return build_snapshot(target)  # type: ignore[return-value]
+        return build_snapshot(target, provider=provider)  # type: ignore[return-value]
 
     fund_id = target.provider_symbol
     cached = None if rebuild else _load_latest_nav_cached(fund_id, root)
@@ -360,7 +362,7 @@ def _resolve_fund_level_snapshot(
     ):
         return cached
 
-    snap = build_snapshot(target)
+    snap = build_snapshot(target, provider=provider)
     if not isinstance(snap, FundLevelSnapshot):
         raise RuntimeError(
             f"build_snapshot returned {type(snap).__name__} for fund-level dispatch "
@@ -537,6 +539,8 @@ def _build_input(
     portfolio_total_cny: float,
     available_venues: set[str],
     con: duckdb.DuckDBPyConnection,
+    *,
+    provider: CnFundamentalsProvider,
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -576,7 +580,7 @@ def _build_input(
             entry_date = date_cls.fromisoformat(holding.hold_since)
         except ValueError:
             pass  # Malformed date string; drawdown_since_entry will remain None
-    return populate_inputs(con, skeleton, holding_entry_date=entry_date)
+    return populate_inputs(con, skeleton, holding_entry_date=entry_date, provider=provider)
 
 
 def _selection_quality_from(input_row: OpportunityInput) -> SelectionQuality:
@@ -757,6 +761,7 @@ def _build_rows(
     output_date: str,
     limit: int | None = None,
     rebuild_fundamentals: bool = False,
+    provider: CnFundamentalsProvider,
 ) -> tuple[list[OpportunityRow], dict, dict, dict, dict, str, dict]:
     """Build opportunity rows for each score entry.
 
@@ -878,6 +883,7 @@ def _build_rows(
                 target_band,
                 portfolio_total_cny, available_venues,
                 con,
+                provider=provider,
             )
             target = map_lookthrough(inp)
             snap_obj: object | None = None
@@ -892,7 +898,7 @@ def _build_rows(
                     elif rebuild_fundamentals:
                         # --rebuild-fundamentals: skip cache-read, skip freshness
                         # probe, force full re-fetch and force-write cache after build.
-                        snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                        snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT, provider=provider)
                         if isinstance(snap_obj, ActiveFundSnapshot):
                             snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
                             # P0-5: skip cache write when quarter is empty.
@@ -911,7 +917,7 @@ def _build_rows(
                         # 1. Try disk cache for the latest known quarter.
                         cached = _load_latest_active_fund_cached(fund_id, root / "data")
                         if cached is None:
-                            snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                            snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT, provider=provider)
                             if isinstance(snap_obj, ActiveFundSnapshot):
                                 snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
                                 # P0-5: skip cache write when quarter is empty.
@@ -931,7 +937,7 @@ def _build_rows(
                                 cached, today=today, root=root / "data",
                             )
                             if refresh:
-                                snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT)
+                                snap_obj = build_snapshot(target, top_n=TOP_N_DEFAULT, provider=provider)
                                 if isinstance(snap_obj, ActiveFundSnapshot):
                                     snap_to_cache = replace(snap_obj, cache_probed_at=today.isoformat())
                                     # P0-5: skip cache write when quarter is empty.
@@ -963,6 +969,7 @@ def _build_rows(
                         target, root / "data",
                         rebuild=rebuild_fundamentals,
                         today=today,
+                        provider=provider,
                     )
                     snapshot_cache[cache_key] = snap_obj
             else:
@@ -1495,6 +1502,7 @@ def run_opportunity(
     theme_reports = load_theme_reports(root)
     con = connect(root / "data" / "local.duckdb")
     ensure_schema(con)
+    cn_provider = default_cn_provider()
     out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
     try:
         rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument = _build_rows(
@@ -1505,6 +1513,7 @@ def run_opportunity(
             output_date=today,
             limit=limit,
             rebuild_fundamentals=rebuild_fundamentals,
+            provider=cn_provider,
         )
         if rows:
             _print_quality_warnings(rows)

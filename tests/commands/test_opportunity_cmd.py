@@ -264,10 +264,12 @@ def test_build_input_empty_venues_treats_instrument_as_compatible():
     con = duckdb.connect(":memory:")
     ensure_schema(con)
     try:
+        from irc.fundamentals.provider import AkShareProvider
         inp = _build_input(
             {"instrument_id": "510300", "role": ""},
             instr, None, None, 0.0, set(),  # empty venues
             con,
+            provider=AkShareProvider(),
         )
     finally:
         con.close()
@@ -884,11 +886,13 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
     ), patch(
         "irc.commands.opportunity_cmd.populate_inputs", side_effect=lambda con, s, **kw: s,
     ):
+        from irc.fundamentals.provider import AkShareProvider
         rows, _positions, _qualities, _roles, _pending_verdicts, _plan_hash, _snap_cache = _build_rows(
             scores, instr_index, {}, 0.0,
             available_venues=set(), theme_thesis=None, theme_reports={},
             root=tmp_path, asset_class_targets={}, con=con,
             output_date="2026-05-23",
+            provider=AkShareProvider(),
         )
     assert len(rows) == 1
     assert "holdings_fetch_failed" in rows[0].evidence_gaps

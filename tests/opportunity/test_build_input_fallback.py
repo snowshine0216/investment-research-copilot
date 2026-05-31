@@ -3,6 +3,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from irc.commands.opportunity_cmd import _build_input
+from irc.fundamentals.provider import AkShareProvider
 
 
 def test_build_input_unknown_instrument_uses_placeholder_name() -> None:
@@ -25,6 +26,7 @@ def test_build_input_unknown_instrument_uses_placeholder_name() -> None:
         portfolio_total_cny=0.0,
         available_venues=set(),
         con=con,
+        provider=AkShareProvider(),
     )
     assert inp.name_cn == "未登记(999999)"
     assert inp.instrument_id == "999999"
@@ -54,5 +56,6 @@ def test_build_input_known_instrument_uses_instrument_name() -> None:
         portfolio_total_cny=0.0,
         available_venues={"cn_brokerage"},
         con=con,
+        provider=AkShareProvider(),
     )
     assert inp.name_cn == "华泰柏瑞沪深300ETF"

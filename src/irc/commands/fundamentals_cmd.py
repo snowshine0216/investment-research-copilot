@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from irc.fundamentals.provider import default_cn_provider
 from irc.fundamentals.snapshot import (
     build_snapshot,
     registered_snapshot_targets,
@@ -39,11 +40,12 @@ def run_snapshot_rebuild(
         return 2
 
     root = Path(repo_root)
+    provider = default_cn_provider()
     for target in expanded_targets:
         lt = LookthroughTarget(
             kind="broad_index", key=target, display_cn=target,
         )
-        snapshot = build_snapshot(lt, top_n=top_n)
+        snapshot = build_snapshot(lt, top_n=top_n, provider=provider)
         path = write_snapshot(snapshot, root / "data")
         if snapshot.failure_reasons:
             joined = "; ".join(snapshot.failure_reasons)

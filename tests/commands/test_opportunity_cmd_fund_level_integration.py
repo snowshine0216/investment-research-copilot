@@ -81,6 +81,7 @@ def test_three_row_integration_gold_bond_cn_etf_dual_coverage(tmp_path: Path) ->
         side_effect=_universal_side(["518880", "000001", "510300"]),
     ):
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
+            from irc.fundamentals.provider import AkShareProvider
             rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
@@ -88,6 +89,7 @@ def test_three_row_integration_gold_bond_cn_etf_dual_coverage(tmp_path: Path) ->
                 output_date="2026-05-23",
                 limit=None,
                 rebuild_fundamentals=False,
+                provider=AkShareProvider(),
             )
     assert len(rows) == 3
     by_id = {r.instrument_id: r for r in rows}
@@ -125,6 +127,7 @@ def test_three_row_integration_writes_cache(tmp_path: Path) -> None:
         side_effect=_universal_side(["518880"]),
     ):
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
+            from irc.fundamentals.provider import AkShareProvider
             _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
@@ -132,6 +135,7 @@ def test_three_row_integration_writes_cache(tmp_path: Path) -> None:
                 output_date="2026-05-23",
                 limit=None,
                 rebuild_fundamentals=False,
+                provider=AkShareProvider(),
             )
     cache_files = list((tmp_path / "data" / "fundamentals").rglob("fund_518880.json"))
     assert len(cache_files) == 1
