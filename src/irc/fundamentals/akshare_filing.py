@@ -22,6 +22,7 @@ _SINA_FINSUMMARY_URL = (
 _KEY_REVENUE = "营业总收入"
 _KEY_NET_INCOME = "归母净利润"
 _KEY_COST = "营业成本"
+_KEY_ROE = "净资产收益率"
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
@@ -114,6 +115,20 @@ def _common_metric(df: pd.DataFrame, name: str, col: str) -> float | None:
     return None if math.isnan(value) else value
 
 
+def _profitability_metric(df: pd.DataFrame, name: str, col: str) -> float | None:
+    """Read a 盈利能力-section metric (e.g. 净资产收益率/ROE). Separate from
+    _common_metric, which hard-filters 常用指标 (shared by revenue/NI/cost)."""
+    matches = df[(df.get("选项") == "盈利能力") & (df.get("指标") == name)]
+    if matches.empty or col not in matches.columns:
+        return None
+    raw = matches.iloc[0][col]
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(value) else value
+
+
 def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
     """Latest 季报/年报 digest from `stock_financial_abstract`. Returns None on failure."""
     akshare_symbol = _to_akshare_symbol(symbol)
@@ -143,6 +158,7 @@ def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
         (net_income - prior_net_income) / prior_net_income if prior_net_income else None
     )
     gross_margin = 1 - (cost / revenue) if revenue else None
+    roe = _profitability_metric(df, _KEY_ROE, latest)
     period, filed = _yyyymmdd_to_period(latest)
     return FilingDigest(
         symbol=_to_qualified_symbol(akshare_symbol),
@@ -152,4 +168,5 @@ def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
         net_income_yoy=net_income_yoy,
         gross_margin=gross_margin,
         source_url=_SINA_FINSUMMARY_URL.format(symbol=akshare_symbol),
+        roe=roe,
     )

@@ -483,6 +483,46 @@ def test_fetch_cn_filing_digest_returns_none_when_metrics_missing() -> None:
     assert digest is None
 
 
+def test_fetch_cn_filing_digest_surfaces_roe_from_profitability_section() -> None:
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = _ABSTRACT_FRAME
+        digest = fetch_cn_filing_digest("600519")
+    assert digest is not None
+    # 净资产收益率 for the latest column (20260331) is 0.18, read from the
+    # 盈利能力 section (NOT 常用指标 — which _common_metric hard-filters).
+    assert digest.roe == pytest.approx(0.18)
+
+
+def test_fetch_cn_filing_digest_roe_none_when_section_absent() -> None:
+    # Frame with NO 盈利能力 row: revenue/NI/cost still present → digest produced,
+    # but roe degrades to None (ROE absence does NOT fail the digest).
+    frame = pd.DataFrame({
+        "选项": ["常用指标", "常用指标", "常用指标"],
+        "指标": ["归母净利润", "营业总收入", "营业成本"],
+        "20260331": [27.24e9, 54.70e9, 17.19e9],
+        "20250331": [26.84e9, 51.44e9, 14.43e9],
+    })
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = frame
+        digest = fetch_cn_filing_digest("600519")
+    assert digest is not None
+    assert digest.roe is None
+
+
+def test_fetch_cn_filing_digest_roe_none_when_value_nan() -> None:
+    frame = pd.DataFrame({
+        "选项": ["常用指标", "常用指标", "常用指标", "盈利能力"],
+        "指标": ["归母净利润", "营业总收入", "营业成本", "净资产收益率"],
+        "20260331": [27.24e9, 54.70e9, 17.19e9, float("nan")],
+        "20250331": [26.84e9, 51.44e9, 14.43e9, 0.17],
+    })
+    with patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = frame
+        digest = fetch_cn_filing_digest("600519")
+    assert digest is not None
+    assert digest.roe is None
+
+
 # ---------- fetch_hk_index_constituents ----------
 
 
