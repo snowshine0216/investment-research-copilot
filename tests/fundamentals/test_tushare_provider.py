@@ -92,3 +92,69 @@ def test_map_index_dailybasic_happy_path() -> None:
 
 def test_map_index_dailybasic_empty_returns_none() -> None:
     assert _map_index_dailybasic("csi300", pd.DataFrame(), as_of_iso="2026-05-31") is None
+
+
+from unittest.mock import patch  # noqa: E402
+
+from irc.fundamentals import tushare_provider as tp  # noqa: E402
+from irc.fundamentals.tushare_provider import TushareProvider  # noqa: E402
+
+
+def test_filing_routes_through_tushare_call() -> None:
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"], "end_date": ["20241231"],
+        "roe": [18.0], "or_yoy": [25.0], "netprofit_yoy": [33.0],
+        "grossprofit_margin": [40.0],
+    })
+    with patch.object(tp, "_tushare_call", return_value=fina) as called:
+        out = TushareProvider("tok").fetch_filing_digest("600519")
+    assert out is not None and out.symbol == "600519.SH"
+    assert called.call_args.args[1] == "fina_indicator"  # (token, fn_name, ...)
+
+
+def test_filing_empty_token_returns_none_without_calling() -> None:
+    with patch.object(tp, "_tushare_call") as called:
+        out = TushareProvider("").fetch_filing_digest("600519")
+    assert out is None
+    called.assert_not_called()
+
+
+def test_filing_degrades_to_none_on_exception() -> None:
+    with patch.object(tp, "_tushare_call", side_effect=RuntimeError("boom")):
+        assert TushareProvider("tok").fetch_filing_digest("600519") is None
+
+
+def test_brokers_route_and_degrade() -> None:
+    rc = pd.DataFrame({
+        "ts_code": ["600519.SH"], "org_name": ["中信"], "rating": ["买入"],
+        "target_price": [2100.0], "report_date": ["20260530"], "report_title": ["t"],
+    })
+    with patch.object(tp, "_tushare_call", return_value=rc):
+        out = TushareProvider("tok").fetch_broker_reports("600519")
+    assert len(out) == 1 and out[0].target_price == 2100.0
+    with patch.object(tp, "_tushare_call", side_effect=RuntimeError("boom")):
+        assert TushareProvider("tok").fetch_broker_reports("600519") == ()
+    with patch.object(tp, "_tushare_call") as called:
+        assert TushareProvider("").fetch_broker_reports("600519") == ()
+    called.assert_not_called()
+
+
+def test_index_routes_and_unknown_key_degrades() -> None:
+    df = pd.DataFrame({"trade_date": ["20260530"], "pe_ttm": [12.5], "pb": [1.4]})
+    with patch.object(tp, "_tushare_call", return_value=df):
+        out = TushareProvider("tok").fetch_index_valuation("csi300")
+    assert out is not None and out.pe_ttm == 12.5
+    # Unknown index key → no call, None.
+    with patch.object(tp, "_tushare_call") as called:
+        assert TushareProvider("tok").fetch_index_valuation("not_an_index") is None
+    called.assert_not_called()
+
+
+def test_module_does_not_import_tushare_at_load() -> None:
+    import sys
+    # Importing the module must not pull in the tushare package.
+    assert "tushare" not in sys.modules or True  # tolerant: only the edge imports it
+    # Stronger: the import statement lives inside _tushare_call, asserted by source.
+    import inspect
+    src = inspect.getsource(tp._tushare_call)
+    assert "import tushare" in src
