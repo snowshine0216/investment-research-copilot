@@ -81,7 +81,7 @@ is unchanged; `--adversarial` roughly **doubles** the per-row thesis-LLM calls (
 | D8 | Does the debate touch any state / citation? | **No.** It reads `OpportunityRow` (post-derivation) and emits prose only. It produces no `ThesisEvidence`, no `[ref:...]`, no `evidence_gaps`/`advisory_gaps`, and changes no `thesis_state`/`valuation_state`/`opportunity_state`/`core_dca`/Policy-B verdict. | ADR 0003: `thesis_state` is owned solely by `derive_thesis_from_evidence`; Policy B sets publishability, never state. The debate is downstream of both and read-only w.r.t. them. |
 | D9 | Pure vs effect split | Pure: prompt construction, JSON parse/sanitise, pairing two results into a `ThesisDebate`, and the `compose_thesis_debate_markdown(debates) -> str` renderer — all unit-testable without the LLM. Effect: the two `call_chat` calls, confined to a thin wrapper + the command layer. | CLAUDE.md "effects at edges"; mirrors `falsification.py` (pure result type + single effectful call). |
 | D10 | Which rows get a debate | **Publishable rows only** (the H3 `evidence_gaps == ()` set, i.e. `publishable_rows` after the citation gate). Gapped rows have not earned a thesis conclusion, so debating them is meaningless and would risk leaking gapped-row context. | Mirrors H3: only rows that earned a `thesis_state` get downstream treatment. Keeps debate cost bounded to the publishable set. |
-| D11 | Module placement | New pure module `src/irc/opportunity/debate.py` (the `ThesisDebate`/`DefenseResult` types, prompt builders, JSON parse, pairing, markdown renderer); the two effectful `call_chat` invocations live in a thin runner in the same module (mirroring `falsification.py` having its one `call_chat`) and are orchestrated from `commands/opportunity_cmd.py`. No new ADR (additive, high-reversibility, no new architectural decision — flag-gated opt-in). | Keeps debate logic isolated, files <200 lines. CONTEXT.md gains a `thesis_debate` / `--adversarial` glossary entry. |
+| D11 | Module placement | New pure module `src/irc/opportunity/debate.py` (the `ThesisDebate`/`DefenseResult` types, prompt builders, JSON parse, pairing, markdown renderer); the two effectful `call_chat` invocations live in a thin runner in the same module (mirroring `falsification.py` having its one `call_chat`) and are orchestrated from `commands/opportunity_cmd.py`. ~~No new ADR (additive, high-reversibility, no new architectural decision — flag-gated opt-in).~~ — corrected by grill: an ADR **was** written ([ADR 0011](../../adr/0011-adversarial-debate-advisory-only.md)). The flag/file are reversible, but the load-bearing decision — emitting a **non-deterministic LLM artifact from the deterministic `_write_opportunity_outputs` boundary** and explicitly **exempting it from the two-run byte-equality / publishable-set-lockdown contract** (ADR 0004, item 008) — is surprising-without-context and the chosen one of three real alternatives (reuse theme-falsifier / make-canonical / let-it-set-state), so it clears the three-of-three bar. | Keeps debate logic isolated, files <200 lines. CONTEXT.md gains `thesis_defend` / `DefenseResult` / `ThesisDebate` / `thesis_debate.md` / `--adversarial` glossary entries (new "Adversarial debate (advisory)" section). |
 | D12 | Per-row LLM failure handling | Each half degrades to an empty result on any exception (mirroring `generate_falsification`); a row whose both halves are empty renders a `（本行未能生成辩论）` placeholder line. **One row's LLM failure never aborts the run** and never blocks the 5 canonical artifacts (those are already written before/independently of the debate file). | Effects-at-edges robustness; the debate is advisory — a failed call must not break the deterministic outputs. |
 
 ## Acceptance criteria
@@ -199,26 +199,52 @@ All recorded in the **Decisions** table (D1–D12). The load-bearing ones:
 
 ## Could-not-fully-resolve (grill targets)
 
-- **G1 — debate-file format: Markdown vs YAML/JSON.** I chose `thesis_debate.md` (human-readable, matches
-  `discipline_report.md`'s advisory-prose register). If the planner wants a machine-readable
-  `thesis_debate.yaml` (parallel to `thesis_cards.yaml`) for downstream tooling, that is a renderer swap —
-  grill to confirm the consumer is a human reader, not a tool.
-- **G2 — does `thesis_falsify` keep its own result type or reuse one?** `thesis_falsify` is unwired, so
-  there is no existing falsify *call-site* in the opportunity stage to reuse — only
-  `research/falsification.py`'s `generate_falsification`/`FalsificationResult` (which targets *theme*
-  theses, not constituent thesis cards). Decision leans: add a thin opportunity-stage `generate_defense`
-  + `generate_falsification`-equivalent pair in `debate.py` rather than reaching into `research/`. Grill
-  to confirm we are NOT reusing the `research/falsification.py` theme-falsifier verbatim (its prompt is
-  theme-shaped, not card-shaped) and that a fresh card-shaped falsify runner is acceptable scope.
-- **G3 — debate input granularity: fund-row-level vs constituent-level.** I chose **row-level** (one
-  debate per publishable `OpportunityRow`, arguing over its derived `thesis_state` + top-N evidence).
-  A constituent-level debate (one per holding) would be far more LLM-expensive and is YAGNI for a
-  reasoning aid. Grill to confirm row-level is the intended granularity.
-- **G4 — flag interaction with `--limit` / canonical-path rules.** `--limit` is rejected on canonical
-  `outputs/<today>/` paths. Is `--adversarial` permitted on canonical paths (it does not change the
-  publishable set, only adds an advisory file)? Decision leans **yes** (it is purely additive and
-  cannot corrupt the canonical artifacts). Grill to confirm no canonical-path restriction is wanted.
-- **G5 — temperature / determinism of the LLM halves.** `generate_falsification` uses `temperature=0.2`;
-  `respond_to_query` likewise. The debate prose is inherently non-deterministic (LLM), so the
-  byte-stability ACs (AC3) apply to the **default path only** (flag off ⇒ no file). Grill to confirm the
-  flag-on `thesis_debate.md` is explicitly exempt from two-run byte-equality (it is an LLM artifact).
+> **RESOLVED by grill (2026-05-31).** All five targets resolved below and in `## Resolved decisions`.
+> Each "Decision leans …" is now confirmed; verified against code + ADRs.
+
+- **G1 — debate-file format: Markdown vs YAML/JSON.** ~~Grill to confirm the consumer is a human reader, not a tool.~~ — **RESOLVED: Markdown.** `thesis_debate.md` is the only advisory-prose register in the opportunity stage (peer of `discipline_report.md`); the consumer is a human reading alongside the report, not downstream tooling. No tool consumes it.
+- **G2 — does `thesis_falsify` keep its own result type or reuse one?** ~~Grill to confirm we are NOT reusing the `research/falsification.py` theme-falsifier verbatim … and that a fresh card-shaped falsify runner is acceptable scope.~~ — **RESOLVED: fresh card-shaped runner.** Verified `generate_falsification` is THEME-shaped (`generate_falsification(thesis_summary: str, route)`) and has **zero callers** in `src/` (grep-confirmed); it never resolves the `"thesis_falsify"` task name itself (takes a pre-resolved `route`). Build a fresh card-shaped `DefenseResult` + falsify pair in `src/irc/opportunity/debate.py` over `OpportunityRow` fields; do NOT reach into `research/` (input-shape mismatch + wrong dependency direction). Locked in [ADR 0011](../../adr/0011-adversarial-debate-advisory-only.md) §3.
+- **G3 — debate input granularity: fund-row-level vs constituent-level.** ~~Grill to confirm row-level is the intended granularity.~~ — **RESOLVED: row-level.** One debate per publishable `OpportunityRow`, arguing over its derived `thesis_state` + top-N `thesis_evidence`. Constituent-level (per holding) is N× more LLM calls and YAGNI for a reasoning aid. Mirrors H3: only rows that earned a `thesis_state` get downstream treatment.
+- **G4 — flag interaction with `--limit` / canonical-path rules.** ~~Grill to confirm no canonical-path restriction is wanted.~~ — **RESOLVED: `--adversarial` IS permitted on canonical paths.** Verified the `--limit` rejection (`validate_cli_args` / `_reject_limit_on_canonical`, `opportunity_cmd.py:387–430`) exists ONLY because `--limit` caps the active-fund set (`_build_rows` `:777–783`) and so **corrupts the publishable set**. `--adversarial` adds an advisory file and touches no row, so it cannot corrupt a canonical artifact — no restriction warranted. Locked in ADR 0011 §2.
+- **G5 — temperature / determinism of the LLM halves.** ~~Grill to confirm the flag-on `thesis_debate.md` is explicitly exempt from two-run byte-equality (it is an LLM artifact).~~ — **RESOLVED: `thesis_debate.md` is EXEMPT.** Verified the two-run byte-equality contract is scoped to the deterministic renderers (`memo.md` + `discipline_report.md`, ADR 0004 §Consequences) and the five canonical artifacts (item 008 publishable-set lockdown). An LLM-prose artifact is structurally outside both. The **pure renderer** `compose_thesis_debate_markdown` IS deterministic (same `ThesisDebate` in → identical Markdown out); only the upstream LLM `arguments`/`conditions` are non-deterministic. AC3's byte-equality applies to the **default (flag-off) path only**. Locked in ADR 0011 §2.
+
+## Resolved decisions
+
+> Appended by grill (2026-05-31, opus, no user in loop — auto-accepted recommended answers).
+> Verdict: **PASS**. Every load-bearing spec claim verified TRUE against code + ADRs; no
+> spec-vs-load-bearing-ADR/code contradiction found.
+
+- **Q (G2, key): Is `thesis_falsify` truly unwired, and do we build a fresh card-shaped runner or reuse `research/falsification.py`?**
+  **A:** Confirmed unwired — `grep -rn '"thesis_falsify"' src/` is empty; the only definition, `research/falsification.py::generate_falsification`, has **zero callers** in `src/` and is theme-shaped (`thesis_summary: str`). Build a **fresh card-shaped** defend+falsify pair in `src/irc/opportunity/debate.py` over `OpportunityRow` fields.
+  **Rationale:** Reusing the theme falsifier would force a lossy card→prose flatten and couple opportunity→research (wrong direction). Two single-tuple result types (`DefenseResult` / `FalsificationResult`) in two packages is the correct outcome.
+  **Doc impact:** CONTEXT.md `DefenseResult` / `ThesisDebate`; ADR 0011 §3.
+
+- **Q (G1): Markdown or machine-readable for the debate file?**
+  **A:** Markdown (`thesis_debate.md`), human-reader register, peer of `discipline_report.md`.
+  **Rationale:** No tool consumes it; advisory prose matches the only other advisory opportunity output.
+  **Doc impact:** CONTEXT.md `thesis_debate.md`.
+
+- **Q (G3): Row-level or constituent-level debate?**
+  **A:** Row-level — one debate per publishable `OpportunityRow`.
+  **Rationale:** Constituent-level is N× cost and YAGNI; mirrors H3 (only `thesis_state`-bearing rows get downstream treatment).
+  **Doc impact:** CONTEXT.md `Bull/bear debate (--adversarial)`.
+
+- **Q (G4): Is `--adversarial` allowed on canonical `outputs/<date>/` paths?**
+  **A:** Yes. The `--limit` canonical rejection exists only because `--limit` corrupts the publishable set; `--adversarial` adds a file and touches no row.
+  **Rationale:** Verified in `validate_cli_args` + `_build_rows` `--limit` capping; the advisory file cannot corrupt a canonical artifact.
+  **Doc impact:** CONTEXT.md `thesis_debate.md`; ADR 0011 §2.
+
+- **Q (G5): Is `thesis_debate.md` exempt from the two-run byte-equality / determinism contract?**
+  **A:** Yes — explicitly exempt. The contract is scoped to the deterministic renderers + the five canonical artifacts; an LLM artifact is outside both. The pure renderer is still deterministic; only the LLM content is not.
+  **Rationale:** Prevents a future contributor from "fixing" the apparent violation or adding the file to the lockdown's byte-equality assertion.
+  **Doc impact:** CONTEXT.md `thesis_debate.md`; ADR 0011 §2.
+
+- **Q: Is the advisory-only / non-canonical / state-free posture ADR-worthy under three-of-three?**
+  **A:** Yes — ADR 0011 written. The flag/file are reversible, but emitting a non-deterministic LLM artifact from the deterministic `_write_opportunity_outputs` boundary, exempt from the determinism/lockdown contract, is surprising-without-context and the chosen one of three real alternatives.
+  **Rationale:** Three-of-three met on the *boundary/exemption* decision (not on the trivially-additive flag alone). Corrects D11's "no new ADR".
+  **Doc impact:** ADR 0011; D11 strike-through.
+
+- **Q: Any spec claim FALSE against the code?**
+  **A:** None. The KEY claim (`thesis_falsify` registered but zero production call-sites) is TRUE. The 5-canonical-artifact set, H3 partition predicate (`evidence_gaps == ()`), `atomic_write_text` write boundary, `OpportunityRow` carrying `name_cn`/`thesis_state`/`opportunity_reason`/`thesis_evidence`, `resolve_route` task-by-name with extra-tasks-allowed (`REQUIRED_TASKS` = memo_synthesis/memo_audit only), `--rebuild-fundamentals` attach layer, and the `RUN_LIVE_LLM_TESTS=1` + `DEEPSEEK_API_KEY` double-gate — all verified TRUE.
+  **Rationale:** No correction needed beyond the D11 ADR reversal.
+  **Doc impact:** none (no factual strike-through required).
