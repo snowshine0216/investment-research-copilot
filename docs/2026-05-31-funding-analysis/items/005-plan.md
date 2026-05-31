@@ -1086,7 +1086,10 @@ git commit -m "test(005): lock canonical byte-equality + no-citation under --adv
 Append a new section to `CONTEXT.md` (place near the opportunity/discipline terminology):
 
 ```markdown
-## Adversarial debate (advisory) — `--adversarial`
+## Adversarial debate (advisory)
+
+<!-- NOTE (drift DF-1): grill commit 8504e7a used this header (without the flag suffix);
+     amended to match actual CONTEXT.md:140. Content is complete and correct. -->
 
 - **`--adversarial`** — opt-in flag on `irc opportunity` (default OFF). When OFF, the
   stage makes zero thesis-LLM calls and outputs are byte-identical to today. When ON,
