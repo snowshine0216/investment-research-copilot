@@ -6,7 +6,7 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -35,4 +35,5 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 
 ## Artifact links (filled as cells go ✅)
 
-_(spec/plan/grill/drift/ship/verify/review/pr-review verdict files land under `items/`)_
+- 001 spec: `items/001-spec.md` (commit d5439f6) — 7 acceptance criteria. Key correction: target_price unavailable from `stock_research_report_em` (consensus_upside wired pure, None until Tushare/003); pe/pb via `stock_index_pe_lg`/`stock_index_pb_lg` at fund/index level.
+- 001 grill: `items/001-grill.md` (PASS, commits 6956d23/0015e89) — created ADR 0009 (consensus-upside-degrade-to-none), added `consensus_upside_pct` to CONTEXT.md (ratio units). Proved pe/pb/upside are inert (no non-test reader) → 001 cannot touch any state classifier; AC4 has an inertness regression lock.
