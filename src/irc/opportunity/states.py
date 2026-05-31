@@ -142,6 +142,7 @@ _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
     "cn_equity_fund", "cn_etf", "us_etf", "hk_etf", "qdii_global",
 })
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
+_NOTCHABLE_VALUATION_STATES: frozenset[str] = frozenset({"cheap", "reasonable_low"})
 
 
 def expected_real_return_positive(inp: OpportunityInput) -> bool | None:
@@ -238,6 +239,10 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
         fundamental = valuation_fundamental_signal(inp)
         if fundamental is not None:
             reason = f"{reason} {_fundamental_reason_phrase(fundamental, inp)}"
+            # AC3: corroboration-only one-notch move toward cheaper. Never
+            # toward more-expensive; never promotes fair/expensive/very_expensive.
+            if fundamental == "cheap" and state in _NOTCHABLE_VALUATION_STATES:
+                state = "cheap"
     return state, reason
 
 

@@ -102,3 +102,46 @@ def test_classify_valuation_no_fundamental_phrase_when_signal_none() -> None:
     state, reason = classify_valuation(inp)
     assert state == "fair"
     assert "上行空间" not in reason
+
+
+def test_notch_reasonable_low_plus_cheap_signal_becomes_cheap() -> None:
+    """AC3(a): percentile reasonable_low + 'cheap' signal → cheap (corroboration)."""
+    inp = _equity(valuation_percentile_self=0.30, consensus_upside_pct=0.25)
+    state, _ = classify_valuation(inp)
+    assert state == "cheap"
+
+
+def test_notch_cheap_plus_cheap_signal_stays_cheap() -> None:
+    """AC3: already cheap stays cheap (notch is a no-op, never moves expensive)."""
+    inp = _equity(valuation_percentile_self=0.10, consensus_upside_pct=0.25)
+    state, _ = classify_valuation(inp)
+    assert state == "cheap"
+
+
+def test_notch_does_not_fire_for_fair_percentile() -> None:
+    """AC3(b): percentile fair + 'cheap' signal → fair (no jump)."""
+    inp = _equity(valuation_percentile_self=0.55, consensus_upside_pct=0.25)
+    state, _ = classify_valuation(inp)
+    assert state == "fair"
+
+
+def test_notch_never_moves_toward_more_expensive() -> None:
+    """AC3(c): percentile expensive + 'rich' signal → expensive (reason only)."""
+    inp = _equity(valuation_percentile_self=0.80, consensus_upside_pct=-0.30)
+    state, reason = classify_valuation(inp)
+    assert state == "expensive"
+    assert "下行" in reason  # contradiction annotated
+
+
+def test_notch_does_not_fire_for_neutral_signal() -> None:
+    """AC3: corroboration requires signal=='cheap'; neutral leaves state alone."""
+    inp = _equity(valuation_percentile_self=0.30, consensus_upside_pct=0.05)
+    state, _ = classify_valuation(inp)
+    assert state == "reasonable_low"
+
+
+def test_notch_does_not_fire_when_signal_none() -> None:
+    """AC6: None signal → state byte-identical to today (dormant)."""
+    inp = _equity(valuation_percentile_self=0.30)
+    state, _ = classify_valuation(inp)
+    assert state == "reasonable_low"
