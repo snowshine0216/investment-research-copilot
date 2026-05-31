@@ -5,7 +5,9 @@ ADR 0009: the input is `None` in production today → signal `None` (no opinion)
 """
 from __future__ import annotations
 
-from irc.opportunity.states import classify_valuation
+import dataclasses
+
+from irc.opportunity.states import classify_valuation, compose_opportunity_state
 from irc.opportunity.types import OpportunityInput
 from irc.opportunity.valuation_fundamental import (
     CHEAP_UPSIDE_THRESHOLD,
@@ -145,3 +147,38 @@ def test_notch_does_not_fire_when_signal_none() -> None:
     inp = _equity(valuation_percentile_self=0.30)
     state, _ = classify_valuation(inp)
     assert state == "reasonable_low"
+
+
+def test_bond_classify_byte_identical_with_consensus_upside_set() -> None:
+    """AC5: bonds are yield-percentile-anchored; consensus_upside_pct must not
+    change classify_valuation output (bond-valuation invariant)."""
+    bare = OpportunityInput(
+        instrument_id="014502", asset_class="cn_bond_fund", market="cn_off_exchange",
+        cn_bond_yield_percentile=0.65,
+    )
+    populated = dataclasses.replace(bare, consensus_upside_pct=0.25, pe_ttm=8.0, pb=0.9)
+    assert classify_valuation(populated) == classify_valuation(bare)
+
+
+def test_gold_classify_byte_identical_with_consensus_upside_set() -> None:
+    """AC5: gold has no equity fundamentals; the anchor must not fire."""
+    bare = OpportunityInput(
+        instrument_id="518880", asset_class="gold", market="cn_on_exchange",
+        valuation_percentile_self=0.50,
+    )
+    populated = dataclasses.replace(bare, consensus_upside_pct=-0.30)
+    assert classify_valuation(populated) == classify_valuation(bare)
+
+
+def test_compose_state_block_inert_for_none_fundamental() -> None:
+    """AC5/AC6: the composer block is keyed on valuation_fundamental only; a
+    bond/gold row never supplies it → core_dca path unchanged."""
+    with_none = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable", valuation_fundamental=None,
+    )
+    legacy = compose_opportunity_state(
+        valuation="cheap", heat="cold", thesis="intact",
+        product_quality="acceptable",
+    )
+    assert with_none == legacy == ("core_dca", with_none[1])
