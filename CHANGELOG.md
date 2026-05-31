@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-004` (2026-05-31)
+
+Deterministic, pure key-ratios surface closing the balance-sheet / earnings-quality
+evidence gap — **no LLM**, reason-only (no new state, gate, or citation):
+
+- New pure module `fundamentals/ratios.py`: `compute_ratios(financials: FilingDigest)
+  -> KeyRatios` (`roe`, `debt_equity`, `gross_margin`, `fcf_yield`). Same input →
+  equal output; non-finite (NaN/±inf) and missing inputs degrade to `None` (no
+  fabrication, ADR 0009 family). `debt_equity`/`fcf_yield` are `None` today (their
+  line items aren't fetched) and self-activate when item 003's Tushare feed lands.
+- `roe` is now extracted from the already-fetched `stock_financial_abstract`
+  `盈利能力` section (new `_profitability_metric`; the shared `_common_metric` /
+  `常用指标` read is untouched, no new network call) and added to `FilingDigest`.
+  An implausible `roe` (`abs > 1.5`, likely a percent-vs-ratio unit error) degrades
+  to `None` rather than display a 100×-wrong figure.
+- A compact, caveated reason fragment (`（ROE …·毛利…，口径未核实）`) is appended to the
+  constituent `one_line_view` **only when it fits whole** within the existing 60-char
+  cap (cap unchanged); `None` ratios are omitted. Filing-derived numbers stay
+  disclosure-existence anchors, not endorsed performance figures (ADR 0001 addendum).
+- No change to `valuation_state` / `thesis_state` / Policy B / `core_dca` / the
+  opportunity partition / the citation set (reason-only posture, locked by tests).
+
 ### Added — `funding-analysis-002` (2026-05-31)
 
 Make the inert item-001 fundamental inputs **live**: `valuation_state` now
