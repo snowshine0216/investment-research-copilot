@@ -249,9 +249,9 @@ def test_populate_inputs_leaves_pe_pb_none_for_unrecognised_index(tmp_path):
         " DATE '2020-01-01', 0.005, 1.0e9, NULL, 3.0, "
         " TIMESTAMP '2026-05-15', 'test', 'test:159999')"
     )
-    # raise_on_fetch=True ensures the provider is never called for an unknown key
-    # (the _BROAD_INDEX_KEYS guard fires first)
-    provider = _StubProvider(raise_on_fetch=False)  # unknown key → short-circuit, no call
+    # raise_on_fetch=True: the provider must NOT be called for an unrecognised index;
+    # the _BROAD_INDEX_KEYS guard fires first and short-circuits before any fetch.
+    provider = _StubProvider(raise_on_fetch=True)
     skeleton = OpportunityInput(
         instrument_id="159999",
         asset_class="cn_etf",
