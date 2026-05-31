@@ -7,7 +7,7 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/funding-analysis-001 | ✅ a850f42 | ✅ | ✅ #84 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 22baf17 |
-| 002 | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -37,3 +37,4 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 
 - 001 spec: `items/001-spec.md` (commit d5439f6) — 7 acceptance criteria. Key correction: target_price unavailable from `stock_research_report_em` (consensus_upside wired pure, None until Tushare/003); pe/pb via `stock_index_pe_lg`/`stock_index_pb_lg` at fund/index level.
 - 001 grill: `items/001-grill.md` (PASS, commits 6956d23/0015e89) — created ADR 0009 (consensus-upside-degrade-to-none), added `consensus_upside_pct` to CONTEXT.md (ratio units). Proved pe/pb/upside are inert (no non-test reader) → 001 cannot touch any state classifier; AC4 has an inertness regression lock.
+- 002 spec: `items/002-spec.md` (commit 5242f3a) — 9 acceptance criteria. Makes pe/pb/consensus_upside live in `classify_valuation`; `core_dca` cheap-half becomes fundamental-aware (the gate already requires cheap-AND-intact). Key finding: 001's AC4 inertness lock must be **updated** (not deleted) — 002 makes a populated row's valuation_state change by design (AC7). All-None case stays `evidence_insufficient` (ADR 0009 degrade-to-none). Grill targets: threshold values (CHEAP_UPSIDE=0.20 / RICH_UPSIDE=-0.10), threading mechanism for the core_dca block, ADR-escalation judgment.
