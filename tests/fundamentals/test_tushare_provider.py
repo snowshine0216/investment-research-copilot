@@ -216,3 +216,32 @@ def test_map_fina_fy_end_date_yields_fy_period() -> None:
     out = _map_fina_to_digest("600519.SH", fina)
     assert out is not None
     assert out.fiscal_period == "2024FY"
+
+
+# ── FIX 3: _to_ts_code maps BJ-exchange codes to .BJ suffix ──────────────────
+
+from irc.fundamentals.tushare_provider import _to_ts_code  # noqa: E402
+
+
+def test_to_ts_code_sh_prefix() -> None:
+    """Symbols starting with 5 or 6 must map to .SH."""
+    assert _to_ts_code("600519") == "600519.SH"
+    assert _to_ts_code("510300") == "510300.SH"
+
+
+def test_to_ts_code_sz_prefix() -> None:
+    """Symbols starting with 0 or 3 must map to .SZ."""
+    assert _to_ts_code("000001") == "000001.SZ"
+    assert _to_ts_code("300750") == "300750.SZ"
+
+
+def test_to_ts_code_bj_prefix() -> None:
+    """Symbols starting with 4 or 8 must map to .BJ (Beijing Stock Exchange)."""
+    assert _to_ts_code("830799") == "830799.BJ"
+    assert _to_ts_code("430047") == "430047.BJ"
+
+
+def test_to_ts_code_already_suffixed_passthrough() -> None:
+    """Codes that already contain '.' must be returned unchanged."""
+    assert _to_ts_code("600519.SH") == "600519.SH"
+    assert _to_ts_code("830799.BJ") == "830799.BJ"

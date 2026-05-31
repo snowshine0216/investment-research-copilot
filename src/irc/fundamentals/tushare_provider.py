@@ -54,7 +54,13 @@ def _to_ts_code(symbol: str) -> str:
     code = str(symbol).strip()
     if "." in code:
         return code
-    suffix = "SH" if code[:1] in ("5", "6") else "SZ"
+    head = code[:1]
+    if head in ("5", "6"):
+        suffix = "SH"
+    elif head in ("4", "8"):
+        suffix = "BJ"
+    else:
+        suffix = "SZ"
     return f"{code}.{suffix}"
 
 
