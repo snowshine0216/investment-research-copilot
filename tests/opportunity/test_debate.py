@@ -74,3 +74,48 @@ def test_run_defend_caps_item_count(mock_chat):
     items = ", ".join(['"x"'] * 20)
     mock_chat.return_value = MagicMock(text='{"arguments": [%s]}' % items)
     assert len(run_defend(_row(), route=MagicMock()).arguments) <= 10
+
+
+from irc.opportunity.debate import ThesisDebate, pair_debate, run_debates
+
+
+def test_pair_debate_is_pure():
+    row = _row(iid="P1", thesis_state="intact")
+    d = DefenseResult(arguments=("a",))
+    f = FalsificationResult(conditions=("c",))
+    debate = pair_debate(row, d, f)
+    assert isinstance(debate, ThesisDebate)
+    assert debate.instrument_id == "P1"
+    assert debate.thesis_state == "intact"
+    assert debate.defense == d
+    assert debate.falsification == f
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_debates_calls_both_halves_per_row(mock_chat):
+    mock_chat.return_value = MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}')
+    rows = [_row(iid="R1"), _row(iid="R2")]
+    debates = run_debates(rows, routes=(MagicMock(), MagicMock()))
+    # 2 rows × (defend + falsify) = 4 calls.
+    assert mock_chat.call_count == 4
+    assert len(debates) == 2
+    assert {d.instrument_id for d in debates} == {"R1", "R2"}
+
+
+@patch("irc.opportunity.debate.call_chat")
+def test_run_debates_isolates_per_row_failure(mock_chat):
+    # First row's defend raises; the run must still produce 2 debates.
+    calls = {"n": 0}
+
+    def _side(*a, **k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("row1 defend down")
+        return MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}')
+
+    mock_chat.side_effect = _side
+    debates = run_debates([_row(iid="R1"), _row(iid="R2")], routes=(MagicMock(), MagicMock()))
+    assert len(debates) == 2
+    # R1's defense degraded to empty, falsify still ran.
+    r1 = next(d for d in debates if d.instrument_id == "R1")
+    assert r1.defense.arguments == ()
