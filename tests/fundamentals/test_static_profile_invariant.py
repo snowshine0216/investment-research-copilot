@@ -40,3 +40,13 @@ def test_static_profile_indicator_not_in_snapshot() -> None:
         / "src" / "irc" / "fundamentals" / "snapshot.py"
     )
     assert "基金概况" not in snapshot_file.read_text(encoding="utf-8")
+
+
+def test_static_profile_indicator_not_in_provider_modules() -> None:
+    base = Path(__file__).resolve().parents[2] / "src" / "irc" / "fundamentals"
+    for name in ("provider.py", "tushare_provider.py"):
+        body = (base / name).read_text(encoding="utf-8")
+        assert "基金概况" not in body, (
+            f"F5/AC9 violated: {name} references the forbidden '基金概况' "
+            "indicator. See ADR 0002 §5 / ADR 0010 Consequences."
+        )
