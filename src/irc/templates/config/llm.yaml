@@ -13,6 +13,7 @@ tasks:
   watchlist_reason:   { provider: deepseek,   model: deepseek-chat }
   scoring_rationale:  { provider: deepseek,   model: deepseek-reasoner }
   thesis_falsify:     { provider: deepseek,   model: deepseek-reasoner }
+  thesis_defend:      { provider: deepseek,   model: deepseek-reasoner }
   interactive_query:  { provider: deepseek,   model: deepseek-reasoner }
   research_synth:     { provider: deepseek,   model: deepseek-chat }
   memo_synthesis:     { provider: openrouter, model: anthropic/claude-opus-4.7 }
