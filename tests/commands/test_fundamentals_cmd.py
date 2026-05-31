@@ -43,7 +43,8 @@ def test_snapshot_rebuild_builds_and_writes_each_target(tmp_path: Path) -> None:
     call_args = mock_build.call_args
     assert call_args.args[0].display_cn == "沪深300"
     assert call_args.args[0].kind in ("broad_index", "sector_theme", "qdii_us", "qdii_hk")
-    assert call_args.kwargs == {"top_n": 5}
+    assert call_args.kwargs.get("top_n") == 5
+    assert "provider" in call_args.kwargs
     mock_write.assert_called_once()
     assert mock_write.call_args.args[1] == tmp_path / "data"
 
@@ -55,7 +56,7 @@ def test_snapshot_rebuild_target_all_expands_registered_targets(tmp_path: Path) 
         return_value=("沪深300", "中证500"),
     ), patch(
         "irc.commands.fundamentals_cmd.build_snapshot",
-        side_effect=lambda lt, *, top_n: _snapshot(lt.display_cn),
+        side_effect=lambda lt, *, top_n, **kwargs: _snapshot(lt.display_cn),
     ) as mock_build, patch(
         "irc.commands.fundamentals_cmd.write_snapshot",
         return_value=output_path,
@@ -68,7 +69,7 @@ def test_snapshot_rebuild_target_all_expands_registered_targets(tmp_path: Path) 
 
     assert rc == 0
     assert [call.args[0].display_cn for call in mock_build.call_args_list] == ["沪深300", "中证500"]
-    assert [call.kwargs for call in mock_build.call_args_list] == [{"top_n": 5}, {"top_n": 5}]
+    assert all(call.kwargs.get("top_n") == 5 for call in mock_build.call_args_list)
     assert mock_write.call_count == 2
 
 
@@ -79,7 +80,7 @@ def test_snapshot_rebuild_target_all_deduplicates_explicit_targets(tmp_path: Pat
         return_value=("沪深300", "中证500"),
     ), patch(
         "irc.commands.fundamentals_cmd.build_snapshot",
-        side_effect=lambda lt, *, top_n: _snapshot(lt.display_cn),
+        side_effect=lambda lt, *, top_n, **kwargs: _snapshot(lt.display_cn),
     ) as mock_build, patch(
         "irc.commands.fundamentals_cmd.write_snapshot",
         return_value=output_path,
