@@ -18,7 +18,31 @@ Project type **non-web** → `verify` column is live; `QA` column is ⏭️ for 
 |------|--------|
 | run-doc-sync | ✅ PASS (3a13148) — CONTEXT terms + ADR 0009/0010/0011 + README Tushare + CHANGELOG 5 entries; 0 missing |
 | run-final-verify | ✅ PASS (5158a52) — integrated CLI imports; 001+002+003+004+005 cross-item flows confirmed; 11 LLM tasks load; 794 opportunity+fundamentals tests green |
-| run-close-out | 🔄 |
+| run-close-out | ✅ DONE — roll-up PR #89 opened (not merged); .autodev-current deleted |
+
+## Final status — RUN COMPLETE (2026-05-31)
+
+**All 5 IN-scope items merged into `autodev/funding-analysis-feature`.** SKIPPED: none. BLOCKED: none.
+
+| item | PR | squash | fix rounds |
+|------|----|--------|-----------|
+| 001 consensus upside + pe/pb inputs | #84 | 22baf17 | 0 |
+| 002 fundamental valuation_state + core_dca gate | #85 | d3f48cb | 0 |
+| 004 deterministic compute_ratios | #86 | 3002225 | 0 |
+| 003 pluggable CN data layer + Tushare | #87 | ee8fefa | 2 (BJ ts_code; DEEPSEEK decoupling) |
+| 005 bull/bear debate behind --adversarial | #88 | f348707 | 0 |
+
+**Phase 3 gates:** workflow-completeness audit PASS · run-doc-sync PASS (3a13148) · run-final-verify PASS (5158a52). Integrated full suite: **2634 passed / 36 skipped / 8 pre-existing failures (0 new)**.
+
+**New ADRs:** 0009 (consensus-upside-degrade-to-none), 0010 (cn-fundamentals-provider-seam), 0011 (adversarial-debate-advisory-only).
+
+**Latent bugs caught + fixed in flow:** 002 negative-upside reason; 004 ±inf screen + ROE percent-unit guard + fragment-cap truncation; 003 silent provider/Tushare swallow (now logged) + fiscal_period guard + BJ ts_code + DEEPSEEK decoupling; 005 silent LLM swallow (now logged) + non-list parse guard.
+
+**Follow-up:** ~15 non-blocking nits in `TODOS.md` (tagged `funding-analysis-00x`), incl. tushare→optional-dependency, duplicate `FalsificationResult` rename, AkShare ROE unit live-verification, several test-fixture strengthenings, and minor reason-string/naming consistency.
+
+**Feature branch:** `autodev/funding-analysis-feature`
+**Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/89
+**Merged into protected branch (main):** no — PR left OPEN for user review. The 8 pre-existing test failures predate this run (fail identically on `main`); not introduced here.
 
 ## Item titles
 
