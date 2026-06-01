@@ -884,7 +884,7 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
     ), patch(
         "irc.commands.opportunity_cmd.write_active_fund_cache", return_value=None,
     ), patch(
-        "irc.commands.opportunity_cmd.populate_inputs", side_effect=lambda con, s, **kw: s,
+        "irc.opportunity.inputs_build.populate_inputs", side_effect=lambda con, s, **kw: s,
     ):
         from irc.fundamentals.provider import AkShareProvider
         rows, _positions, _qualities, _roles, _pending_verdicts, _plan_hash, _snap_cache = _build_rows(
