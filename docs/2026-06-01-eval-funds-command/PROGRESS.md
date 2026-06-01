@@ -6,14 +6,14 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅   | ⏭️    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 001 | ✅   | ⏭️    | ✅   | 🔄     | ⏳   | ⏳    | ⏳ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 ## Evidence cells (filled as phases pass)
 
 - **001-spec** ✅ — `items/001-spec.md` (verbatim copy of the approved design)
 - **001-grill** ⏭️ — `⏭️ user-grilled` (spec mode; orchestrator must not auto-invoke grill)
-- **001-plan** — `items/001-plan.md` (pending Opus writing-plans)
-- **001-branch** —
+- **001-plan** ✅ — `items/001-plan.md` (Opus writing-plans; commit `790d5ff`; 5 tasks / 33 steps; TDD-ordered; grounded in real signatures)
+- **001-branch** 🔄 — cutting `claude/eval-funds-command-001` off `feat/eval-funds-command`
 - **001-impl** —
 - **001-drift** — `items/001-drift.md`
 - **001-PR** — `items/001-ship.md`
