@@ -252,6 +252,7 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 | `uv run irc plan` | `outputs/<date>/trade_plan.yaml` |
 | `uv run irc memo` | `outputs/<date>/memo.md`, `memo_audit.txt`, `memo_traceability.json` |
 | `uv run irc opportunity` | `outputs/<date>/opportunity_report.json`, `thesis_cards.yaml`, `discipline_report.md` |
+| `uv run irc eval-funds --ids "<id1>,<id2>"` | targeted per-fund opportunity_state / core_dca evaluation from cache + DuckDB (sidesteps discovery + the active-fund cap). Writes `outputs/<today>/fund_eval.{md,json}`. |
 | `uv run irc decision` | `outputs/<date>/decision_report.json`, `decision_report.md` |
 
 Useful inspection commands:
