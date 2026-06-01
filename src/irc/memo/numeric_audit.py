@@ -293,26 +293,47 @@ def find_uncited_conclusions(
     section_spans = _build_section_spans(audit_prose)
     subsection_spans = _build_subsection_spans(audit_prose)
 
+    # Per-instrument (memo-wide) dual-leg. An actionable conclusion about an
+    # instrument is "cited" when its data + information legs appear ANYWHERE in
+    # the memo — the deterministic picks table renders each pick's dual-leg
+    # (SAME-3 invariant), so a narrative disclosure paragraph need not re-cite
+    # the data leg it already carries in the table cell. The paragraph-local
+    # `wrong_instrument_citation` guard (a paragraph citing another owner's
+    # marker) stays per-paragraph; only the dual-leg sufficiency is memo-wide.
+    all_markers = set(_MARKER_RE.findall(audit_prose))
+    instrument_legs = _instrument_legs_present(all_markers, cited_map)
+    constituent_legs = _constituent_legs_present(all_markers, constituent_cited_map)
+
     prev_markers: tuple[str, ...] = ()
     prev_instrument_hits: frozenset[str] = frozenset()
+    # Running per-instrument disclosure context. The 各标的补充披露 subsection
+    # renders a `**{iid} {name}**` header on its own line, then discusses that
+    # fund's holdings in following bullets that may NOT repeat the fund code.
+    # Track the owner established by the nearest preceding single-instrument
+    # header so a multi-owner constituent in those bullets resolves instead of
+    # tripping `ambiguous_constituent_reference`. Distinct from the
+    # marker-bleed state above (which resets per structured row).
+    section_owner: str | None = None
     for para_start, para in _iter_audit_blocks(audit_prose):
         structured = _is_structured_audit_line(para)
+        heading = para.lstrip().startswith("#")
+        instrument_hits = _instrument_alias_hits(para, instrument_aliases)
+        section_owner = _next_section_owner(
+            section_owner, instrument_hits, structured, heading,
+        )
         if not _has_actionable_keyword(para):
             if structured:
                 prev_markers = ()
                 prev_instrument_hits = frozenset()
             else:
                 prev_markers = tuple(_MARKER_RE.findall(para))
-                prev_instrument_hits = frozenset(
-                    _instrument_alias_hits(para, instrument_aliases)
-                )
+                prev_instrument_hits = frozenset(instrument_hits)
             continue
 
         current_markers = tuple(_MARKER_RE.findall(para))
         asset_class = _section_at(section_spans, para_start)
         owner_iid = _subsection_at(subsection_spans, para_start)
 
-        instrument_hits = _instrument_alias_hits(para, instrument_aliases)
         constituent_hits = _constituent_alias_hits(para, constituent_aliases)
 
         # Carry prev_markers only when this paragraph is plausibly a
@@ -348,12 +369,13 @@ def find_uncited_conclusions(
             findings.extend(_check_instrument_citation(
                 iid=iid, markers=scope_markers,
                 cited_map=cited_map, paragraph=para,
+                legs=instrument_legs.get(iid, (False, False)),
                 paragraph_instrument_hits=instrument_hits,
             ))
 
         for ck, owner_pairs in sorted(constituent_hits.items()):
             owner_ids = {iid for iid, _ in owner_pairs}
-            context_iid = owner_iid
+            context_iid = owner_iid or section_owner
             if context_iid not in owner_ids:
                 paragraph_owner_hits = sorted(owner_ids & instrument_hits)
                 if len(paragraph_owner_hits) == 1:
@@ -373,8 +395,8 @@ def find_uncited_conclusions(
             )
             iid, c_key = resolved
             findings.extend(_check_constituent_citation(
-                iid=iid, c_key=c_key, markers=scope_markers,
-                constituent_cited_map=constituent_cited_map, paragraph=para,
+                iid=iid, c_key=c_key,
+                legs=constituent_legs.get((iid, c_key), (False, False)),
             ))
 
         if structured:
@@ -462,6 +484,33 @@ def _iter_audit_blocks(prose: str) -> list[tuple[int, str]]:
     return blocks
 
 
+def _next_section_owner(
+    current: str | None, block_hits: set[str], structured: bool, heading: bool,
+) -> str | None:
+    """Update the running disclosure-owner context for one audit block.
+
+    A `**{iid} {name}**` disclosure header (a non-heading block naming exactly
+    one instrument, by code or name) establishes that instrument as the owner
+    context. A non-structured block naming zero or many instruments (the TL;DR
+    list, a footnote) clears it. A structured block that names no single
+    instrument (a constituent bullet under a header) leaves it intact, so the
+    header's context carries to the bullets beneath it.
+
+    A markdown heading (`##` / `###`) opens a new section and is never a
+    per-instrument disclosure header — it always clears the context, so an
+    instrument named incidentally in a section title can't leak across the
+    section. The `### {name} ({iid})` form is still honoured via `owner_iid`
+    (the precomputed subsection spans), which takes precedence over this state.
+    """
+    if heading:
+        return None
+    if len(block_hits) == 1:
+        return next(iter(block_hits))
+    if not structured:
+        return None
+    return current
+
+
 def _build_section_spans(prose: str) -> list[tuple[int, str]]:
     """Return list of (offset, asset_class) sorted ascending by offset."""
     spans: list[tuple[int, str]] = []
@@ -502,10 +551,34 @@ def _subsection_at(spans: list[tuple[int, str]], offset: int) -> str | None:
 
 
 def _instrument_alias_hits(paragraph: str, instrument_aliases: dict) -> set[str]:
-    return {
-        iid for alias, iid in instrument_aliases.items()
-        if alias and alias in paragraph
-    }
+    """Return the instrument_ids whose alias appears in ``paragraph``.
+
+    Longest-match-first span masking: when one instrument's alias is a
+    substring of another's (e.g. ``国债ETF国泰`` → 511010 inside
+    ``十年国债ETF国泰`` → 511260), a naive substring scan double-counts the
+    shorter alias inside every occurrence of the longer one — falsely
+    attributing the longer instrument's row to the shorter one and emitting a
+    spurious ``uncited_conclusion``. Claim longer aliases first and consume
+    their character spans, so a shorter alias only counts when it occurs
+    OUTSIDE every longer match. The ``(len, alias)`` sort key keeps the order
+    deterministic regardless of dict insertion order.
+    """
+    hits: set[str] = set()
+    consumed: list[tuple[int, int]] = []
+    for alias, iid in sorted(
+        instrument_aliases.items(),
+        key=lambda kv: (len(kv[0]), kv[0]),
+        reverse=True,
+    ):
+        if not alias:
+            continue
+        for m in re.finditer(re.escape(alias), paragraph):
+            start, end = m.start(), m.end()
+            if any(lo <= start and end <= hi for lo, hi in consumed):
+                continue  # fully inside an already-claimed longer alias
+            hits.add(iid)
+            consumed.append((start, end))
+    return hits
 
 
 def _constituent_alias_hits(
@@ -519,34 +592,34 @@ def _constituent_alias_hits(
 
 
 def _check_instrument_citation(
-    *, iid: str, markers: tuple[str, ...], cited_map: dict, paragraph: str,
+    *, iid: str, markers: tuple[str, ...], cited_map: dict,
+    legs: tuple[bool, bool], paragraph: str,
     paragraph_instrument_hits: set[str] | None = None,
 ) -> list[NumericFinding]:
     """Return findings for the instrument-citation rule on one paragraph.
 
-    `paragraph_instrument_hits` (when provided) is the full set of
-    instrument_ids mentioned in this paragraph. When a marker's owner is
-    co-mentioned in the same paragraph, the marker is a legitimate
-    citation for THAT instrument (multi-instrument summary paragraph) —
-    suppress the `wrong_instrument_citation` finding for `iid` and keep
-    walking. The dual-leg check still demands `iid`'s OWN data/info legs.
+    Two independent checks:
+      - `wrong_instrument_citation` (paragraph-local): a marker cited in THIS
+        paragraph resolves to a different owner that isn't co-mentioned. Every
+        misplaced marker is reported (no short-circuit), so one wrong-owner
+        marker never masks another.
+      - `uncited_conclusion` (memo-wide): `legs` is the `(has_data, has_info)`
+        pair for `iid` computed across the whole memo, so the data leg may live
+        in the picks-table cell while a narrative paragraph cites only info.
+
+    `paragraph_instrument_hits` is the full set of instrument_ids named in this
+    paragraph; a marker whose owner is co-mentioned is a legitimate citation
+    for that sibling (multi-instrument summary), not a wrong-owner finding.
     """
     findings: list[NumericFinding] = []
     per_iid = cited_map.get(iid, {})
-    has_data = False
-    has_info = False
     co_mentioned = paragraph_instrument_hits or set()
     for cid in markers:
-        meta = per_iid.get(cid)
-        if meta is None:
-            # Try to find this cid under another owner — wrong instrument.
-            for owner, mp in cited_map.items():
-                if cid in mp and owner != iid:
-                    if owner in co_mentioned:
-                        # Multi-instrument paragraph: the marker correctly
-                        # cites a co-mentioned instrument; not a wrong-
-                        # owner finding for `iid`.
-                        break
+        if cid in per_iid:
+            continue  # legitimately one of `iid`'s own citations
+        for owner, mp in cited_map.items():
+            if cid in mp and owner != iid:
+                if owner not in co_mentioned:
                     findings.append(NumericFinding(
                         instrument_id=iid,
                         kind="wrong_instrument_citation",
@@ -556,56 +629,72 @@ def _check_instrument_citation(
                             f"not {iid!r}"
                         ),
                     ))
-                    break
-            continue
-        if meta.scope not in _PUBLISHABLE_SCOPES_MEMO:
-            continue
-        if meta.citation_kind == "data":
-            has_data = True
-        elif meta.citation_kind == "information":
-            has_info = True
-    # Don't short-circuit on first wrong-owner marker — a paragraph with N
-    # markers may have one wrong-owner AND legitimate dual-leg coverage in
-    # the others. Both findings can co-exist; emit `wrong_instrument_citation`
-    # for the misplaced one(s) AND `uncited_conclusion` only if the remaining
-    # correct-owner markers fail to satisfy the dual-leg requirement.
-    # (Closes silent-failure P1.2 — first wrong-owner used to suppress all
-    # subsequent dual-leg checks, silently dropping a legitimate uncited
-    # finding when the only correct marker covered only one leg.)
+                break  # citation_ids are owner-unique (build_cited_map)
+    has_data, has_info = legs
     if not has_data or not has_info:
         findings.append(NumericFinding(
             instrument_id=iid,
             kind="uncited_conclusion",
             prose_excerpt=_excerpt(paragraph),
-            evidence_excerpt=(
-                f"has_data={has_data} has_info={has_info} "
-                f"markers={list(markers)}"
-            ),
+            evidence_excerpt=f"has_data={has_data} has_info={has_info} (memo-wide)",
         ))
     return findings
 
 
 def _check_constituent_citation(
-    *, iid: str, c_key: str, markers: tuple[str, ...],
-    constituent_cited_map: dict, paragraph: str,
+    *, iid: str, c_key: str, legs: tuple[bool, bool],
 ) -> list[NumericFinding]:
-    findings: list[NumericFinding] = []
-    per_iid = constituent_cited_map.get(iid, {})
-    per_c = per_iid.get(c_key, {})
-    has_data = any(
-        per_c.get(cid) and per_c[cid].citation_kind == "data" for cid in markers
-    )
-    has_info = any(
-        per_c.get(cid) and per_c[cid].citation_kind == "information" for cid in markers
-    )
-    if not has_data or not has_info:
-        findings.append(NumericFinding(
-            instrument_id=iid,
-            kind="uncited_conclusion",
-            prose_excerpt=f"constituent={c_key}",
-            evidence_excerpt=f"has_data={has_data} has_info={has_info}",
-        ))
-    return findings
+    """Memo-wide dual-leg for a resolved (owner, constituent) pair. `legs` is
+    the `(has_data, has_info)` computed across the whole memo, mirroring the
+    instrument rule."""
+    has_data, has_info = legs
+    if has_data and has_info:
+        return []
+    return [NumericFinding(
+        instrument_id=iid,
+        kind="uncited_conclusion",
+        prose_excerpt=f"constituent={c_key}",
+        evidence_excerpt=f"has_data={has_data} has_info={has_info} (memo-wide)",
+    )]
+
+
+def _instrument_legs_present(
+    markers: set[str], cited_map: dict,
+) -> dict[str, tuple[bool, bool]]:
+    """Memo-wide `(has_data, has_info)` per instrument: which legs are cited by
+    any marker present in the prose. Only `_PUBLISHABLE_SCOPES_MEMO` scopes
+    count, matching the per-paragraph rule this replaces."""
+    legs: dict[str, tuple[bool, bool]] = {}
+    for iid, per_iid in cited_map.items():
+        has_data = has_info = False
+        for cid, meta in per_iid.items():
+            if cid not in markers or meta.scope not in _PUBLISHABLE_SCOPES_MEMO:
+                continue
+            if meta.citation_kind == "data":
+                has_data = True
+            elif meta.citation_kind == "information":
+                has_info = True
+        legs[iid] = (has_data, has_info)
+    return legs
+
+
+def _constituent_legs_present(
+    markers: set[str], constituent_cited_map: dict,
+) -> dict[tuple[str, str], tuple[bool, bool]]:
+    """Memo-wide `(has_data, has_info)` per `(owner, constituent_key)` pair."""
+    legs: dict[tuple[str, str], tuple[bool, bool]] = {}
+    for iid, per_iid in constituent_cited_map.items():
+        for c_key, per_c in per_iid.items():
+            has_data = has_info = False
+            for cid, meta in per_c.items():
+                if cid not in markers or meta.scope not in _PUBLISHABLE_SCOPES_MEMO:
+                    continue
+                if meta.citation_kind == "data":
+                    has_data = True
+                elif meta.citation_kind == "information":
+                    has_info = True
+            legs[(iid, c_key)] = (has_data, has_info)
+    return legs
 
 
 def _excerpt(paragraph: str, *, limit: int = 120) -> str:
