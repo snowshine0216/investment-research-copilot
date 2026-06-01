@@ -1361,3 +1361,276 @@ def test_find_uncited_conclusions_does_not_bleed_markers_across_instrument_parag
     assert "wrong_instrument_citation" not in kinds, (
         f"prev_markers bleed across instrument paragraphs: {findings!r}"
     )
+
+
+# ── 2026-06-01 memo gate block — substring-alias crosstalk + disclosure owner ──
+
+
+def test_instrument_alias_hits_suppresses_substring_name_alias() -> None:
+    """A shorter fund name that is a substring of a longer fund name must not
+    produce a phantom hit for the shorter instrument inside the longer one's
+    row. `国债ETF国泰` (511010) ⊂ `十年国债ETF国泰` (511260)."""
+    from irc.memo.numeric_audit import _instrument_alias_hits
+    aliases = {
+        "国债ETF国泰": "511010",
+        "十年国债ETF国泰": "511260",
+        "511260": "511260",
+        "511010": "511010",
+    }
+    # A block naming only 511260 must not also hit 511010 via the substring.
+    assert _instrument_alias_hits(
+        "511260 十年国债ETF国泰 暂停加仓", aliases,
+    ) == {"511260"}
+    # A standalone mention of the shorter name still hits 511010.
+    assert _instrument_alias_hits(
+        "511010 国债ETF国泰 暂停加仓", aliases,
+    ) == {"511010"}
+    # Both standalone in one block → both hit.
+    assert _instrument_alias_hits(
+        "十年国债ETF国泰 与 国债ETF国泰 同列", aliases,
+    ) == {"511260", "511010"}
+
+
+def test_find_uncited_conclusions_substring_name_alias_does_not_crosstalk() -> None:
+    """Regression (2026-06-01 memo gate block): 511010's name 国债ETF国泰 is a
+    substring of 511260's name 十年国债ETF国泰. Auditing the 511260 picks-table
+    row (which carries only 511260's own dual-leg markers) must NOT raise a
+    spurious `uncited_conclusion` for 511010."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+
+    def _meta(iid, kind):
+        return CitationMeta(
+            scope="instrument", citation_kind=kind,
+            owner_instrument_id=iid, asset_class="cn_bond_fund",
+            parent_fund_id=None, constituent_key=None,
+        )
+
+    cited = {
+        "511260": {
+            "b45ea84068346d23": _meta("511260", "data"),
+            "31f2345be4ca3241": _meta("511260", "information"),
+            "de5e66233a637b7f": _meta("511260", "information"),
+        },
+        "511010": {
+            "4b03af24151fe798": _meta("511010", "data"),
+            "6c6fb36b7f94be53": _meta("511010", "information"),
+            "be4aa4a6ad2dd984": _meta("511010", "information"),
+        },
+    }
+    prose = (
+        "| 代码 | 名称 | 本期行动 | 证据 |\n"
+        "|---|---|---|---|\n"
+        "| 511260 | 十年国债ETF国泰 | 暂停加仓 | "
+        "[ref:b45ea84068346d23] [ref:31f2345be4ca3241] [ref:de5e66233a637b7f] |\n"
+        "| 511010 | 国债ETF国泰 | 暂停加仓 | "
+        "[ref:4b03af24151fe798] [ref:6c6fb36b7f94be53] [ref:be4aa4a6ad2dd984] |\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={
+            "511260": "511260", "十年国债ETF国泰": "511260",
+            "511010": "511010", "国债ETF国泰": "511010",
+        },
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert findings == [], f"substring alias crosstalk: {findings!r}"
+
+
+def test_find_uncited_conclusions_disclosure_header_resolves_multi_owner_constituent() -> None:
+    """Regression (2026-06-01 memo gate block): the 各标的补充披露 subsection
+    renders a per-instrument bold header `**519770 ...**` on its own line,
+    followed by a separate bullet that names a multi-owner holding
+    (中际旭创 / 300308, held by 12 funds) WITHOUT repeating the fund code. The
+    header establishes the owner context, so the constituent must resolve to
+    519770 and pass its dual-leg check — NOT raise
+    `ambiguous_constituent_reference`."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+
+    constituent_cited = {
+        "519770": {
+            "300308": {
+                "5d61abbf42c6af35": CitationMeta(
+                    scope="constituent", citation_kind="data",
+                    owner_instrument_id="519770", asset_class="cn_equity_fund",
+                    parent_fund_id="519770", constituent_key="300308",
+                ),
+                "66db55d2c4c968aa": CitationMeta(
+                    scope="constituent", citation_kind="information",
+                    owner_instrument_id="519770", asset_class="cn_equity_fund",
+                    parent_fund_id="519770", constituent_key="300308",
+                ),
+            },
+        },
+    }
+    owners = frozenset(
+        (f, "300308") for f in (
+            "000390", "001075", "001184", "001194", "001877", "005825",
+            "006751", "008382", "008555", "018956", "163417", "519770",
+        )
+    )
+    prose = (
+        "### 各标的补充披露\n\n"
+        "**519770 交银优择回报灵活配置混合A**\n"
+        "- 底层持仓涉及中际旭创（300308.SZ）；该底层持仓正面表现不能独立作为加仓依据 "
+        "[ref:5d61abbf42c6af35] [ref:66db55d2c4c968aa]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={
+            "519770": "519770",
+            "交银优择回报灵活配置混合A": "519770",
+        },
+        constituent_aliases={"300308": owners, "中际旭创": owners},
+        constituent_cited_map=constituent_cited,
+    )
+    kinds = [f.kind for f in findings]
+    assert "ambiguous_constituent_reference" not in kinds, findings
+    assert "uncited_conclusion" not in kinds, findings
+    assert findings == [], findings
+
+
+def test_find_uncited_conclusions_section_heading_does_not_set_owner_context() -> None:
+    """A `##`/`###` markdown heading that incidentally names one instrument must
+    NOT become the disclosure-owner context for constituents later in that
+    section — only per-instrument `**{iid} {name}**` disclosure headers do.
+    Without this, an instrument named in a section title would leak across the
+    whole section and mis-resolve (or under-flag) any multi-owner holding it
+    happens to co-own. A bare, uncited constituent action with no per-instrument
+    header must stay `ambiguous_constituent_reference`."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = (
+        "## 黄金板块 519770 概览\n\n"
+        "- 贵州茅台 加仓\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"519770": "519770"},
+        constituent_aliases={
+            "贵州茅台": frozenset({("519770", "600519"), ("163417", "600519")}),
+        },
+        constituent_cited_map={},
+    )
+    kinds = [f.kind for f in findings]
+    assert "ambiguous_constituent_reference" in kinds, findings
+
+
+# ── Per-instrument (memo-wide) dual-leg — picks-table SAME-3 satisfies legs ──
+
+
+def test_find_uncited_conclusions_instrument_dual_leg_satisfied_memo_wide() -> None:
+    """Regression (2026-06-01 fresh-synthesis block on 518850): a disclosure
+    paragraph that cites only an instrument's INFO leg must pass when the DATA
+    leg (NAV snapshot) is cited elsewhere in the memo — the deterministic picks
+    table already renders each pick's dual-leg (SAME-3), so narrative
+    paragraphs need not re-cite the data leg."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+
+    def _m(kind):
+        return CitationMeta(
+            scope="instrument", citation_kind=kind, owner_instrument_id="518850",
+            asset_class="gold", parent_fund_id=None, constituent_key=None,
+        )
+
+    cited = {"518850": {
+        "aaaaaaaaaaaaaaaa": _m("data"),         # NAV snapshot — table only
+        "bbbbbbbbbbbbbbbb": _m("information"),   # fund announcement
+    }}
+    prose = (
+        "| 代码 | 证据 |\n|---|---|\n"
+        "| 518850 | [ref:aaaaaaaaaaaaaaaa] [ref:bbbbbbbbbbbbbbbb] |\n"
+        "\n"
+        "### 各标的补充披露\n\n"
+        "- **518850 黄金ETF华夏**：估值=expensive，本次暂停加仓 [ref:bbbbbbbbbbbbbbbb]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map=cited,
+        instrument_aliases={"518850": "518850", "黄金ETF华夏": "518850"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert [f for f in findings if f.kind == "uncited_conclusion"] == [], findings
+
+
+def test_find_uncited_conclusions_memo_wide_still_flags_truly_uncited() -> None:
+    """The memo-wide relaxation must NOT defang the gate: an instrument whose
+    data+info legs appear NOWHERE in the memo is still flagged."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = "## CN ETF\n\n- 518850 黄金ETF华夏 本次暂停加仓\n"  # no [ref:...] anywhere
+    findings = find_uncited_conclusions(
+        prose=prose,
+        cited_map=_cited_map_single("518850"),  # legs exist but none are cited in prose
+        instrument_aliases={"518850": "518850"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert any(f.kind == "uncited_conclusion" for f in findings), findings
+
+
+def test_find_uncited_conclusions_constituent_dual_leg_memo_wide() -> None:
+    """A constituent's data and info legs may be cited in different paragraphs
+    of the disclosure section; the audit accepts the conclusion when both legs
+    appear somewhere in the memo."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+
+    def _m(kind):
+        return CitationMeta(
+            scope="constituent", citation_kind=kind, owner_instrument_id="519770",
+            asset_class="cn_equity_fund", parent_fund_id="519770",
+            constituent_key="300308",
+        )
+
+    constituent_cited = {"519770": {"300308": {
+        "dddddddddddddddd": _m("data"),
+        "eeeeeeeeeeeeeeee": _m("information"),
+    }}}
+    owners = frozenset({("519770", "300308"), ("000390", "300308")})
+    prose = (
+        "**519770 交银优择回报灵活配置混合A**\n"
+        "- 中际旭创 季报数据已披露 [ref:dddddddddddddddd]\n"
+        "- 中际旭创 正常定投 [ref:eeeeeeeeeeeeeeee]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"519770": "519770", "交银优择回报灵活配置混合A": "519770"},
+        constituent_aliases={"300308": owners, "中际旭创": owners},
+        constituent_cited_map=constituent_cited,
+    )
+    assert [f for f in findings if f.kind == "uncited_conclusion"] == [], findings
+
+
+def test_find_uncited_conclusions_constituent_leg_ignores_non_publishable_scope() -> None:
+    """A constituent's data leg carried by a non-publishable scope (e.g. a
+    malformed `asset_class_macro` citation) must NOT satisfy the dual-leg —
+    mirrors the instrument rule, defending against a producer emitting a
+    wrong-scope constituent citation."""
+    from irc.opportunity.types import CitationMeta
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    constituent_cited = {"519770": {"300308": {
+        "dddddddddddddddd": CitationMeta(
+            scope="asset_class_macro", citation_kind="data",
+            owner_instrument_id="519770", asset_class="cn_equity_fund",
+            parent_fund_id="519770", constituent_key="300308",
+        ),
+        "eeeeeeeeeeeeeeee": CitationMeta(
+            scope="constituent", citation_kind="information",
+            owner_instrument_id="519770", asset_class="cn_equity_fund",
+            parent_fund_id="519770", constituent_key="300308",
+        ),
+    }}}
+    owners = frozenset({("519770", "300308"), ("000390", "300308")})
+    prose = (
+        "**519770 交银优择回报灵活配置混合A**\n"
+        "- 中际旭创 正常定投 [ref:dddddddddddddddd] [ref:eeeeeeeeeeeeeeee]\n"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose, cited_map={},
+        instrument_aliases={"519770": "519770", "交银优择回报灵活配置混合A": "519770"},
+        constituent_aliases={"300308": owners, "中际旭创": owners},
+        constituent_cited_map=constituent_cited,
+    )
+    assert any(f.kind == "uncited_conclusion" for f in findings), findings
