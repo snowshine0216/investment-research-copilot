@@ -45,4 +45,4 @@ All 9 planned files touched; all 33 plan steps accounted for in the diff.
 - `docs/2026-06-01-eval-funds-command/PROGRESS.md` — status cells updated from ⏳ to ✅ for impl phase. Incidental housekeeping, not a plan step. Accepted.
 
 ## Plan amendment commits
-(to be filled after commit)
+- `2272b15` — three amendments: (a) Task 1 Step 4 monkeypatch target, (b) Task 3A Step 1 cn_etf seed, EvalItem/evaluate_funds Task 2A import block
