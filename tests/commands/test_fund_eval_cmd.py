@@ -101,6 +101,34 @@ def _seed_universe(repo: Path, iid: str) -> None:
     )
 
 
+def _seed_db_instrument(db_path: Path, iid: str) -> None:
+    """Add a second instrument row to an existing DB (for the unknown-id warning test)."""
+    con = duckdb.connect(str(db_path))
+    from datetime import datetime, timezone
+    ts = datetime.now(timezone.utc).isoformat()
+    con.execute(
+        "INSERT INTO instruments "
+        "(instrument_id, ticker, market, name_cn, asset_class, currency, "
+        " expense_ratio, aum, manager_tenure_years, "
+        " _ingested_at, _source, _raw_ref) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [iid, iid, "cn_on_exchange", "未知ETF", "cn_etf", "cny",
+         0.005, 1_000_000_000.0, 3.0, ts, "test", ""],
+    )
+    from datetime import date, timedelta
+    base = date(2025, 1, 1)
+    rows = [
+        (iid, (base + timedelta(days=i)).isoformat(), 1.5 - i * 0.001, ts, "test", "")
+        for i in range(260)
+    ]
+    con.executemany(
+        "INSERT INTO nav_history (instrument_id, date, nav, _ingested_at, _source, _raw_ref) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        rows,
+    )
+    con.close()
+
+
 def _seed_active_fund_cache(repo: Path, iid: str, quarter: str) -> None:
     d = repo / "data" / "fundamentals" / quarter / "active_fund"
     d.mkdir(parents=True, exist_ok=True)
@@ -175,3 +203,124 @@ def test_run_eval_funds_errors_clearly_when_db_missing(tmp_path: Path, capsys):
     err = captured.err + captured.out
     # message names the missing DB path
     assert "does_not_exist.duckdb" in err or rc == 2
+
+
+# ---------------------------------------------------------------------------
+# Fix A: deduplicate ids, preserving first-seen order
+# ---------------------------------------------------------------------------
+
+def test_parse_ids_deduplicates_preserving_order():
+    from irc.commands.fund_eval_cmd import _parse_ids
+
+    result = _parse_ids("980001, 980001 ,980002", None)
+    assert result == ["980001", "980002"]
+
+
+# ---------------------------------------------------------------------------
+# Fix B: md/json paths derived from stem; no collision when --out is .json
+# ---------------------------------------------------------------------------
+
+def test_run_eval_funds_out_path_json_produces_separate_md_and_json(tmp_path: Path):
+    """Passing --out report.json must write report.md and report.json (not overwrite)."""
+    from irc.commands.fund_eval_cmd import run_eval_funds
+
+    iid = "980001"
+    quarter = "2026Q1"
+    _seed_db(tmp_path / "data" / "local.duckdb", iid)
+    _seed_configs(tmp_path)
+    _seed_universe(tmp_path, iid)
+    _seed_active_fund_cache(tmp_path, iid, quarter)
+
+    out_json = tmp_path / "report.json"
+    rc = run_eval_funds(
+        repo_root=str(tmp_path), ids=iid, quarter=quarter,
+        role="satellite_cn_metals",
+        db_path=str(tmp_path / "data" / "local.duckdb"),
+        out_path=str(out_json),
+    )
+    assert rc == 0
+    md_path = tmp_path / "report.md"
+    assert md_path.exists(), "expected report.md to be written"
+    assert out_json.exists(), "expected report.json to be written"
+    # json must parse as valid JSON (not overwritten with markdown)
+    doc = json.loads(out_json.read_text(encoding="utf-8"))
+    assert "funds" in doc
+
+
+# ---------------------------------------------------------------------------
+# Fix C: clean rc=2 for corrupt/locked db and missing --ids-file
+# ---------------------------------------------------------------------------
+
+def test_run_eval_funds_returns_2_for_corrupt_db(tmp_path: Path, capsys):
+    """A file that exists but is not a valid DuckDB must return rc=2, no traceback."""
+    from irc.commands.fund_eval_cmd import run_eval_funds
+
+    _seed_configs(tmp_path)
+    _seed_universe(tmp_path, "980001")
+
+    bad_db = tmp_path / "data" / "bad.duckdb"
+    bad_db.parent.mkdir(parents=True, exist_ok=True)
+    bad_db.write_bytes(b"not a duckdb")
+
+    rc = run_eval_funds(
+        repo_root=str(tmp_path), ids="980001", quarter="2026Q1",
+        role="satellite_cn_metals",
+        db_path=str(bad_db),
+        out_path=str(tmp_path / "out.md"),
+    )
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err
+
+
+def test_run_eval_funds_returns_2_for_missing_ids_file(tmp_path: Path, capsys):
+    """Passing a non-existent --ids-file must return rc=2 with a clear ERROR message."""
+    from irc.commands.fund_eval_cmd import run_eval_funds
+
+    _seed_configs(tmp_path)
+    _seed_universe(tmp_path, "980001")
+    _seed_db(tmp_path / "data" / "local.duckdb", "980001")
+
+    missing_file = str(tmp_path / "no_such_file.txt")
+    rc = run_eval_funds(
+        repo_root=str(tmp_path), ids=None, ids_file=missing_file, quarter="2026Q1",
+        role="satellite_cn_metals",
+        db_path=str(tmp_path / "data" / "local.duckdb"),
+        out_path=str(tmp_path / "out.md"),
+    )
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "ERROR" in captured.err
+    assert "ids-file" in captured.err or "ids_file" in captured.err or "no_such_file" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Fix D: warn (rc=0) when requested id not found in any universe yaml
+# ---------------------------------------------------------------------------
+
+def test_run_eval_funds_warns_on_unknown_id(tmp_path: Path, capsys):
+    """An id absent from all universe yamls must warn to stderr but still return rc=0."""
+    from irc.commands.fund_eval_cmd import run_eval_funds
+
+    iid_known = "980001"
+    iid_unknown = "UNKNOWN999"
+    quarter = "2026Q1"
+    _seed_db(tmp_path / "data" / "local.duckdb", iid_known)
+    _seed_db_instrument(tmp_path / "data" / "local.duckdb", iid_unknown)
+    _seed_configs(tmp_path)
+    _seed_universe(tmp_path, iid_known)            # only iid_known in universe yaml
+    _seed_active_fund_cache(tmp_path, iid_known, quarter)
+    _seed_active_fund_cache(tmp_path, iid_unknown, quarter)
+
+    rc = run_eval_funds(
+        repo_root=str(tmp_path),
+        ids=f"{iid_known},{iid_unknown}",
+        quarter=quarter,
+        role="satellite_cn_metals",
+        db_path=str(tmp_path / "data" / "local.duckdb"),
+        out_path=str(tmp_path / "out.md"),
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.err
+    assert iid_unknown in captured.err

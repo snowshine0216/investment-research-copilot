@@ -26,7 +26,8 @@ def _parse_ids(ids: str | None, ids_file: str | None) -> list[str]:
         raw = ids
     else:
         return []
-    return [tok.strip() for tok in raw.replace("\n", ",").split(",") if tok.strip()]
+    tokens = [tok.strip() for tok in raw.replace("\n", ",").split(",") if tok.strip()]
+    return list(dict.fromkeys(tokens))
 
 
 def _instr_by_id(root: Path) -> dict[str, Instrument]:
@@ -67,6 +68,9 @@ def run_eval_funds(
     out_path: str | None = None,
 ) -> int:
     root = Path(repo_root)
+    if ids_file and not Path(ids_file).exists():
+        print(f"ERROR: --ids-file not found: {ids_file}", file=sys.stderr)
+        return 2
     fund_ids = _parse_ids(ids, ids_file)
     if not fund_ids:
         print("ERROR: provide --ids or --ids-file (comma-separated fund ids).",
@@ -85,11 +89,21 @@ def run_eval_funds(
 
     instr_index = _instr_by_id(root)
     provider = default_cn_provider()
-    con = duckdb.connect(str(db), read_only=True)
+    try:
+        con = duckdb.connect(str(db), read_only=True)
+    except Exception as e:
+        print(f"ERROR: cannot open DuckDB at {db}: {e}", file=sys.stderr)
+        return 2
     try:
         items: list[EvalItem] = []
         for iid in fund_ids:
             instr = instr_index.get(iid)
+            if instr is None:
+                print(
+                    f"WARNING: {iid} not found in any universe config; "
+                    "defaulting asset_class=cn_equity_fund",
+                    file=sys.stderr,
+                )
             asset_class = instr.asset_class if instr is not None else "cn_equity_fund"
             score_row = {"instrument_id": iid, "asset_class": asset_class, "role": role}
             inp = _build_input(
@@ -101,13 +115,15 @@ def run_eval_funds(
         con.close()
 
     evals = evaluate_funds(items)
-    out = Path(out_path) if out_path else (
+    base_out = Path(out_path) if out_path else (
         root / "outputs" / _today() / "fund_eval.md"
     )
-    out.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(out, render_fund_eval_md(evals))
-    atomic_write_text(out.with_suffix(".json"), render_fund_eval_json(evals))
+    md_path = base_out.with_suffix(".md")
+    json_path = base_out.with_suffix(".json")
+    md_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_text(md_path, render_fund_eval_md(evals))
+    atomic_write_text(json_path, render_fund_eval_json(evals))
 
     n_core = sum(1 for e in evals if e.core_dca)
-    print(f"eval-funds OK: {n_core} core_dca / {len(evals)} evaluated -> {out}")
+    print(f"eval-funds OK: {n_core} core_dca / {len(evals)} evaluated -> {md_path}")
     return 0
