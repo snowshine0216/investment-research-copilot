@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅   | ⏭️    | ✅   | ✅     | ✅   | ✅    | ✅ | ✅     | ✅     | ✅        | ✅  | 🔄    |
+| 001 | ✅   | ⏭️    | ✅   | ✅     | ✅   | ✅    | ✅ | ✅     | ✅     | ✅        | ✅  | ✅    |
 
 ## Evidence cells (filled as phases pass)
 
@@ -21,7 +21,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-review** ✅ — `items/001-review.md` (Verdict: PASS-WITH-NITS; from `/ship` steps 8+9; 4 latent bugs fixed pre-push `9ad77a2`)
 - **001-pr-review** ✅ — `items/001-pr-review.md` (Verdict: PASS-WITH-NITS; `/code-review` on PR #91 → [comment](https://github.com/snowshine0216/investment-research-copilot/pull/91#issuecomment-4592319230); 3 nits + 2 deferred pre-existing; zero new bugs; commit `d045a68`)
 - **001-fix** ✅ — `items/001-fix.md` (0 post-ship fix rounds — exit contract met first pass; 4 latent bugs were fixed pre-push during ship; remaining nits + 2 pre-existing items non-blocking)
-- **001-merge** 🔄 — pre-merge gate running
+- **001-merge** ✅ — PR #91 squash-merged into `feat/eval-funds-command` as commit `7c6a605` (`gh pr merge --squash --delete-branch`; sub-branch deleted). All pre-merge gates passed; base non-protected.
 
 ## Notes
 
