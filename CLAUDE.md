@@ -28,6 +28,7 @@ uv run irc run --from <stage>        # resume from stage: ingest|research|discov
 uv run irc run --only <stage>        # run a single stage
 uv run irc run --resume              # resume the last halted run (today only)
 uv run irc opportunity               # post-pipeline opportunity + thesis + discipline outputs
+uv run irc eval-funds --ids "<ids>"   # targeted per-fund opportunity_state / core_dca eval (cache + DuckDB)
 uv run irc decision                  # decision report
 uv run irc ask "..."                 # grounded Q&A over today's outputs
 uv run irc universe build-cn-funds   # monthly: regenerate config/universe/cn_funds.generated.yaml
