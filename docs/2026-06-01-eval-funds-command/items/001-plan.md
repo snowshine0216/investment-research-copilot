@@ -164,6 +164,8 @@ from irc.opportunity.inputs_build import _build_input
 This keeps `irc.commands.opportunity_cmd._build_input` resolvable for the two existing tests AND for the call site at `opportunity_cmd.py:883` (`inp = _build_input(...)` inside `_build_rows`).
 NOTE: `opportunity_cmd.py` still imports `populate_inputs` for nothing else — if `populate_inputs` becomes unused after the move, ruff `F401` will flag it. Check: `populate_inputs` is NOT referenced elsewhere in `opportunity_cmd.py` after the move, so REMOVE the now-unused `from irc.opportunity.inputs_loader import populate_inputs` import (line 45) to keep ruff clean. (Verify with `grep -n "populate_inputs" src/irc/commands/opportunity_cmd.py` → only the import line should remain; if so, delete it.)
 
+> **Impl amendment (a):** `tests/commands/test_opportunity_cmd.py` line 887: one existing test's monkeypatch target was changed from `irc.commands.opportunity_cmd.populate_inputs` to `irc.opportunity.inputs_build.populate_inputs`. This is forced by the Task-1 extraction — after the move, `populate_inputs` is only importable at its new module, not via `opportunity_cmd`. Exactly 2 diff lines in the file (−1 / +1). Accepted: the monkeypatch must track the real import location.
+
 - [ ] **Step 5: Run the guard-rail suite — must stay green (no regressions from the move)**
 
 Run: `uv run pytest tests/commands/test_opportunity_cmd.py tests/opportunity/test_build_input_fallback.py -q`
@@ -290,6 +292,8 @@ def test_evaluate_fund_insufficient_inputs_yields_insufficient_substates():
     assert ev.heat_state == "evidence_insufficient"
     assert ev.core_dca is False
 ```
+
+> **Impl amendment:** The import block above lists `EvalItem` and `evaluate_funds` but none of the 4 unit tests in this file actually exercise them. Impl omitted them from the imports (ruff would flag unused imports). `EvalItem` and `evaluate_funds` are exercised indirectly via `test_fund_eval_cmd.py`'s integration test. The 4 listed unit tests (`test_evaluate_fund_*`) are present and match the plan exactly. Accepted: plan import block was aspirational; the 4 tests themselves are the binding spec.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -676,6 +680,8 @@ def test_run_eval_funds_errors_clearly_when_db_missing(tmp_path: Path, capsys):
     # message names the missing DB path
     assert "does_not_exist.duckdb" in err or rc == 2
 ```
+
+> **Impl amendment (b):** The integration test seeds `asset_class=cn_etf, market=cn_on_exchange` (passive product-quality path) instead of the plan's `cn_equity_fund/cn_off_exchange`. Reason: active-fund path requires `aum_stability_pct` which is NaN in the DB schema (`instruments` table has no such column) → `product_quality_state` resolves to `weak` → `opportunity_state` never reaches `core_dca`. The ETF passive path yields `strong` product quality → `core_dca` for the cheap+cold+intact snapshot. This is a test-input adjustment only — no production logic was changed (`src/irc/opportunity/` contains only the two new files). The integration test still proves the end-to-end `core_dca` path per spec §5. Accepted.
 
 - [ ] **Step 2: Run the integration test to verify it fails**
 
