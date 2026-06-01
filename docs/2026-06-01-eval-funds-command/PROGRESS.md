@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅   | ⏭️    | ✅   | ✅     | ✅   | 🔄    | ⏳ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 001 | ✅   | ⏭️    | ✅   | ✅     | ✅   | ✅    | 🔄 | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 ## Evidence cells (filled as phases pass)
 
@@ -15,8 +15,8 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-plan** ✅ — `items/001-plan.md` (Opus writing-plans; commit `790d5ff`; 5 tasks / 33 steps; TDD-ordered; grounded in real signatures)
 - **001-branch** ✅ — `claude/eval-funds-command-001` (off `feat/eval-funds-command`)
 - **001-impl** ✅ — commits `ec332ca`→`176dc1b`→`353e7aa`→`fa86a45`→`eb24fec`; 8 new tests; diff = exactly the 10 planned files. **Verified:** `tests/opportunity/test_fund_eval.py + tests/commands/test_fund_eval_cmd.py + test_opportunity_cmd.py + test_build_input_fallback.py` → **58 passed**. Full suite: 2651 passed / 7 failed / 36 skipped — the **7 failures are pre-existing** (proven: they fail identically on base `feat/eval-funds-command`; incl. `test_eval_single_stage_data` = the ingest-halt non-goal). Impl deviations (both test-only, sound): (a) fixed monkeypatch target `opportunity_cmd.populate_inputs`→`inputs_build.populate_inputs` post-extraction; (b) integration test seeds `cn_etf/cn_on_exchange` (passive quality path) for the core_dca case, since active funds' `aum_stability_pct` is NaN in schema → `weak` (honest, per spec §6).
-- **001-drift** 🔄 — `items/001-drift.md` (Sonnet drift check dispatched)
-- **001-PR** — `items/001-ship.md`
+- **001-drift** ✅ — `items/001-drift.md` (Verdict: PASS; 33/33 steps verified vs real diff; 0 unimplemented, 0 functional scope-creep; 3 test-scaffolding divergences accepted; plan amended `2272b15`,`6e93b8b`)
+- **001-PR** 🔄 — `items/001-ship.md` (running `/ship`)
 - **001-verify** — `items/001-verify.md`  (non-web → `/verify`; `/qa` does NOT run)
 - **001-review** — `items/001-review.md`  (inline from `/ship` steps 8+9)
 - **001-pr-review** — `items/001-pr-review.md`  (`/code-review` on open PR)
