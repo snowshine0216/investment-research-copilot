@@ -264,10 +264,12 @@ def test_build_input_empty_venues_treats_instrument_as_compatible():
     con = duckdb.connect(":memory:")
     ensure_schema(con)
     try:
+        from irc.fundamentals.provider import AkShareProvider
         inp = _build_input(
             {"instrument_id": "510300", "role": ""},
             instr, None, None, 0.0, set(),  # empty venues
             con,
+            provider=AkShareProvider(),
         )
     finally:
         con.close()
@@ -749,15 +751,15 @@ def test_evidence_routing_exception_no_double_append() -> None:
         weight_pct=6.2, exchange="SH", provider_symbol="600519",
     )
 
-    def raise_exc(*a, **kw):
-        raise ConnectionError("network down")
+    class _RaisingProvider:
+        def fetch_filing_digest(self, s): raise ConnectionError("network down")
+        def fetch_broker_reports(self, s, **_): raise ConnectionError("network down")
+        def fetch_index_valuation(self, k): return None
 
-    with (
-        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", side_effect=raise_exc),
-        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", side_effect=raise_exc),
-        patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=raise_exc),
-    ):
-        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+    with patch("irc.fundamentals.snapshot.fetch_cn_stock_news", side_effect=ConnectionError("network down")):
+        _, failures, _digest = _evidence_for_constituent(
+            holding, fund_id="005827", provider=_RaisingProvider()
+        )
 
     failure_codes = set(failures)
     # Must have fetch_failed codes.
@@ -789,15 +791,18 @@ def test_cn_news_exception_propagates_to_caller() -> None:
         weight_pct=6.2, exchange="SH", provider_symbol="600519",
     )
 
-    with (
-        patch("irc.fundamentals.snapshot.fetch_cn_filing_digest", return_value=None),
-        patch("irc.fundamentals.snapshot.fetch_cn_broker_reports", return_value=()),
-        patch(
-            "irc.fundamentals.snapshot.fetch_cn_stock_news",
-            side_effect=ConnectionError("network"),
-        ),
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
+    with patch(
+        "irc.fundamentals.snapshot.fetch_cn_stock_news",
+        side_effect=ConnectionError("network"),
     ):
-        _, failures = _evidence_for_constituent(holding, fund_id="005827")
+        _, failures, _digest = _evidence_for_constituent(
+            holding, fund_id="005827", provider=_NullProvider()
+        )
 
     assert any("news_fetch_failed:600519:ConnectionError" in f for f in failures), (
         f"expected news_fetch_failed:600519:ConnectionError in failures: {failures}"
@@ -881,11 +886,13 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
     ), patch(
         "irc.commands.opportunity_cmd.populate_inputs", side_effect=lambda con, s, **kw: s,
     ):
+        from irc.fundamentals.provider import AkShareProvider
         rows, _positions, _qualities, _roles, _pending_verdicts, _plan_hash, _snap_cache = _build_rows(
             scores, instr_index, {}, 0.0,
             available_venues=set(), theme_thesis=None, theme_reports={},
             root=tmp_path, asset_class_targets={}, con=con,
             output_date="2026-05-23",
+            provider=AkShareProvider(),
         )
     assert len(rows) == 1
     assert "holdings_fetch_failed" in rows[0].evidence_gaps

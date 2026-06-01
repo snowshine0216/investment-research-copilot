@@ -172,6 +172,11 @@ class FilingDigest:
     gross_margin: float | None
     guidance_text: str = ""
     source_url: str = ""
+    # Item 004: provider-computed 净资产收益率 (ROE), ratio units (0.18 = 18%),
+    # sourced from the 盈利能力 section of stock_financial_abstract. Defaulted so
+    # existing call sites + cached snapshots re-hydrate without churn. None when
+    # the row is absent/NaN (ROE absence never fails the digest). Reason-only.
+    roe: float | None = None
 
 
 @dataclass(frozen=True)

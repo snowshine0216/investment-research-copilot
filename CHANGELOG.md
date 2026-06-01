@@ -7,6 +7,130 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `funding-analysis-005` (2026-05-31)
+
+Optional **bull/bear debate** on the opportunity stage (TradingAgents pattern) —
+a reasoning aid, **not** a trading signal. Opt-in, advisory-only, off by default.
+See **ADR 0011**.
+
+- New `--adversarial` flag on `irc opportunity` (default OFF). When set, runs both
+  a `thesis_defend` (bull) and the existing-shaped `thesis_falsify` (bear) LLM half
+  per publishable row and writes an advisory `thesis_debate.md`. When unset, behavior
+  is byte-identical to before (zero LLM calls, no debate file).
+- New pure module `opportunity/debate.py`: a card-shaped runner (`DefenseResult`,
+  `pair_debate`, deterministic `compose_thesis_debate_markdown`) plus thin LLM-edge
+  wrappers (`run_defend`/`run_falsify`/`run_debates`) that degrade gracefully per row
+  (an LLM failure yields an empty debate for that row, logged at WARNING, without
+  aborting the run). New `thesis_defend` task in the LLM registry (deepseek-reasoner,
+  mirroring `thesis_falsify`).
+- `thesis_debate.md` is a 6th, additive output written **after** the five canonical
+  artifacts, on the post-citation-gate publishable rows. It is **not** a canonical
+  artifact, **not** part of the H3 gapped-row partition or the SAME-3 citation-set
+  equality, and — as an LLM artifact — is exempt from the two-run byte-equality /
+  publishable-set-lockdown determinism contract. No change to `thesis_state`
+  (owned by `derive_thesis_from_evidence`), Policy B, `valuation_state`/`core_dca`,
+  the deterministic memo pillars, or the citation set.
+- The live LLM smoke test is double-gated (`RUN_LIVE_LLM_TESTS=1` + a real key) and
+  excluded from the default suite; unit tests mock the LLM edge.
+
+### Added — `funding-analysis-003` (2026-05-31)
+
+Pluggable CN fundamentals data layer with an optional **Tushare** fallback — a
+behavior-preserving refactor (the AkShare-only path is byte-identical to before)
+plus a new data source that activates only when `TUSHARE_TOKEN` is set. See
+**ADR 0010**.
+
+- New `fundamentals/provider.py`: a `CnFundamentalsProvider` Protocol
+  (`fetch_filing_digest` / `fetch_broker_reports` / `fetch_index_valuation`,
+  reusing the existing return types) with `AkShareProvider` (verbatim delegation
+  to today's fetchers), `TushareProvider`, a per-method `FallbackProvider`
+  (primary miss — `None` / `()` / exception → try secondary; both miss → `None`),
+  and a `default_cn_provider()` edge factory (AkShare-only with no token;
+  AkShare→Tushare fallback when a token is present).
+- New `fundamentals/tushare_provider.py`: routes through a `_tushare_call` edge
+  that lazily imports `tushare` (never at module load), so the package + network
+  are touched only on the live path. Pure frame→DTO mappers degrade to `None` on
+  missing/unrecognized data. The highest-value gap it fills is
+  `BrokerReport.target_price`, which activates the already-wired
+  `consensus_upside_pct` (ADR 0009).
+- The four CN fetch call-sites (`inputs_loader`, `snapshot` ×4) now take an
+  injected `provider` (DI at the command edge; stage cores stay pure). The
+  AkShare default reproduces prior behavior exactly (byte-equality regression
+  lock). The fetch budget and the `fetch_budget_exhausted` sentinel are unchanged
+  — Tushare fallback calls are not metered.
+- Swallowed provider/Tushare errors (including an invalid/expired token) now emit
+  a WARNING (still degrading to `None`) so failures are observable, not silent.
+- `tushare_token` (`SecretStr`, `.env`-only) is wired. New triple-gated live test
+  (`live_tushare` marker + `IRC_RUN_LIVE_TUSHARE=1` + a real token), excluded from
+  the default suite. README documents Tushare setup.
+
+### Added — `funding-analysis-004` (2026-05-31)
+
+Deterministic, pure key-ratios surface closing the balance-sheet / earnings-quality
+evidence gap — **no LLM**, reason-only (no new state, gate, or citation):
+
+- New pure module `fundamentals/ratios.py`: `compute_ratios(financials: FilingDigest)
+  -> KeyRatios` (`roe`, `debt_equity`, `gross_margin`, `fcf_yield`). Same input →
+  equal output; non-finite (NaN/±inf) and missing inputs degrade to `None` (no
+  fabrication, ADR 0009 family). `debt_equity`/`fcf_yield` are `None` today (their
+  line items aren't fetched) and self-activate when item 003's Tushare feed lands.
+- `roe` is now extracted from the already-fetched `stock_financial_abstract`
+  `盈利能力` section (new `_profitability_metric`; the shared `_common_metric` /
+  `常用指标` read is untouched, no new network call) and added to `FilingDigest`.
+  An implausible `roe` (`abs > 1.5`, likely a percent-vs-ratio unit error) degrades
+  to `None` rather than display a 100×-wrong figure.
+- A compact, caveated reason fragment (`（ROE …·毛利…，口径未核实）`) is appended to the
+  constituent `one_line_view` **only when it fits whole** within the existing 60-char
+  cap (cap unchanged); `None` ratios are omitted. Filing-derived numbers stay
+  disclosure-existence anchors, not endorsed performance figures (ADR 0001 addendum).
+- No change to `valuation_state` / `thesis_state` / Policy B / `core_dca` / the
+  opportunity partition / the citation set (reason-only posture, locked by tests).
+
+### Added — `funding-analysis-002` (2026-05-31)
+
+Make the inert item-001 fundamental inputs **live**: `valuation_state` now
+consumes `consensus_upside_pct` (pe/pb stay reason-only), and `core_dca` gates
+on cheap-**AND**-intact. Inputs remain dormant in production until item 003
+wires real data (`consensus_upside_pct` is `None` today → `evidence_insufficient`,
+ADR 0009):
+
+- New pure module `opportunity/valuation_fundamental.py`:
+  `valuation_fundamental_signal(inp)` maps `consensus_upside_pct` to
+  `cheap`/`rich`/`neutral`/`None` against module-level thresholds
+  (`CHEAP_UPSIDE_THRESHOLD=0.20`, `RICH_UPSIDE_THRESHOLD=-0.10`); a reason
+  annotation describes the consensus-upside read (+ optional pe/pb, sign-correct
+  for up/down).
+- `classify_valuation` appends the fundamental caveat for equities and applies a
+  one-notch **cheap-direction-only** adjustment (`reasonable_low`→`cheap`); it
+  never moves a state toward more-expensive (AC3).
+- `compose_opportunity_state(..., valuation_fundamental=...)` blocks `core_dca`
+  when the fundamental signal is `rich` while the percentile says cheap/low — the
+  row falls through to `small_watch`; `valuation_state` itself is unchanged.
+- Item-001's AC4 inertness lock evolved (renamed
+  `test_population_consumes_consensus_upside_per_item_002`) to assert the new
+  live behaviour; bond/gold/QDII rows keep a byte-identical inertness lock.
+- No change to Policy B, `thesis_state`, the citation set, or the opportunity
+  partition (H3/SAME-3 hold; AC8 structural lock).
+
+### Added — `funding-analysis-001` (2026-05-31)
+
+Wire fundamental valuation **inputs** end-to-end without changing any decision
+output — the new fields are inert until items 002/003 consume them (proven by
+an AC4 inertness lock: `classify_valuation` is byte-identical populated vs bare):
+
+- New pure `consensus_upside_pct(reports, latest_close)` helper in
+  `fundamentals/consensus.py` (ratio units, matching `qdii_premium_pct`). Per
+  ADR 0009 it degrades to `None` rather than fabricating a `target_price` (the
+  wired EastMoney broker feed drops its 目标价 column upstream). NaN screened
+  on both legs.
+- New thin AkShare fetchers `fetch_cn_index_valuation` (`stock_index_pe_lg` /
+  `stock_index_pb_lg`) in `fundamentals/akshare_index_valuation.py`, behind the
+  existing `_ak_call` indirection, with one double-gated live test
+  (`live_akshare` marker + `IRC_RUN_LIVE_AKSHARE=1`).
+- `populate_inputs` now fills `pe_ttm`/`pb`/`dividend_yield`/`consensus_upside_pct`
+  on `OpportunityInput` at the fund/index level where a broad index is recognised
+  (`None` otherwise). See ADR 0009.
+
 ### Changed — `filing-evidence-summary-reframe` (2026-05-28, F6)
 
 Filing-evidence rows previously rendered summary text as

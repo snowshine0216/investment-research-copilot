@@ -640,12 +640,12 @@ def test_evidence_for_constituent_cn_uses_disclosure_existence_template(
     from irc.fundamentals.types import FundHolding
 
     digest = _filing("600519", -0.0771, period="2026Q1")
-    monkeypatch.setattr(
-        snap_mod, "fetch_cn_filing_digest", lambda sym: digest,
-    )
-    monkeypatch.setattr(
-        snap_mod, "fetch_cn_broker_reports", lambda sym: (),
-    )
+
+    class _DigestProvider:
+        def fetch_filing_digest(self, sym): return digest
+        def fetch_broker_reports(self, sym, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(
         snap_mod, "fetch_cn_stock_news", lambda sym, top_k=3: (),
     )
@@ -654,8 +654,8 @@ def test_evidence_for_constituent_cn_uses_disclosure_existence_template(
         exchange="SH", weight_pct=8.0,
         provider_symbol="600519",
     )
-    evidence, _failures = snap_mod._evidence_for_constituent(
-        holding, fund_id="005827",
+    evidence, _failures, _digest = snap_mod._evidence_for_constituent(
+        holding, fund_id="005827", provider=_DigestProvider(),
     )
     filings = [e for e in evidence if e.type == "filing"]
     assert len(filings) == 1
@@ -685,8 +685,9 @@ def test_evidence_for_constituent_hk_uses_disclosure_existence_template(
         exchange="HK", weight_pct=6.5,
         provider_symbol="00700",
     )
-    evidence, _failures = snap_mod._evidence_for_constituent(
-        holding, fund_id="005827",
+    from irc.fundamentals.provider import AkShareProvider
+    evidence, _failures, _digest = snap_mod._evidence_for_constituent(
+        holding, fund_id="005827", provider=AkShareProvider(),
     )
     filings = [e for e in evidence if e.type == "filing"]
     assert len(filings) == 1

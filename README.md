@@ -41,6 +41,7 @@ Copy `.env.example` to `.env`, keep every secret there, and treat `.env.example`
 | `JINA_API_KEY` | URL-to-markdown extraction | Optional. Free tier works without a key, but rate limits are lower. |
 | `EDGAR_CONTACT_EMAIL` | SEC EDGAR fundamentals | Set a real reachable email before quarterly snapshots that touch US filings. SEC fair-use policy expects this in the User-Agent. |
 | `OPENBB_FMP_KEY`, `OPENBB_TIINGO_KEY` | Optional OpenBB premium data | MVP works without these; they improve premium provider coverage when available. |
+| `TUSHARE_TOKEN` | Optional CN fundamentals fallback | Enables the Tushare per-method fallback for CN filing digests and broker `target_price` (activates `consensus_upside_pct`). Unset = AkShare-only, byte-identical to before. Get a token at [tushare.pro](https://tushare.pro). |
 | `FRED_API_KEY`, `INTRINIO_API_KEY` | Optional FRED macro data | Used when OpenBB pulls live FRED macro series. Without them, the ingest stage falls back where possible. |
 | `ACTIVE_FUND_TENURE_PROXY_ENABLED` | Active fund discovery behavior | Defaults to `true`; set `false` to require real manager-tenure data for active funds. |
 | `IRC_HTTPS_PROXY` | Outbound HTTPS proxy | Single value applied to every outbound HTTPS call this codebase makes. See "HTTPS proxy" below for the full list of call sites. Leave unset for direct connections. |
@@ -71,6 +72,43 @@ EDGAR_CONTACT_EMAIL=you@example.com
 FRED_API_KEY=
 INTRINIO_API_KEY=
 OPENBB_FMP_KEY=
+```
+
+### Tushare fallback (optional)
+
+IRC's CN fundamentals are primarily sourced from AkShare→EastMoney. Tushare is an
+optional **per-method fallback**: when a `TUSHARE_TOKEN` is set, IRC tries AkShare
+first and fills only the gaps Tushare can cover — most valuably broker
+**target prices**, which EastMoney drops upstream (so `consensus_upside_pct` is
+honestly `None` today; see `docs/adr/0009-consensus-upside-degrade-to-none.md`). With no token, behavior is
+byte-identical to before — AkShare alone.
+
+How the fallback works (ADR 0010): for each of the three CN-fundamentals surfaces
+(filing digest, broker reports, index valuation), AkShare is the primary; on a
+miss (`None`/empty) or error, Tushare is tried; if both miss, the result stays
+`None`/empty. Tushare calls are NOT metered against the AkShare fetch budget, and
+Tushare (`api.tushare.pro`, mainland-CN) is called direct — never through
+`IRC_HTTPS_PROXY`.
+
+Setup:
+
+```dotenv
+TUSHARE_TOKEN=your-tushare-token
+```
+
+```bash
+uv add tushare              # already a dependency after item 003; explicit add is a no-op
+```
+
+Note: the broker `target_price` feed (Tushare `report_rc`) is gated behind a
+points/paid tier. On a free token the fallback still adds CN filing-digest
+redundancy and `consensus_upside_pct` simply stays `None`.
+
+Verify the live Tushare shape (triple-gated — skipped in normal runs):
+
+```bash
+IRC_RUN_LIVE_TUSHARE=1 uv run pytest -m live_tushare \
+    tests/fundamentals/test_tushare_provider_live.py -v -s
 ```
 
 ### HTTPS proxy

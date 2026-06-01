@@ -117,6 +117,7 @@ def test_build_rows_routes_fund_level_evidence_into_opportunity_row(tmp_path: Pa
         side_effect=_make_universal_side_effect(),
     ):
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
+            from irc.fundamentals.provider import AkShareProvider
             rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
@@ -124,6 +125,7 @@ def test_build_rows_routes_fund_level_evidence_into_opportunity_row(tmp_path: Pa
                 output_date="2026-05-23",
                 limit=None,
                 rebuild_fundamentals=False,
+                provider=AkShareProvider(),
             )
     assert len(rows) == 1
     r = rows[0]
@@ -171,6 +173,7 @@ def test_build_rows_qdii_row_carries_sentinel_gap(tmp_path: Path) -> None:
         "irc.fundamentals.akshare_fundamentals._ak_call",
     ) as mocked:
         with patch.dict("os.environ", {"IRC_OPPORTUNITY_AUTOBUILD": "1"}):
+            from irc.fundamentals.provider import AkShareProvider
             rows, _positions, _q, _roles, _verdicts, _plan_hash, _snap_cache = _build_rows(
                 scores, instr_index, holdings, portfolio_total_cny,
                 available_venues, theme_thesis, theme_reports, tmp_path,
@@ -178,6 +181,7 @@ def test_build_rows_qdii_row_carries_sentinel_gap(tmp_path: Path) -> None:
                 output_date="2026-05-23",
                 limit=None,
                 rebuild_fundamentals=False,
+                provider=AkShareProvider(),
             )
     assert len(rows) == 1
     r = rows[0]
@@ -320,10 +324,12 @@ def test_resolve_fund_level_snapshot_raises_runtime_error_on_wrong_type(tmp_path
         kind="gold", key="gold", display_cn="黄金",
         provider_symbol="518880",
     )
+    from irc.fundamentals.provider import AkShareProvider
     with patch("irc.commands.opportunity_cmd.build_snapshot", return_value=wrong_snap):
         with pytest.raises(RuntimeError, match="build_snapshot returned"):
             _resolve_fund_level_snapshot(
                 target, tmp_path,
                 rebuild=False,
                 today=date(2026, 5, 23),
+                provider=AkShareProvider(),
             )

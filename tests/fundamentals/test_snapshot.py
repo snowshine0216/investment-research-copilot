@@ -54,15 +54,22 @@ def test_build_snapshot_cn_index_dispatches_to_akshare(monkeypatch, cn_target_re
     monkeypatch.setattr(
         snapshot, "fetch_cn_index_constituents", lambda code, *, top_n=10: constituents,
     )
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_filing_digest",
-        lambda sym: digest if sym == "600519.SH" else None,
+
+    class _FakeProvider:
+        def fetch_filing_digest(self, sym):
+            return digest if sym == "600519.SH" else None
+
+        def fetch_broker_reports(self, sym, **_):
+            return (report,) if sym == "600519.SH" else ()
+
+        def fetch_index_valuation(self, key):
+            return None
+
+    snap = build_snapshot(
+        LookthroughTarget("broad_index", "x", "白酒指数"),
+        top_n=2, as_of_iso="2026-05-15",
+        provider=_FakeProvider(),
     )
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_broker_reports",
-        lambda sym, **_: (report,) if sym == "600519.SH" else (),
-    )
-    snap = build_snapshot(LookthroughTarget("broad_index", "x", "白酒指数"), top_n=2, as_of_iso="2026-05-15")
     assert isinstance(snap, ConstituentSnapshot)
     assert snap.lookthrough_target == "白酒指数"
     assert snap.as_of_iso == "2026-05-15"
@@ -345,11 +352,15 @@ def test_build_snapshot_active_fund_dispatch(monkeypatch) -> None:
     monkeypatch.setattr(
         snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: _holdings_result_cn(),
     )
-    monkeypatch.setattr(snapshot, "fetch_cn_filing_digest", lambda s: None)
-    monkeypatch.setattr(snapshot, "fetch_cn_broker_reports", lambda s: ())
     monkeypatch.setattr(snapshot, "fetch_cn_stock_news", lambda s, top_k=3: ())
+
+    class _NullProvider:
+        def fetch_filing_digest(self, s): return None
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
     target = LookthroughTarget("active_fund", "fund_005827", "易方达蓝筹精选", "005827")
-    out = build_snapshot(target, top_n=10)
+    out = build_snapshot(target, top_n=10, provider=_NullProvider())
     assert isinstance(out, ActiveFundSnapshot)
     assert out.fund_id == "005827"
     assert out.source_report_quarter == "2024Q1"
@@ -386,14 +397,20 @@ def test_build_snapshot_active_fund_routes_hk_through_hk_adapters(monkeypatch) -
     )
     monkeypatch.setattr(snapshot, "fetch_cn_etf_holdings", lambda sym, top_n=10: hk_only)
     cn_broker_called = []
-    monkeypatch.setattr(
-        snapshot, "fetch_cn_broker_reports",
-        lambda s: cn_broker_called.append(s) or (),
-    )
+
+    class _TrackingProvider:
+        def fetch_filing_digest(self, s): return None
+
+        def fetch_broker_reports(self, s, **_):
+            cn_broker_called.append(s)
+            return ()
+
+        def fetch_index_valuation(self, k): return None
+
     monkeypatch.setattr(snapshot, "fetch_hk_filing_digest", lambda s: None)
     monkeypatch.setattr(snapshot, "fetch_hk_stock_news", lambda s, top_k=3: ())
     target = LookthroughTarget("active_fund", "fund_x", "x", "x")
-    build_snapshot(target, top_n=1)
+    build_snapshot(target, top_n=1, provider=_TrackingProvider())
     assert cn_broker_called == []  # never called for HK constituents
 
 
@@ -463,9 +480,9 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
             ),
         )
 
-    def _fake_evidence_for_constituent(holding, *, fund_id):
+    def _fake_evidence_for_constituent(holding, *, fund_id, provider):
         # HK holding hits the no-filings path in real code; emulate empty.
-        return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"]
+        return (), [f"filing_fetch_failed:{holding.symbol}:KeyError"], None
 
     monkeypatch.setattr(_snap_mod, "fetch_cn_etf_holdings", _fake_holdings)
     monkeypatch.setattr(_snap_mod, "fetch_fund_nav_report", _fake_nav)
@@ -474,13 +491,14 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
         _snap_mod, "_evidence_for_constituent", _fake_evidence_for_constituent
     )
 
+    from irc.fundamentals.provider import AkShareProvider
     target = LookthroughTarget(
         kind="active_fund",
         key=fund_id,
         display_cn="泰康香港银行指数A",
         provider_symbol=fund_id,
     )
-    snap = _snap_mod._build_active_fund_snapshot(target, top_n=10)
+    snap = _snap_mod._build_active_fund_snapshot(target, top_n=10, provider=AkShareProvider())
 
     assert len(snap.fund_level_evidence) == 2
     kinds = sorted(e.citation_kind for e in snap.fund_level_evidence)
@@ -490,3 +508,163 @@ def test_build_active_fund_snapshot_populates_fund_level_evidence(monkeypatch):
         assert e.owner_instrument_id == fund_id
         assert e.parent_fund_id is None
         assert e.constituent_key is None
+
+
+def test_evidence_for_constituent_returns_cn_digest_third(monkeypatch) -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+
+    class _DigestProvider:
+        def fetch_filing_digest(self, s): return digest
+        def fetch_broker_reports(self, s, **_): return ()
+        def fetch_index_valuation(self, k): return None
+
+    monkeypatch.setattr(_snap, "fetch_cn_stock_news", lambda s, top_k=3: ())
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    result = _snap._evidence_for_constituent(holding, fund_id="fund_x", provider=_DigestProvider())
+    assert len(result) == 3  # (evidence, failures, digest)
+    evidence, failures, returned_digest = result
+    assert returned_digest is digest
+
+
+def test_evidence_for_constituent_digest_none_for_non_cn(monkeypatch) -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding
+    from irc.fundamentals.provider import AkShareProvider
+    monkeypatch.setattr(_snap, "fetch_hk_filing_digest", lambda s: None)
+    monkeypatch.setattr(_snap, "fetch_hk_stock_news", lambda s, top_k=3: ())
+    monkeypatch.setattr(_snap, "hk_news_adapter_available", lambda: True)
+    holding = FundHolding("0700.HK", "腾讯", 10.0, "HK", "00700")
+    evidence, failures, digest = _snap._evidence_for_constituent(
+        holding, fund_id="f", provider=AkShareProvider()
+    )
+    assert digest is None  # HK/US digests are out of scope for ratios (spec non-goal)
+
+
+def test_one_line_view_appends_ratios_fragment_within_cap() -> None:
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev,), digest)
+    assert "ROE 18%" in view
+    assert "毛利69%" in view
+    assert "口径未核实" in view
+    assert len(view) <= 60  # AC11 hard cap NOT raised
+
+
+def test_one_line_view_byte_identical_when_digest_none() -> None:
+    # AC11: rows where the fragment is empty/None are byte-stable vs the old behaviour.
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, ThesisEvidence
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    # digest=None → no fragment → byte-identical to the pre-004 join+cap output.
+    assert _snap._one_line_view(holding, (ev,), None) == ev.summary[:24][:60]
+
+
+def test_one_line_view_no_digest_arg_defaults_none() -> None:
+    # Back-compat: the third arg is defaulted so unrelated call sites are unaffected.
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding
+    assert _snap._one_line_view(FundHolding("X", "x", 1.0, "SH", "X"), ()) == "证据获取失败"
+
+
+def test_one_line_view_omits_ratios_fragment_whole_when_it_overflows_60() -> None:
+    """FIX C: if appending the ratios fragment would push the join past 60 chars,
+    the fragment must be omitted WHOLE (no dangling '（' or separator)."""
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    # A filing summary + broker summary that together are long enough that
+    # appending the ratios fragment would exceed 60 chars.
+    long_filing = "600519.SH 2026Q1 财报已披露（口径未核实）——超长内容"
+    ev_filing = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary=long_filing,
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    ev_broker = ThesisEvidence(
+        type="broker", source="中信证券", url="", date="2026-04-30",
+        summary="中信证券 买入: 一季报点评：强劲增长，维持推荐！",
+        scope="constituent", citation_kind="information",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev_filing, ev_broker), digest)
+
+    assert len(view) <= 60  # AC11 hard cap still honoured
+    # The ratios fragment must be absent WHOLE: no partial 'ROE'/'毛利' from the fragment,
+    # and the view must not end with a dangling separator.
+    assert not view.endswith(" · ")
+    assert "ROE" not in view
+    assert "口径未核实）" not in view  # the fragment's closing token must not appear
+
+
+def test_one_line_view_includes_fragment_when_it_fits() -> None:
+    """FIX C: when the join WITH fragment is ≤60 chars, the fragment IS present."""
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    # Short filing summary → fragment fits.
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    view = _snap._one_line_view(holding, (ev,), digest)
+    assert "ROE 18%" in view
+    assert "毛利69%" in view
+    assert len(view) <= 60
+
+
+def test_one_line_view_two_run_byte_stable_for_ratio_bearing_row() -> None:
+    # AC11: same digest → byte-identical one_line_view across two calls.
+    from irc.fundamentals import snapshot as _snap
+    from irc.fundamentals.types import FundHolding, FilingDigest, ThesisEvidence
+    holding = FundHolding("600519.SH", "贵州茅台", 10.0, "SH", "600519")
+    ev = ThesisEvidence(
+        type="filing", source="600519.SH", url="", date="2026-04-30",
+        summary="600519.SH 2026Q1 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id="f", parent_fund_id="f", constituent_key="600519.SH",
+    )
+    digest = FilingDigest(
+        symbol="600519.SH", fiscal_period="2026Q1", filed_at_iso="2026-04-30",
+        revenue_yoy=0.06, net_income_yoy=0.04, gross_margin=0.69, roe=0.18,
+    )
+    a = _snap._one_line_view(holding, (ev,), digest)
+    b = _snap._one_line_view(holding, (ev,), digest)
+    assert a == b
+    # AC9: the fragment carries no [ref:...] marker.
+    import re
+    assert re.search(r"\[ref:[0-9a-f]{16}\]", a) is None
