@@ -4,6 +4,8 @@ Mode: spec · Project type: non-web · PR shape: A · Feature branch: `feat/eval
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused
 
+**STATUS: COMPLETE ✅** — all phases green; item merged; close-out PR open.
+
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
 | 001 | ✅   | ⏭️    | ✅   | ✅     | ✅   | ✅    | ✅ | ✅     | ✅     | ✅        | ✅  | ✅    |
@@ -27,3 +29,49 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 - Column `QA` omitted from the table: non-web project → `/verify` is the XOR branch.
 - Feature branch pre-existed with the design doc committed (commit `037fa19`); not synthesized.
+
+---
+
+## Final status (Phase 3 — close-out)
+
+**Run:** `irc eval-funds` targeted fund-evaluation command · mode **spec** · N=1 · project type **non-web** · PR shape **A**.
+
+### Outcome
+
+- **Items merged:** 1 / 1 (001).
+- **Items SKIPPED / BLOCKED:** none.
+- **Item PR:** #91 — squash-merged into `feat/eval-funds-command` as `7c6a605`.
+- **Feature branch:** `feat/eval-funds-command`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/92  (base `main`)
+- **Merged into protected branch:** no (PR #92 left **open** for user review — no protected-branch opt-in was given).
+
+### Phase 3 gates
+
+- Workflow-completeness audit: PASS — all 5 verdict artifacts well-formed; no `qa` file (non-web ✓); no `grill` file (spec mode ⏭️ ✓).
+- Full test suite (merged feature branch `7c6a605`): **2656 passed / 36 skipped / 7 failed**. The 7 failures are **pre-existing** (proven identical on base `feat/eval-funds-command`; incl. `test_eval_single_stage_data`, which fails on the `ingest` halt this command exists to route around). **Zero in-branch failures.**
+- ruff: all new/modified files clean. (124 tree-wide errors are pre-existing, entirely in files this work never touched — e.g. `scoring/gold_score.py`, `tests/opportunity/test_states.py`.)
+- Behavioral `/verify`: PASS — real `uv run irc eval-funds` exercised; honesty invariant confirmed live.
+
+### Quality verdicts (per-item)
+
+| Gate | Verdict |
+|------|---------|
+| drift | PASS (33/33 plan steps verified vs real diff) |
+| ship review (/ship 8+9) | PASS-WITH-NITS (4 latent edge bugs fixed pre-push `9ad77a2`) |
+| verify (/verify, non-web) | PASS |
+| pr-review (/code-review #91) | PASS-WITH-NITS (zero new bugs) |
+| fix rounds (post-ship) | 0 (exit contract met first pass) |
+
+### Follow-up work (filed to `TODOS.md` → Reliability)
+
+- `states.py` `derive_thesis_from_evidence`: `ActiveFundSnapshot` branch lacks the dual-leg (data+information) coverage check the `FundLevelSnapshot` branch has — pre-existing; `eval-funds` makes it more visible. Out of scope here (command reuses the classifier verbatim, spec §1).
+- `fundamentals/snapshot_cache.py` `load_active_fund_cache`: swallows `OSError`/`ValueError` without logging — corrupt cache indistinguishable from "not fetched".
+
+### Out of scope (per spec §2 — not failures)
+
+- The `ingest` exit-1 halt is **not** fixed (tracked separately) — `eval-funds` deliberately routes around it.
+
+### Next step for the user
+
+Review **PR #92** (`feat/eval-funds-command` → `main`) and merge when ready. Try the command:
+`uv run irc eval-funds --ids "<fund ids from data/fundamentals/<quarter>/active_fund/>"`.
