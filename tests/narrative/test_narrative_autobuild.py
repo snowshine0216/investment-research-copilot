@@ -39,3 +39,57 @@ def test_target_for_row_matches_active_fund_shape() -> None:
         kind="active_fund", key="fund_000A", display_cn="fund-000A",
         provider_symbol="000A",
     )
+
+
+from irc.fundamentals.types import ActiveFundSnapshot  # noqa: E402
+
+
+def _snap(fund_id: str, quarter: str) -> ActiveFundSnapshot:
+    return ActiveFundSnapshot(
+        fund_id=fund_id, source_report_date="2026-03-31",
+        source_report_quarter=quarter, cache_probed_at="",
+        constituent_analyses=(), failure_reasons_by_symbol={},
+    )
+
+
+def test_build_one_writes_cache_with_probed_at(tmp_path, monkeypatch) -> None:
+    target = NA._target_for_row(_shortlist_row("000A"))
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, top_n, provider: _snap("000A", "2026Q1"))
+    written: list = []
+    monkeypatch.setattr(NA, "write_active_fund_cache",
+                        lambda snap, root: written.append((snap, root)))
+    NA._build_and_cache_one(target, provider=object(), data_dir=tmp_path,
+                            today_iso="2026-06-02")
+    assert len(written) == 1
+    snap, root = written[0]
+    assert snap.cache_probed_at == "2026-06-02"
+    assert root == tmp_path
+
+
+def test_build_one_skips_write_on_empty_quarter(tmp_path, monkeypatch) -> None:
+    target = NA._target_for_row(_shortlist_row("000A"))
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, top_n, provider: _snap("000A", ""))
+    written: list = []
+    monkeypatch.setattr(NA, "write_active_fund_cache",
+                        lambda snap, root: written.append(snap))
+    NA._build_and_cache_one(target, provider=object(), data_dir=tmp_path,
+                            today_iso="2026-06-02")
+    assert written == []  # empty quarter → no write (path-collapse guard)
+
+
+def test_build_one_swallows_builder_exception(tmp_path, monkeypatch) -> None:
+    target = NA._target_for_row(_shortlist_row("000A"))
+
+    def _boom(t, *, top_n, provider):
+        raise RuntimeError("akshare down")
+
+    monkeypatch.setattr(NA, "build_snapshot", _boom)
+    written: list = []
+    monkeypatch.setattr(NA, "write_active_fund_cache",
+                        lambda snap, root: written.append(snap))
+    # must NOT raise
+    NA._build_and_cache_one(target, provider=object(), data_dir=tmp_path,
+                            today_iso="2026-06-02")
+    assert written == []
