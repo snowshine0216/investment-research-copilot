@@ -192,6 +192,136 @@ def test_fund_level_target_resolves_via_instr_no_io() -> None:
     )
 
 
+from irc.fundamentals.types import (  # noqa: E402
+    FundAnnouncement,
+    FundLevelSnapshot,
+    FundNavReport,
+    ThesisEvidence,
+)
+
+
+def _fund_level_snap(fund_id: str, quarter: str, *, sentinel: bool = False) -> FundLevelSnapshot:
+    if sentinel:
+        return FundLevelSnapshot(
+            fund_id=fund_id, nav_report=None, announcements=(), evidence=(),
+            source_report_quarter="",
+            cache_probed_at="",
+            evidence_gaps=("qdii_information_unavailable",),
+        )
+    nav_ev = ThesisEvidence(
+        type="snapshot", source=fund_id, url="", date="2026-03-15",
+        summary="NAV=4.5 @ 2026-03-15", scope="instrument", citation_kind="data",
+        owner_instrument_id=fund_id, parent_fund_id=None, constituent_key=None,
+    )
+    info_ev = ThesisEvidence(
+        type="filing", source=fund_id, url="", date="2026-03-20",
+        summary="分红公告", scope="instrument", citation_kind="information",
+        owner_instrument_id=fund_id, parent_fund_id=None, constituent_key=None,
+    )
+    return FundLevelSnapshot(
+        fund_id=fund_id,
+        nav_report=FundNavReport(
+            fund_id=fund_id, fund_name=fund_id, latest_nav=4.5,
+            latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 4.5),), source_report_quarter=quarter,
+        ),
+        announcements=(FundAnnouncement(
+            fund_id=fund_id, title="x", topic="dividend", date="2026-03-20",
+            report_id="AN1"),),
+        evidence=(nav_ev, info_ev),
+        source_report_quarter=quarter, cache_probed_at="",
+    )
+
+
+def _passive_target(iid: str) -> LookthroughTarget:
+    return LookthroughTarget(kind="broad_index", key=iid, display_cn=f"etf-{iid}",
+                             provider_symbol=iid)
+
+
+def test_fund_level_build_one_writes_nav_cache(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, provider: _fund_level_snap("000B", "2026Q1"))
+    written: list = []
+    monkeypatch.setattr(NA, "write_nav_cache",
+                        lambda snap, root: written.append((snap, root)))
+    NA._build_and_cache_fund_level_one(_passive_target("000B"), provider=object(),
+                                       data_dir=tmp_path, today_iso="2026-06-02")
+    assert len(written) == 1
+    snap, root = written[0]
+    assert snap.cache_probed_at == "2026-06-02"  # replace(), frozen-safe
+    assert root == tmp_path
+
+
+def test_fund_level_build_one_skips_qdii_sentinel(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, provider: _fund_level_snap("000Q", "2026Q1",
+                                                                sentinel=True))
+    written: list = []
+    monkeypatch.setattr(NA, "write_nav_cache",
+                        lambda snap, root: written.append(snap))
+    NA._build_and_cache_fund_level_one(_passive_target("000Q"), provider=object(),
+                                       data_dir=tmp_path, today_iso="2026-06-02")
+    assert written == []  # qdii_information_unavailable gap → no write
+
+
+def test_fund_level_build_one_skips_empty_quarter(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, provider: _fund_level_snap("000B", "2026Q1"))
+    # Override to return snap with empty source_report_quarter
+    from dataclasses import replace as dc_replace
+
+    def _empty_quarter_snap(t, *, provider):
+        snap = _fund_level_snap("000B", "2026Q1")
+        return dc_replace(snap, source_report_quarter="", nav_report=None)
+
+    monkeypatch.setattr(NA, "build_snapshot", _empty_quarter_snap)
+    written: list = []
+    monkeypatch.setattr(NA, "write_nav_cache",
+                        lambda snap, root: written.append(snap))
+    NA._build_and_cache_fund_level_one(_passive_target("000B"), provider=object(),
+                                       data_dir=tmp_path, today_iso="2026-06-02")
+    assert written == []  # empty quarter → no write (path-collapse guard, AC9)
+
+
+def test_fund_level_build_one_swallows_exception(tmp_path, monkeypatch) -> None:
+    def _boom(t, *, provider):
+        raise RuntimeError("akshare down")
+
+    monkeypatch.setattr(NA, "build_snapshot", _boom)
+    written: list = []
+    monkeypatch.setattr(NA, "write_nav_cache", lambda snap, root: written.append(snap))
+    NA._build_and_cache_fund_level_one(_passive_target("000B"), provider=object(),
+                                       data_dir=tmp_path, today_iso="2026-06-02")
+    assert written == []  # AC10 — degrades, never raises
+
+
+def test_fund_level_build_one_skips_non_fund_level_snapshot(tmp_path, monkeypatch) -> None:
+    # builder returns the wrong type → no write, no crash
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, provider: _snap("000B", "2026Q1"))  # ActiveFundSnapshot
+    written: list = []
+    monkeypatch.setattr(NA, "write_nav_cache", lambda snap, root: written.append(snap))
+    NA._build_and_cache_fund_level_one(_passive_target("000B"), provider=object(),
+                                       data_dir=tmp_path, today_iso="2026-06-02")
+    assert written == []
+
+
+def test_fund_level_build_one_reraises_fetch_budget(tmp_path, monkeypatch) -> None:
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+
+    plan = FetchPlan(active_fund_misses=0, active_fund_stale=0, passive_misses=0,
+                     passive_stale=0, top_n=10, fund_level_misses=1)
+
+    def _budget_boom(t, *, provider):
+        raise FetchBudgetExceeded(plan, 4, 1)
+
+    monkeypatch.setattr(NA, "build_snapshot", _budget_boom)
+    monkeypatch.setattr(NA, "write_nav_cache", lambda snap, root: None)
+    with pytest.raises(FetchBudgetExceeded):
+        NA._build_and_cache_fund_level_one(_passive_target("000B"), provider=object(),
+                                           data_dir=tmp_path, today_iso="2026-06-02")
+
+
 from pathlib import Path as _Path  # noqa: E402
 
 _REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root

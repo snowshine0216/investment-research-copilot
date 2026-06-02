@@ -85,6 +85,39 @@ def _fund_level_eligible_target(
     return None
 
 
+def _build_and_cache_fund_level_one(
+    target: LookthroughTarget, *, provider: object, data_dir: Path,
+    today_iso: str,
+) -> None:
+    """Effects edge: build one FundLevelSnapshot and cache-write it under nav/.
+
+    Mirrors opportunity_cmd._resolve_fund_level_snapshot:374-384. Skips the write
+    on the QDII sentinel (qdii_information_unavailable gap) or an empty
+    source_report_quarter (path-collapse guard). Degrades on any failure (logged,
+    no write); re-raises FetchBudgetExceeded.
+    """
+    try:
+        snap = build_snapshot(target, provider=provider)
+    except FetchBudgetExceeded:
+        raise
+    except Exception as exc:  # degrade — never crash the run (AC10)
+        _log.warning("narrative_autobuild: fund-level build failed for %s — %s",
+                     target.provider_symbol, exc)
+        return
+    if not isinstance(snap, FundLevelSnapshot):
+        return
+    if "qdii_information_unavailable" in snap.evidence_gaps or not snap.source_report_quarter:
+        _log.warning("narrative_autobuild: no cacheable fund-level snapshot for %s",
+                     target.provider_symbol)
+        return
+    to_cache = replace(snap, cache_probed_at=today_iso)
+    try:
+        write_nav_cache(to_cache, data_dir)
+    except Exception as cache_exc:  # disk error is environmental — degrade
+        _log.error("narrative_autobuild: nav cache write failed for %s — %s",
+                   target.provider_symbol, cache_exc)
+
+
 def _build_and_cache_one(
     target: LookthroughTarget, *, provider: object, data_dir: Path,
     today_iso: str,
