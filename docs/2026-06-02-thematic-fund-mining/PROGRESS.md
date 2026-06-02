@@ -5,7 +5,7 @@
 
 | # | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |---|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/thematic-fund-mining-001` | ✅ 62953c4 | ✅ | ✅ #93 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/thematic-fund-mining-001` | ✅ 62953c4 | ✅ | ✅ #93 | ✅ | ✅ | ⚠️ | 🔄 | ⏳ |
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop active) · ⏭️ skipped · ⛔ refused gate
 
