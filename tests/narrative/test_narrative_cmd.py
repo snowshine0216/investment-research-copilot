@@ -632,3 +632,185 @@ def test_analyze_invokes_shared_autobuild_with_instr_and_con(tmp_path, monkeypat
     assert len(calls) == 1
     provider, con, quarter, idx = calls[0]
     assert provider == "PROV" and con == "CON" and quarter == "2026Q1" and idx is instr_index
+
+
+def _passive_inp(iid="000B"):
+    """cn_etf OpportunityInput with enough data to avoid structural evidence gaps.
+
+    Provides valuation_percentile_self, two heat signals (ret_1m/ret_3m), and
+    expense_ratio so _structural_evidence_gaps returns [] → evidence_gaps stays
+    empty once the FundLevelSnapshot supplies the thesis. Used for AC6 (two-leg).
+    """
+    from irc.opportunity.types import OpportunityInput
+    return OpportunityInput(
+        instrument_id=iid, asset_class="cn_etf", market="cn_off_exchange",
+        theme=None, tracked_index="csi300", name_cn="沪深300ETF", role="r",
+        is_holding=False, portfolio_weight=None, target_band_low=None,
+        target_band_high=None, venue_compatible=True,
+        valuation_percentile_self=0.45,  # avoid missing_valuation_data
+        ret_1m=0.01, ret_3m=0.02,        # two heat signals → avoid missing_flow_or_return_data
+        expense_ratio=0.005,             # avoid missing_product_metadata
+    )
+
+
+def _passive_inp_bare(iid="000B"):
+    """Minimal cn_etf OpportunityInput with NO valuation/heat/product data.
+
+    Structural evidence gaps are non-empty → evidence_gaps non-empty →
+    position_risk_level='insufficient' regardless of thesis_state. Used for
+    AC7 (partial-evidence honesty) and AC10 (build failure degrades).
+    """
+    from irc.opportunity.types import OpportunityInput
+    return OpportunityInput(
+        instrument_id=iid, asset_class="cn_etf", market="cn_off_exchange",
+        theme=None, tracked_index="csi300", name_cn="沪深300ETF", role="r",
+        is_holding=False, portfolio_weight=None, target_band_low=None,
+        target_band_high=None, venue_compatible=True,
+    )
+
+
+def _passive_universe(monkeypatch, iid="000B"):
+    monkeypatch.setattr(narrative_cmd, "_enumerate_cn_funds",
+                        lambda root: ((iid, "沪深300ETF", "cn_etf"),))
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),),
+    )
+
+
+def _instr_idx(iid="000B"):
+    from irc.schemas.universe import Instrument
+    return {iid: Instrument(instrument_id=iid, ticker=iid, name_cn="沪深300ETF",
+                            asset_class="cn_etf", market="cn_off_exchange",
+                            currency="cny", tracked_index="csi300")}
+
+
+def _two_leg_fund_level(iid="000B"):
+    from irc.fundamentals.types import FundAnnouncement, FundLevelSnapshot, FundNavReport
+    nav_ev = ThesisEvidence(
+        type="snapshot", source=iid, url="", date="2026-03-15",
+        summary="NAV=4.5 @ 2026-03-15", scope="instrument", citation_kind="data",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None)
+    info_ev = ThesisEvidence(
+        type="filing", source=iid, url="", date="2026-03-20", summary="分红公告",
+        scope="instrument", citation_kind="information",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None)
+    return FundLevelSnapshot(
+        fund_id=iid,
+        nav_report=FundNavReport(fund_id=iid, fund_name=iid, latest_nav=4.5,
+                                 latest_nav_date="2026-03-15",
+                                 nav_history=(("2026-03-15", 4.5),),
+                                 source_report_quarter="2026Q1"),
+        announcements=(FundAnnouncement(fund_id=iid, title="x", topic="dividend",
+                                        date="2026-03-20", report_id="AN1"),),
+        evidence=(nav_ev, info_ev), source_report_quarter="2026Q1", cache_probed_at="")
+
+
+def _one_leg_fund_level(iid="000B"):
+    from irc.fundamentals.types import FundLevelSnapshot, FundNavReport
+    nav_ev = ThesisEvidence(
+        type="snapshot", source=iid, url="", date="2026-03-15",
+        summary="NAV=4.5 @ 2026-03-15", scope="instrument", citation_kind="data",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None)
+    return FundLevelSnapshot(
+        fund_id=iid,
+        nav_report=FundNavReport(fund_id=iid, fund_name=iid, latest_nav=4.5,
+                                 latest_nav_date="2026-03-15",
+                                 nav_history=(("2026-03-15", 4.5),),
+                                 source_report_quarter="2026Q1"),
+        announcements=(), evidence=(nav_ev,), source_report_quarter="2026Q1",
+        cache_probed_at="")
+
+
+def test_analyze_recovers_passive_etf_with_real_thesis(tmp_path, monkeypatch) -> None:
+    """AC6 — two-leg FundLevelSnapshot → thesis_state intact, risk != insufficient."""
+    repo = _wire_repo(tmp_path)
+    _passive_universe(monkeypatch)
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", _instr_idx()))
+    from irc.commands import narrative_autobuild as NA
+    monkeypatch.setattr(NA, "build_snapshot", lambda t, *, provider: _two_leg_fund_level())
+    from irc.narrative import analyze as A
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _passive_inp())
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                     analyze=True, out_dir=str(out_dir))
+    assert rc == 0
+    fund = json.loads((out_dir / "compute_metals_report.json").read_text())["funds"][0]
+    assert fund["thesis_state"] == "intact"
+    assert fund["position_risk_level"] != "insufficient"
+
+
+def test_analyze_passive_one_leg_is_insufficient(tmp_path, monkeypatch) -> None:
+    """AC7 — NAV-only FundLevelSnapshot → evidence_insufficient + insufficient risk.
+
+    Uses a bare inp (no valuation/heat/product data) so structural evidence_gaps
+    are present → derive_position_risk_level returns 'insufficient' (honest partial).
+    """
+    repo = _wire_repo(tmp_path)
+    _passive_universe(monkeypatch)
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", _instr_idx()))
+    from irc.commands import narrative_autobuild as NA
+    from irc.narrative import analyze as A
+    monkeypatch.setattr(NA, "build_snapshot", lambda t, *, provider: _one_leg_fund_level())
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _passive_inp_bare())
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                     analyze=True, out_dir=str(out_dir))
+    assert rc == 0
+    fund = json.loads((out_dir / "compute_metals_report.json").read_text())["funds"][0]
+    assert fund["thesis_state"] == "evidence_insufficient"
+    assert fund["position_risk_level"] == "insufficient"
+
+
+def test_analyze_passive_build_failure_degrades(tmp_path, monkeypatch) -> None:
+    """AC10 — builder raises → no cache → insufficient; run still rc=0 with a report.
+
+    Uses bare inp (no DB data) so structural evidence_gaps → risk='insufficient'.
+    """
+    repo = _wire_repo(tmp_path)
+    _passive_universe(monkeypatch)
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", _instr_idx()))
+    from irc.commands import narrative_autobuild as NA
+    from irc.narrative import analyze as A
+    monkeypatch.setattr(NA, "build_snapshot",
+                        lambda t, *, provider: (_ for _ in ()).throw(RuntimeError("down")))
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _passive_inp_bare())
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                     analyze=True, out_dir=str(out_dir))
+    assert rc == 0
+    fund = json.loads((out_dir / "compute_metals_report.json").read_text())["funds"][0]
+    assert fund["position_risk_level"] == "insufficient"
+
+
+def test_passive_analyze_idempotent_second_run_zero_builds(tmp_path, monkeypatch) -> None:
+    """AC12 — first run builds + caches; second run reuses nav/ cache, zero builds;
+    byte-identical report JSON."""
+    repo = _wire_repo(tmp_path)
+    _passive_universe(monkeypatch)
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", _instr_idx()))
+    from irc.commands import narrative_autobuild as NA
+    from irc.narrative import analyze as A
+    count = {"n": 0}
+
+    def _build(t, *, provider):
+        count["n"] += 1
+        return _two_leg_fund_level()
+
+    monkeypatch.setattr(NA, "build_snapshot", _build)
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _passive_inp())
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=True, out_dir=str(out_dir))
+    first = (out_dir / "compute_metals_report.json").read_text()
+    assert count["n"] == 1
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=True, out_dir=str(out_dir))
+    second = (out_dir / "compute_metals_report.json").read_text()
+    assert count["n"] == 1  # second run: latest-nav cache present → zero builds
+    assert first == second  # byte-identical
