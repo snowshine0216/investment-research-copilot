@@ -12,8 +12,6 @@ from irc.commands.opportunity_cmd import (
     _fetch_budget,
     _load_latest_nav_cached,
 )
-import duckdb
-
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
@@ -31,7 +29,6 @@ from irc.narrative.schemas import ShortlistRow
 from irc.schemas.universe import Instrument
 
 _QDII_KINDS = ("qdii_us", "qdii_hk", "qdii_global")
-
 _log = logging.getLogger(__name__)
 
 
@@ -44,7 +41,7 @@ _ACTIVE_ASSET_CLASS = "cn_equity_fund"
 
 
 def _is_eligible(row: ShortlistRow) -> bool:
-    """Eligibility gate decided before any I/O (AC1)."""
+    """Active-fund eligibility gate; effect-free (AC1 item 001)."""
     return row.asset_class == _ACTIVE_ASSET_CLASS
 
 
@@ -59,14 +56,11 @@ def _target_for_row(row: ShortlistRow) -> LookthroughTarget:
 
 def _fund_level_eligible_target(
     row: ShortlistRow, instr: Instrument | None,
-    *, con: object,  # accepted for signature parity but unused — eligibility is instr-only
+    *, con: object,  # accepted for signature parity; unused — eligibility is instr-only
 ) -> LookthroughTarget | None:
-    """Resolve the row's LookthroughTarget via map_lookthrough; return it only
-    when fund-level-eligible AND it carries a provider_symbol (AC1/AC2, RD-3).
+    """Resolve lookthrough target from instr; return only if fund-level+provider_symbol.
 
-    Effect-free: builds a minimal OpportunityInput skeleton from instr (no DB
-    round-trip; map_lookthrough reads only asset_class/theme/tracked_index).
-    cn_equity_fund routes to active_fund (item 001's domain) → excluded.
+    Effect-free: builds OpportunityInput skeleton (no DB). cn_equity_fund → None (item 001).
     """
     iid = row.instrument_id
     asset_class = instr.asset_class if instr else row.asset_class
@@ -80,8 +74,7 @@ def _fund_level_eligible_target(
         target_band_low=None, target_band_high=None, venue_compatible=True,
     )
     target = map_lookthrough(inp)
-    eligible_kind = target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS
-    if eligible_kind and target.provider_symbol:
+    if (target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
         return target
     return None
 
@@ -90,18 +83,16 @@ def _build_and_cache_fund_level_one(
     target: LookthroughTarget, *, provider: object, data_dir: Path,
     today_iso: str,
 ) -> None:
-    """Effects edge: build one FundLevelSnapshot and cache-write it under nav/.
+    """Build one FundLevelSnapshot and cache-write it (effects edge, AC9/AC10).
 
-    Mirrors opportunity_cmd._resolve_fund_level_snapshot:374-384. Skips the write
-    on the QDII sentinel (qdii_information_unavailable gap) or an empty
-    source_report_quarter (path-collapse guard). Degrades on any failure (logged,
-    no write); re-raises FetchBudgetExceeded.
+    Skips write on QDII sentinel or empty source_report_quarter.
+    Degrades on failure; re-raises FetchBudgetExceeded.
     """
     try:
         snap = build_snapshot(target, provider=provider)
     except FetchBudgetExceeded:
         raise
-    except Exception as exc:  # degrade — never crash the run (AC10)
+    except Exception as exc:
         _log.warning("narrative_autobuild: fund-level build failed for %s — %s",
                      target.provider_symbol, exc)
         return
@@ -114,7 +105,7 @@ def _build_and_cache_fund_level_one(
     to_cache = replace(snap, cache_probed_at=today_iso)
     try:
         write_nav_cache(to_cache, data_dir)
-    except Exception as cache_exc:  # disk error is environmental — degrade
+    except Exception as cache_exc:
         _log.error("narrative_autobuild: nav cache write failed for %s — %s",
                    target.provider_symbol, cache_exc)
 
@@ -123,17 +114,15 @@ def _build_and_cache_one(
     target: LookthroughTarget, *, provider: object, data_dir: Path,
     today_iso: str,
 ) -> None:
-    """Effects edge: build one ActiveFundSnapshot and cache-write it.
+    """Build one ActiveFundSnapshot and cache-write it (effects edge).
 
-    Degrades on any failure (logged, no write); never raises. Mirrors
-    opportunity_cmd.py:868-884. Skips the write on empty source_report_quarter
-    to avoid the data/fundamentals//active_fund path-collapse.
+    Degrades on failure; re-raises FetchBudgetExceeded.
     """
     try:
         snap = build_snapshot(target, top_n=TOP_N_DEFAULT, provider=provider)
     except FetchBudgetExceeded:
         raise
-    except Exception as exc:  # degrade — never crash the run (AC6)
+    except Exception as exc:
         _log.warning("narrative_autobuild: build failed for %s — %s",
                      target.provider_symbol, exc)
         return
@@ -146,7 +135,7 @@ def _build_and_cache_one(
     to_cache = replace(snap, cache_probed_at=today_iso)
     try:
         write_active_fund_cache(to_cache, data_dir)
-    except Exception as cache_exc:  # disk error is environmental — degrade
+    except Exception as cache_exc:
         _log.error("narrative_autobuild: cache write failed for %s — %s",
                    target.provider_symbol, cache_exc)
 
@@ -154,14 +143,12 @@ def _build_and_cache_one(
 def _eligible_missing(
     shortlist: tuple[ShortlistRow, ...], *, quarter: str, data_dir: Path,
 ) -> tuple[ShortlistRow, ...]:
-    """Eligible rows with NO cached snapshot for the RESOLVED quarter (AC2)."""
-    out: list[ShortlistRow] = []
-    for row in shortlist:
-        if not _is_eligible(row):
-            continue
-        if load_active_fund_cache(row.instrument_id, quarter, data_dir) is None:
-            out.append(row)
-    return tuple(out)
+    """Active-fund rows missing a resolved-quarter cache (AC2 item 001)."""
+    return tuple(
+        row for row in shortlist
+        if _is_eligible(row)
+        and load_active_fund_cache(row.instrument_id, quarter, data_dir) is None
+    )
 
 
 def _fund_level_eligible_missing(
@@ -169,15 +156,13 @@ def _fund_level_eligible_missing(
     instr_index: dict[str, Instrument], con: object,
     data_dir: Path,
 ) -> tuple[tuple[ShortlistRow, LookthroughTarget], ...]:
-    """Fund-level-eligible rows with NO cached nav/ snapshot (latest-nav scan, AC3)."""
+    """Fund-level-eligible rows with NO cached nav/ snapshot (AC3)."""
     out: list[tuple[ShortlistRow, LookthroughTarget]] = []
     for row in shortlist:
         target = _fund_level_eligible_target(
             row, instr_index.get(row.instrument_id), con=con,
         )
-        if target is None:
-            continue
-        if _load_latest_nav_cached(target.provider_symbol, data_dir) is None:
+        if target is not None and _load_latest_nav_cached(target.provider_symbol, data_dir) is None:
             out.append((row, target))
     return tuple(out)
 
@@ -186,27 +171,81 @@ def autobuild_active_funds(
     shortlist: tuple[ShortlistRow, ...], *, provider: object, quarter: str,
     data_dir: Path, today_iso: str,
 ) -> None:
-    """Command-layer narrative active-fund autobuild (effects edge).
+    """Narrative active-fund autobuild edge (standalone, for unit-test isolation).
 
-    No-op when IRC_NARRATIVE_AUTOBUILD=0. Builds + caches an ActiveFundSnapshot
-    for each eligible cn_equity_fund row missing a resolved-quarter cache.
-    Raises FetchBudgetExceeded BEFORE any fetch when the estimate exceeds budget.
+    No-op when IRC_NARRATIVE_AUTOBUILD=0; raises FetchBudgetExceeded pre-fetch.
     """
     if not _narrative_autobuild_on():
         return
     missing = _eligible_missing(shortlist, quarter=quarter, data_dir=data_dir)
     if not missing:
         return
-    plan = FetchPlan(
-        active_fund_misses=len(missing), active_fund_stale=0,
-        passive_misses=0, passive_stale=0, top_n=TOP_N_DEFAULT,
-    )
+    plan = FetchPlan(active_fund_misses=len(missing), active_fund_stale=0,
+                     passive_misses=0, passive_stale=0, top_n=TOP_N_DEFAULT)
     total = plan.total_calls()
     budget = _fetch_budget()
     if total > budget:
         raise FetchBudgetExceeded(plan, total, budget)
     for row in missing:
-        _build_and_cache_one(
-            _target_for_row(row), provider=provider, data_dir=data_dir,
-            today_iso=today_iso,
-        )
+        _build_and_cache_one(_target_for_row(row), provider=provider,
+                             data_dir=data_dir, today_iso=today_iso)
+
+
+def autobuild_fund_level_funds(
+    shortlist: tuple[ShortlistRow, ...], *, provider: object,
+    instr_index: dict[str, Instrument], con: object,
+    data_dir: Path, today_iso: str,
+) -> None:
+    """Narrative passive fund-level autobuild edge (standalone, for unit-test isolation).
+
+    No-op when IRC_NARRATIVE_AUTOBUILD=0; raises FetchBudgetExceeded pre-fetch (AC8/AC11).
+    """
+    if not _narrative_autobuild_on():
+        return
+    missing = _fund_level_eligible_missing(
+        shortlist, instr_index=instr_index, con=con, data_dir=data_dir,
+    )
+    if not missing:
+        return
+    plan = FetchPlan(active_fund_misses=0, active_fund_stale=0, passive_misses=0,
+                     passive_stale=0, top_n=TOP_N_DEFAULT, fund_level_misses=len(missing))
+    total = plan.total_calls()
+    budget = _fetch_budget()
+    if total > budget:
+        raise FetchBudgetExceeded(plan, total, budget)
+    for _row, target in missing:
+        _build_and_cache_fund_level_one(target, provider=provider,
+                                        data_dir=data_dir, today_iso=today_iso)
+
+
+def autobuild_narrative(
+    shortlist: tuple[ShortlistRow, ...], *, provider: object,
+    instr_index: dict[str, Instrument], con: object,
+    quarter: str, data_dir: Path, today_iso: str,
+) -> None:
+    """Shared-budget preflight over BOTH narrative autobuild edges (RD-7a).
+
+    No-op when IRC_NARRATIVE_AUTOBUILD=0. One combined FetchPlan is checked
+    pre-fetch; raises FetchBudgetExceeded before any build.
+    """
+    if not _narrative_autobuild_on():
+        return
+    active_missing = _eligible_missing(shortlist, quarter=quarter, data_dir=data_dir)
+    fund_level_missing = _fund_level_eligible_missing(
+        shortlist, instr_index=instr_index, con=con, data_dir=data_dir,
+    )
+    if not active_missing and not fund_level_missing:
+        return
+    plan = FetchPlan(active_fund_misses=len(active_missing), active_fund_stale=0,
+                     passive_misses=0, passive_stale=0, top_n=TOP_N_DEFAULT,
+                     fund_level_misses=len(fund_level_missing))
+    total = plan.total_calls()
+    budget = _fetch_budget()
+    if total > budget:
+        raise FetchBudgetExceeded(plan, total, budget)
+    for row in active_missing:
+        _build_and_cache_one(_target_for_row(row), provider=provider,
+                             data_dir=data_dir, today_iso=today_iso)
+    for _row, target in fund_level_missing:
+        _build_and_cache_fund_level_one(target, provider=provider,
+                                        data_dir=data_dir, today_iso=today_iso)

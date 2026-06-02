@@ -350,6 +350,88 @@ def test_fund_level_missing_excludes_active_and_bare_rows(tmp_path, monkeypatch)
     assert missing == ()  # active → item 001; bare cn_etf → no provider_symbol
 
 
+def test_passive_autobuild_builds_eligible_missing(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_fund_level_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "_load_latest_nav_cached", lambda fund_id, root: None)
+    instr_idx = {
+        "000B": _instr("000B", "cn_etf", tracked_index="csi300"),
+        "000A": _instr("000A", "cn_equity_fund"),
+    }
+    shortlist = (_shortlist_row("000B", "cn_etf"), _shortlist_row("000A", "cn_equity_fund"))
+    NA.autobuild_fund_level_funds(shortlist, provider=object(), instr_index=instr_idx,
+                                  con=object(), data_dir=tmp_path, today_iso="2026-06-02")
+    assert built == ["000B"]  # active row never built by the passive path (AC14)
+
+
+def test_passive_kill_switch_disables_build(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "0")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_fund_level_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "_load_latest_nav_cached", lambda fund_id, root: None)
+    instr_idx = {"000B": _instr("000B", "cn_etf", tracked_index="csi300")}
+    NA.autobuild_fund_level_funds((_shortlist_row("000B", "cn_etf"),), provider=object(),
+                                  instr_index=instr_idx, con=object(),
+                                  data_dir=tmp_path, today_iso="2026-06-02")
+    assert built == []  # AC8
+
+
+def test_passive_skips_when_nav_cache_present(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_fund_level_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "_load_latest_nav_cached",
+                        lambda fund_id, root: _fund_level_snap(fund_id, "2026Q1"))
+    instr_idx = {"000B": _instr("000B", "cn_etf", tracked_index="csi300")}
+    NA.autobuild_fund_level_funds((_shortlist_row("000B", "cn_etf"),), provider=object(),
+                                  instr_index=instr_idx, con=object(),
+                                  data_dir=tmp_path, today_iso="2026-06-02")
+    assert built == []  # AC3 — cache present → zero builds
+
+
+def test_shared_budget_guard_raises_before_any_build(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "1")  # per_fund_level = 4 > 1
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_fund_level_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "_load_latest_nav_cached", lambda fund_id, root: None)
+    instr_idx = {"000B": _instr("000B", "cn_etf", tracked_index="csi300")}
+    with pytest.raises(NA.FetchBudgetExceeded):
+        NA.autobuild_fund_level_funds((_shortlist_row("000B", "cn_etf"),), provider=object(),
+                                      instr_index=instr_idx, con=object(),
+                                      data_dir=tmp_path, today_iso="2026-06-02")
+    assert built == []  # AC11 — raised pre-build
+
+
+def test_shared_budget_counts_active_and_fund_level_together(tmp_path, monkeypatch) -> None:
+    # RD-7a: one shared plan. 1 active (35) + 1 fund_level (4) = 39; budget 38 → raise.
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "38")
+    abuilt: list[str] = []
+    fbuilt: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_one",
+                        lambda target, **k: abuilt.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "_build_and_cache_fund_level_one",
+                        lambda target, **k: fbuilt.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "load_active_fund_cache", lambda iid, q, root: None)
+    monkeypatch.setattr(NA, "_load_latest_nav_cached", lambda fund_id, root: None)
+    instr_idx = {
+        "000A": _instr("000A", "cn_equity_fund"),
+        "000B": _instr("000B", "cn_etf", tracked_index="csi300"),
+    }
+    shortlist = (_shortlist_row("000A", "cn_equity_fund"), _shortlist_row("000B", "cn_etf"))
+    with pytest.raises(NA.FetchBudgetExceeded):
+        NA.autobuild_narrative(shortlist, provider=object(), instr_index=instr_idx,
+                               con=object(), quarter="2026Q1", data_dir=tmp_path,
+                               today_iso="2026-06-02")
+    assert abuilt == [] and fbuilt == []  # both sub-paths blocked pre-build
+
+
 from pathlib import Path as _Path  # noqa: E402
 
 _REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root
