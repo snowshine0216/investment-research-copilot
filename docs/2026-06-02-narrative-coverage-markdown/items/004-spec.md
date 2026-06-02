@@ -36,13 +36,16 @@ The `.json` stays the full source of truth (item 003 AC8). No scorer, gate, risk
 
 **A — early branch inside `render_report_md`'s per-fund loop; one new pure helper in `report_appendix.py`.**
 
-After emitting the always-safe identity / risk / sub-state / drivers lines (the KEEP set), branch on
+After emitting the always-safe identity / risk / drivers lines (the KEEP set), branch on
 `r.position_risk_level == "insufficient"`:
 
-- **sufficient row** (`!= "insufficient"`): emit today's output verbatim — the `机会 / dca / 风险`
-  triad line, `复核节奏 / review_cadence`, `证伪触发`, `减仓触发`, then evidence / appendix / footnotes.
-- **insufficient row**: SKIP the triad, the cadence, and both trigger lines; instead emit ONE
-  `_insufficient_refresh_line(r, narrative)` line; then still emit whatever evidence / appendix /
+- **sufficient row** (`!= "insufficient"`): emit today's output verbatim — the `子状态` line, the
+  `机会 / dca / 风险` triad line, `复核节奏 / review_cadence`, `证伪触发`, `减仓触发`, then evidence /
+  appendix / footnotes.
+- **insufficient row**: SKIP ~~the triad, the cadence, and both trigger lines~~ **the `子状态`
+  sub-state line, the triad, the cadence, and both trigger lines** (corrected by grill Q1 — the four
+  sub-states are verdicts, not gap-facts); emit the `产品驱动` raw drivers on their own line (grill Q2);
+  then ONE `_insufficient_refresh_line(r, narrative)` line; then still emit whatever evidence / appendix /
   footnotes exist (partial evidence helps the operator refresh; it is never presented as a conclusion).
 
 `report.py` is at 188 lines, so the helper lands in `report_appendix.py` (item 003 already split that
@@ -63,7 +66,11 @@ explicitly forbids `{opportunity_state, dca, risk, note_cn, valuation_state, hea
 product_quality_state, thesis_evidence, constituent_analyses}` *as published conclusions*. The
 narrative report has no `fetch_types_attempted`; its gap-fact analogs are `position_risk_level`,
 `risk_rationale`, `risk_drivers`, `evidence_gaps`. The load-bearing distinction H3 enforces is
-**conclusion (forward recommendation) vs fact (gap statement)** — applied to this surface:
+**conclusion (forward recommendation OR classifier verdict) vs fact (gap statement)** — applied to this
+surface. **NOTE (grill Q1): `valuation_state`/`heat_state`/`thesis_state`/`product_quality_state` are on
+H3's FORBIDDEN list — they are verdicts, not gap-facts — so the four sub-states are SUPPRESSED, not kept.
+The original table below initially mis-classified them as facts; see the corrected rows + `## Resolved
+decisions`.**
 
 | Field | Decision | Why |
 |---|---|---|
@@ -77,8 +84,8 @@ narrative report has no `fetch_types_attempted`; its gap-fact analogs are `posit
 | `position_risk_level` (=`insufficient`) | **KEEP** | The gap statement itself. |
 | `risk_rationale`, `risk_drivers` | **KEEP** | Honest "why risk cannot be assessed" — narrative analog of H3 `evidence_gaps`. |
 | `evidence_gaps` | **KEEP** | Surfaced in the new refresh line (H3's primary field). |
-| sub-states (估值/热度/逻辑/质量) | **KEEP** | Diagnostic gap-facts (e.g. `逻辑=evidence_insufficient`), NOT a verdict — they tell the reader *which legs are missing* (the handoff's "Empty" vs "Partial" patterns). H3 forbids `thesis_state` only as a *published conclusion*; rendered as a sub-state it is a gap-fact. |
-| product-drivers segment (`product_metrics`) | **KEEP** | Display-only diagnostic (item 003 / CONTEXT.md `质量=weak` note); never a recommendation. |
+| sub-states (估值/热度/逻辑/质量) | ~~**KEEP**~~ **SUPPRESS** — corrected by grill (see `## Resolved decisions` Q1) | ~~Diagnostic gap-facts (e.g. `逻辑=evidence_insufficient`), NOT a verdict — they tell the reader *which legs are missing* (the handoff's "Empty" vs "Partial" patterns). H3 forbids `thesis_state` only as a *published conclusion*; rendered as a sub-state it is a gap-fact.~~ **CORRECTED:** the four sub-states are classifier *verdicts*. `build_opportunity_row` populates `evidence_gaps` and the sub-states via INDEPENDENT classifiers, so an insufficient row (e.g. missing only `missing_product_metadata`) can carry `估值=expensive`/`热度=overheated`/`逻辑=intact` as REAL verdicts — exactly the conclusion fields `failure_renderer.py` forbids. Field-level suppression is the H3-faithful rule, not value-conditional rendering. The `子状态` line is SUPPRESSED. |
+| product-drivers segment (`product_metrics`) | **KEEP** (emitted on its OWN line — corrected by grill Q2) | Raw numeric data (费率/规模/任职/跟踪误差), a gap-fact not a verdict (item 003 / CONTEXT.md `质量=weak` note). ~~Rides on the `子状态` line.~~ **CORRECTED:** decoupled from the now-suppressed `子状态`/`质量` label; emitted standalone so the operator still sees the providable product data. |
 | `thesis_evidence` / appendix / footnotes / constituent block | **KEEP** | Partial evidence to refresh from; never a conclusion. |
 
 ## Replacement line
@@ -101,24 +108,32 @@ are stable tuple/str; `narrative` is an arg.
 Each criterion is independently verifiable by a unit test in `tests/narrative/test_report.py` (mirroring
 the existing renderer-test style) unless noted.
 
-1. **An insufficient row renders NO action triad.** For a `NarrativeFundReport` with
+1. **An insufficient row renders NO action triad ~~and NO sub-state line~~ (and NO sub-state verdict line — corrected by grill Q1).** For a `NarrativeFundReport` with
    `position_risk_level == "insufficient"`, the per-fund `.md` block contains NO `机会 / dca / 风险` line
    and NO `dca_action` / `risk_action` / `opportunity_state` token from that row (e.g. no `slow_dca`,
-   no `do_not_buy`, no `review_required`, no `trim_review`, no `small_watch` / `pause_wait`).
+   no `do_not_buy`, no `review_required`, no `trim_review`, no `small_watch` / `pause_wait`); **and NO
+   `子状态` line and NO sub-state verdict token (e.g. no `expensive`, `very_expensive`, `overheated`,
+   `crowded`, `under_pressure`, `falsified`, `weak`, `poor`, `intact`, `cheap`, `acceptable`) from that
+   row** — these are H3-forbidden verdicts (grill Q1). A locked grep test asserts none survive (grill Q6
+   — the enforcement mechanism, mirroring `failure_renderer.py` criterion 18).
 2. **An insufficient row renders NO triggers and NO cadence.** No `证伪触发` line, no `减仓触发` line, no
    `复核节奏 / review_cadence` line in that fund's block.
 3. **An insufficient row renders the refresh-evidence line.** The block contains the
    `⚠️ 证据不足 / insufficient` line; it names at least one of the row's `evidence_gaps` (or its
    `risk_rationale` when gaps render empty) and points at `irc narrative {narrative} --analyze`.
 4. **An insufficient row KEEPS the gap-facts + diagnostics.** The block still renders
-   `position_risk_level: insufficient`, the `主因 / drivers` line, the `说明` (risk_rationale) line, the
-   `子状态` line with all four sub-states (估值/热度/逻辑/质量), and the `产品驱动` drivers segment.
+   `position_risk_level: insufficient`, the `主因 / drivers` line, the `说明` (risk_rationale) line,
+   ~~the `子状态` line with all four sub-states (估值/热度/逻辑/质量),~~ **(the `子状态` sub-state line is
+   SUPPRESSED — corrected by grill Q1; the missing legs are named via `evidence_gaps` in the refresh
+   line of AC3 instead)** and the `产品驱动` drivers segment **on its own standalone line** (grill Q2 —
+   decoupled from the now-suppressed `质量` label; raw numeric data, not a verdict).
 5. **An insufficient row KEEPS partial evidence.** When the row carries `thesis_evidence` (or constituent
    evidence), the inline evidence bullets / `持仓明细` appendix / `证据明细` footnote table still render and
    every inline `[ref:hex]` still resolves (item 003 invariants intact on insufficient rows).
 6. **A sufficient row is UNCHANGED.** For a row with `position_risk_level != "insufficient"` (e.g.
-   `elevated` / `low` / `high`), the `.md` block is byte-identical to the pre-004 output: the
-   `机会 / dca / 风险` triad, `复核节奏`, `证伪触发`, `减仓触发` lines all still render, and the existing
+   `elevated` / `low` / `high`), the `.md` block is byte-identical to the pre-004 output: the `子状态`
+   sub-state line, the `机会 / dca / 风险` triad, `复核节奏`, `证伪触发`, `减仓触发` lines all still render
+   (the sub-state suppression is insufficient-only — grill Q1), and the existing
    `test_report_md_renders_risk_and_action_fields` (which uses `level="elevated"`) stays green unchanged.
 7. **The `.json` stays the full source of truth.** `render_report_json` / `_report_dict` are UNCHANGED:
    the per-fund `.json` for an insufficient row still carries `opportunity_state`, `dca_action`,
@@ -170,7 +185,7 @@ the existing renderer-test style) unless noted.
 
 ## Open questions — resolved
 
-- **Q1 — SUPPRESS vs KEEP set.** RESOLVED (see table above). SUPPRESS = `opportunity_state`,
+- **Q1 — SUPPRESS vs KEEP set.** ~~RESOLVED (see table above). SUPPRESS = `opportunity_state`,
   `dca_action`, `risk_action`, `falsification_triggers`, `trim_triggers`, `review_cadence`. KEEP =
   `instrument_id`, `name_cn`, `position_risk_level`, `risk_rationale`, `risk_drivers`, `evidence_gaps`,
   the four sub-states, product-drivers segment, and any partial evidence/appendix/footnotes.
@@ -178,7 +193,10 @@ the existing renderer-test style) unless noted.
   The triad + triggers + cadence are forward recommendations; everything else is an honest gap-fact or
   diagnostic that tells the operator what to refresh — the narrative analog of H3's
   `evidence_gaps` / `fetch_types_attempted`. Sub-states render as gap-facts (`逻辑=evidence_insufficient`),
-  not as the `thesis_state` *verdict* H3 forbids.
+  not as the `thesis_state` *verdict* H3 forbids.~~ **— CORRECTED by grill: the four sub-states ARE the
+  forbidden verdicts (`failure_renderer.py` lists `valuation_state`/`heat_state`/`thesis_state`/
+  `product_quality_state` as forbidden), and they can carry REAL verdicts on an insufficient row. See
+  `## Resolved decisions` Q1 below for the corrected SUPPRESS set.**
 - **Q2 — Replacement line wording.** RESOLVED. Single bilingual line
   `⚠️ 证据不足 / insufficient — 行动建议已抑制 (未形成结论)；缺口: {gaps}；刷新: \`uv run irc narrative {narrative} --analyze\``,
   naming `evidence_gaps` (fallback `risk_rationale`) and pointing at `--analyze`.
@@ -195,3 +213,83 @@ the existing renderer-test style) unless noted.
   are untouched.
 
 No open question remained unresolved from MASTER-SPEC / handoff / code.
+
+## Resolved decisions
+
+Grill session 2026-06-02 (subagent: opus). The original spec's single flagged judgment (KEEP the four
+sub-states) was CORRECTED against `failure_renderer.py` + CONTEXT.md "H3 universal gapped-row invariant".
+Strike-through lines above mark the corrections; this section is authoritative where it conflicts.
+
+- **Q1 — Are the four sub-states (估值/热度/逻辑/质量) gap-FACTS (KEEP) or H3-forbidden verdicts (SUPPRESS)?**
+  **A: SUPPRESS them.** The original spec KEPT them, reasoning they render as gap-facts
+  (`逻辑=evidence_insufficient`). **VERIFIED WRONG.** `src/irc/opportunity/failure_renderer.py` (lines 6-9)
+  explicitly lists `valuation_state, heat_state, thesis_state, product_quality_state` among the conclusion
+  fields it "NEVER reads … because gapped rows have not earned conclusions"; CONTEXT.md line 56 lists
+  `thesis_state` among the forbidden set. Decisively, `build_opportunity_row` (`states.py:538-591`)
+  populates `evidence_gaps` (from `_structural_evidence_gaps` + `thesis_gaps`) and the four sub-states
+  (from `classify_valuation/heat/product` + `derive_thesis_from_evidence`) via **INDEPENDENT classifiers**.
+  A row missing only `missing_product_metadata` → non-empty `evidence_gaps` → `position_risk_level ==
+  "insufficient"` (`risk.py:60`), yet still carries `valuation_state=expensive`, `heat_state=overheated`,
+  `thesis_state=intact` as **real verdicts**. So on the `_report_from_card` path the `子状态` line can leak
+  the exact published verdicts H3 forbids. (Only the `error_report` path forces all four to
+  `evidence_insufficient`.) *Rationale:* H3's split is conclusion-vs-fact, and the four sub-state
+  *classifications* are the conclusion axis. A renderer cannot statically distinguish a real
+  `expensive` from an `evidence_insufficient` value without inspecting it — and value-conditional
+  rendering is exactly what H3's "the renderer's signature is the enforcement mechanism" rejects. The
+  H3-faithful rule is **field-level suppression**: drop the `子状态` line entirely on insufficient rows.
+  The missing legs are surfaced honestly via `evidence_gaps` codes (`missing_valuation_data`,
+  `missing_flow_or_return_data`, `missing_product_metadata`) in the AC3 refresh line — a strictly more
+  honest "which leg is missing" signal than `逻辑=evidence_insufficient`, and unambiguously a fact.
+  *Doc-impact:* corrected the KEEP table, Goal/SUPPRESS-vs-KEEP prose, AC1/AC4/AC6, and the in-file Q1;
+  added CONTEXT.md entry "Narrative `.md` insufficient-row display discipline (H3 analog)".
+
+- **Q2 — Does suppressing the `子状态` line drop the `产品驱动` (`product_metrics`) segment too?**
+  **A: No — decouple them; the product-drivers segment KEEPS, on its own standalone line.** Today
+  (`report.py:102-106`) the `质量=weak` label and the `产品驱动` segment share one line. The
+  `product_metrics` (费率/规模/任职/跟踪误差) are **raw numeric data**, an unambiguous gap-fact, not a
+  classification — they stay (CONTEXT.md "Active-fund `质量=weak`" mitigation depends on the operator seeing
+  them). The `质量` *label* they sit next to is a verdict → suppressed. *Rationale:* the line-coupling is
+  incidental layout, not a semantic bond; H3-faithful suppression separates the verdict from the data.
+  *Doc-impact:* corrected the KEEP-table product-drivers row + AC4 to require a standalone line.
+
+- **Q3 — Replacement-line wording: accurate, deterministic, points at `--analyze`?**
+  **A: Yes, keep the spec's line.** `⚠️ 证据不足 / insufficient — 行动建议已抑制 (未形成结论)；缺口: {gaps}；刷新: \`uv run irc narrative {narrative} --analyze\``. VERIFIED: `--analyze` is the real refresh path
+  (CONTEXT.md lines 170-171 — the narrative active-fund autobuild runs ahead of the `--analyze` loop and
+  populates the cache `analyze_fund` reads), NOT `fundamentals snapshot` (the misleading string item 001
+  fixed). Bilingual (matches the surface); names `evidence_gaps` (mirrors H3's `原因: {gaps}`);
+  deterministic (`evidence_gaps` tuple, `risk_rationale` str, `narrative` arg; no I/O). *Refinement:* on
+  BOTH insufficient paths `evidence_gaps` is provably non-empty (`error_report` sets `evidence_gaps=(reason,)`;
+  `_report_from_card` reaches `insufficient` only via non-empty `view.evidence_gaps`), so the
+  `risk_rationale`/literal-`evidence_insufficient` fallbacks are **defensive-unreachable** on production
+  paths — keep them (matches the project's H3-Step-1 defence-in-depth posture) but a reviewer should not
+  hunt for a triggering case. *Doc-impact:* none beyond this note.
+
+- **Q4 — `.md`-only suppression, `.json` unchanged — consistent with item 003 AC8 + H3?**
+  **A: Yes.** `_report_dict` (`report.py:161-182`) stays UNCHANGED and keeps emitting the full
+  triad/triggers/cadence/sub-states with real values (item 003 AC8: `.json` = additive full source of
+  truth). H3 partitions *rows across files*; the single-file narrative analog is "do not DISPLAY unearned
+  conclusions in the human `.md`" — display discipline, not data suppression. The narrative path is
+  Policy-B-free / no-H3-partition / no-publishability (CONTEXT.md "Narrative path is Policy-B-free"), so
+  no invariant binds the `.json` to mirror the `.md`. *Doc-impact:* captured in the new CONTEXT.md entry.
+
+- **Q5 — Determinism (ADR 0004) + existing-test impact.**
+  **A: ADR-0004-clean; one expected test-update class, zero broken existing tests.** Branch on a single
+  field; refresh line built from deterministic tuples/strings; no I/O, no unsorted iteration. VERIFIED:
+  `test_report_md_renders_risk_and_action_fields` (`test_report.py:99-105`) uses `level="elevated"` (a
+  SUFFICIENT row) → byte-identical, stays green. No existing render test asserts the triad/sub-states on
+  an `insufficient` row (`_report` defaults to `elevated`), so nothing breaks. New insufficient-shape
+  tests (AC1-5, 9) + the grep test (Q6) are additive. *Doc-impact:* none.
+
+- **Q6 — Add a narrative-side forbidden-token enforcement test (mirror `failure_renderer.py` criterion 18)?**
+  **A: Yes — add it to AC1.** H3's whole design is "a locked grep test is the enforcement mechanism." The
+  insufficient-block grep must forbid not only the action-triad/trigger/cadence tokens (original AC1) but
+  ALSO the sub-state verdict tokens (`expensive`, `very_expensive`, `overheated`, `crowded`,
+  `under_pressure`, `falsified`, `weak`, `poor`, `intact`, `cheap`, `acceptable`, and the `子状态` line
+  marker). Without this, a future contributor re-adding the `子状态` line would not trip a test.
+  *Rationale:* mirroring the discipline without mirroring the enforcement leaves the suppression a soft
+  convention. *Doc-impact:* strengthened AC1.
+
+- **ADR decision.** **No new ADR.** Three-of-three rule fails: the change is trivially reversible
+  (additive `.md`-only display branch), MIRRORS an already-documented invariant (H3 + ADR 0004
+  determinism) rather than introducing a surprising new shape, and the rejected alternatives (B/C in
+  *Approach*) are rendering-mechanics, not architecture. Captured as a CONTEXT.md glossary entry instead.
