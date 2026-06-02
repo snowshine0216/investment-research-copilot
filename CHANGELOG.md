@@ -36,6 +36,18 @@ system's deepest per-fund analysis on the shortlist.
   `--role` / `--out` / `--repo-root`. Reusable for new narratives (`ai`, `robots`) by
   adding a `config/narratives/<name>.yaml` — **no code change**. The seeded
   `compute_metals` basket is a **DRAFT** pending user approval.
+- **Active-fund autobuild for `--analyze` (2026-06-02):** `irc narrative --analyze`
+  now auto-builds + caches the `active_fund` snapshot for shortlisted
+  `cn_equity_fund` funds that lack one (mirrors `irc opportunity` autobuild), so
+  narrative-*discovered* funds — absent from `scoring.json` — get deepened instead of
+  screened to `insufficient`. Default-on; disable with `IRC_NARRATIVE_AUTOBUILD=0`.
+  Pre-fetch `IRC_FETCH_BUDGET` guard: a budget trip exits cleanly (`rc=3`, actionable
+  message), never a partial report; per-fund build failure degrades that fund to
+  `insufficient`, never crashing the run. `analyze_fund` stays read-only (effects at the
+  command edge). The misleading `--analyze` prerequisite error string (which told users
+  to run `irc fundamentals snapshot` — a command that cannot populate this cache) is
+  corrected to name `irc ingest` + the autobuild behaviour. Passive `cn_etf` funds are
+  not yet deepened (follow-up).
 
 ### Added — `eval-funds` (2026-06-01)
 

@@ -4,7 +4,7 @@
 **Project type:** non-web
 **PR shape:** A (per-item PRs into the feature branch; no `--rollup`)
 **Authoring model:** Full Opus (spec / grill / plan all on Opus — user choice; no Sonnet override)
-**Item order:** pending dependency scan
+**Item order:** 001, 002, 003, 004 (locked via dependency scan — coverage-gap items first so markdown renders real enriched evidence; same-file changes adjacent to minimize rebase; 003 → 004 since 004 suppresses fields 003 adds)
 **Token ceiling (soft):** ~1.2M tokens for the run; STOP and confirm if approached.
 
 ## Branch strategy
