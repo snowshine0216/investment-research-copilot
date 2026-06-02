@@ -151,3 +151,16 @@ def test_budget_guard_raises_before_any_build(tmp_path, monkeypatch) -> None:
                                   quarter="2026Q1", data_dir=tmp_path,
                                   today_iso="2026-06-02")
     assert built == []  # raised BEFORE any build (AC7)
+
+
+from pathlib import Path as _Path  # noqa: E402
+
+
+def test_module_has_no_forbidden_indicator() -> None:
+    src = _Path("src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
+    assert "基金概况" not in src
+
+
+def test_module_never_writes_budget_exhausted_sentinel() -> None:
+    src = _Path("src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
+    assert "fetch_budget_exhausted" not in src
