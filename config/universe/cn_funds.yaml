@@ -131,3 +131,37 @@ instruments:
   - { instrument_id: "159667", ticker: "159667", market: cn_on_exchange,
       name_cn: "工业母机ETF", asset_class: cn_etf, currency: cny,
       tracked_index: "中证机床ZZ", venue_required: [cn_brokerage] }
+  # === AI / 算力 (主题ETF) — added 2026-06-02 so `irc narrative ai` screens
+  # against pure-play funds (芯片 / 半导体 / 人工智能 / 光模块·通信 / 算力·数字经济).
+  # Each verified to resolve + overlap the ai basket (n ≥ 2). 光模块 has no pure
+  # ETF; 通信ETF (515880) is the proxy (中际旭创/天孚/新易盛 ≈ 46% top weight).
+  - { instrument_id: "159995", ticker: "159995", market: cn_on_exchange,
+      name_cn: "芯片ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证芯片产业", venue_required: [cn_brokerage] }
+  - { instrument_id: "512480", ticker: "512480", market: cn_on_exchange,
+      name_cn: "半导体ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证全指半导体", venue_required: [cn_brokerage] }
+  - { instrument_id: "516350", ticker: "516350", market: cn_on_exchange,
+      name_cn: "半导体设备ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证半导体材料设备", venue_required: [cn_brokerage] }
+  - { instrument_id: "588200", ticker: "588200", market: cn_on_exchange,
+      name_cn: "科创芯片ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "上证科创板芯片", venue_required: [cn_brokerage] }
+  - { instrument_id: "515070", ticker: "515070", market: cn_on_exchange,
+      name_cn: "人工智能AIETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证人工智能主题", venue_required: [cn_brokerage] }
+  - { instrument_id: "515980", ticker: "515980", market: cn_on_exchange,
+      name_cn: "人工智能ETF华富", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证人工智能产业", venue_required: [cn_brokerage] }
+  - { instrument_id: "515880", ticker: "515880", market: cn_on_exchange,
+      name_cn: "通信ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证全指通信设备", venue_required: [cn_brokerage] }
+  - { instrument_id: "560660", ticker: "560660", market: cn_on_exchange,
+      name_cn: "数字经济ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证数字经济主题", venue_required: [cn_brokerage] }
+  - { instrument_id: "516630", ticker: "516630", market: cn_on_exchange,
+      name_cn: "云计算ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证云计算与大数据", venue_required: [cn_brokerage] }
+  - { instrument_id: "159338", ticker: "159338", market: cn_on_exchange,
+      name_cn: "算力ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证算力基础设施", venue_required: [cn_brokerage] }
