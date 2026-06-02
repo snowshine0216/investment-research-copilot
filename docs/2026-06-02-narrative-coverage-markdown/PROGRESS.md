@@ -11,7 +11,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
 | 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | ✅ | ✅ | ✅ | ✅ pre-push round (4 findings + 2 nits) | ✅ afce294 |
-| 004 | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
 
@@ -50,7 +50,9 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 003-verify: [items/003-verify.md](items/003-verify.md) (Verdict PASS; direct renderer drive — all ACs incl. constituent-only footnote resolution + determinism + legend; 33 test_report + 387 memo)
 - 003-pr-review: [items/003-pr-review.md](items/003-pr-review.md) (Verdict PASS; [PR #97 comment](https://github.com/snowshine0216/investment-research-copilot/pull/97#issuecomment-4602150530); 0 findings — all candidates refuted by code)
 - 003-fix: pre-push round (4 substantive + 2 nits); 0 post-ship rounds (all 3 verdicts PASS).
-- 004-spec: [items/004-spec.md](items/004-spec.md) (commit 94cecdf; 10 ACs; SUPPRESS opportunity_state/dca/risk/triggers/cadence on insufficient rows, KEEP gap-facts+sub-states+drivers+evidence; grounded in failure_renderer.py H3 conclusion-vs-fact split; bilingual refresh line → `--analyze`; .md-only, .json unchanged)
+- 004-spec: [items/004-spec.md](items/004-spec.md) (commit 94cecdf; 10 ACs; SUPPRESS opportunity_state/dca/risk/triggers/cadence on insufficient rows; bilingual refresh line → `--analyze`; .md-only, .json unchanged)
+- 004-grill: [items/004-grill.md](items/004-grill.md) (commit 3041a77; Verdict PASS; 6 Q; **corrected spec — the four sub-states 估值/热度/逻辑/质量 are ALSO H3-forbidden conclusions (failure_renderer.py:6-9) → SUPPRESS the 子状态 line too** for insufficient rows; KEEP only id/name/position_risk_level/risk_rationale/evidence_gaps + raw 产品驱动 numeric + partial evidence; CONTEXT.md +1 term; no new ADR)
+- 004-plan: [items/004-plan.md](items/004-plan.md) (commit a4fb385; 5 tasks / 24 steps; all 10 ACs → tests; splits 产品驱动 to own line, per-fund `if position_risk_level==insufficient` branch + 2 pure helpers in report_appendix.py; golden byte-identity for sufficient rows; no existing test needs updating)
 
 ## Run-level
 | gate | status |
