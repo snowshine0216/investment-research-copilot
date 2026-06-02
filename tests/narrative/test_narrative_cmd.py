@@ -112,7 +112,7 @@ def test_analyze_renders_real_citations(tmp_path: Path, monkeypatch) -> None:
     # make analyze deterministic + DB-free: stub the open-db edge + per-fund analyze.
     monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
-    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+    monkeypatch.setattr(narrative_cmd, "autobuild_narrative",
                         lambda *a, **k: None)
     expensive = NarrativeFundReport(
         instrument_id="000A", name_cn="有色基金",
@@ -246,7 +246,7 @@ def test_analyze_per_fund_error_yields_partial_results(tmp_path: Path, monkeypat
     )
     monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
-    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+    monkeypatch.setattr(narrative_cmd, "autobuild_narrative",
                         lambda *a, **k: None)
 
     ok_report = NarrativeFundReport(
@@ -344,8 +344,8 @@ def test_analyze_invokes_autobuild_with_resolved_quarter(tmp_path, monkeypatch) 
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
     calls: list = []
     monkeypatch.setattr(
-        narrative_cmd, "autobuild_active_funds",
-        lambda shortlist, *, provider, quarter, data_dir, today_iso:
+        narrative_cmd, "autobuild_narrative",
+        lambda shortlist, *, provider, instr_index, con, quarter, data_dir, today_iso:
         calls.append((tuple(r.instrument_id for r in shortlist), provider, quarter)),
     )
     # analyze_fund stays read-only; stub it to a known report
@@ -463,7 +463,7 @@ def test_run_narrative_returns_3_on_fetch_budget_exceeded(
     plan = FetchPlan(active_fund_misses=1, active_fund_stale=0,
                      passive_misses=0, passive_stale=0, top_n=10)
     monkeypatch.setattr(
-        narrative_cmd, "autobuild_active_funds",
+        narrative_cmd, "autobuild_narrative",
         lambda *a, **k: (_ for _ in ()).throw(FetchBudgetExceeded(plan, 35, 1)),
     )
 
@@ -500,7 +500,7 @@ def test_run_narrative_returns_3_when_analyze_fund_raises_fetch_budget_exceeded(
     )
     monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
-    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+    monkeypatch.setattr(narrative_cmd, "autobuild_narrative",
                         lambda *a, **k: None)
 
     plan = FetchPlan(active_fund_misses=1, active_fund_stale=0,
@@ -566,7 +566,17 @@ def test_analyze_recovers_active_fund_with_real_thesis(tmp_path, monkeypatch) ->
         assert snapshot is not None  # the autobuilt cache must be loaded
         return _row("000A")  # local helper below
 
-    monkeypatch.setattr(A, "_build_input", lambda *a, **k: object())
+    from irc.opportunity.types import OpportunityInput
+
+    def _active_inp(*a, **k):
+        return OpportunityInput(
+            instrument_id="000A", asset_class="cn_equity_fund", market="cn_off_exchange",
+            theme=None, tracked_index=None, name_cn="有色基金", role="r",
+            is_holding=False, portfolio_weight=None, target_band_low=None,
+            target_band_high=None, venue_compatible=True,
+        )
+
+    monkeypatch.setattr(A, "_build_input", _active_inp)
     monkeypatch.setattr(A, "build_opportunity_row", _fake_row)
 
     out_dir = repo / "outputs" / "2026-06-02" / "narrative"
@@ -577,3 +587,48 @@ def test_analyze_recovers_active_fund_with_real_thesis(tmp_path, monkeypatch) ->
     fund = report["funds"][0]
     assert fund["thesis_state"] != "evidence_insufficient"
     assert fund.get("thesis_evidence")  # non-empty → deepened, not screened (AC11)
+
+
+def _make_report(iid: str) -> NarrativeFundReport:
+    return NarrativeFundReport(
+        instrument_id=iid, name_cn=f"fund-{iid}",
+        position_risk_level="moderate", risk_rationale="r",
+        risk_drivers=(), valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", falsification_triggers=(),
+        trim_triggers=(), review_cadence="monthly",
+        evidence_gaps=(), thesis_evidence=(),
+    )
+
+
+def test_analyze_invokes_shared_autobuild_with_instr_and_con(tmp_path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000B", "ETF", "cn_etf"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    instr_index = {"000B": object()}
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", instr_index))
+    calls: list = []
+    monkeypatch.setattr(
+        narrative_cmd, "autobuild_narrative",
+        lambda shortlist, *, provider, instr_index, con, quarter, data_dir, today_iso:
+        calls.append((provider, con, quarter, instr_index)),
+    )
+    monkeypatch.setattr(narrative_cmd, "analyze_fund",
+                        lambda row, **k: _make_report(row.instrument_id))
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                     analyze=True, out_dir=str(out_dir))
+    assert rc == 0
+    assert len(calls) == 1
+    provider, con, quarter, idx = calls[0]
+    assert provider == "PROV" and con == "CON" and quarter == "2026Q1" and idx is instr_index
