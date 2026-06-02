@@ -322,6 +322,34 @@ def test_fund_level_build_one_reraises_fetch_budget(tmp_path, monkeypatch) -> No
                                            data_dir=tmp_path, today_iso="2026-06-02")
 
 
+def test_fund_level_missing_excludes_cached_nav(tmp_path, monkeypatch) -> None:
+    instr_idx = {
+        "000B": _instr("000B", "cn_etf", tracked_index="csi300"),
+        "000C": _instr("000C", "cn_etf", tracked_index="csi300"),
+    }
+    shortlist = (_shortlist_row("000B", "cn_etf"), _shortlist_row("000C", "cn_etf"))
+    # 000B has a cached nav snapshot; 000C does not.
+    monkeypatch.setattr(
+        NA, "_load_latest_nav_cached",
+        lambda fund_id, root: _fund_level_snap("000B", "2026Q1") if fund_id == "000B" else None,
+    )
+    missing = NA._fund_level_eligible_missing(shortlist, instr_index=instr_idx,
+                                              con=object(), data_dir=tmp_path)
+    assert tuple(t.provider_symbol for _, t in missing) == ("000C",)
+
+
+def test_fund_level_missing_excludes_active_and_bare_rows(tmp_path, monkeypatch) -> None:
+    instr_idx = {
+        "000A": _instr("000A", "cn_equity_fund"),
+        "000Z": _instr("000Z", "cn_etf"),  # bare → terminal default, no provider_symbol
+    }
+    shortlist = (_shortlist_row("000A", "cn_equity_fund"), _shortlist_row("000Z", "cn_etf"))
+    monkeypatch.setattr(NA, "_load_latest_nav_cached", lambda fund_id, root: None)
+    missing = NA._fund_level_eligible_missing(shortlist, instr_index=instr_idx,
+                                              con=object(), data_dir=tmp_path)
+    assert missing == ()  # active → item 001; bare cn_etf → no provider_symbol
+
+
 from pathlib import Path as _Path  # noqa: E402
 
 _REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root

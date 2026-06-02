@@ -10,6 +10,7 @@ from irc.commands.opportunity_cmd import (
     FetchBudgetExceeded,
     FetchPlan,
     _fetch_budget,
+    _load_latest_nav_cached,
 )
 import duckdb
 
@@ -160,6 +161,24 @@ def _eligible_missing(
             continue
         if load_active_fund_cache(row.instrument_id, quarter, data_dir) is None:
             out.append(row)
+    return tuple(out)
+
+
+def _fund_level_eligible_missing(
+    shortlist: tuple[ShortlistRow, ...], *,
+    instr_index: dict[str, Instrument], con: object,
+    data_dir: Path,
+) -> tuple[tuple[ShortlistRow, LookthroughTarget], ...]:
+    """Fund-level-eligible rows with NO cached nav/ snapshot (latest-nav scan, AC3)."""
+    out: list[tuple[ShortlistRow, LookthroughTarget]] = []
+    for row in shortlist:
+        target = _fund_level_eligible_target(
+            row, instr_index.get(row.instrument_id), con=con,
+        )
+        if target is None:
+            continue
+        if _load_latest_nav_cached(target.provider_symbol, data_dir) is None:
+            out.append((row, target))
     return tuple(out)
 
 
