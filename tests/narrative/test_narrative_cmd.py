@@ -354,3 +354,58 @@ def test_analyze_invokes_autobuild_with_resolved_quarter(tmp_path, monkeypatch) 
     assert ids == ("000A",)
     assert provider == "PROV"
     assert quarter == "2026Q1"  # resolved-context quarter, not None
+
+
+def test_analyze_idempotent_second_run_zero_builds(tmp_path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    # analyze_fund stays read-only; deterministic report regardless of cache
+    expensive = NarrativeFundReport(
+        instrument_id="000A", name_cn="有色基金", position_risk_level="high",
+        risk_rationale="r", risk_drivers=("valuation_state",),
+        valuation_state="very_expensive", heat_state="overheated",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="trim_review", falsification_triggers=(), trim_triggers=(),
+        review_cadence="weekly_light_monthly_full", evidence_gaps=(),
+        thesis_evidence=(_evidence("000A"),),
+    )
+    monkeypatch.setattr(narrative_cmd, "analyze_fund", lambda row, **k: expensive)
+
+    # stub ONLY the builder edge inside the real autobuild module
+    from irc.commands import narrative_autobuild as NA
+    from irc.fundamentals.types import ActiveFundSnapshot
+    build_count = {"n": 0}
+
+    def _fake_build(target, *, top_n, provider):
+        build_count["n"] += 1
+        return ActiveFundSnapshot(
+            fund_id="000A", source_report_date="2026-03-31",
+            source_report_quarter="2026Q1", cache_probed_at="",
+            constituent_analyses=(), failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(NA, "build_snapshot", _fake_build)
+
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=True, out_dir=str(out_dir))
+    first = (out_dir / "compute_metals_report.json").read_text()
+    assert build_count["n"] == 1  # first run built once
+
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=True, out_dir=str(out_dir))
+    second = (out_dir / "compute_metals_report.json").read_text()
+    assert build_count["n"] == 1  # second run: cache present → zero new builds (AC8)
+    assert first == second  # byte-identical report JSON
