@@ -460,6 +460,50 @@ def test_mixed_report_branches_per_row() -> None:
     assert "⚠️ 证据不足" not in suff_block
 
 
+# --- Task 4 (004): determinism + golden + .json unchanged (AC6, AC7, AC8) ---
+
+def test_insufficient_row_render_is_deterministic() -> None:
+    r = _report_insufficient("A", evidence=_multi("A"),
+                              pm=ProductMetrics(expense_ratio=0.005))
+    reports = (r,)
+    assert render_report_md("算力金属", reports) == render_report_md("算力金属", reports)
+
+
+def test_sufficient_row_block_byte_identical_golden() -> None:
+    """AC6: a sufficient (elevated) row's middle block is byte-identical to the
+    pre-004 shape — full triad, 子状态, 产品驱动, cadence, both triggers."""
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=0.002)
+    r = replace(_report("A", level="elevated"), product_metrics=pm)
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    expected_middle = (
+        "- 仓位风险等级 / position_risk_level: **elevated**\n"
+        "- 主因 / drivers: valuation_state\n"
+        "- 说明: elevated — very_expensive valuation\n"
+        "- 机会 / dca / 风险: small_watch ｜ slow_dca ｜ trim_review\n"
+        "- 子状态: 估值=very_expensive 热度=overheated 逻辑=intact 质量=acceptable\n"
+        "- 产品驱动: 费率=0.005 规模=500000000.0 任职=7.0 跟踪误差=0.002\n"
+        "- 复核节奏 / review_cadence: weekly_light_monthly_full\n"
+        "- 证伪触发: theme thesis moves to falsified\n"
+        "- 减仓触发: valuation_state in [expensive, very_expensive]\n"
+    )
+    assert expected_middle in block
+
+
+def test_insufficient_row_json_still_carries_conclusions() -> None:
+    """AC7: .md suppression is display-only; .json keeps the full real values."""
+    r = _report_insufficient("A", gaps=("missing_product_metadata",))
+    fund = json.loads(render_report_json("算力金属", (r,)))["funds"][0]
+    assert fund["opportunity_state"] == "small_watch"
+    assert fund["dca_action"] == "slow_dca"
+    assert fund["risk_action"] == "trim_review"
+    assert fund["valuation_state"] == "very_expensive"
+    assert fund["thesis_state"] == "intact"
+    assert fund["review_cadence"] == "weekly_light_monthly_full"
+    assert fund["falsification_triggers"] == ["theme thesis moves to falsified"]
+    assert fund["evidence_gaps"] == ["missing_product_metadata"]
+
+
 # --- Task 7: AC8 — .json stays full source of truth (additive) ---
 
 def test_report_json_includes_product_metrics_and_constituents() -> None:
