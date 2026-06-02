@@ -4,7 +4,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 **Mode:** backlog · **Project type:** non-web (verify, not qa) · **PR shape:** A · **Authoring:** full Opus
 **Feature branch:** `autodev/narrative-coverage-markdown-feature` (synthesized off `main`; left open for user to land)
-**Item order:** pending dependency scan
+**Item order:** 001, 002, 003, 004 (locked via dependency scan)
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
