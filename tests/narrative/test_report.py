@@ -207,3 +207,43 @@ def test_report_md_no_evidence_has_no_footnote_table() -> None:
     md = render_report_md("算力金属", (_report("A", evidence=()),))
     assert "证据明细" not in md
     assert not _REF_RE.search(md)
+
+
+# --- Task 5: AC3 — per-constituent appendix prose ---
+
+def _ca(symbol: str, weight: float, *, evidence=(), failures=(),
+        oneline="prose", audit=()) -> ConstituentAnalysis:
+    return ConstituentAnalysis(
+        symbol=symbol, name_cn=f"co-{symbol}", weight_pct=weight,
+        evidence=evidence, failure_reasons=failures,
+        one_line_view=oneline, audit_errors=audit,
+    )
+
+
+def _report_with_constituents(iid: str, cas) -> NarrativeFundReport:
+    base = _report(iid, evidence=tuple(e for c in cas for e in c.evidence))
+    return replace(base, constituent_analyses=cas)
+
+
+def test_report_md_appendix_renders_constituent_one_line_view() -> None:
+    ev = _evidence("601899")
+    cas = (_ca("601899", 8.5, evidence=(ev,), oneline="紫金矿业 营收 +20%"),)
+    md = render_report_md("算力金属", (_report_with_constituents("A", cas),))
+    block = md.split("## A ")[1]
+    assert "601899 co-601899 (权重 8.5%): 紫金矿业 营收 +20%" in block
+    assert f"[ref:{ev.citation_id}]" in block  # constituent refs present
+
+
+def test_report_md_appendix_constituent_failure_only_no_oneline() -> None:
+    cas = (_ca("000060", 3.0, evidence=(), failures=("no_filing",), oneline="X"),)
+    md = render_report_md("算力金属", (_report_with_constituents("A", cas),))
+    block = md.split("## A ")[1]
+    assert "000060 co-000060 (权重 3.0%): ❌ no_filing" in block
+    assert "X" not in block.split("证据明细")[0]  # no fabricated one_line_view
+
+
+def test_report_md_passive_fund_has_no_constituent_block_but_has_footnotes() -> None:
+    md = render_report_md("黄金", (_report("G", evidence=(_evidence("G"),)),))
+    block = md.split("## G ")[1]
+    assert "（权重" not in block  # no per-constituent bullets
+    assert "证据明细" in block    # footnotes still render

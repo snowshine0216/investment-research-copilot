@@ -80,8 +80,34 @@ def _footnote_lines(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     return [_footnote_line(by_id[cid]) for cid in sorted(by_id)]
 
 
+def _rank_constituents(cas: tuple) -> tuple:
+    """weight_pct DESC, symbol ASC tiebreak (mirrors opportunity/report.py:131)."""
+    return tuple(sorted(cas, key=lambda c: (-c.weight_pct, c.symbol)))
+
+
+def _appendix_constituent_line(c) -> str:
+    """Self-contained mirror of opportunity/report.py:289
+    _format_appendix_constituent_line (5-shape precedence). NOT imported (RD-1)."""
+    head = f"- {c.symbol} {c.name_cn} (权重 {c.weight_pct}%): "
+    if c.audit_errors:
+        return f"{head}⚠️ audit_error: {'; '.join(c.audit_errors)}"
+    if c.evidence and c.failure_reasons:
+        refs = " ".join(f"[ref:{e.citation_id}]" for e in select_citations(c.evidence, cap=3))
+        return f"{head}{c.one_line_view} {refs} ({'; '.join(c.failure_reasons)})"
+    if c.failure_reasons:
+        return f"{head}❌ {'; '.join(c.failure_reasons)}"
+    if c.evidence:
+        refs = " ".join(f"[ref:{e.citation_id}]" for e in select_citations(c.evidence, cap=3))
+        return f"{head}{c.one_line_view} {refs}"
+    return f"{head}⚠️ audit_error: missing_constituent_record"
+
+
 def _appendix_lines(r: NarrativeFundReport) -> list[str]:
-    return []  # constituent prose added in Task 5
+    """Per-constituent prose block (active funds only; passive → empty, AC/Q8)."""
+    if not r.constituent_analyses:
+        return []
+    return ["", "#### 持仓明细 / Holdings",
+            *[_appendix_constituent_line(c) for c in _rank_constituents(r.constituent_analyses)]]
 
 
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
