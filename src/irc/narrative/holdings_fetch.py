@@ -10,6 +10,7 @@ from pathlib import Path
 import pandas as pd
 
 from irc.fundamentals.akshare_fundamentals import _ak_call
+from irc.io_utils import atomic_write_text
 from irc.narrative.schemas import Holding
 
 _log = logging.getLogger(__name__)
@@ -77,7 +78,7 @@ def _read_cache(path: Path) -> tuple[Holding, ...] | None:
 def _write_cache(path: Path, holdings: tuple[Holding, ...]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     doc = {"holdings": [dataclasses.asdict(h) for h in holdings]}
-    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    atomic_write_text(path, json.dumps(doc, ensure_ascii=False, indent=2))
 
 
 def fetch_top_holdings(fund_id: str, *, cache_dir: Path) -> tuple[Holding, ...]:

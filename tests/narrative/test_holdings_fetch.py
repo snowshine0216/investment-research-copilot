@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from pathlib import Path
@@ -50,6 +51,24 @@ def test_empty_or_failed_returns_empty(monkeypatch, tmp_path: Path) -> None:
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     assert fetch_top_holdings("000999", cache_dir=tmp_path) == ()
+
+
+# ── Atomic cache write — FIX-1 ───────────────────────────────────────────────
+
+
+def test_cache_file_is_valid_json_and_round_trips(monkeypatch, tmp_path: Path) -> None:
+    """FIX-1: _write_cache must produce a valid JSON file that round-trips
+    identically via a second fetch_top_holdings call (confirming atomic write)."""
+    monkeypatch.setattr(
+        "irc.narrative.holdings_fetch._ak_call", lambda *a, **k: _fake_df()
+    )
+    first = fetch_top_holdings("000123", cache_dir=tmp_path)
+    cache_file = tmp_path / "000123.json"
+    assert cache_file.exists(), "cache file must be written after first fetch"
+    body = json.loads(cache_file.read_text(encoding="utf-8"))
+    assert "holdings" in body, "cache JSON must have 'holdings' key"
+    second = fetch_top_holdings("000123", cache_dir=tmp_path)
+    assert first == second, "cached round-trip must return identical holdings"
 
 
 # ── F1: duplicate-symbol dedup in _parse ─────────────────────────────────────
