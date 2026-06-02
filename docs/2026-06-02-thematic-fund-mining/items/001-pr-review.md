@@ -1,29 +1,32 @@
-Verdict: PASS-WITH-NITS
+Verdict: PASS
 
-Source: manual diff review (/code-review unavailable — skill invoked but ran as inline review agent without posting a PR comment)
+Source: /code-review on PR #93 (round 2, post-fix)
 PR comment URL: none posted
+Round-1 latent bug (non-atomic cache write): FIXED — confirmed `_write_cache` now calls `atomic_write_text` (from `irc.io_utils`) via `holdings_fetch.py:81`; `atomic_write_text` uses `tempfile.mkstemp` + `os.fsync` + `os.replace` + cleanup-on-failure, making it crash-safe.
+Findings: 0
 
-Findings: 4
-  - src/irc/narrative/holdings_fetch.py:80 — latent-bug — `_write_cache` uses non-atomic `path.write_text` instead of `atomic_write_text`. A process kill between file open and flush produces a zero-byte or truncated file; a truncated-valid JSON body (e.g. partial holdings array) would be returned by `_read_cache` silently, permanently caching stale/incomplete holdings for that fund until the file is manually removed. The final report outputs use `atomic_write_text` correctly; this is the sole holdout.
-  - src/irc/narrative/screen.py:11-14 — nit — `_basket_hit` rebuilds `{s.symbol ...}` and `{s.name_cn ...}` frozensets on every call inside the `score_overlap` loop (up to 10 calls per fund × full universe). The sets are invariant to the basket and should be precomputed once in `score_overlap` before the holdings loop.
-  - src/irc/narrative/screen.py:17-18 — nit — `_industry_hit` checks `holding.sw_industry in basket.industries_sw` where `industries_sw` is a `tuple[str, ...]`, giving O(n) linear scan per holding. A `frozenset` would give O(1) and eliminate the silent string-equality ordering dependency.
-  - src/irc/narrative/schemas.py:809 / screen.py:34-37 — nit — `OverlapResult.basket_weight_pct` accumulates weight for both direct basket hits AND SW-industry-credit hits, but the field name implies only basket-matched weight. Downstream consumers (MD table header "篮子权重%", JSON key "basket_weight_pct") will mislead users who assume industry-credit weight is excluded.
+## Round-2 verification checklist
 
-## Verification of previously fixed P0s
+### Latent bug (round-1 finding 1) — FIXED
+`src/irc/narrative/holdings_fetch.py:81` — `_write_cache` now calls `atomic_write_text(path, json.dumps(...))`.
+`atomic_write_text` in `src/irc/io_utils.py` uses `tempfile.mkstemp` → `os.fsync` → `os.replace` → directory fsync, with temp-file cleanup in `BaseException` handler. The original `path.write_text` is gone. Fix is correct and complete.
 
-All three P0s from the pre-landing /ship review are confirmed fixed in the current diff:
-- Duplicate-symbol double-count: `score_overlap` tracks a `seen` set (screen.py:27-31); `_parse` sorts descending then dedupes by symbol (holdings_fetch.py:53-62).
-- NaN/inf weight → invalid JSON: `_to_holding` sanitizes via `math.isnan`/`isinf` to 0.0 (holdings_fetch.py:38-39).
-- Per-fund analyze crash: `_run_analyze` wraps each fund in try/except → `error_report(row, reason)` fallback; `None` reserved for absent prerequisites (narrative_cmd.py:96-110).
+### Perf nit (round-1 finding 2 + 3) — FIXED
+`src/irc/narrative/screen.py:25-27` — `score_overlap` now precomputes `symbols`, `names`, and `industries` as `frozenset` values *once* before the loop.
+`_basket_hit` and `_industry_hit` now accept pre-built frozensets (signatures changed to take `frozenset[str]` arguments), so no set is rebuilt per holding call. The `seen` dedupe set is intact and unchanged (line 31). No double-count risk introduced.
 
-## Additional checks (all clear)
+### Semantics clarity (round-1 finding 4) — ADDRESSED
+`src/irc/narrative/screen.py:19-24` — `score_overlap` docstring now explicitly states:
+> `basket_weight_pct` includes weight from both direct basket hits AND SW-industry-credit hits (per spec §3.5), not only direct basket matches.
 
-- Pure cores (screen.py, risk.py, schemas.py): no logging, no I/O, no side effects. PASS.
-- Determinism: `rank_shortlist` sort key is `(-weight, -count, instrument_id)` — fully deterministic, no wall-clock/random. PASS.
-- `derive_position_risk_level` severity clamping: `min(len(_LADDER) - 1, sum(...))` correctly caps at index 3 ("high"). PASS.
-- File-size budget (<200 lines): all 8 new files within budget. PASS.
-- Citation format: `report.py` routes through `select_citations` → emits `[ref:{16-hex}]`; acceptance test confirms. PASS.
-- `基金概况` literal absent from all narrative/*.py files. PASS.
-- `analyze_fund` reuse of `_build_input` / `build_opportunity_row` / `build_thesis_card` mirrors the `fund_eval_cmd` pattern exactly. PASS.
-- Con lifecycle in `_run_analyze`: opened by `_open_analyze_context`, closed in `finally` block (narrative_cmd.py:111-115). PASS.
-- 59 tests pass, 1 skipped (live AkShare gate). PASS.
+Field semantics are documented at the call site; no schema rename was required (by-design, per spec §3.5).
+
+### No new issues introduced
+- Pure cores remain side-effect-free: no logging, no I/O, no mutation of arguments in `screen.py`, `risk.py`, `schemas.py`.
+- `score_overlap` remains deterministic: frozenset construction from `basket.basket` and `basket.industries_sw` is order-independent; sort keys are unchanged.
+- `_write_cache` still calls `path.parent.mkdir(parents=True, exist_ok=True)` before `atomic_write_text`; `atomic_write_text` also calls `mkdir` internally — harmless no-op on second call.
+- File-size budget: `holdings_fetch.py` = 97 lines, `screen.py` = 71 lines — both within the 200-line limit.
+- All other files in the diff (`analyze.py`, `report.py`, `risk.py`, `schemas.py`, `config.py`, `narrative_cmd.py`) are unchanged from round 1 and remain clean.
+
+Test result: 60 passed, 1 skipped
+(command: `uv run pytest tests/narrative/ -q`; all 60 non-live tests pass; 1 skipped = live AkShare gate, expected)
