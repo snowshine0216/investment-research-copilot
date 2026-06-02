@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | 🔄 | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
