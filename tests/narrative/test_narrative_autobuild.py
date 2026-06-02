@@ -153,6 +153,45 @@ def test_budget_guard_raises_before_any_build(tmp_path, monkeypatch) -> None:
     assert built == []  # raised BEFORE any build (AC7)
 
 
+from irc.schemas.universe import Instrument  # noqa: E402
+
+
+def _instr(iid: str, asset_class: str, *, tracked_index=None, theme=None) -> Instrument:
+    return Instrument(
+        instrument_id=iid, ticker=iid, name_cn=f"fund-{iid}", asset_class=asset_class,
+        market="cn_off_exchange", currency="cny",
+        tracked_index=tracked_index, theme=theme,
+    )
+
+
+def test_fund_level_eligible_only_for_provider_symbol_kinds(monkeypatch) -> None:
+    # us_etf → qdii_us with provider_symbol → eligible
+    us = _instr("000U", "us_etf")
+    assert NA._fund_level_eligible_target(_shortlist_row("000U", "us_etf"), us, con=object()) \
+        is not None
+    # cn_equity_fund → active_fund → NOT a fund-level kind → ineligible
+    act = _instr("000A", "cn_equity_fund")
+    assert NA._fund_level_eligible_target(_shortlist_row("000A", "cn_equity_fund"), act,
+                                          con=object()) is None
+    # qdii row WITHOUT a tracked_index/theme/provider_symbol → terminal default
+    # (broad_index "unknown" carries no provider_symbol) → ineligible
+    bare = _instr("000Z", "cn_etf")  # bare cn_etf → terminal default, no provider_symbol
+    assert NA._fund_level_eligible_target(_shortlist_row("000Z", "cn_etf"), bare,
+                                          con=object()) is None
+
+
+def test_fund_level_target_resolves_via_instr_no_io() -> None:
+    # tracked_index drives the resolution; instr carries the routing keys (RD-3).
+    instr = _instr("000B", "cn_etf", tracked_index="csi300")
+    target = NA._fund_level_eligible_target(_shortlist_row("000B", "cn_etf"), instr,
+                                            con=object())
+    assert target is not None
+    assert target.provider_symbol == "000B"  # provider_symbol = instrument_id
+    assert target.kind in NA._FUND_LEVEL_KINDS or target.kind in (
+        "qdii_us", "qdii_hk", "qdii_global",
+    )
+
+
 from pathlib import Path as _Path  # noqa: E402
 
 _REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root

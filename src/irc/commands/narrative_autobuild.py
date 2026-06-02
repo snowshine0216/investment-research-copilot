@@ -11,13 +11,25 @@ from irc.commands.opportunity_cmd import (
     FetchPlan,
     _fetch_budget,
 )
-from irc.fundamentals.snapshot import build_snapshot
+import duckdb
+
+from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
     write_active_fund_cache,
+    write_nav_cache,
 )
-from irc.fundamentals.types import ActiveFundSnapshot, LookthroughTarget
+from irc.fundamentals.types import (
+    ActiveFundSnapshot,
+    FundLevelSnapshot,
+    LookthroughTarget,
+)
+from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.types import OpportunityInput
 from irc.narrative.schemas import ShortlistRow
+from irc.schemas.universe import Instrument
+
+_QDII_KINDS = ("qdii_us", "qdii_hk", "qdii_global")
 
 _log = logging.getLogger(__name__)
 
@@ -42,6 +54,35 @@ def _target_for_row(row: ShortlistRow) -> LookthroughTarget:
         kind="active_fund", key=f"fund_{iid}",
         display_cn=row.name_cn, provider_symbol=iid,
     )
+
+
+def _fund_level_eligible_target(
+    row: ShortlistRow, instr: Instrument | None,
+    *, con: object,  # accepted for signature parity but unused — eligibility is instr-only
+) -> LookthroughTarget | None:
+    """Resolve the row's LookthroughTarget via map_lookthrough; return it only
+    when fund-level-eligible AND it carries a provider_symbol (AC1/AC2, RD-3).
+
+    Effect-free: builds a minimal OpportunityInput skeleton from instr (no DB
+    round-trip; map_lookthrough reads only asset_class/theme/tracked_index).
+    cn_equity_fund routes to active_fund (item 001's domain) → excluded.
+    """
+    iid = row.instrument_id
+    asset_class = instr.asset_class if instr else row.asset_class
+    inp = OpportunityInput(
+        instrument_id=iid, asset_class=asset_class,
+        market=instr.market if instr else "cn_off_exchange",
+        theme=instr.theme if instr else None,
+        tracked_index=instr.tracked_index if instr else None,
+        name_cn=instr.name_cn if instr else iid,
+        role="", is_holding=False, portfolio_weight=None,
+        target_band_low=None, target_band_high=None, venue_compatible=True,
+    )
+    target = map_lookthrough(inp)
+    eligible_kind = target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS
+    if eligible_kind and target.provider_symbol:
+        return target
+    return None
 
 
 def _build_and_cache_one(
