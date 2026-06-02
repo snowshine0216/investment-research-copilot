@@ -63,6 +63,27 @@ def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     ]
 
 
+def _footnote_line(ev: ThesisEvidence) -> str:
+    """One footnote resolving a [ref:hex]. 16-hex id read verbatim (ADR 0001).
+    `· {url}` appended only when url is non-empty."""
+    base = f"[ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date} · {ev.summary}"
+    return f"{base} · {ev.url}" if ev.url else base
+
+
+def _footnote_lines(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
+    """Full-pool footnote table for one fund, deduped by citation_id, sorted by
+    citation_id ASC (RD-4 determinism). Draws from the flattened r.thesis_evidence
+    superset so every appendix/inline ref resolves (RD-6, AC4)."""
+    if not thesis_evidence:
+        return []
+    by_id = {ev.citation_id: ev for ev in thesis_evidence}
+    return [_footnote_line(by_id[cid]) for cid in sorted(by_id)]
+
+
+def _appendix_lines(r: NarrativeFundReport) -> list[str]:
+    return []  # constituent prose added in Task 5
+
+
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
     for r in reports:
@@ -84,6 +105,13 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         if bullets:
             lines.append("- 证据 / evidence:")
             lines.extend(bullets)
+        appendix = _appendix_lines(r)
+        lines.extend(appendix)
+        footnotes = _footnote_lines(r.thesis_evidence)
+        if footnotes:
+            lines.append("")
+            lines.append("### 证据明细 / Evidence appendix")
+            lines.extend(footnotes)
         lines.append("")
     return "\n".join(lines) + "\n"
 

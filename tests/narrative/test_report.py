@@ -163,3 +163,47 @@ def test_report_md_inline_caps_at_three_with_summary() -> None:
     # Inline cell still capped at 3 distinct inline bullets.
     inline = md.split("证据 / evidence:")[1].split("\n\n")[0]
     assert inline.count("[ref:") == 3
+
+
+# --- Task 4: AC4/AC5 — footnote appendix resolves every inline [ref:hex] ---
+
+def _multi(iid: str) -> tuple[ThesisEvidence, ...]:
+    return tuple(
+        ThesisEvidence(
+            type="news", source=f"src{i}", url=("" if i % 2 else f"http://u/{i}"),
+            date=f"2026-03-0{i}", summary=f"headline-{i}",
+            scope="instrument", citation_kind="information",
+            owner_instrument_id=iid, parent_fund_id=None, constituent_key=None,
+        )
+        for i in range(1, 6)
+    )
+
+
+def test_report_md_every_inline_ref_resolves_to_footnote() -> None:
+    md = render_report_md("算力金属", (_report("A", evidence=_multi("A")),))
+    block = md.split("## A ")[1]
+    inline_ids = set(re.findall(r"\[ref:([0-9a-f]{16})\]", block))
+    # Footnote section header present + each inline id has exactly one footnote line.
+    assert "证据明细" in block
+    for cid in inline_ids:
+        footnote = [ln for ln in block.splitlines()
+                    if ln.startswith(f"[ref:{cid}]")]
+        assert len(footnote) == 1, f"{cid} resolved {len(footnote)} times"
+
+
+def test_report_md_footnote_table_is_byte_identical_two_calls() -> None:
+    reports = (_report("A", evidence=_multi("A")),)
+    assert render_report_md("算力金属", reports) == render_report_md("算力金属", reports)
+
+
+def test_report_md_footnotes_sorted_by_citation_id_asc() -> None:
+    md = render_report_md("算力金属", (_report("A", evidence=_multi("A")),))
+    footnotes = [ln[len("[ref:"):len("[ref:") + 16]
+                 for ln in md.splitlines() if ln.startswith("[ref:")]
+    assert footnotes == sorted(footnotes)
+
+
+def test_report_md_no_evidence_has_no_footnote_table() -> None:
+    md = render_report_md("算力金属", (_report("A", evidence=()),))
+    assert "证据明细" not in md
+    assert not _REF_RE.search(md)
