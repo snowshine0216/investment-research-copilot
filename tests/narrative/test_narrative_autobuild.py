@@ -93,3 +93,61 @@ def test_build_one_swallows_builder_exception(tmp_path, monkeypatch) -> None:
     NA._build_and_cache_one(target, provider=object(), data_dir=tmp_path,
                             today_iso="2026-06-02")
     assert written == []
+
+
+import pytest  # noqa: E402
+
+
+def test_skips_etf_rows_builds_only_active(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "load_active_fund_cache", lambda iid, q, root: None)
+    shortlist = (
+        _shortlist_row("000A", "cn_equity_fund"),
+        _shortlist_row("000B", "cn_etf"),
+    )
+    NA.autobuild_active_funds(shortlist, provider=object(), quarter="2026Q1",
+                              data_dir=tmp_path, today_iso="2026-06-02")
+    assert built == ["000A"]  # cn_etf never built (AC1)
+
+
+def test_skips_when_resolved_quarter_cache_present(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    # cache hit for the resolved quarter → zero builds (AC2)
+    monkeypatch.setattr(NA, "load_active_fund_cache",
+                        lambda iid, q, root: _snap(iid, q))
+    NA.autobuild_active_funds((_shortlist_row("000A"),), provider=object(),
+                              quarter="2026Q1", data_dir=tmp_path,
+                              today_iso="2026-06-02")
+    assert built == []
+
+
+def test_kill_switch_disables_build(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "0")
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "load_active_fund_cache", lambda iid, q, root: None)
+    NA.autobuild_active_funds((_shortlist_row("000A"),), provider=object(),
+                              quarter="2026Q1", data_dir=tmp_path,
+                              today_iso="2026-06-02")
+    assert built == []  # AC4
+
+
+def test_budget_guard_raises_before_any_build(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("IRC_NARRATIVE_AUTOBUILD", "1")
+    monkeypatch.setenv("IRC_FETCH_BUDGET", "1")  # per_active = 1 + 10*3 + 4 = 35 > 1
+    built: list[str] = []
+    monkeypatch.setattr(NA, "_build_and_cache_one",
+                        lambda target, **k: built.append(target.provider_symbol))
+    monkeypatch.setattr(NA, "load_active_fund_cache", lambda iid, q, root: None)
+    with pytest.raises(NA.FetchBudgetExceeded):
+        NA.autobuild_active_funds((_shortlist_row("000A"),), provider=object(),
+                                  quarter="2026Q1", data_dir=tmp_path,
+                                  today_iso="2026-06-02")
+    assert built == []  # raised BEFORE any build (AC7)

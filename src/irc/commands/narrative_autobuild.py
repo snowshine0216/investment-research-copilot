@@ -75,3 +75,46 @@ def _build_and_cache_one(
             f"cache_write_failed:{target.provider_symbol}:"
             f"{type(cache_exc).__name__}\n"
         )
+
+
+def _eligible_missing(
+    shortlist: tuple[ShortlistRow, ...], *, quarter: str, data_dir: Path,
+) -> tuple[ShortlistRow, ...]:
+    """Eligible rows with NO cached snapshot for the RESOLVED quarter (AC2)."""
+    out: list[ShortlistRow] = []
+    for row in shortlist:
+        if not _is_eligible(row):
+            continue
+        if load_active_fund_cache(row.instrument_id, quarter, data_dir) is None:
+            out.append(row)
+    return tuple(out)
+
+
+def autobuild_active_funds(
+    shortlist: tuple[ShortlistRow, ...], *, provider: object, quarter: str,
+    data_dir: Path, today_iso: str,
+) -> None:
+    """Command-layer narrative active-fund autobuild (effects edge).
+
+    No-op when IRC_NARRATIVE_AUTOBUILD=0. Builds + caches an ActiveFundSnapshot
+    for each eligible cn_equity_fund row missing a resolved-quarter cache.
+    Raises FetchBudgetExceeded BEFORE any fetch when the estimate exceeds budget.
+    """
+    if not _narrative_autobuild_on():
+        return
+    missing = _eligible_missing(shortlist, quarter=quarter, data_dir=data_dir)
+    if not missing:
+        return
+    plan = FetchPlan(
+        active_fund_misses=len(missing), active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=TOP_N_DEFAULT,
+    )
+    total = plan.total_calls()
+    budget = _fetch_budget()
+    if total > budget:
+        raise FetchBudgetExceeded(plan, total, budget)
+    for row in missing:
+        _build_and_cache_one(
+            _target_for_row(row), provider=provider, data_dir=data_dir,
+            today_iso=today_iso,
+        )
