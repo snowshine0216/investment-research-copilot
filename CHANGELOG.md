@@ -7,6 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `irc narrative` thematic fund mining (2026-06-02)
+
+New top-level **`irc narrative <name>`** command — resolve an investment *narrative*
+(e.g. `compute_metals` / 算力金属) to a ranked **shortlist of funds** by holdings
+look-through against a curated, frozen **reference basket**, then optionally run the
+system's deepest per-fund analysis on the shortlist.
+
+- **Screen (default / `--screen-only`):** enumerates the curated CN-fund universe,
+  fetches each fund's disclosed top-10 holdings (AkShare `fund_portfolio_hold_em`,
+  cached), scores basket overlap (symbol-first, name-second, with SW-industry credit),
+  and ranks by `(basket-weight desc → overlap-count desc → instrument_id)`. Funds with
+  no published holdings are written to `<name>_screen_diagnostics.json` — never silently
+  dropped.
+- **Analyze (`--analyze`):** reuses the existing opportunity-grade cores untouched
+  (`build_opportunity_row` → `build_thesis_card` → `derive_dca_action`/`derive_risk_action`)
+  per shortlisted fund, emitting the 5 sub-states, `opportunity_state`, `dca_action`,
+  `risk_action`, falsification/trim triggers, review cadence, and **cited thesis evidence**
+  (`[ref:…]`). Cache-only (mirrors `irc opportunity`); a missing snapshot surfaces as
+  `insufficient`, never crashes.
+- **New deterministic `position_risk_level`** ∈ `{low, moderate, elevated, high,
+  insufficient}` for the *prospective-buy* decision, with a rationale naming the dominant
+  drivers (valuation / heat / thesis / product-quality / holdings & narrative
+  concentration); `evidence_gaps` non-empty ⇒ `insufficient` (never fabricated).
+- New pure-core package `src/irc/narrative/` (schemas / screen / risk / report) + I/O
+  edges (`holdings_fetch` / `config` / `analyze`) + thin `commands/narrative_cmd.py`.
+  Flags: `--screen-only` / `--analyze` / `--min-overlap` / `--quarter` / `--db` /
+  `--role` / `--out` / `--repo-root`. Reusable for new narratives (`ai`, `robots`) by
+  adding a `config/narratives/<name>.yaml` — **no code change**. The seeded
+  `compute_metals` basket is a **DRAFT** pending user approval.
+
 ### Added — `eval-funds` (2026-06-01)
 
 New top-level **`irc eval-funds`** command — targeted per-fund evaluation that
