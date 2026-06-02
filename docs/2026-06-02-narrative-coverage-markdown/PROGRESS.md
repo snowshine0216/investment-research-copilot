@@ -10,7 +10,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
-| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | 🔄 | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
