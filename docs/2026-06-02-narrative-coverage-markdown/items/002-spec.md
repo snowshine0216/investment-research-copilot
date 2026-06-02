@@ -59,10 +59,17 @@ follow-up, not a blocker for this item's recovery goal).
    asserting the build function is invoked for a `cn_etf` / `us_etf` row and **not** invoked for a
    `cn_equity_fund` row nor for a `provider_symbol`-less QDII row.
 2. **Eligibility decided before any I/O.** The fund-level eligibility predicate is computed from
-   an effect-free `map_lookthrough(...)`-equivalent on the shortlist row's `(asset_class, theme,
-   tracked_index)` (or via `_build_input`'s already-resolved `inp`/`target`), with no network,
-   filesystem, or LLM call. Verified by a unit test that exercises the predicate with a stubbed
-   provider and asserts zero fetch calls.
+   an effect-free ~~`map_lookthrough(...)`-equivalent on the shortlist row's `(asset_class, theme,
+   tracked_index)`~~ — corrected by grill (RD-3): `ShortlistRow` carries **no** `theme`/`tracked_index`
+   (schema is `instrument_id, name_cn, asset_class, overlap, holdings`); `map_lookthrough` reads
+   `(asset_class, theme, tracked_index)` from the resolved **`Instrument`** via `_build_input`
+   (`inputs_build.py:27-28`). The passive autobuild therefore **takes the instrument index**
+   (`instr_index` from `_open_analyze_context`) and resolves the target via
+   `map_lookthrough(_build_input(score_row, instr, ...))`, deriving `(asset_class, theme,
+   tracked_index)` from the in-memory `instr` (no DB round-trip needed for the eligibility decision),
+   with no network, filesystem, or LLM call. This is the deliberate signature difference from the
+   active autobuild, whose `cn_equity_fund → active_fund` mapping is instrument-independent. Verified
+   by a unit test that exercises the predicate with a stubbed provider and asserts zero fetch calls.
 3. **Cache-presence gate (no refetch).** The passive autobuild skips any eligible fund that
    already has a cached `nav/` `FundLevelSnapshot`. Because fund-level snapshots are keyed by the
    **NAV-derived `source_report_quarter`** (calendar quarter from `latest_nav_date`, unknowable
@@ -198,9 +205,16 @@ code paths `map_lookthrough`, `build_snapshot`, `thesis_evidence.py:330-373`,
 **Q1 — Which asset_classes are "passive fund-level" for the narrative path?**
 A: Gate on the **resolved `LookthroughTarget.kind`**, not a hardcoded asset-class list:
 `target.kind ∈ (_FUND_LEVEL_KINDS ∪ {qdii_us, qdii_hk, qdii_global}) AND target.provider_symbol`.
-In practice this covers `cn_etf` (→ falls through `map_lookthrough` to `broad_index`/`sector_theme`
+~~In practice this covers `cn_etf` (→ falls through `map_lookthrough` to `broad_index`/`sector_theme`
 with `provider_symbol`), `us_etf` (→ `qdii_us`), `hk_etf` (→ `qdii_hk`), and `qdii_global` — all
-with a `provider_symbol` per the 2026-05-25 QDII fetch reform.
+with a `provider_symbol` per the 2026-05-25 QDII fetch reform.~~ — corrected by grill (RD-2): there
+is **no `cn_etf` branch** in `map_lookthrough`. `us_etf`→`qdii_us`, `hk_etf`→`qdii_hk`,
+`qdii_global`→`qdii_global` (all with `provider_symbol`, QDII reform). A `cn_etf` row resolves only
+via its `tracked_index` (→ `broad_index`/`qdii_*` with `provider_symbol`) or a recognized `theme`
+(→ `sector_theme` with `provider_symbol`); a **bare** `cn_etf` with neither falls to the terminal
+`LookthroughTarget("broad_index","unknown","未知底层")` which carries **no** `provider_symbol` and is
+correctly excluded (nothing to fetch). The predicate's `AND target.provider_symbol` clause is what
+makes this correct — verified at `lookthrough.py:80-164`.
 Rationale: `target.kind` is the single source of truth that both `build_snapshot` (`snapshot.py:263-280`)
 and `opportunity_cmd.py:909-912` dispatch on; reusing it avoids a divergent asset-class list that
 could silently drift from the engine. `cn_equity_fund` is excluded (it routes to `active_fund` —
@@ -297,3 +311,80 @@ already gives the needed independence.
   and **flagged for the planner/reviewer**: if theme-report enrichment is in-intent, it is a
   bounded follow-up reusing `load_theme_reports` + `_resolve_research_theme` (see Q4), and should be
   promoted to its own slice rather than silently widening item 002.
+
+## Resolved decisions
+
+Grill session (`grill-with-docs`, subagent: opus). No live user — every question auto-resolved on
+its recommended answer + rationale, grounded in the real code paths and the project docs. Q/A pairs
+below; doc-impact recorded against `CONTEXT.md` (the spec itself is refined inline via strikethrough
++ this section). **No new ADR** — the passive narrative path is a documented extension of ADR 0002 §5
+(fund-level engine) + item 001's autobuild pattern, neither hard-to-reverse nor surprising (fails the
+three-of-three ADR test; ADR 0002 §5 already rejected a separate fund-level ADR).
+
+**RD-1 — Is `theme_report=None` correct, given the `FundLevelSnapshot` branch ignores `theme_report`?**
+A: **Yes — confirmed, decision UNCHANGED.** `derive_thesis_from_evidence`'s `FundLevelSnapshot` branch
+(`thesis_evidence.py:348-373`) reads **only** `snapshot.evidence` + `snapshot.evidence_gaps`; the
+`theme_report` parameter is never referenced on that branch. `has_data AND has_info → "intact"`. So
+`robots_report` recovery is gate-independent of `theme_report`. Genuine theme-report sourcing is a
+citation-richness enhancement (`asset_class_macro`-scope supplement), not a gate requirement —
+deferred as a documented follow-up (Q4 / non-goals). Doc-impact: new CONTEXT.md term **"Narrative
+passive path is theme-independent"** recording WHY this is by-design, not a bug.
+
+**RD-2 — Does the eligibility predicate match how `opportunity` treats passive funds? Any
+asset_class wrong?** A: **Predicate correct, matches `opportunity_cmd.py:909-912` verbatim**
+(`target.kind in qdii_* or (target.kind in _FUND_LEVEL_KINDS and target.provider_symbol)`). The
+narrative predicate ANDs `provider_symbol` across QDII too — strictly safer (a QDII target without a
+`provider_symbol` is the zero-fetch sentinel `write_nav_cache` no-ops on). `gold`/`bond` are in
+`_FUND_LEVEL_KINDS` and would be handled identically if a basket surfaced them — harmless. Only the
+**Q1 prose** overstated "cn_etf → falls through with provider_symbol": there is no `cn_etf` branch in
+`map_lookthrough`; a bare cn_etf (no `tracked_index`/`theme`) hits the no-`provider_symbol` terminal
+default and is correctly excluded. Doc-impact: spec Q1 strikethrough; no CONTEXT.md/ADR change.
+
+**RD-3 — Can eligibility be computed effect-free from the `ShortlistRow`?** A: **No — corrected.**
+`ShortlistRow` has no `theme`/`tracked_index`; `map_lookthrough` reads them from the resolved
+`Instrument` via `_build_input`. The passive autobuild must take the **instrument index** and resolve
+the target through `map_lookthrough(_build_input(...))` (deriving `(asset_class, theme,
+tracked_index)` from the in-memory `instr` — no DB round-trip for the decision). This is the
+signature difference from the active autobuild (whose `cn_equity_fund → active_fund` mapping is
+instrument-independent). Doc-impact: spec AC2 strikethrough; CONTEXT.md autobuild term notes the
+instr-resolved eligibility.
+
+**RD-4 — Is the latest-`nav/`-quarter probe the right idempotence key (vs item 001's
+analyze-context-quarter)?** A: **Yes — confirmed, UNCHANGED.** Fund-level `source_report_quarter` is
+NAV-derived (`infer_quarter(latest_nav_date)`, ADR 0002 §5) and unknowable pre-fetch; the cache path
+is `…/{quarter}/nav/fund_{id}.json`. A fixed analyze-context-quarter probe would write quarter X yet
+read quarter Y → non-idempotent (breaks AC12). The latest-`nav/` scan (`_load_latest_nav_cached`)
+keeps writer-gate and reader-load on the same quarter. Active snapshots differ — keyed by the
+provider-declared holdings quarter. Doc-impact: new CONTEXT.md term **"NAV-derived quarter (latest-
+`nav/` probe)"** distinguishing the two probe keys.
+
+**RD-5 — Does the passive autobuild need a new ADR or its own kill-switch?** A: **No new ADR; reuse
+`IRC_NARRATIVE_AUTOBUILD`.** ADR 0002 §5 explicitly rejected a separate fund-level ADR; item 001's
+narrative autobuild added none either (CONTEXT.md term only). One narrative kill-switch governs both
+edges (an operator disabling narrative autobuild expects all of it off). Doc-impact: new CONTEXT.md
+term **"Narrative passive fund-level autobuild"**, sibling to the active one.
+
+**RD-6 — Does the dual-leg gate reach a real, Policy-B-free `thesis_state`?** A: **Yes — confirmed,
+UNCHANGED.** `thesis_evidence.py:361-368`: `has_data AND has_info → "intact"`; partial →
+`evidence_insufficient`. `build_opportunity_row` routes through `derive_thesis_from_evidence` whenever
+`snapshot is not None` (so the table-fallback at `states.py:552-559` is skipped). The narrative path
+runs no `evaluate_policy_b` (Policy B is `ActiveFundSnapshot`-only). **One annotation nit (RD-6a):**
+`build_opportunity_row`'s `snapshot` param is typed `ConstituentSnapshot | ActiveFundSnapshot | None`
+(`states.py:526`) — it does NOT list `FundLevelSnapshot`, yet `opportunity_cmd.py:930-935` already
+passes one in production and the gate handles it. The plan should **widen this annotation to include
+`FundLevelSnapshot`** (zero-risk typing fix already implied by production usage) so the narrative
+caller passes a `FundLevelSnapshot` cleanly. Doc-impact: spec note only; no CONTEXT.md/ADR change.
+
+**RD-7 — Failure/budget parity with item 001?** A: **Confirmed, UNCHANGED.** Per-fund build
+failure → logged, no write → `evidence_insufficient` → `insufficient`; never crashes; budget reuses
+`FetchPlan.fund_level_misses` (4 calls each, `opportunity_cmd.py:96-104`) + `_fetch_budget()` +
+`FetchBudgetExceeded` raised pre-fetch. **Recommendation (RD-7a):** prefer a **single shared
+preflight `FetchPlan(active_fund_misses=Na, fund_level_misses=Np)`** checked once, so a combined run
+cannot pass two independent sub-budget checks that jointly exceed budget (AC11 already permits this;
+single shared plan is the safer of the two permitted shapes). Doc-impact: spec note only.
+
+**RD-8 — Terminology drift vs CONTEXT.md?** A: Reconciled. The spec's informal "nav snapshot" /
+"fund-level NAV snapshot" = a `FundLevelSnapshot` cached under `…/{quarter}/nav/`; "dual-leg gate" =
+the fund-level branch of `derive_thesis_from_evidence` applying the canonical **Dual-coverage gate**'s
+data+info-leg requirement; "passive fund" = CONTEXT.md's **Passive ETF / tracked index**. Doc-impact:
+captured in the new CONTEXT.md narrative-passive terms.

@@ -9,7 +9,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
-| 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -32,6 +32,7 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 001-verify: [items/001-verify.md](items/001-verify.md) (Verdict PASS; real-CLI offline smoke — corrected error string rc=2 no-traceback, kill-switch, no `基金概况`; network-leg ACs test-backed)
 - 001-pr-review: [items/001-pr-review.md](items/001-pr-review.md) (Verdict PASS-WITH-NITS; [PR #95 comment](https://github.com/snowshine0216/investment-research-copilot/pull/95#issuecomment-4600948867); 2 nits — `_fetch_budget` private import [grill-sanctioned], test import style; 0 bugs)
 - 001-fix: 0 rounds — post-ship verdicts all clean; the P0/P1 blockers were fixed in the pre-push /ship review round.
+- 002-spec: [items/002-spec.md](items/002-spec.md) (commit e40cb27; 14 ACs; passive eligibility on LookthroughTarget.kind + qdii; passive nav-snapshot autobuild edge; **theme_report sourcing deferred** — FundLevelSnapshot branch never reads it, so `None` recovers robots_report; flagged as bounded follow-up)
 
 ## Run-level
 | gate | status |
