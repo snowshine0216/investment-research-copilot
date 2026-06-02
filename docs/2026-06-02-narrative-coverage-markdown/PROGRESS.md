@@ -9,7 +9,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
-| 002 | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -33,6 +33,8 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 001-pr-review: [items/001-pr-review.md](items/001-pr-review.md) (Verdict PASS-WITH-NITS; [PR #95 comment](https://github.com/snowshine0216/investment-research-copilot/pull/95#issuecomment-4600948867); 2 nits — `_fetch_budget` private import [grill-sanctioned], test import style; 0 bugs)
 - 001-fix: 0 rounds — post-ship verdicts all clean; the P0/P1 blockers were fixed in the pre-push /ship review round.
 - 002-spec: [items/002-spec.md](items/002-spec.md) (commit e40cb27; 14 ACs; passive eligibility on LookthroughTarget.kind + qdii; passive nav-snapshot autobuild edge; **theme_report sourcing deferred** — FundLevelSnapshot branch never reads it, so `None` recovers robots_report; flagged as bounded follow-up)
+- 002-grill: [items/002-grill.md](items/002-grill.md) (commits f1deb2e/0939f6f; Verdict PASS; 8 Q; theme_report=None confirmed via thesis_evidence.py:348-373; 2 spec corrections — passive autobuild needs instrument index (not ShortlistRow); CONTEXT.md +3 terms; no new ADR)
+- 002-plan: [items/002-plan.md](items/002-plan.md) (commit 1f3e7f4; 10 tasks / ~50 steps; all 14 ACs → tests; unifies autobuild into `autobuild_narrative` w/ shared preflight FetchPlan [RD-7a]; widens build_opportunity_row snapshot annotation [RD-6a]; 3 judgment calls flagged)
 
 ## Run-level
 | gate | status |
