@@ -1,0 +1,35 @@
+# ⚠️ DRAFT — seeded for review, then approve & freeze (mirrors compute_metals §7 flow).
+# robots = humanoid + industrial automation: 谐波减速器 / 伺服 / 执行器 / 本体 / 传感器.
+# industries_sw are best-effort SW(申万) tags — verify against the current taxonomy before use
+# (symbol/name matching is the primary signal; SW-industry credit is a secondary fallback).
+narrative_id: robots
+display_name_cn: 机器人 / 智能制造
+display_name_en: Robotics & intelligent manufacturing
+thesis_cn: 人形机器人与工业自动化拉动谐波减速器、伺服电机、丝杠、执行器与传感器需求
+basket:
+  # — 谐波减速器 / 传动 harmonic reducers & transmission —
+  - { symbol: "688017", name_cn: 绿的谐波 }
+  - { symbol: "002472", name_cn: 双环传动 }
+  - { symbol: "002896", name_cn: 中大力德 }
+  # — 伺服 / 运控 servo & motion control —
+  - { symbol: "300124", name_cn: 汇川技术 }
+  - { symbol: "603728", name_cn: 鸣志电器 }
+  # — 执行器 / 热管理 actuators & thermal (humanoid supply chain) —
+  - { symbol: "002050", name_cn: 三花智控 }
+  - { symbol: "601689", name_cn: 拓普集团 }
+  # — 机器人本体 / 集成 robot bodies & integration —
+  - { symbol: "002747", name_cn: 埃斯顿 }
+  - { symbol: "300024", name_cn: 机器人 }
+  - { symbol: "300607", name_cn: 拓斯达 }
+  # — 传感器 sensors —
+  - { symbol: "603662", name_cn: 柯力传感 }
+  # — 丝杠 / 精密零件 screws & precision parts —
+  - { symbol: "300580", name_cn: 贝斯特 }
+industries_sw:
+  - 机械设备/自动化设备
+  - 机械设备/通用设备
+  - 汽车/汽车零部件
+thresholds:
+  min_basket_weight_pct: 15.0   # ≥15% of top-10 sits in the basket …
+  min_overlap_count: 2          # … OR ≥2 distinct hits (basket symbol/name + SW-industry credit)
+top_n: 15

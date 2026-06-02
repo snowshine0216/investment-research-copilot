@@ -187,6 +187,43 @@ uv run irc run --from discover
 
 `fundamentals snapshot --target all --top-n 10` is intentionally not part of `irc run`; it can take several minutes because it fetches filings and reports target by target.
 
+### Thematic fund mining (`irc narrative`)
+
+Mine the funds tied to an investment *narrative* — e.g. `compute_metals` (算力金属: AI-datacenter demand for copper / aluminium / tin industrial metals + PCB-gold) — and decide, per fund, **whether to invest and at what risk level**. A narrative is a curated, frozen **reference basket** of stocks + SW industries at `config/narratives/<name>.yaml`; the command resolves it to a ranked fund shortlist by **holdings look-through** (a fund qualifies when its disclosed top-10 overlaps the basket), then — opt-in — runs the deepest per-fund analysis on the shortlist. It reuses the opportunity-grade cores and never touches the main pipeline's outputs.
+
+**Screen only (default — cheap; network = top-10 holdings fetches):**
+
+```bash
+uv run irc narrative compute_metals                       # screen only is the default
+uv run irc narrative compute_metals --screen-only --min-overlap 12   # lower the basket-weight bar
+```
+
+Writes, under `outputs/<today>/narrative/`:
+- `compute_metals_shortlist.{md,json}` — the ranked shortlist (basket-weight %, overlap count, hits)
+- `compute_metals_screen_diagnostics.json` — funds excluded and **why** (e.g. `no_published_holdings`); never silently dropped
+
+```bash
+jq '.funds[] | {id: .instrument_id, name: .name_cn, wt: .basket_weight_pct, n: .overlap_count}' \
+  outputs/$(date +%F)/narrative/compute_metals_shortlist.json
+```
+
+**Full deep analysis (`--analyze`) — screen, then opportunity-grade per-fund eval + a prospective-buy `position_risk_level`:**
+
+```bash
+# Prerequisites — the analyze phase READS CACHE (like `irc opportunity`); it does not fetch live.
+uv run irc ingest                                         # builds data/local.duckdb
+uv run irc fundamentals snapshot --target all --top-n 10  # quarterly; several minutes (builds the snapshot cache)
+
+uv run irc narrative compute_metals --analyze             # screen + deep analyze (latest cached quarter)
+uv run irc narrative compute_metals --analyze --quarter 2026Q2 --top-n 10
+```
+
+`--analyze` additionally writes `compute_metals_report.{md,json}` — per shortlisted fund: the four sub-states, `opportunity_state`, `dca_action`, `risk_action`, falsification/trim triggers, review cadence, cited `[ref:…]` thesis evidence, and the new **`position_risk_level`** ∈ `{low, moderate, elevated, high, insufficient}` for the *prospective* buy. A fund whose snapshot is missing/stale surfaces as `insufficient` (never crashes) — run `fundamentals snapshot` first for a complete read. If `data/local.duckdb` or a cached quarter is entirely absent, the screen outputs are still written and the command exits with an actionable message.
+
+Flags: `--screen-only` (default) · `--analyze` · `--min-overlap PCT` (override the config basket-weight threshold) · `--top-n N` · `--quarter <YYYYQn>` · `--db <path>` · `--out <dir>` · `--repo-root <path>`.
+
+**Add a new narrative (AI, robots, …) with no code change** — drop a new `config/narratives/<name>.yaml` mirroring `compute_metals.yaml`, validate with `uv run irc config validate`, then `uv run irc narrative <name>`.
+
 ## Debug session: run phases individually
 
 Use this playbook when one stage failed, when you want to inspect intermediate artifacts, or when you fixed an upstream issue and do not want to rerun everything.

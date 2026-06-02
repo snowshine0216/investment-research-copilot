@@ -137,6 +137,39 @@ def opportunity(
     raise SystemExit(rc)
 
 
+@main.command(help="Mine funds tied to a narrative; screen by holdings, optionally deep-analyse.")
+@click.argument("name", required=True)
+@click.option("--screen-only", "screen_only", is_flag=True, default=False,
+              help="Stop after the light screen (default behaviour when no flag given).")
+@click.option("--analyze", "analyze", is_flag=True, default=False,
+              help="Run the screen then deep-analyse the shortlist (cache-only snapshot path).")
+@click.option("--min-overlap", "min_overlap", type=float, default=None,
+              help="Min basket-weight %% to qualify; overrides the config "
+                   "thresholds.min_basket_weight_pct when given (spec §3.1).")
+@click.option("--quarter", type=str, default=None,
+              help="Snapshot quarter for --analyze (default: latest cached on disk).")
+@click.option("--db", "db_path", type=click.Path(dir_okay=False), default=None,
+              help="DuckDB path for --analyze (default data/local.duckdb).")
+@click.option("--role", type=str, default="satellite_cn_metals",
+              help="Role label stamped on synthesized analyze rows (display only).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--out", "out_dir", type=click.Path(file_okay=False), default=None,
+              help="Output dir (default outputs/<today>/narrative/).")
+def narrative(
+    name: str, screen_only: bool, analyze: bool, min_overlap: float | None,
+    quarter: str | None, db_path: str | None, role: str, repo_root: str,
+    out_dir: str | None,
+) -> None:
+    from irc.commands.narrative_cmd import run_narrative
+    # --screen-only is the default; --analyze opts into the cache-only deep path.
+    rc = run_narrative(
+        repo_root=repo_root, name=name, analyze=(analyze and not screen_only),
+        out_dir=out_dir, quarter=quarter, db_path=db_path, role=role,
+        min_overlap=min_overlap,
+    )
+    raise SystemExit(rc)
+
+
 @main.command("eval-funds", help="Evaluate an explicit fund-id list; report opportunity_state + core_dca.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--ids", type=str, default=None, help="Comma-separated fund ids.")
