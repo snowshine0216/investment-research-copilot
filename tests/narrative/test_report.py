@@ -369,6 +369,97 @@ def test_insufficient_middle_has_product_drivers_and_refresh_no_substate() -> No
     assert "机会 / dca / 风险" not in text  # no triad
 
 
+# --- Task 3 (004): per-row branch tests (AC1-AC5, AC9) ---
+
+_FORBIDDEN_INSUFFICIENT_TOKENS = (
+    # action triad
+    "机会 / dca / 风险", "small_watch", "pause_wait", "slow_dca", "do_not_buy",
+    "trim_review", "review_required",
+    # triggers + cadence markers
+    "证伪触发", "减仓触发", "复核节奏",
+    # sub-state line marker + sub-state verdict tokens (grill Q1/Q6)
+    "子状态",
+    "expensive", "very_expensive", "overheated", "crowded", "under_pressure",
+    "falsified", "weak", "poor", "intact", "cheap", "acceptable",
+    "evidence_insufficient",
+)
+
+
+def test_insufficient_row_suppresses_triad_and_substates() -> None:
+    r = _report_insufficient("A")  # carries real verdicts via _report (very_expensive/overheated/intact)
+    md = render_report_md("算力金属", (r,))
+    block = md.split("## A ")[1]
+    assert "机会 / dca / 风险" not in block
+    assert "子状态" not in block
+    for tok in ("small_watch", "slow_dca", "trim_review",
+                "very_expensive", "overheated", "intact", "acceptable"):
+        assert tok not in block, f"forbidden verdict token leaked: {tok}"
+
+
+def test_insufficient_block_forbidden_tokens_locked() -> None:
+    """Locked grep — the enforcement mechanism (grill Q6, mirrors
+    failure_renderer.py criterion 18). No triad/trigger/cadence/sub-state-verdict
+    token survives on an insufficient block."""
+    r = _report_insufficient("A")
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    for tok in _FORBIDDEN_INSUFFICIENT_TOKENS:
+        assert tok not in block, f"forbidden token survived insufficient block: {tok}"
+
+
+def test_insufficient_row_suppresses_triggers_and_cadence() -> None:
+    block = render_report_md("算力金属", (_report_insufficient("A"),)).split("## A ")[1]
+    assert "证伪触发" not in block
+    assert "减仓触发" not in block
+    assert "复核节奏" not in block
+
+
+def test_insufficient_row_renders_refresh_line() -> None:
+    r = _report_insufficient("A", gaps=("missing_product_metadata",))
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "⚠️ 证据不足 / insufficient" in block
+    assert "missing_product_metadata" in block
+    assert "uv run irc narrative 算力金属 --analyze" in block
+
+
+def test_insufficient_row_keeps_gap_facts_and_product_drivers_line() -> None:
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8)
+    r = _report_insufficient("A", pm=pm)
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "position_risk_level: **insufficient**" in block
+    assert "主因 / drivers: evidence_gaps" in block
+    assert "说明: evidence_gaps present — risk cannot be assessed" in block
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1
+    assert "费率=0.005" in drivers_lines[0]
+
+
+def test_insufficient_row_keeps_partial_evidence_and_refs_resolve() -> None:
+    r = _report_insufficient("A", evidence=_multi("A"))
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "证据明细" in block  # footnote table still renders
+    inline_ids = set(re.findall(r"\[ref:([0-9a-f]{16})\]", block))
+    assert inline_ids, "partial evidence should still render inline refs"
+    for cid in inline_ids:
+        footnote = [ln for ln in block.splitlines() if ln.startswith(f"[ref:{cid}]")]
+        assert len(footnote) == 1, f"{cid} resolved {len(footnote)} times"
+
+
+def test_mixed_report_branches_per_row() -> None:
+    suff = _report("S", evidence=(_evidence("S"),))            # elevated → full
+    insf = _report_insufficient("I", gaps=("missing_product_metadata",))
+    md = render_report_md("算力金属", (insf, suff))
+    insf_block = md.split("## I ")[1].split("## S ")[0]
+    suff_block = md.split("## S ")[1]
+    # insufficient: suppressed
+    assert "机会 / dca / 风险" not in insf_block
+    assert "⚠️ 证据不足 / insufficient" in insf_block
+    # sufficient: full triad + cadence + triggers
+    assert "机会 / dca / 风险:" in suff_block
+    assert "复核节奏" in suff_block
+    assert "证伪触发" in suff_block
+    assert "⚠️ 证据不足" not in suff_block
+
+
 # --- Task 7: AC8 — .json stays full source of truth (additive) ---
 
 def test_report_json_includes_product_metrics_and_constituents() -> None:
