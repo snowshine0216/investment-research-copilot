@@ -10,7 +10,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
-| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | ✅ | ✅ | ✅ | ✅ pre-push round (4 findings + 2 nits) | ⏳ |
+| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | ✅ | ✅ | ✅ | ✅ pre-push round (4 findings + 2 nits) | ✅ afce294 |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
@@ -62,4 +62,5 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 2026-06-02: Run created. Scope = 4 consolidated items (user choice). Full Opus authoring (user choice).
 - 2026-06-02: `main` is protected + default → synthesized feature branch; no merge-to-main opt-in this turn.
 - 2026-06-02: Item 001 MERGED into feature branch via squash PR #95 (commit f81d6f1). Pre-push /ship review caught a real P0 (FetchBudgetExceeded uncaught + con leak) — fixed before push. Post-ship: verify PASS, review PASS, pr-review PASS-WITH-NITS (2 nits). 8 pre-existing test failures on base (unrelated; verified by checkout).
+- 2026-06-02: Item 003 MERGED into feature branch via squash PR #97 (commit afce294). Pre-push review fixed 4 substantive findings (AC8 .json gap, dangling constituent footnote refs, non-deterministic dedup, misleading 质量=weak) + 2 nits. Post-ship: verify PASS, review PASS, pr-review PASS (0 findings). SAME-3 untouched; classify_product_quality untouched (scorer floor = follow-up F-1). Clean ff.
 - 2026-06-02: Item 002 MERGED into feature branch via squash PR #96 (commit fd624c5). Pre-push review: adversarial P0 REFUTED (table-fallback gaps force insufficient); real layer-inversion P0 + QDII dup + observability fixed before push; also removed a pre-existing `commands↔narrative` import cycle. Post-ship: verify PASS, review PASS-WITH-NITS, pr-review PASS-WITH-NITS (1 nit fixed inline). dag_acyclic_check unchanged vs base (no new cycle). Clean ff (feature pushed before sub-branch cut — no divergence).
