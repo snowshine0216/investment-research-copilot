@@ -101,9 +101,9 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         )
         lines.append(
             f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
-            f"逻辑={r.thesis_state} 质量={r.product_quality_state} "
-            f"｜ 产品驱动: {_product_drivers_segment(r.product_metrics)}"
+            f"逻辑={r.thesis_state} 质量={r.product_quality_state}"
         )
+        lines.append(f"- 产品驱动: {_product_drivers_segment(r.product_metrics)}")
         lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
         lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")
         lines.append(f"- 减仓触发: {', '.join(r.trim_triggers) or '—'}")

@@ -303,6 +303,22 @@ def test_report_md_no_product_metrics_renders_em_dash_drivers() -> None:
     assert "费率=—" in block  # None bundle → all em-dash, never crashes
 
 
+# --- Task 1 (004): 产品驱动 on its own line ---
+
+def test_report_md_product_drivers_on_own_line() -> None:
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=0.002)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    # 产品驱动 must be a standalone bullet, NOT riding the 子状态 line.
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1
+    assert "费率=0.005" in drivers_lines[0]
+    substate_lines = [ln for ln in block.splitlines() if ln.startswith("- 子状态:")]
+    assert len(substate_lines) == 1
+    assert "产品驱动" not in substate_lines[0]  # decoupled (grill Q2)
+
+
 # --- Task 7: AC8 — .json stays full source of truth (additive) ---
 
 def test_report_json_includes_product_metrics_and_constituents() -> None:
