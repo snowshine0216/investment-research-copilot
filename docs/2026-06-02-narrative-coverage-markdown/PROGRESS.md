@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -29,6 +29,9 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 001-drift: [items/001-drift.md](items/001-drift.md) (commit 1269290; Verdict PASS; 0 findings; 5 invariants verified vs diff)
 - 001-ship: [items/001-ship.md](items/001-ship.md) → PR [#95](https://github.com/snowshine0216/investment-research-copilot/pull/95) (base=feature branch; no VERSION bump; 8 pre-existing test failures noted, 0 in-branch)
 - 001-review: [items/001-review.md](items/001-review.md) (Verdict PASS via /ship 8+9; P0 + P1s found & fixed pre-push — commits c3463b5/8d4c7e5/3eee793; re-review CLEAN) · pre-push findings: [items/001-ship-blocked.md](items/001-ship-blocked.md)
+- 001-verify: [items/001-verify.md](items/001-verify.md) (Verdict PASS; real-CLI offline smoke — corrected error string rc=2 no-traceback, kill-switch, no `基金概况`; network-leg ACs test-backed)
+- 001-pr-review: [items/001-pr-review.md](items/001-pr-review.md) (Verdict PASS-WITH-NITS; [PR #95 comment](https://github.com/snowshine0216/investment-research-copilot/pull/95#issuecomment-4600948867); 2 nits — `_fetch_budget` private import [grill-sanctioned], test import style; 0 bugs)
+- 001-fix: 0 rounds — post-ship verdicts all clean; the P0/P1 blockers were fixed in the pre-push /ship review round.
 
 ## Run-level
 | gate | status |
