@@ -4,8 +4,13 @@ from pathlib import Path
 
 import duckdb
 
+from irc.commands.opportunity_cmd import _load_latest_nav_cached
 from irc.fundamentals.provider import CnFundamentalsProvider
+from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS
 from irc.fundamentals.snapshot_cache import load_active_fund_cache
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
+from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.types import OpportunityInput
 from irc.narrative.risk import derive_position_risk_level
 from irc.narrative.schemas import (
     NarrativeFundReport,
@@ -89,6 +94,26 @@ def _report_from_card(
     )
 
 
+_QDII_KINDS = ("qdii_us", "qdii_hk", "qdii_global")
+
+
+def _load_snapshot_for_row(
+    inp: OpportunityInput, *, quarter: str, data_dir: Path,
+) -> ActiveFundSnapshot | FundLevelSnapshot | None:
+    """Read-only snapshot loader; dispatches on the resolved lookthrough kind.
+
+    active_fund → load_active_fund_cache(fixed analyze-context quarter).
+    fund-level / QDII (w/ provider_symbol) → latest-nav/ FundLevelSnapshot scan.
+    Performs NO fetch (AC4).
+    """
+    target = map_lookthrough(inp)
+    if target.kind == "active_fund":
+        return load_active_fund_cache(inp.instrument_id, quarter, data_dir)
+    if (target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
+        return _load_latest_nav_cached(target.provider_symbol, data_dir)
+    return None
+
+
 def analyze_fund(
     shortlist_row: ShortlistRow,
     *,
@@ -104,6 +129,6 @@ def analyze_fund(
     iid = shortlist_row.instrument_id
     score_row = {"instrument_id": iid, "asset_class": shortlist_row.asset_class, "role": role}
     inp = _build_input(score_row, instr, None, None, 0.0, set(), con, provider=provider)
-    snapshot = load_active_fund_cache(iid, quarter, data_dir)
+    snapshot = _load_snapshot_for_row(inp, quarter=quarter, data_dir=data_dir)
     row = build_opportunity_row(inp, None, snapshot=snapshot, theme_report=None)
     return _report_from_card(row, shortlist_row, role=role)
