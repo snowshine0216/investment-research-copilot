@@ -12,6 +12,7 @@ from irc.commands.fund_eval_cmd import _instr_by_id, _latest_quarter
 from irc.config_loader import load_repo_configs
 from irc.fundamentals.provider import default_cn_provider
 from irc.io_utils import atomic_write_text
+from irc.commands.narrative_autobuild import autobuild_active_funds
 from irc.narrative.analyze import analyze_fund, error_report
 from irc.narrative.config import available_narratives, load_narrative_basket
 from irc.narrative.holdings_fetch import fetch_top_holdings
@@ -91,6 +92,10 @@ def _run_analyze(
     if ctx is None:
         return None
     con, provider, resolved_quarter, instr_index = ctx
+    autobuild_active_funds(
+        shortlist, provider=provider, quarter=resolved_quarter,
+        data_dir=root / "data", today_iso=_today(),
+    )
     reports: list[NarrativeFundReport] = []
     try:
         for row in shortlist:

@@ -95,6 +95,8 @@ def test_analyze_renders_real_citations(tmp_path: Path, monkeypatch) -> None:
     # make analyze deterministic + DB-free: stub the open-db edge + per-fund analyze.
     monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+                        lambda *a, **k: None)
     expensive = NarrativeFundReport(
         instrument_id="000A", name_cn="有色基金",
         position_risk_level="high", risk_rationale="high — very_expensive valuation",
@@ -227,6 +229,8 @@ def test_analyze_per_fund_error_yields_partial_results(tmp_path: Path, monkeypat
     )
     monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
                         lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+                        lambda *a, **k: None)
 
     ok_report = NarrativeFundReport(
         instrument_id="000B", name_cn="正常基金",
@@ -278,3 +282,48 @@ def test_cli_narrative_screen_only(tmp_path: Path, monkeypatch) -> None:
     )
     assert result.exit_code == 0
     assert (out / "compute_metals_shortlist.json").exists()
+
+
+def test_analyze_invokes_autobuild_with_resolved_quarter(tmp_path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    calls: list = []
+    monkeypatch.setattr(
+        narrative_cmd, "autobuild_active_funds",
+        lambda shortlist, *, provider, quarter, data_dir, today_iso:
+        calls.append((tuple(r.instrument_id for r in shortlist), provider, quarter)),
+    )
+    # analyze_fund stays read-only; stub it to a known report
+    expensive = NarrativeFundReport(
+        instrument_id="000A", name_cn="有色基金", position_risk_level="high",
+        risk_rationale="r", risk_drivers=("valuation_state",),
+        valuation_state="very_expensive", heat_state="overheated",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="trim_review", falsification_triggers=(), trim_triggers=(),
+        review_cadence="weekly_light_monthly_full", evidence_gaps=(),
+        thesis_evidence=(_evidence("000A"),),
+    )
+    monkeypatch.setattr(narrative_cmd, "analyze_fund", lambda row, **k: expensive)
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 0
+    assert len(calls) == 1
+    ids, provider, quarter = calls[0]
+    assert ids == ("000A",)
+    assert provider == "PROV"
+    assert quarter == "2026Q1"  # resolved-context quarter, not None
