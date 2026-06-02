@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `eval-funds` (2026-06-01)
+
+New top-level **`irc eval-funds`** command — targeted per-fund evaluation that
+reports each fund's four sub-states (valuation / heat / thesis / product-quality),
+its composed `opportunity_state`, `dca_action`, and a boolean **`core_dca`** verdict.
+Reuses the pipeline's existing classifiers verbatim (**no new business logic**), works
+from cache + the existing read-only `data/local.duckdb`, and sidesteps the broken
+`ingest`, discovery gating, and the active-fund cap. Honest about degraded data —
+never asserts `core_dca` when a sub-state is `evidence_insufficient` or a snapshot is
+missing.
+
+- New `@main.command("eval-funds")` in `cli.py`: `--ids` / `--ids-file`, `--quarter`
+  (default: latest cached on disk), `--role` (display-only), `--db`, `--out`.
+- New pure core `opportunity/fund_eval.py`: frozen `FundEval`, `evaluate_fund` /
+  `evaluate_funds` (sorted core_dca-first), and deterministic `render_fund_eval_md` /
+  `render_fund_eval_json` renderers (no I/O).
+- New command edge `commands/fund_eval_cmd.py`: read-only DuckDB open (clear rc-2 on
+  missing/unopenable db), universe + cached `ActiveFundSnapshot` load, atomic md+json
+  write to `outputs/<today>/fund_eval.{md,json}`. Dedupes ids, warns on ids absent from
+  the universe, prevents md/json path collision.
+- Refactor: `_build_input` extracted from `opportunity_cmd.py` to the shared pure
+  `opportunity/inputs_build.py` (behaviour-identical move; re-imported so existing
+  callers/tests are unaffected).
+
 ### Added — `funding-analysis-005` (2026-05-31)
 
 Optional **bull/bear debate** on the opportunity stage (TradingAgents pattern) —

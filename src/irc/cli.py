@@ -137,6 +137,31 @@ def opportunity(
     raise SystemExit(rc)
 
 
+@main.command("eval-funds", help="Evaluate an explicit fund-id list; report opportunity_state + core_dca.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--ids", type=str, default=None, help="Comma-separated fund ids.")
+@click.option("--ids-file", type=click.Path(dir_okay=False, exists=True), default=None,
+              help="File with comma/newline-separated fund ids.")
+@click.option("--quarter", type=str, default=None,
+              help="Snapshot quarter (default: latest cached on disk).")
+@click.option("--role", type=str, default="satellite_cn_metals",
+              help="Role label stamped on synthesized score rows (display only).")
+@click.option("--db", "db_path", type=click.Path(dir_okay=False), default=None,
+              help="DuckDB path (default data/local.duckdb).")
+@click.option("--out", "out_path", type=click.Path(dir_okay=False), default=None,
+              help="Markdown output path (default outputs/<today>/fund_eval.md; .json sibling).")
+def eval_funds(
+    repo_root: str, ids: str | None, ids_file: str | None, quarter: str | None,
+    role: str, db_path: str | None, out_path: str | None,
+) -> None:
+    from irc.commands.fund_eval_cmd import run_eval_funds
+    rc = run_eval_funds(
+        repo_root=repo_root, ids=ids, ids_file=ids_file, quarter=quarter,
+        role=role, db_path=db_path, out_path=out_path,
+    )
+    raise SystemExit(rc)
+
+
 @main.command(help="Compute proposed allocation from scores + gold tilt.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def allocate(repo_root: str) -> None:
