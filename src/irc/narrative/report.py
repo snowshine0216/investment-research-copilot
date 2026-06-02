@@ -109,6 +109,8 @@ def _evidence_dict(ev: ThesisEvidence) -> dict:
         "date": ev.date,
         "scope": ev.scope,
         "citation_kind": ev.citation_kind,
+        "summary": ev.summary,
+        "url": ev.url,
     }
 
 
