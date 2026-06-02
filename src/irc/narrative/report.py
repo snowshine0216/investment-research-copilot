@@ -68,8 +68,23 @@ def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     ]
 
 
+_WEAK_FLOOR_LEGEND = (
+    "**注 / Legend — 质量 (product_quality_state):** 当前分类器缺少 `aum_stability_pct` 输入 "
+    "（待补充指标 F-1），导致所有基金的 `质量` 评分存在结构性下限 (floor)，可能显示为 `weak`。"
+    "阅读时请优先参考 **产品驱动** 栏的实际数值（费率/规模/任职/跟踪误差），"
+    "而非将 `weak` 视为真实质量判断。"
+)
+
+
+def _has_weak_fund(reports: tuple[NarrativeFundReport, ...]) -> bool:
+    return any(r.product_quality_state == "weak" for r in reports)
+
+
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
+    if _has_weak_fund(reports):
+        lines.append(_WEAK_FLOOR_LEGEND)
+        lines.append("")
     for r in reports:
         lines.append(f"## {r.instrument_id} {r.name_cn}")
         lines.append(f"- 仓位风险等级 / position_risk_level: **{r.position_risk_level}**")
