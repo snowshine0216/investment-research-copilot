@@ -137,3 +137,29 @@ def test_narrative_fund_report_new_fields_default_empty() -> None:
     r = _report("A")
     assert r.constituent_analyses == ()
     assert r.product_metrics is None
+
+
+# --- Task 3: AC1/AC2 — inline evidence bullet gains · {summary} ---
+
+def test_report_md_inline_bullet_has_summary_suffix() -> None:
+    ev = _evidence("A")  # summary = "601899 2026Q1 财报已披露（口径未核实）"
+    md = render_report_md("算力金属", (_report("A", evidence=(ev,)),))
+    assert (
+        f"- [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date} · {ev.summary}"
+        in md
+    )
+
+
+def test_report_md_inline_caps_at_three_with_summary() -> None:
+    evs = tuple(
+        ThesisEvidence(
+            type="news", source=f"src{i}", url="", date=f"2026-03-0{i}",
+            summary=f"headline-{i}", scope="instrument", citation_kind="information",
+            owner_instrument_id="A", parent_fund_id=None, constituent_key=None,
+        )
+        for i in range(1, 6)  # 5 records
+    )
+    md = render_report_md("算力金属", (_report("A", evidence=evs),))
+    # Inline cell still capped at 3 distinct inline bullets.
+    inline = md.split("证据 / evidence:")[1].split("\n\n")[0]
+    assert inline.count("[ref:") == 3

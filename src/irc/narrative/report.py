@@ -51,13 +51,14 @@ def render_diagnostics_json(excluded: tuple[tuple[str, str, str], ...]) -> str:
 
 
 def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
-    """Reuse the locked citation format from opportunity/report.py:210.
-    `- [ref:{citation_id}] {type} · {source} · {date}` via select_citations cap=3."""
+    """Inline cell: locked `- [ref:{id}] {type} · {source} · {date}` prefix
+    (opportunity/report.py:210, mirrored not imported) with a trailing
+    ` · {summary}` prose segment (AC1). Capped at 3 via select_citations."""
     if not thesis_evidence:
         return []
     selected = select_citations(thesis_evidence, cap=3)
     return [
-        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date} · {ev.summary}"
         for ev in selected
     ]
 
