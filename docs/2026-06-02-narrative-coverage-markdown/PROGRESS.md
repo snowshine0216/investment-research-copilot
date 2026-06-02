@@ -10,7 +10,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
-| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | ✅ | ✅ | ✅ | ✅ pre-push round (4 findings + 2 nits) | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
@@ -44,6 +44,12 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 003-spec: [items/003-spec.md](items/003-spec.md) (commit 1a3bce2; 11 ACs; M1 prose from ThesisEvidence.summary + ConstituentAnalysis.one_line_view + citation_id-sorted footnote appendix; M2 surfaces product drivers; SAME-3 safe [report.py not an ADR-0004 §3 surface]; scorer-flooring = follow-up F-1, NOT changed; supporting edit threads metrics + constituent_analyses via _report_from_card)
 - 003-grill: [items/003-grill.md](items/003-grill.md) (Verdict PASS; subagent opus; 6 RDs resolved; verified report.py is NOT an ADR-0004 §3 SAME-3 surface [appendix safe], active-fund 质量=weak is a scorer floor not signal [F-1]; CONTEXT.md +2 terms; spec +`## Resolved decisions` + 2 inline corrections [ADR-0004 §Consequences precedent; _report_from_card must receive inp for product metrics])
 - 003-plan: [items/003-plan.md](items/003-plan.md) (commit 3bf38b1; 9 tasks / ~40 steps; all 11 ACs → tests; schema fields + _report_from_card(inp) threading + report.py M1 footnote appendix [citation-id sort, every inline ref resolves] + M2 drivers; classifier untouched [F-1]; 3 minor judgment calls)
+- 003-drift: [items/003-drift.md](items/003-drift.md) (commit 307ec6c; Verdict PASS; 0 findings; classify_product_quality untouched, determinism + SAME-3 confirmed, report_appendix.py extraction plan-sanctioned)
+- 003-ship: [items/003-ship.md](items/003-ship.md) → PR [#97](https://github.com/snowshine0216/investment-research-copilot/pull/97) (base=feature; narrative-isolated, blast-radius tests/narrative 133 + SAME-3 3 green)
+- 003-review: [items/003-review.md](items/003-review.md) (Verdict PASS; 4 substantive findings [AC8 .json gap, dangling constituent refs, non-det dedup, misleading weak] + 2 nits FIXED pre-push 3ca2d2a/74c9a9b/de20f34/c809105+docstring; re-review P0=none) · [items/003-ship-blocked.md](items/003-ship-blocked.md)
+- 003-verify: [items/003-verify.md](items/003-verify.md) (Verdict PASS; direct renderer drive — all ACs incl. constituent-only footnote resolution + determinism + legend; 33 test_report + 387 memo)
+- 003-pr-review: [items/003-pr-review.md](items/003-pr-review.md) (Verdict PASS; [PR #97 comment](https://github.com/snowshine0216/investment-research-copilot/pull/97#issuecomment-4602150530); 0 findings — all candidates refuted by code)
+- 003-fix: pre-push round (4 substantive + 2 nits); 0 post-ship rounds (all 3 verdicts PASS).
 
 ## Run-level
 | gate | status |
