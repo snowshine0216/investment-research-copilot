@@ -166,7 +166,7 @@ def run_narrative(
             print(
                 f"ERROR: fetch budget exceeded ({exc}). "
                 f"Raise IRC_FETCH_BUDGET or set IRC_NARRATIVE_AUTOBUILD=0 to skip the "
-                f"active-fund autobuild. Shortlist written to {out}.",
+                f"snapshot autobuild (active + passive funds). Shortlist written to {out}.",
                 file=sys.stderr,
             )
             return 3
