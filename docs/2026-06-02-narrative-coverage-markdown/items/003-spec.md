@@ -54,9 +54,20 @@ scorer-flooring root cause is documented in **Resolved decisions RD-2** and **fl
 **A — thread the data onto `NarrativeFundReport`; render in a self-contained narrative renderer.**
 
 `NarrativeFundReport` today carries `thesis_evidence` but NOT `constituent_analyses` and NOT the raw
-product metrics — `_report_from_card` (`analyze.py:86-96`) drops `card.constituent_analyses`, and no
+product metrics — `_report_from_card` (`analyze.py:79-96`) drops `card.constituent_analyses`, and no
 product numbers ever reach the report. This item adds the missing fields (frozen-dataclass, defaulted
-so existing constructors stay valid) and threads them at the `_report_from_card` edge. The renderer
+so existing constructors stay valid) and threads them at the `_report_from_card` edge.
+
+> ~~threads them at the `_report_from_card` edge.~~ — corrected by grill (RD-5): the two new
+> fields have DIFFERENT sources. `constituent_analyses` is already carried through
+> `OpportunityRow` (`types.py:170`) → `ThesisCard` (`types.py:198`, via `build_thesis_card`,
+> `cards.py:64`), so `card.constituent_analyses` is in scope inside `_report_from_card` today — the
+> appendix just needs the renderer to stop dropping it. The four **product metrics**
+> (`expense_ratio`, `aum_cny`, `manager_tenure_years`, `tracking_error`) live ONLY on
+> `OpportunityInput` (`types.py:101-105`); they are NOT on `OpportunityRow`/`ThesisCard`. So
+> `_report_from_card`'s signature `(row, shortlist_row, *, role)` must additionally receive `inp` (or
+> a pre-built `ProductMetrics` bundle built from `inp`); `inp` is already in scope at the
+> `analyze_fund` edge (`analyze.py:137`), which is where the bundle is built and threaded in. The renderer
 gains the inline-summary segment, the appendix, and the footnote table as small pure helpers, each
 mirroring (not importing) the opportunity-report shape.
 
@@ -96,6 +107,15 @@ Each criterion is independently verifiable by a unit test in `tests/narrative/te
    ` · {url}` when non-empty). Verified: extract all `[ref:hex]` ids from a fund's block via the
    locked regex; assert each id has a matching footnote line. (This is the "every inline `[ref:hex]`
    resolves" criterion.)
+   - **Grill clarification (RD-6):** the footnote table is built from the fund's full
+     `thesis_evidence` tuple, but the **appendix** per-constituent refs come from each constituent's
+     own `c.evidence` tuple (`ConstituentAnalysis.evidence`), NOT directly from `r.thesis_evidence`.
+     Resolution still holds because, for active-fund rows, the per-constituent evidence is **flattened
+     into `OpportunityRow.thesis_evidence`** upstream (ADR 0002 / ADR 0004 "Related ADRs"), so the
+     footnote pool is a **superset** of every appendix ref. The footnote-builder MUST therefore draw
+     from `r.thesis_evidence` (the flattened superset), so a constituent-only `citation_id` still
+     resolves. If a future producer change ever stopped flattening, the footnote pool would need to
+     also union `c.evidence` across constituents — but that is not the case today and is not in scope.
 5. **Footnotes are deterministic.** The footnote table is sorted by a stable key (`citation_id`
    ascending) so two `render_report_md` calls on the same reports produce byte-identical output.
    Verified by a two-call byte-equality assertion (ADR 0004 determinism).
@@ -212,7 +232,10 @@ consistent with its own JSON-side selection. **Flagged for the grill** to confir
 narrative `.md` as a SAME-3 surface (it does not).
 Rationale: SAME-3 is a *consumer-side* contract over three named producers; adding a fourth,
 display-only, unbound surface is exactly the "extra additive file outside the SAME-3 set" pattern
-already accepted for `thesis_debate.md` (ADR 0011 §2).
+already accepted for `thesis_debate.md` (~~ADR 0011 §2~~ — corrected by grill (RD-1): the
+`thesis_debate.md` byte-equality/SAME-3 exemption is recorded in **ADR 0004 §Consequences** + the
+CONTEXT.md `thesis_debate.md` entry; ADR 0011 is the *adversarial-debate-advisory-only* decision that
+makes the artifact non-canonical, not the SAME-3 exemption locus).
 
 **Q5 — M2: which exact product metrics, and what are their source fields?**
 A: Surface `expense_ratio`, `aum_cny`, `manager_tenure_years` for all funds, plus `tracking_error`
@@ -282,3 +305,64 @@ worth resolving.
   ripple — it needs its own slice, spec, and grill (not a renderer change). **Recorded here; not
   implemented in item 003.** (Surfacing the drivers in the `.md`, AC6/AC7, is the interim mitigation
   so an operator can already tell metadata-floored from genuinely-weak.)
+
+## Resolved decisions
+
+Grill session (subagent: opus, 2026-06-02) — every load-bearing claim verified against ADR 0001 /
+ADR 0004 + the real code. Verdict: **PASS**. Six decisions crystallised; CONTEXT.md gained two terms
+(narrative-report-is-display-only-non-SAME-3 + active-fund-`质量=weak`-is-a-scorer-floor). No new ADR
+(an additive display-only renderer change fails the three-of-three rule — the SAME-3 boundary is
+already locked by ADR 0004; the narrative renderer simply is not a bound surface).
+
+- **RD-1 — `narrative/report.py` is NOT bound by ADR 0004 §3 SAME-3 citation-set-equality.**
+  **VERIFIED against the ADR text and the test.** ADR 0004 §3 (lines 84-92) binds exactly three
+  producers — `_build_pick_rows`, `build_evidence_pool`, `_render_section` — all in the
+  opportunity/memo pipeline. `tests/memo/test_same_3_invariant.py` imports only those three and never
+  imports `narrative.report` / `render_report_md`; no memo/opportunity/integration test references the
+  narrative renderer. The narrative `.md` is a separate downstream artifact. **The display-only
+  evidence appendix + footnote table (a fuller, non-capped pool) is therefore safe** and cannot enter
+  any citation-set-equality check. The inline cell keeps `select_citations(cap=3)` only to stay
+  consistent with the narrative `.json`'s own projection — NOT because SAME-3 requires it. Spec Q4 +
+  the "SAME-3 display invariant" constraint were correct; the `thesis_debate.md` precedent citation
+  was the only error (ADR 0004 §Consequences, not "ADR 0011 §2") — corrected inline.
+  *Doc-impact: CONTEXT.md "Narrative report is a display-only, non-SAME-3 surface".*
+
+- **RD-2 — Active-fund `质量=weak` is a structural scorer floor, NOT a product judgment (today).**
+  **VERIFIED in code.** `classify_product_quality` (`states.py:346-349`) floors every active fund with
+  a known `manager_tenure_years` to `weak` because the active branch requires `aum_stability_pct`,
+  which is the documented universal drop (`decision/completeness.py:22`) and is NEVER set by
+  `populate_inputs` (`inputs_loader.py:159-164` sets only expense/aum/tenure/tracking_error). Item 003
+  **surfaces the providable drivers only** (AC6/AC7) and does **not** touch `classify_product_quality`
+  — the scorer fix is flagged follow-up F-1 (its own slice + grill, H3 ripple). Recorded so a reader
+  never treats active-fund `weak` as real signal. *Doc-impact: CONTEXT.md "Active-fund `质量=weak` is
+  a scorer floor".*
+
+- **RD-3 — Citation-id integrity holds; footnote IDs stay exactly 16-hex.**
+  **VERIFIED.** `ThesisEvidence.citation_id` is computed to `hexdigest()[:16]` in `__post_init__`
+  (`types.py:101`); the renderer reads `ev.citation_id` verbatim (never recomputes/truncates). Every
+  emitted marker matches `\[ref:[0-9a-f]{16}\]` (ADR 0001). AC2 + AC4 correct as written.
+  *Doc-impact: none (ADR 0001 already binds this).*
+
+- **RD-4 — Determinism (ADR 0004) holds for the new sections.**
+  **CONFIRMED.** Footnote table sorted by `citation_id` ascending; appendix by the existing
+  weight-desc flatten order. No `dict`/`set` iteration without an explicit sort — the dedup-by-id MUST
+  use a `citation_id`-sorted collection, not raw set iteration. AC5 two-call byte-equality locks it.
+  *Doc-impact: none.*
+
+- **RD-5 — Schema additions are sound; the two new fields have DIFFERENT threading sources.**
+  **CONFIRMED.** `NarrativeFundReport` is a frozen dataclass; new fields get safe defaults
+  (`constituent_analyses: tuple[ConstituentAnalysis, ...] = ()`; a product-metrics bundle defaulted to
+  `None`/`()`), keeping every existing constructor (error_report, _report_from_card, tests) valid and
+  the `.json` round-trip intact (AC8). **Threading correction:** `constituent_analyses` is already on
+  `card`/`row` (`types.py:170,198`) so the appendix only needs the renderer to stop dropping it; the
+  four product metrics are ONLY on `OpportunityInput` (`types.py:101-105`), so `_report_from_card`
+  must additionally receive `inp` (already in scope at the `analyze_fund` edge, `analyze.py:137`). The
+  Approach section's threading line was sharpened inline.
+  *Doc-impact: none (spec Approach corrected).*
+
+- **RD-6 — Footnote pool draws from the flattened `r.thesis_evidence` superset.**
+  **CONFIRMED.** Appendix per-constituent refs come from `c.evidence`, but for active-fund rows that
+  evidence is flattened into `OpportunityRow.thesis_evidence` upstream (ADR 0002 / ADR 0004 "Related
+  ADRs"), so the fund's `thesis_evidence` pool is a superset of every appendix ref and the
+  footnote-builder drawing from `r.thesis_evidence` resolves every marker (AC4). Clarified inline on
+  AC4. *Doc-impact: none.*

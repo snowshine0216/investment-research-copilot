@@ -10,7 +10,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
-| 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | ✅ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
@@ -41,6 +41,8 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 002-verify: [items/002-verify.md](items/002-verify.md) (commit 746475e; Verdict PASS; 14 ACs — offline CLI+import-health+layering grep + 906 test-backed; 0 failures)
 - 002-pr-review: [items/002-pr-review.md](items/002-pr-review.md) (Verdict PASS-WITH-NITS; [PR #96 comment](https://github.com/snowshine0216/investment-research-copilot/pull/96#issuecomment-4601702712); 1 nit [stale msg wording] — fixed inline; 0 bugs)
 - 002-fix: 1 inline nit (budget-msg wording generalized to active+passive); the pre-push layer-inversion P0 + dup + observability were fixed in the /ship review round.
+- 003-spec: [items/003-spec.md](items/003-spec.md) (commit 1a3bce2; 11 ACs; M1 prose from ThesisEvidence.summary + ConstituentAnalysis.one_line_view + citation_id-sorted footnote appendix; M2 surfaces product drivers; SAME-3 safe [report.py not an ADR-0004 §3 surface]; scorer-flooring = follow-up F-1, NOT changed; supporting edit threads metrics + constituent_analyses via _report_from_card)
+- 003-grill: [items/003-grill.md](items/003-grill.md) (Verdict PASS; subagent opus; 6 RDs resolved; verified report.py is NOT an ADR-0004 §3 SAME-3 surface [appendix safe], active-fund 质量=weak is a scorer floor not signal [F-1]; CONTEXT.md +2 terms; spec +`## Resolved decisions` + 2 inline corrections [ADR-0004 §Consequences precedent; _report_from_card must receive inp for product metrics])
 
 ## Run-level
 | gate | status |
