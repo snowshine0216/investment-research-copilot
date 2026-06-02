@@ -24,7 +24,11 @@ def score_overlap(holdings: tuple[Holding, ...], basket: NarrativeBasket) -> Ove
     matched: list[str] = []
     industry_credit: list[str] = []
     weight = 0.0
+    seen: set[str] = set()
     for h in holdings:
+        if h.symbol in seen:
+            continue
+        seen.add(h.symbol)
         if _basket_hit(h, basket):
             matched.append(h.symbol)
             weight += h.weight_pct

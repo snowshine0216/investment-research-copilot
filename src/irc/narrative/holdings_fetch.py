@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import dataclasses
 import json
+import logging
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -8,6 +11,8 @@ import pandas as pd
 
 from irc.fundamentals.akshare_fundamentals import _ak_call
 from irc.narrative.schemas import Holding
+
+_log = logging.getLogger(__name__)
 
 _TOP_N = 10
 _NEEDED = {"股票代码", "股票名称", "占净值比例"}
@@ -30,6 +35,8 @@ def _to_holding(row: pd.Series) -> Holding:
         weight = float(row["占净值比例"])
     except (TypeError, ValueError):
         weight = 0.0
+    if math.isnan(weight) or math.isinf(weight):
+        weight = 0.0
     return Holding(
         symbol=str(row["股票代码"]).strip(),
         name_cn=str(row["股票名称"]).strip(),
@@ -41,8 +48,19 @@ def _to_holding(row: pd.Series) -> Holding:
 def _parse(df: pd.DataFrame) -> tuple[Holding, ...]:
     if not isinstance(df, pd.DataFrame) or df.empty or not _NEEDED.issubset(df.columns):
         return ()
-    ranked = df.sort_values("占净值比例", ascending=False).head(_TOP_N)
-    return tuple(_to_holding(row) for _i, row in ranked.iterrows())
+    # Sort descending so highest weight comes first, then dedupe by symbol.
+    ranked = df.sort_values("占净值比例", ascending=False)
+    seen: set[str] = set()
+    holdings: list[Holding] = []
+    for _i, row in ranked.iterrows():
+        h = _to_holding(row)
+        if h.symbol in seen:
+            continue
+        seen.add(h.symbol)
+        holdings.append(h)
+        if len(holdings) == _TOP_N:
+            break
+    return tuple(holdings)
 
 
 def _read_cache(path: Path) -> tuple[Holding, ...] | None:
@@ -50,14 +68,15 @@ def _read_cache(path: Path) -> tuple[Holding, ...] | None:
         return None
     try:
         body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        _log.warning("holdings cache unreadable: %s — %s", path, exc)
         return None
     return tuple(Holding(**h) for h in body.get("holdings", []))
 
 
 def _write_cache(path: Path, holdings: tuple[Holding, ...]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    doc = {"holdings": [h.__dict__ for h in holdings]}
+    doc = {"holdings": [dataclasses.asdict(h) for h in holdings]}
     path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
@@ -69,7 +88,8 @@ def fetch_top_holdings(fund_id: str, *, cache_dir: Path) -> tuple[Holding, ...]:
         return cached
     try:
         df = _ak_call("fund_portfolio_hold_em", symbol=fund_id, date=_current_year())
-    except Exception:
+    except Exception as exc:
+        _log.warning("fetch_top_holdings failed for %s: %s", fund_id, exc)
         return ()
     holdings = _parse(df)
     _write_cache(cache_path, holdings)

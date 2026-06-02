@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import math
 import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
 
-from irc.narrative.holdings_fetch import fetch_top_holdings
+from irc.narrative.holdings_fetch import _parse, _to_holding, fetch_top_holdings
 from irc.narrative.schemas import Holding
 
 
@@ -49,6 +50,48 @@ def test_empty_or_failed_returns_empty(monkeypatch, tmp_path: Path) -> None:
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")),
     )
     assert fetch_top_holdings("000999", cache_dir=tmp_path) == ()
+
+
+# ── F1: duplicate-symbol dedup in _parse ─────────────────────────────────────
+
+
+def test_parse_deduplicates_symbol_keeps_highest_weight() -> None:
+    """F1: 601899 appearing twice → exactly one Holding for 601899 (highest weight)."""
+    df = pd.DataFrame(
+        {
+            "股票代码": ["601899", "601899", "600362"],
+            "股票名称": ["紫金矿业", "紫金矿业", "江西铜业"],
+            "占净值比例": [9.0, 5.0, 6.0],  # 601899 dup: 9.0 should win
+        }
+    )
+    result = _parse(df)
+    symbols = [h.symbol for h in result]
+    assert symbols.count("601899") == 1
+    # highest-weight row for 601899 is kept
+    zijin = next(h for h in result if h.symbol == "601899")
+    assert zijin.weight_pct == 9.0
+
+
+# ── F2: NaN/inf weight sanitization in _to_holding ───────────────────────────
+
+
+def test_to_holding_nan_weight_becomes_zero() -> None:
+    """F2: NaN in 占净值比例 must not propagate — becomes 0.0."""
+    row = pd.Series(
+        {"股票代码": "601899", "股票名称": "紫金矿业", "占净值比例": float("nan")}
+    )
+    h = _to_holding(row)
+    assert h.weight_pct == 0.0
+    assert not math.isnan(h.weight_pct)
+
+
+def test_to_holding_inf_weight_becomes_zero() -> None:
+    """F2: inf in 占净值比例 must not propagate — becomes 0.0."""
+    row = pd.Series(
+        {"股票代码": "601899", "股票名称": "紫金矿业", "占净值比例": float("inf")}
+    )
+    h = _to_holding(row)
+    assert h.weight_pct == 0.0
 
 
 # ── Live double-gated (CONTEXT.md "Live test gate") ──────────────────────────

@@ -70,6 +70,22 @@ def test_empty_holdings_zero_overlap() -> None:
     assert ov.matched_symbols == ()
 
 
+# ── F1: score_overlap duplicate-symbol defensive dedup ───────────────────────
+
+
+def test_score_overlap_deduplicates_duplicate_basket_symbol() -> None:
+    """F1: input holdings with a dup basket symbol → overlap_count / weight counted once."""
+    holdings = (
+        Holding(symbol="601899", name_cn="紫金矿业", weight_pct=9.0),
+        Holding(symbol="601899", name_cn="紫金矿业", weight_pct=5.0),  # dup
+        Holding(symbol="600362", name_cn="江西铜业", weight_pct=6.0),
+    )
+    ov = score_overlap(holdings, _basket())
+    assert ov.overlap_count == 2  # 601899 + 600362, not 3
+    assert ov.basket_weight_pct == 15.0  # 9.0 + 6.0, not 20.0
+    assert ov.matched_symbols.count("601899") == 1  # no dup in matched_symbols
+
+
 def _row(iid: str, weight: float, count: int) -> ShortlistRow:
     ov = OverlapResult(
         basket_weight_pct=weight,
