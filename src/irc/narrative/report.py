@@ -95,7 +95,22 @@ def _has_weak_fund(reports: tuple[NarrativeFundReport, ...]) -> bool:
     )
 
 
-def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
+def render_report_md(
+    narrative: str,
+    reports: tuple[NarrativeFundReport, ...],
+    *,
+    name: str | None = None,
+) -> str:
+    """Render the per-fund narrative report as Markdown.
+
+    Args:
+        narrative: Display title/label shown in the heading (may be a CN display name).
+        reports: Sequence of per-fund reports.
+        name: The narrative_id / file stem used ONLY in the refresh command
+              (``uv run irc narrative {name} --analyze``). Defaults to ``narrative``
+              so callers that pass a real id as the first arg stay backward-compatible.
+    """
+    refresh_id = name if name is not None else narrative
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
     if _has_weak_fund(reports):
         lines.append(_WEAK_FLOOR_LEGEND)
@@ -106,7 +121,7 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         lines.append(f"- 主因 / drivers: {', '.join(r.risk_drivers) or '—'}")
         lines.append(f"- 说明: {r.risk_rationale}")
         if r.position_risk_level == "insufficient":
-            lines.extend(_insufficient_middle(narrative, r))
+            lines.extend(_insufficient_middle(refresh_id, r))
         else:
             lines.append(
                 f"- 机会 / dca / 风险: {r.opportunity_state} ｜ {r.dca_action} ｜ {r.risk_action}"

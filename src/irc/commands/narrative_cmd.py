@@ -180,7 +180,7 @@ def run_narrative(
                 file=sys.stderr,
             )
             return 2
-        atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports))
+        atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports, name=name))
         atomic_write_text(out / f"{name}_report.json", render_report_json(label, reports))
     print(f"narrative {name} OK: {len(shortlist)} shortlisted, "
           f"{len(excluded)} excluded -> {out}")

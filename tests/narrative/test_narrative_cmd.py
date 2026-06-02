@@ -814,3 +814,55 @@ def test_passive_analyze_idempotent_second_run_zero_builds(tmp_path, monkeypatch
     second = (out_dir / "compute_metals_report.json").read_text()
     assert count["n"] == 1  # second run: latest-nav cache present → zero builds
     assert first == second  # byte-identical
+
+
+# ── F1 — refresh command must use narrative_id (file stem), not display label ──
+
+def _insufficient_report(iid: str) -> NarrativeFundReport:
+    """An insufficient NarrativeFundReport for use in refresh-line tests."""
+    return NarrativeFundReport(
+        instrument_id=iid, name_cn=f"fund-{iid}",
+        position_risk_level="insufficient",
+        risk_rationale="evidence_gaps present",
+        risk_drivers=("evidence_gaps",),
+        valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", falsification_triggers=(), trim_triggers=(),
+        review_cadence="monthly",
+        evidence_gaps=("missing_product_metadata",),
+        thesis_evidence=(),
+    )
+
+
+def test_refresh_line_uses_narrative_id_not_display_label(tmp_path: Path, monkeypatch) -> None:
+    """F1: when display_name_cn != narrative_id, the refresh command in the .md
+    must use the narrative_id (file stem), NOT the display label."""
+    repo = _wire_repo(tmp_path)  # narrative_id=compute_metals, display_name_cn=算力金属
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    monkeypatch.setattr(narrative_cmd, "autobuild_narrative", lambda *a, **k: None)
+    monkeypatch.setattr(
+        narrative_cmd, "analyze_fund",
+        lambda row, **k: _insufficient_report(row.instrument_id),
+    )
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 0
+    report_md = (out_dir / "compute_metals_report.md").read_text()
+    # The refresh command must use the file-stem narrative_id, not the display label.
+    assert "irc narrative compute_metals --analyze" in report_md
+    assert "irc narrative 算力金属 --analyze" not in report_md
