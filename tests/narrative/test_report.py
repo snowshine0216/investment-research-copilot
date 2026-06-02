@@ -12,11 +12,16 @@ from irc.narrative.schemas import (
     ShortlistRow,
 )
 from irc.narrative.report import (
+    _WEAK_FLOOR_LEGEND,
     render_diagnostics_json,
     render_report_json,
     render_report_md,
     render_shortlist_json,
     render_shortlist_md,
+)
+from irc.narrative.report_appendix import (
+    _insufficient_middle,
+    _insufficient_refresh_line,
 )
 
 _REF_RE = re.compile(r"\[ref:[0-9a-f]{16}\]")
@@ -287,20 +292,266 @@ def test_report_md_metadata_floored_weak_shows_all_em_dash() -> None:
 
 
 def test_report_md_genuine_weak_shows_real_numbers() -> None:
+    """Post-004 watchdog: 产品驱动 is its OWN bullet line (not appended to 子状态).
+    Locate the standalone '- 产品驱动:' line and assert the real metric values appear
+    there (not em-dash placeholders). Would FAIL if drivers regressed to '—' or vanished."""
     pm = ProductMetrics(expense_ratio=0.02, aum_cny=1.0e7, manager_tenure_years=1.0)
     md = render_report_md("算力金属", (_report_pm("A", pm),))
     block = md.split("## A ")[1]
-    # All gating metrics are real (no em-dash on the drivers line up to 任职=)
-    drivers_line = block.split("质量=weak")[1].split("\n")[0]
-    assert "费率=—" not in drivers_line
-    assert "规模=—" not in drivers_line
-    assert "任职=—" not in drivers_line
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1, "expected exactly one standalone 产品驱动 bullet"
+    dl = drivers_lines[0]
+    # Real numbers must appear — not em-dash placeholders
+    assert "费率=—" not in dl, f"费率 regressed to em-dash: {dl!r}"
+    assert "规模=—" not in dl, f"规模 regressed to em-dash: {dl!r}"
+    assert "任职=—" not in dl, f"任职 regressed to em-dash: {dl!r}"
+    # Sanity: the actual values are present
+    assert "费率=0.02" in dl
+    assert "任职=1.0" in dl
 
 
 def test_report_md_no_product_metrics_renders_em_dash_drivers() -> None:
     md = render_report_md("算力金属", (_report("A"),))  # product_metrics is None
     block = md.split("## A ")[1]
     assert "费率=—" in block  # None bundle → all em-dash, never crashes
+
+
+# --- Task 1 (004): 产品驱动 on its own line ---
+
+def test_report_md_product_drivers_on_own_line() -> None:
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=0.002)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    # 产品驱动 must be a standalone bullet, NOT riding the 子状态 line.
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1
+    assert "费率=0.005" in drivers_lines[0]
+    substate_lines = [ln for ln in block.splitlines() if ln.startswith("- 子状态:")]
+    assert len(substate_lines) == 1
+    assert "产品驱动" not in substate_lines[0]  # decoupled (grill Q2)
+
+
+# --- Task 2 (004): insufficient helpers ---
+
+def _report_insufficient(iid: str, *, gaps=("missing_product_metadata",),
+                         evidence: tuple[ThesisEvidence, ...] = (),
+                         pm: ProductMetrics | None = None) -> NarrativeFundReport:
+    """An insufficient row that — like the _report_from_card path — carries REAL
+    sub-state verdicts (not all evidence_insufficient), to prove field-level
+    suppression (grill Q1)."""
+    base = _report(iid, level="insufficient", evidence=evidence)
+    return replace(
+        base,
+        risk_rationale="evidence_gaps present — risk cannot be assessed",
+        risk_drivers=("evidence_gaps",),
+        evidence_gaps=gaps,
+        product_metrics=pm,
+    )
+
+
+def test_insufficient_refresh_line_names_gap_and_analyze() -> None:
+    r = _report_insufficient("A", gaps=("missing_valuation_data", "missing_product_metadata"))
+    line = _insufficient_refresh_line("算力金属", r)
+    assert line.startswith("- ⚠️ 证据不足 / insufficient")
+    assert "missing_valuation_data" in line
+    assert "missing_product_metadata" in line
+    assert "uv run irc narrative 算力金属 --analyze" in line
+
+
+def test_insufficient_refresh_line_falls_back_to_rationale_then_literal() -> None:
+    r_no_gaps = replace(_report_insufficient("A"), evidence_gaps=(),
+                        risk_rationale="some why")
+    assert "some why" in _insufficient_refresh_line("算力金属", r_no_gaps)
+    r_empty = replace(_report_insufficient("A"), evidence_gaps=(), risk_rationale="")
+    assert "evidence_insufficient" in _insufficient_refresh_line("算力金属", r_empty)
+
+
+def test_insufficient_middle_has_product_drivers_and_refresh_no_substate() -> None:
+    pm = ProductMetrics(expense_ratio=0.005)
+    mid = _insufficient_middle("算力金属", _report_insufficient("A", pm=pm))
+    text = "\n".join(mid)
+    assert "- 产品驱动: " in text
+    assert "费率=0.005" in text
+    assert "⚠️ 证据不足 / insufficient" in text
+    assert "子状态" not in text     # no sub-state line
+    assert "机会 / dca / 风险" not in text  # no triad
+
+
+# --- Task 3 (004): per-row branch tests (AC1-AC5, AC9) ---
+
+_FORBIDDEN_INSUFFICIENT_TOKENS = (
+    # action triad — full OpportunityState vocabulary
+    "机会 / dca / 风险",
+    "core_dca", "small_watch", "pause_wait", "exclude",
+    # full DcaAction vocabulary
+    "accelerate_dca", "normal_dca", "slow_dca", "pause_dca", "do_not_buy",
+    # full RiskAction vocabulary
+    "trim_review", "exit_review", "review_required",
+    # triggers + cadence markers
+    "证伪触发", "减仓触发", "复核节奏",
+    # sub-state line marker + full sub-state verdict tokens (grill Q1/Q6)
+    "子状态",
+    # ValuationState
+    "cheap", "reasonable_low", "fair", "expensive", "very_expensive",
+    # HeatState
+    "cold", "normal", "crowded", "overheated",
+    # ThesisState
+    "intact", "under_pressure", "falsified",
+    # ProductQualityState
+    "strong", "acceptable", "weak", "poor",
+    # shared evidence_insufficient sentinel (all sub-state dims)
+    "evidence_insufficient",
+)
+
+
+def test_insufficient_row_suppresses_triad_and_substates() -> None:
+    r = _report_insufficient("A")  # carries real verdicts via _report (very_expensive/overheated/intact)
+    md = render_report_md("算力金属", (r,))
+    block = md.split("## A ")[1]
+    assert "机会 / dca / 风险" not in block
+    assert "子状态" not in block
+    for tok in ("small_watch", "slow_dca", "trim_review",
+                "very_expensive", "overheated", "intact", "acceptable"):
+        assert tok not in block, f"forbidden verdict token leaked: {tok}"
+
+
+def test_insufficient_block_forbidden_tokens_locked() -> None:
+    """Locked grep — the enforcement mechanism (grill Q6, mirrors
+    failure_renderer.py criterion 18). No triad/trigger/cadence/sub-state-verdict
+    token survives on an insufficient block."""
+    r = _report_insufficient("A")
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    for tok in _FORBIDDEN_INSUFFICIENT_TOKENS:
+        assert tok not in block, f"forbidden token survived insufficient block: {tok}"
+
+
+def _report_insufficient_alt(iid: str) -> NarrativeFundReport:
+    """Insufficient row using the previously-missing token vocabulary so
+    _FORBIDDEN_INSUFFICIENT_TOKENS is non-vacuous for core_dca / accelerate_dca /
+    exit_review / cold / fair / reasonable_low / strong / exclude etc."""
+    base = _report(iid, level="insufficient", evidence=())
+    return replace(
+        base,
+        opportunity_state="core_dca",
+        dca_action="accelerate_dca",
+        risk_action="exit_review",
+        valuation_state="reasonable_low",
+        heat_state="cold",
+        thesis_state="under_pressure",
+        product_quality_state="strong",
+        risk_rationale="evidence_gaps present — risk cannot be assessed",
+        risk_drivers=("evidence_gaps",),
+        evidence_gaps=("missing_product_metadata",),
+    )
+
+
+def test_insufficient_block_forbidden_tokens_non_vacuous_alt_fixture() -> None:
+    """F2: _FORBIDDEN_INSUFFICIENT_TOKENS must suppress tokens beyond the default
+    fixture's vocabulary (core_dca, accelerate_dca, exit_review, reasonable_low,
+    cold, under_pressure, strong).  Exercises the previously-missing tokens."""
+    r = _report_insufficient_alt("A")
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    for tok in _FORBIDDEN_INSUFFICIENT_TOKENS:
+        assert tok not in block, f"forbidden token survived insufficient block: {tok}"
+
+
+def test_insufficient_row_suppresses_triggers_and_cadence() -> None:
+    block = render_report_md("算力金属", (_report_insufficient("A"),)).split("## A ")[1]
+    assert "证伪触发" not in block
+    assert "减仓触发" not in block
+    assert "复核节奏" not in block
+
+
+def test_insufficient_row_renders_refresh_line() -> None:
+    r = _report_insufficient("A", gaps=("missing_product_metadata",))
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "⚠️ 证据不足 / insufficient" in block
+    assert "missing_product_metadata" in block
+    assert "uv run irc narrative 算力金属 --analyze" in block
+
+
+def test_insufficient_row_keeps_gap_facts_and_product_drivers_line() -> None:
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8)
+    r = _report_insufficient("A", pm=pm)
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "position_risk_level: **insufficient**" in block
+    assert "主因 / drivers: evidence_gaps" in block
+    assert "说明: evidence_gaps present — risk cannot be assessed" in block
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1
+    assert "费率=0.005" in drivers_lines[0]
+
+
+def test_insufficient_row_keeps_partial_evidence_and_refs_resolve() -> None:
+    r = _report_insufficient("A", evidence=_multi("A"))
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    assert "证据明细" in block  # footnote table still renders
+    inline_ids = set(re.findall(r"\[ref:([0-9a-f]{16})\]", block))
+    assert inline_ids, "partial evidence should still render inline refs"
+    for cid in inline_ids:
+        footnote = [ln for ln in block.splitlines() if ln.startswith(f"[ref:{cid}]")]
+        assert len(footnote) == 1, f"{cid} resolved {len(footnote)} times"
+
+
+def test_mixed_report_branches_per_row() -> None:
+    suff = _report("S", evidence=(_evidence("S"),))            # elevated → full
+    insf = _report_insufficient("I", gaps=("missing_product_metadata",))
+    md = render_report_md("算力金属", (insf, suff))
+    insf_block = md.split("## I ")[1].split("## S ")[0]
+    suff_block = md.split("## S ")[1]
+    # insufficient: suppressed
+    assert "机会 / dca / 风险" not in insf_block
+    assert "⚠️ 证据不足 / insufficient" in insf_block
+    # sufficient: full triad + cadence + triggers
+    assert "机会 / dca / 风险:" in suff_block
+    assert "复核节奏" in suff_block
+    assert "证伪触发" in suff_block
+    assert "⚠️ 证据不足" not in suff_block
+
+
+# --- Task 4 (004): determinism + golden + .json unchanged (AC6, AC7, AC8) ---
+
+def test_insufficient_row_render_is_deterministic() -> None:
+    r = _report_insufficient("A", evidence=_multi("A"),
+                              pm=ProductMetrics(expense_ratio=0.005))
+    reports = (r,)
+    assert render_report_md("算力金属", reports) == render_report_md("算力金属", reports)
+
+
+def test_sufficient_row_block_byte_identical_golden() -> None:
+    """AC6: a sufficient (elevated) row's middle block is byte-identical to the
+    post-004 canonical shape — full triad, 子状态, standalone 产品驱动, cadence, both triggers."""
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=0.002)
+    r = replace(_report("A", level="elevated"), product_metrics=pm)
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    expected_middle = (
+        "- 仓位风险等级 / position_risk_level: **elevated**\n"
+        "- 主因 / drivers: valuation_state\n"
+        "- 说明: elevated — very_expensive valuation\n"
+        "- 机会 / dca / 风险: small_watch ｜ slow_dca ｜ trim_review\n"
+        "- 子状态: 估值=very_expensive 热度=overheated 逻辑=intact 质量=acceptable\n"
+        "- 产品驱动: 费率=0.005 规模=500000000.0 任职=7.0 跟踪误差=0.002\n"
+        "- 复核节奏 / review_cadence: weekly_light_monthly_full\n"
+        "- 证伪触发: theme thesis moves to falsified\n"
+        "- 减仓触发: valuation_state in [expensive, very_expensive]\n"
+    )
+    assert expected_middle in block
+
+
+def test_insufficient_row_json_still_carries_conclusions() -> None:
+    """AC7: .md suppression is display-only; .json keeps the full real values."""
+    r = _report_insufficient("A", gaps=("missing_product_metadata",))
+    fund = json.loads(render_report_json("算力金属", (r,)))["funds"][0]
+    assert fund["opportunity_state"] == "small_watch"
+    assert fund["dca_action"] == "slow_dca"
+    assert fund["risk_action"] == "trim_review"
+    assert fund["valuation_state"] == "very_expensive"
+    assert fund["thesis_state"] == "intact"
+    assert fund["review_cadence"] == "weekly_light_monthly_full"
+    assert fund["falsification_triggers"] == ["theme thesis moves to falsified"]
+    assert fund["evidence_gaps"] == ["missing_product_metadata"]
 
 
 # --- Task 7: AC8 — .json stays full source of truth (additive) ---
@@ -512,3 +763,29 @@ def test_empty_summary_produces_no_trailing_separator() -> None:
             # No trailing separator: line must not end with " · " or "· "
             assert not line.rstrip().endswith("·"), f"trailing · in: {line!r}"
             assert not line.rstrip().endswith("· "), f"trailing '· ' in: {line!r}"
+
+
+# ── 004-FIX-1 — weak-floor legend scoped to DISPLAYED 质量 ───────────────────
+
+def _report_weak_insufficient(iid: str) -> NarrativeFundReport:
+    """A fund that is both weak AND insufficient — 质量=weak is suppressed in .md."""
+    base = _report_insufficient(iid)
+    return replace(base, product_quality_state="weak")
+
+
+def test_weak_insufficient_only_no_legend() -> None:
+    """FIX-1a: when the ONLY weak fund is also insufficient, 质量=weak is not displayed
+    on any row, so the weak-floor legend must NOT appear (orphan legend bug)."""
+    r = _report_weak_insufficient("A")
+    md = render_report_md("算力金属", (r,))
+    assert _WEAK_FLOOR_LEGEND not in md
+
+
+def test_weak_sufficient_has_legend() -> None:
+    """FIX-1b: when a report has a sufficient (non-insufficient) weak fund,
+    质量=weak IS displayed on its row, so the weak-floor legend MUST appear."""
+    pm = ProductMetrics(expense_ratio=0.005)
+    r = replace(_report("A", level="elevated"), product_quality_state="weak",
+                product_metrics=pm)
+    md = render_report_md("算力金属", (r,))
+    assert _WEAK_FLOOR_LEGEND in md

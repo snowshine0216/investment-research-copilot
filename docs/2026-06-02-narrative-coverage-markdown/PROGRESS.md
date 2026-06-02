@@ -11,7 +11,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ✅ fd624c5 |
 | 003 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-003` | ✅ 120975e | ✅ 307ec6c | ✅ #97 | ⏭️ | ✅ | ✅ | ✅ | ✅ pre-push round (4 findings + 2 nits) | ✅ afce294 |
-| 004 | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-004` | ✅ b1f47d8 | ✅ 46237db | ✅ #98 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 post-ship round (F1 refresh-cmd bug) + pre-push round | ⏳ |
 
 QA column is ⏭️ for all items (non-web project — `/verify` is the post-ship gate).
 
@@ -53,6 +53,12 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 004-spec: [items/004-spec.md](items/004-spec.md) (commit 94cecdf; 10 ACs; SUPPRESS opportunity_state/dca/risk/triggers/cadence on insufficient rows; bilingual refresh line → `--analyze`; .md-only, .json unchanged)
 - 004-grill: [items/004-grill.md](items/004-grill.md) (commit 3041a77; Verdict PASS; 6 Q; **corrected spec — the four sub-states 估值/热度/逻辑/质量 are ALSO H3-forbidden conclusions (failure_renderer.py:6-9) → SUPPRESS the 子状态 line too** for insufficient rows; KEEP only id/name/position_risk_level/risk_rationale/evidence_gaps + raw 产品驱动 numeric + partial evidence; CONTEXT.md +1 term; no new ADR)
 - 004-plan: [items/004-plan.md](items/004-plan.md) (commit a4fb385; 5 tasks / 24 steps; all 10 ACs → tests; splits 产品驱动 to own line, per-fund `if position_risk_level==insufficient` branch + 2 pure helpers in report_appendix.py; golden byte-identity for sufficient rows; no existing test needs updating)
+- 004-drift: [items/004-drift.md](items/004-drift.md) (commit 46237db; Verdict PASS; 24/24 steps; risk.py/states.py/analyze.py untouched; .json keeps conclusions; sufficient-row golden; suppression incl. sub-states locked)
+- 004-ship: [items/004-ship.md](items/004-ship.md) → PR [#98](https://github.com/snowshine0216/investment-research-copilot/pull/98) (base=feature; renderer-only, tests/narrative 149→151 green)
+- 004-review: [items/004-review.md](items/004-review.md) (Verdict PASS-WITH-NITS; 3 item-003↔004 interaction findings [orphan weak legend, vacuous watchdog, docstring] FIXED pre-push a952963/ed4128b; re-review P0=none) · [items/004-ship-blocked.md](items/004-ship-blocked.md)
+- 004-verify: [items/004-verify.md](items/004-verify.md) (Verdict PASS, re-run after F1 fix; refresh command emits narrative_id `compute_metals` not display label; all ACs; 151 tests)
+- 004-pr-review: [items/004-pr-review.md](items/004-pr-review.md) (Verdict PASS, re-run; [PR #98 comment](https://github.com/snowshine0216/investment-research-copilot/pull/98#issuecomment-4602537955); **caught a real post-ship P1 — refresh command used display label not narrative_id — FIXED eeaec42/155d371**; 0 findings on re-run)
+- 004-fix: 1 post-ship round (F1 refresh-command name bug caught by /code-review + F2 token-list broadening; eeaec42/155d371) + pre-push round (3 interaction findings).
 
 ## Run-level
 | gate | status |

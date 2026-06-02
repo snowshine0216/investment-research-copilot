@@ -6,6 +6,7 @@ from irc.fundamentals.types import ThesisEvidence
 from irc.narrative.report_appendix import (
     _appendix_lines,
     _footnote_lines,
+    _insufficient_middle,
     _product_drivers_segment,
     _safe_summary,
 )
@@ -83,10 +84,33 @@ _WEAK_FLOOR_LEGEND = (
 
 
 def _has_weak_fund(reports: tuple[NarrativeFundReport, ...]) -> bool:
-    return any(r.product_quality_state == "weak" for r in reports)
+    """True only when at least one fund actually DISPLAYS 质量=weak.
+
+    Insufficient rows suppress the 子状態 line (incl. 質量=), so a weak+insufficient
+    fund must NOT trigger the legend (orphan legend guard, 004-FIX-1).
+    """
+    return any(
+        r.product_quality_state == "weak" and r.position_risk_level != "insufficient"
+        for r in reports
+    )
 
 
-def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
+def render_report_md(
+    narrative: str,
+    reports: tuple[NarrativeFundReport, ...],
+    *,
+    name: str | None = None,
+) -> str:
+    """Render the per-fund narrative report as Markdown.
+
+    Args:
+        narrative: Display title/label shown in the heading (may be a CN display name).
+        reports: Sequence of per-fund reports.
+        name: The narrative_id / file stem used ONLY in the refresh command
+              (``uv run irc narrative {name} --analyze``). Defaults to ``narrative``
+              so callers that pass a real id as the first arg stay backward-compatible.
+    """
+    refresh_id = name if name is not None else narrative
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
     if _has_weak_fund(reports):
         lines.append(_WEAK_FLOOR_LEGEND)
@@ -96,17 +120,20 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         lines.append(f"- 仓位风险等级 / position_risk_level: **{r.position_risk_level}**")
         lines.append(f"- 主因 / drivers: {', '.join(r.risk_drivers) or '—'}")
         lines.append(f"- 说明: {r.risk_rationale}")
-        lines.append(
-            f"- 机会 / dca / 风险: {r.opportunity_state} ｜ {r.dca_action} ｜ {r.risk_action}"
-        )
-        lines.append(
-            f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
-            f"逻辑={r.thesis_state} 质量={r.product_quality_state} "
-            f"｜ 产品驱动: {_product_drivers_segment(r.product_metrics)}"
-        )
-        lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
-        lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")
-        lines.append(f"- 减仓触发: {', '.join(r.trim_triggers) or '—'}")
+        if r.position_risk_level == "insufficient":
+            lines.extend(_insufficient_middle(refresh_id, r))
+        else:
+            lines.append(
+                f"- 机会 / dca / 风险: {r.opportunity_state} ｜ {r.dca_action} ｜ {r.risk_action}"
+            )
+            lines.append(
+                f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
+                f"逻辑={r.thesis_state} 质量={r.product_quality_state}"
+            )
+            lines.append(f"- 产品驱动: {_product_drivers_segment(r.product_metrics)}")
+            lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
+            lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")
+            lines.append(f"- 减仓触发: {', '.join(r.trim_triggers) or '—'}")
         bullets = _evidence_bullets(r.thesis_evidence)
         if bullets:
             lines.append("- 证据 / evidence:")
