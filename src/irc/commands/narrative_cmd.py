@@ -108,6 +108,8 @@ def _run_analyze(
                         data_dir=root / "data", role=role,
                     )
                 )
+            except FetchBudgetExceeded:
+                raise
             except Exception as exc:
                 _log.warning(
                     "_run_analyze: analyze_fund failed for %s — %s",

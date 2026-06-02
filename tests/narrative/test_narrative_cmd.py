@@ -480,6 +480,47 @@ def test_run_narrative_returns_3_on_fetch_budget_exceeded(
     assert close_calls  # con.close() was called (finally path ran)
 
 
+def test_run_narrative_returns_3_when_analyze_fund_raises_fetch_budget_exceeded(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    """FetchBudgetExceeded raised inside the per-fund loop must propagate (rc=3),
+    not be swallowed into an error_report."""
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    monkeypatch.setattr(narrative_cmd, "autobuild_active_funds",
+                        lambda *a, **k: None)
+
+    plan = FetchPlan(active_fund_misses=1, active_fund_stale=0,
+                     passive_misses=0, passive_stale=0, top_n=10)
+
+    def _analyze_raises(row, **k):
+        raise FetchBudgetExceeded(plan, 35, 1)
+
+    monkeypatch.setattr(narrative_cmd, "analyze_fund", _analyze_raises)
+
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 3
+    err = capsys.readouterr().err
+    assert "IRC_FETCH_BUDGET" in err
+
+
 def test_analyze_recovers_active_fund_with_real_thesis(tmp_path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
     monkeypatch.setattr(
