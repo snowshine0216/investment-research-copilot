@@ -3,6 +3,12 @@ from __future__ import annotations
 import json
 
 from irc.fundamentals.types import ThesisEvidence
+from irc.narrative.report_appendix import (
+    _appendix_lines,
+    _footnote_lines,
+    _product_drivers_segment,
+    _safe_summary,
+)
 from irc.narrative.schemas import NarrativeFundReport, ShortlistRow
 from irc.opportunity.citation_selector import select_citations
 
@@ -50,20 +56,41 @@ def render_diagnostics_json(excluded: tuple[tuple[str, str, str], ...]) -> str:
     return json.dumps(doc, ensure_ascii=False, indent=2)
 
 
+def _evidence_bullet_line(ev: ThesisEvidence) -> str:
+    """One inline evidence bullet. Summary sanitized (FIX 5): newlines collapsed,
+    trailing separator omitted when summary is empty."""
+    s = _safe_summary(ev.summary)
+    base = f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+    return f"{base} · {s}" if s else base
+
+
 def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
-    """Reuse the locked citation format from opportunity/report.py:210.
-    `- [ref:{citation_id}] {type} · {source} · {date}` via select_citations cap=3."""
+    """Inline cell: locked `- [ref:{id}] {type} · {source} · {date}` prefix
+    (opportunity/report.py:210, mirrored not imported) with a trailing
+    ` · {summary}` prose segment (AC1). Capped at 3 via select_citations."""
     if not thesis_evidence:
         return []
     selected = select_citations(thesis_evidence, cap=3)
-    return [
-        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
-        for ev in selected
-    ]
+    return [_evidence_bullet_line(ev) for ev in selected]
+
+
+_WEAK_FLOOR_LEGEND = (
+    "**注 / Legend — 质量 (product_quality_state):** 当前分类器缺少 `aum_stability_pct` 输入 "
+    "（待补充指标 F-1），导致所有基金的 `质量` 评分存在结构性下限 (floor)，可能显示为 `weak`。"
+    "阅读时请优先参考 **产品驱动** 栏的实际数值（费率/规模/任职/跟踪误差），"
+    "而非将 `weak` 视为真实质量判断。"
+)
+
+
+def _has_weak_fund(reports: tuple[NarrativeFundReport, ...]) -> bool:
+    return any(r.product_quality_state == "weak" for r in reports)
 
 
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
+    if _has_weak_fund(reports):
+        lines.append(_WEAK_FLOOR_LEGEND)
+        lines.append("")
     for r in reports:
         lines.append(f"## {r.instrument_id} {r.name_cn}")
         lines.append(f"- 仓位风险等级 / position_risk_level: **{r.position_risk_level}**")
@@ -74,7 +101,8 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         )
         lines.append(
             f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
-            f"逻辑={r.thesis_state} 质量={r.product_quality_state}"
+            f"逻辑={r.thesis_state} 质量={r.product_quality_state} "
+            f"｜ 产品驱动: {_product_drivers_segment(r.product_metrics)}"
         )
         lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
         lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")
@@ -83,6 +111,13 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         if bullets:
             lines.append("- 证据 / evidence:")
             lines.extend(bullets)
+        appendix = _appendix_lines(r)
+        lines.extend(appendix)
+        footnotes = _footnote_lines(r)
+        if footnotes:
+            lines.append("")
+            lines.append("### 证据明细 / Evidence appendix")
+            lines.extend(footnotes)
         lines.append("")
     return "\n".join(lines) + "\n"
 
@@ -95,6 +130,31 @@ def _evidence_dict(ev: ThesisEvidence) -> dict:
         "date": ev.date,
         "scope": ev.scope,
         "citation_kind": ev.citation_kind,
+        "summary": ev.summary,
+        "url": ev.url,
+    }
+
+
+def _product_metrics_dict(pm) -> dict | None:
+    if pm is None:
+        return None
+    return {
+        "expense_ratio": pm.expense_ratio,
+        "aum_cny": pm.aum_cny,
+        "manager_tenure_years": pm.manager_tenure_years,
+        "tracking_error": pm.tracking_error,
+    }
+
+
+def _constituent_dict(c) -> dict:
+    return {
+        "symbol": c.symbol,
+        "name_cn": c.name_cn,
+        "weight_pct": c.weight_pct,
+        "one_line_view": c.one_line_view,
+        "failure_reasons": list(c.failure_reasons),
+        "audit_errors": list(c.audit_errors),
+        "evidence": [_evidence_dict(e) for e in c.evidence],
     }
 
 
@@ -117,6 +177,8 @@ def _report_dict(r: NarrativeFundReport) -> dict:
         "review_cadence": r.review_cadence,
         "evidence_gaps": list(r.evidence_gaps),
         "thesis_evidence": [_evidence_dict(ev) for ev in r.thesis_evidence],
+        "product_metrics": _product_metrics_dict(r.product_metrics),
+        "constituent_analyses": [_constituent_dict(c) for c in r.constituent_analyses],
     }
 
 

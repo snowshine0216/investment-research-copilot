@@ -60,6 +60,20 @@ system's deepest per-fund analysis on the shortlist.
   is a separate follow-up). Effects stay at the command edge; `analyze_fund` remains
   read-only. Refactor: the nav-cache loader moved from `commands/` to
   `fundamentals/snapshot_cache.py`, removing a `commands↔narrative` import cycle.
+- **Narrative report `.md` enrichment (2026-06-02):** the `<name>_report.md` now explains
+  *why* a fund earned its verdict, not just the verdict. Each fund block carries the
+  `ThesisEvidence.summary` prose on its cited evidence (was opaque `[ref:hex]` IDs only),
+  a per-constituent holdings section with `one_line_view`, and a deterministic,
+  citation-id-sorted **evidence-footnote appendix** (`证据明细`) that resolves every inline
+  `[ref:…]` to a human-readable `type · source · date · summary · url` line — drawn from the
+  union of fund-level + constituent evidence so no reference dangles. Product-quality
+  **drivers** (费率 / 规模 / 任职 / 跟踪误差) are surfaced next to `质量`, with a report-level
+  legend noting that `质量` is currently a structural floor (pending follow-up F-1, since
+  `aum_stability_pct` is not yet ingested) so readers weight the drivers over the `weak`
+  label. The `.md` adds no datum the `.json` lacks (the `.json` evidence now also carries
+  `summary` + `url`). The narrative renderer remains display-only — it is **not** an
+  ADR-0004 §3 SAME-3 citation-set surface, so the appendix is exempt from citation-set
+  equality. The product-quality scorer itself is unchanged (F-1 follow-up).
 
 ### Added — `eval-funds` (2026-06-01)
 
