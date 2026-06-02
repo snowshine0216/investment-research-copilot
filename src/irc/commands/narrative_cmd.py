@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sys
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,7 @@ from irc.commands.fund_eval_cmd import _instr_by_id, _latest_quarter
 from irc.config_loader import load_repo_configs
 from irc.fundamentals.provider import default_cn_provider
 from irc.io_utils import atomic_write_text
-from irc.narrative.analyze import analyze_fund
+from irc.narrative.analyze import analyze_fund, error_report
 from irc.narrative.config import available_narratives, load_narrative_basket
 from irc.narrative.holdings_fetch import fetch_top_holdings
 from irc.narrative.report import (
@@ -27,6 +28,8 @@ from irc.narrative.schemas import (
     ShortlistRow,
 )
 from irc.narrative.screen import rank_shortlist, score_overlap
+
+_log = logging.getLogger(__name__)
 
 
 def _today() -> str:
@@ -74,7 +77,8 @@ def _open_analyze_context(root: Path, db_path: str | None, quarter: str | None):
         return None
     try:
         con = duckdb.connect(str(db), read_only=True)
-    except Exception:
+    except Exception as exc:
+        _log.warning("_open_analyze_context: cannot connect to %s — %s", db, exc)
         return None
     return (con, default_cn_provider(), resolved_quarter, _instr_by_id(root))
 
@@ -87,20 +91,29 @@ def _run_analyze(
     if ctx is None:
         return None
     con, provider, resolved_quarter, instr_index = ctx
+    reports: list[NarrativeFundReport] = []
     try:
-        return tuple(
-            analyze_fund(
-                row, instr=instr_index.get(row.instrument_id), con=con,
-                provider=provider, quarter=resolved_quarter,
-                data_dir=root / "data", role=role,
-            )
-            for row in shortlist
-        )
+        for row in shortlist:
+            try:
+                reports.append(
+                    analyze_fund(
+                        row, instr=instr_index.get(row.instrument_id), con=con,
+                        provider=provider, quarter=resolved_quarter,
+                        data_dir=root / "data", role=role,
+                    )
+                )
+            except Exception as exc:
+                _log.warning(
+                    "_run_analyze: analyze_fund failed for %s — %s",
+                    row.instrument_id, exc,
+                )
+                reports.append(error_report(row, str(exc)))
     finally:
         try:
             con.close()
         except Exception:
             pass
+    return tuple(reports)
 
 
 def _write_screen(

@@ -19,6 +19,29 @@ from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import OpportunityRow
 from irc.schemas.universe import Instrument
 
+
+def error_report(shortlist_row: ShortlistRow, reason: str) -> NarrativeFundReport:
+    """Build an 'insufficient' NarrativeFundReport when per-fund analysis fails."""
+    return NarrativeFundReport(
+        instrument_id=shortlist_row.instrument_id,
+        name_cn=shortlist_row.name_cn,
+        position_risk_level="insufficient",
+        risk_rationale=reason,
+        risk_drivers=("evidence_gaps",),
+        valuation_state="evidence_insufficient",
+        heat_state="evidence_insufficient",
+        thesis_state="evidence_insufficient",
+        product_quality_state="evidence_insufficient",
+        opportunity_state="pause_wait",
+        dca_action="do_not_buy",
+        risk_action="review_required",
+        falsification_triggers=(),
+        trim_triggers=(),
+        review_cadence="",
+        evidence_gaps=(reason,),
+        thesis_evidence=(),
+    )
+
 _PROSPECTIVE_POSITION = PositionContext(
     portfolio_weight=None, target_band_low=None, target_band_high=None,
     drawdown_since_entry=None, is_holding=False,

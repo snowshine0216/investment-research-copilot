@@ -206,6 +206,57 @@ def test_cli_narrative_unknown_exits_2(tmp_path: Path) -> None:
     assert result.exit_code == 2
 
 
+def test_analyze_per_fund_error_yields_partial_results(tmp_path: Path, monkeypatch) -> None:
+    """F3: if analyze_fund raises for one fund the run still returns rc=0 and
+    writes a report with 2 entries; the failed one has position_risk_level='insufficient'."""
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (
+            ("000A", "失败基金", "cn_equity_fund"),
+            ("000B", "正常基金", "cn_equity_fund"),
+        ),
+    )
+    holdings_by_id = {
+        "000A": (Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),),
+        "000B": (Holding(symbol="600362", name_cn="江西铜业", weight_pct=16.0),),
+    }
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: holdings_by_id[fid],
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+
+    ok_report = NarrativeFundReport(
+        instrument_id="000B", name_cn="正常基金",
+        position_risk_level="moderate", risk_rationale="ok",
+        risk_drivers=(), valuation_state="fair", heat_state="normal",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="none", falsification_triggers=(), trim_triggers=(),
+        review_cadence="monthly", evidence_gaps=(), thesis_evidence=(),
+    )
+
+    def _patched_analyze(row, **k):
+        if row.instrument_id == "000A":
+            raise RuntimeError("simulated per-fund crash")
+        return ok_report
+
+    monkeypatch.setattr(narrative_cmd, "analyze_fund", _patched_analyze)
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 0
+    report_data = json.loads((out_dir / "compute_metals_report.json").read_text())
+    funds = report_data["funds"]
+    assert len(funds) == 2
+    failed = next(f for f in funds if f["instrument_id"] == "000A")
+    assert failed["position_risk_level"] == "insufficient"
+
+
 def test_cli_narrative_screen_only(tmp_path: Path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
     monkeypatch.setattr(
