@@ -1,6 +1,7 @@
-# ⚠️ DRAFT — seeded for user approval, then FROZEN (spec §7).
+# ✅ APPROVED & FROZEN for 2026Q2 — owner sign-off 2026-06-02 (was seeded draft, spec §7).
 # compute_metals = copper / aluminium / tin industrial metals + PCB-gold names
-# whose demand is tied to AI-datacenter buildout. Review the basket before use.
+# whose demand is tied to AI-datacenter buildout.
+# To revise for a later quarter, edit the basket below and update this header line.
 narrative_id: compute_metals
 display_name_cn: 算力金属
 display_name_en: Compute-demand metals
