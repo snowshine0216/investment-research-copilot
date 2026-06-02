@@ -292,14 +292,22 @@ def test_report_md_metadata_floored_weak_shows_all_em_dash() -> None:
 
 
 def test_report_md_genuine_weak_shows_real_numbers() -> None:
+    """Post-004 watchdog: 产品驱动 is its OWN bullet line (not appended to 子状态).
+    Locate the standalone '- 产品驱动:' line and assert the real metric values appear
+    there (not em-dash placeholders). Would FAIL if drivers regressed to '—' or vanished."""
     pm = ProductMetrics(expense_ratio=0.02, aum_cny=1.0e7, manager_tenure_years=1.0)
     md = render_report_md("算力金属", (_report_pm("A", pm),))
     block = md.split("## A ")[1]
-    # All gating metrics are real (no em-dash on the drivers line up to 任职=)
-    drivers_line = block.split("质量=weak")[1].split("\n")[0]
-    assert "费率=—" not in drivers_line
-    assert "规模=—" not in drivers_line
-    assert "任职=—" not in drivers_line
+    drivers_lines = [ln for ln in block.splitlines() if ln.startswith("- 产品驱动:")]
+    assert len(drivers_lines) == 1, "expected exactly one standalone 产品驱动 bullet"
+    dl = drivers_lines[0]
+    # Real numbers must appear — not em-dash placeholders
+    assert "费率=—" not in dl, f"费率 regressed to em-dash: {dl!r}"
+    assert "规模=—" not in dl, f"规模 regressed to em-dash: {dl!r}"
+    assert "任职=—" not in dl, f"任职 regressed to em-dash: {dl!r}"
+    # Sanity: the actual values are present
+    assert "费率=0.02" in dl
+    assert "任职=1.0" in dl
 
 
 def test_report_md_no_product_metrics_renders_em_dash_drivers() -> None:
@@ -472,7 +480,7 @@ def test_insufficient_row_render_is_deterministic() -> None:
 
 def test_sufficient_row_block_byte_identical_golden() -> None:
     """AC6: a sufficient (elevated) row's middle block is byte-identical to the
-    pre-004 shape — full triad, 子状态, 产品驱动, cadence, both triggers."""
+    post-004 canonical shape — full triad, 子状态, standalone 产品驱动, cadence, both triggers."""
     pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
                         manager_tenure_years=7.0, tracking_error=0.002)
     r = replace(_report("A", level="elevated"), product_metrics=pm)
