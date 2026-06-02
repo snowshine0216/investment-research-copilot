@@ -4,7 +4,7 @@
 
 **Goal:** Add `irc narrative <name>` — a narrative-driven fund selector that resolves a curated stock basket to a ranked fund shortlist by holdings look-through, then (opt-in) runs the existing opportunity-grade per-fund analysis and emits a new prospective-buy `position_risk_level`.
 
-**Architecture:** A new pure-core package `src/irc/narrative/` (schemas / screen / risk / report) plus two I/O edges (`holdings_fetch`, `config`), orchestrated by a thin `commands/narrative_cmd.py` and wired as a top-level Click command. The selector sits **in front of** and **reuses** the existing classification cores (`enumerate_universe`, `build_opportunity_row` via `evaluate_funds`/`FundEval`, `derive_thesis_from_evidence`, `derive_risk_action`, snapshot cache) — none of them are modified. New logic is confined to holdings-overlap scoring, the narrative config, and `derive_position_risk_level`.
+**Architecture:** A new pure-core package `src/irc/narrative/` (schemas / screen / risk / report) plus three I/O edges (`holdings_fetch`, `config`, `analyze`), orchestrated by a thin `commands/narrative_cmd.py` and wired as a top-level Click command. The selector sits **in front of** and **reuses** the existing classification cores — untouched: `enumerate_universe`, `_build_input` → `build_opportunity_row` → `build_thesis_card` (→ `derive_dca_action` + `derive_risk_action`) → `derive_thesis_from_evidence`, plus the snapshot cache. New logic is confined to holdings-overlap scoring, the narrative config, and `derive_position_risk_level`.
 
 **Tech Stack:** Python 3.12+, uv, Click, AkShare (`fund_portfolio_hold_em`), pydantic/frozen dataclasses, pytest. All cores are pure and unit-testable without mocks; effects live only at the three edges.
 
@@ -14,10 +14,10 @@
 
 - **TDD strictly:** the failing test is always written and run-to-fail BEFORE the implementation file. Red → green → refactor.
 - **Functional / immutable:** every new type is `@dataclass(frozen=True)`; build new values via `dataclasses.replace` / spread; never mutate arguments; no module-global mutable state.
-- **Effects at edges:** `schemas.py` / `screen.py` / `risk.py` / `report.py` are pure (no I/O, no logging, no wall-clock, no random — timestamps injected as a parameter). `holdings_fetch.py` / `config.py` / `narrative_cmd.py` own all I/O.
+- **Effects at edges:** `schemas.py` / `screen.py` / `risk.py` / `report.py` are pure (no I/O, no logging, no wall-clock, no random — timestamps injected as a parameter). `holdings_fetch.py` / `config.py` / `analyze.py` / `narrative_cmd.py` own all I/O. (`analyze.py`'s projection helpers `_risk_view_from_row` / `_report_from_card` are themselves pure and unit-tested without DuckDB; only `analyze_fund` touches the cache.)
 - **Size budget:** every new file < 200 lines, functions < 20 lines (ideal). Extract helpers, use early returns, ≤ 3 nesting levels.
 - **Determinism:** the shortlist sort key is `(basket_weight_pct DESC, overlap_count DESC, instrument_id ASC)`. Citation IDs keep the locked 16-hex `[ref:...]` format (`\[ref:[0-9a-f]{16}\]`). Same inputs ⇒ byte-identical outputs.
-- **Reuse contract — DO NOT MODIFY:** `enumerate_universe`, `build_opportunity_row`, `evaluate_funds`/`FundEval`, `derive_thesis_from_evidence`, `derive_risk_action`, the snapshot cache, or any existing output (`eval-funds`, `discover`, `score`, `opportunity`).
+- **Reuse contract — DO NOT MODIFY:** `enumerate_universe`, `_build_input`, `build_opportunity_row`, `build_thesis_card`, `derive_dca_action`, `derive_risk_action`, `derive_thesis_from_evidence`, `select_citations`, the snapshot cache (`load_active_fund_cache`), `fund_eval_cmd._instr_by_id`/`_latest_quarter`, or any existing output (`eval-funds`, `discover`, `score`, `opportunity`). The narrative code only IMPORTS and CALLS these.
 - **Forbidden literal:** the string `基金概况` MUST NOT appear anywhere under `src/irc/narrative/` (acceptance grep). Holdings come only from `fund_portfolio_hold_em`.
 - **No silent caps:** funds with no published holdings are written to `<name>_screen_diagnostics.json` with a reason — never dropped.
 
@@ -29,10 +29,11 @@
 | `src/irc/narrative/schemas.py` | Create | frozen types: `BasketStock`, `NarrativeBasket`, `Holding`, `OverlapResult`, `ShortlistRow`, `RiskLevel`, `NarrativeFundReport` | frozen types |
 | `src/irc/narrative/screen.py` | Create | `score_overlap`, `rank_shortlist` | **pure** |
 | `src/irc/narrative/risk.py` | Create | `derive_position_risk_level` | **pure** |
-| `src/irc/narrative/report.py` | Create | `render_shortlist_md/json`, `render_report_md/json`, `render_diagnostics_json` | **pure** |
+| `src/irc/narrative/report.py` | Create | `render_shortlist_md/json`, `render_report_md/json` (emits real `[ref:...]` via `select_citations`), `render_diagnostics_json` | **pure** |
 | `src/irc/narrative/holdings_fetch.py` | Create | `fetch_top_holdings(fund_id, *, cache_dir)` (AkShare + on-disk cache) | I/O edge |
 | `src/irc/narrative/config.py` | Create | `load_narrative_basket`, `available_narratives` | I/O edge |
-| `src/irc/commands/narrative_cmd.py` | Create | orchestration: load → screen → (snapshot → eval) → render → write | I/O edge |
+| `src/irc/narrative/analyze.py` | Create | `analyze_fund` (DuckDB→`_build_input`→`build_opportunity_row`→`build_thesis_card`→`derive_position_risk_level`) + pure projection helpers | I/O edge |
+| `src/irc/commands/narrative_cmd.py` | Create | orchestration: load → screen → (open-db → analyze_fund) → render → write | I/O edge |
 | `src/irc/cli.py` | Modify (add `@main.command`) | register `irc narrative` | I/O edge |
 | `config/narratives/compute_metals.yaml` | Create | DRAFT seeded `compute_metals` basket (user-approval, then frozen) | data |
 | `tests/narrative/__init__.py` | Create | test package marker | — |
@@ -42,8 +43,9 @@
 | `tests/narrative/test_report.py` | Create | renderer md/json shape + citation regex | test |
 | `tests/narrative/test_config.py` | Create | YAML → `NarrativeBasket`, malformed rejection | test |
 | `tests/narrative/test_holdings_fetch.py` | Create | edge: cache hit/miss (mocked `_ak_call`) + live (double-gated) | test |
-| `tests/narrative/test_narrative_cmd.py` | Create | integration: fixture universe + holdings → shortlist; fixture snapshots → report | test |
-| `tests/narrative/test_acceptance.py` | Create | forbidden-literal grep, citation regex, run-twice byte-equality | test |
+| `tests/narrative/test_analyze.py` | Create | analyze: real `OpportunityRow`→`ThesisCard`→risk projection + monkeypatched DuckDB wiring | test |
+| `tests/narrative/test_narrative_cmd.py` | Create | integration: fixture universe → shortlist + diagnostics; `--analyze` renders real citations; missing-db guard; run-twice byte-equality | test |
+| `tests/narrative/test_acceptance.py` | Create | forbidden-literal grep, citation regex on a real-evidence report, determinism | test |
 
 ---
 
@@ -131,12 +133,26 @@ def test_narrative_fund_report_construct() -> None:
         instrument_id="000123",
         name_cn="某有色基金",
         position_risk_level="elevated",
-        risk_rationale="very_expensive valuation",
+        risk_rationale="elevated — very_expensive valuation",
         risk_drivers=("valuation_state",),
-        eval_json={"opportunity_state": "small_watch"},
+        valuation_state="very_expensive",
+        heat_state="overheated",
+        thesis_state="intact",
+        product_quality_state="acceptable",
+        opportunity_state="small_watch",
+        dca_action="slow_dca",
+        risk_action="trim_review",
+        falsification_triggers=("theme thesis moves to falsified",),
+        trim_triggers=("valuation_state in [expensive, very_expensive]",),
+        review_cadence="weekly_light_monthly_full",
+        evidence_gaps=(),
+        thesis_evidence=(),
     )
     assert rpt.position_risk_level == "elevated"
     assert rpt.risk_drivers == ("valuation_state",)
+    assert rpt.opportunity_state == "small_watch"
+    assert rpt.risk_action == "trim_review"
+    assert rpt.thesis_evidence == ()
 ```
 
 - [ ] **Step 3: Run test to verify it fails**
@@ -150,7 +166,18 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'irc.narrative.schemas'
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Literal
+
+from irc.fundamentals.types import ThesisEvidence
+from irc.opportunity.types import (
+    DcaAction,
+    HeatState,
+    OpportunityState,
+    ProductQualityState,
+    RiskAction,
+    ThesisState,
+    ValuationState,
+)
 
 RiskLevel = Literal["low", "moderate", "elevated", "high", "insufficient"]
 
@@ -206,13 +233,31 @@ class ShortlistRow:
 
 @dataclass(frozen=True)
 class NarrativeFundReport:
+    """Per-fund analyze record. Carries the REAL OpportunityRow/ThesisCard state
+    plus the prospective-buy risk level. `thesis_evidence` holds the ACTUAL
+    `ThesisEvidence` objects (not a stringified projection) so the renderer can
+    reuse `select_citations(thesis_evidence, cap=3)` and emit the locked
+    `- [ref:{citation_id}] {type} · {source} · {date}` line."""
     instrument_id: str
     name_cn: str
     position_risk_level: RiskLevel
     risk_rationale: str
     risk_drivers: tuple[str, ...]
-    eval_json: dict[str, Any] = field(default_factory=dict)
+    valuation_state: ValuationState
+    heat_state: HeatState
+    thesis_state: ThesisState
+    product_quality_state: ProductQualityState
+    opportunity_state: OpportunityState
+    dca_action: DcaAction
+    risk_action: RiskAction
+    falsification_triggers: tuple[str, ...]
+    trim_triggers: tuple[str, ...]
+    review_cadence: str
+    evidence_gaps: tuple[str, ...]
+    thesis_evidence: tuple[ThesisEvidence, ...] = ()
 ```
+
+> Note: `thesis_evidence` stays as the real frozen `ThesisEvidence` tuple (NOT a dict projection) — the renderer (Task 5) reuses `select_citations` + the `report.py` line format, which require the objects. `ThesisEvidence` is itself frozen and JSON-serialisable for `render_report_json` via its public fields.
 
 - [ ] **Step 5: Run test to verify it passes**
 
@@ -481,7 +526,7 @@ git commit -m "feat(narrative): rank_shortlist threshold + stable sort + top-n (
 
 ## Task 4: `derive_position_risk_level` (pure risk core)
 
-**Reuse note / spec gap (§3.6):** The spec's risk-driver table lists `valuation_state`, `heat_state`, `thesis_state`, `product_quality_state`, holdings concentration, narrative concentration, `drawdown_3y`/`volatility`, and `evidence_gaps`. The actual reusable eval row is `FundEval` (frozen, `src/irc/opportunity/fund_eval.py`) which carries the four sub-states, `evidence_gaps`, and `top_holdings: tuple[(symbol, name_cn, weight_pct), ...]`. **`drawdown_3y` / `volatility` are NOT present** on `FundEval` (nor reliably on `OpportunityInput`, which only has `ret_1m/3m/6m/12m` and `drawdown_since_entry`). Per the spec's "from discovery metrics, **when available**" wording and the hard "never fabricate" rule, this function takes an explicit `metrics: dict[str, float]` injected at the edge; absent keys simply do not raise that driver. Holdings concentration is computed from `FundEval.top_holdings`; narrative concentration from the `OverlapResult`. To keep the core pure and decoupled from `FundEval`'s import surface, the function accepts the four sub-states and `evidence_gaps` as plain primitives (a small `RiskEvalView` frozen view), built at the edge from `FundEval`.
+**Reuse note / spec gap (§3.6):** The spec's risk-driver table lists `valuation_state`, `heat_state`, `thesis_state`, `product_quality_state`, holdings concentration, narrative concentration, `drawdown_3y`/`volatility`, and `evidence_gaps`. The analyze phase (Task 8) builds the REAL `OpportunityRow` (`src/irc/opportunity/types.py:149`), which carries the four sub-states, `evidence_gaps`, and `constituent_analyses` (per-holding `weight_pct`). **`drawdown_3y` / `volatility` are NOT present** on `OpportunityRow`/`OpportunityInput` (which only has `ret_1m/3m/6m/12m` and `drawdown_since_entry`). Per the spec's "from discovery metrics, **when available**" wording and the hard "never fabricate" rule, this function takes an explicit `metrics: dict[str, float]` injected at the edge (Task 8 passes `{}` today); absent keys simply do not raise that driver. Holdings concentration is computed from the row's top holdings (`constituent_analyses`, falling back to the screen `Holding` weights); narrative concentration from the `OverlapResult`. To keep the core PURE and decoupled from the `OpportunityRow` import surface, the function accepts the four sub-states + `evidence_gaps` + top-holdings as a small `RiskEvalView` frozen view, projected at the `analyze.py` edge (Task 8 `_risk_view_from_row`).
 
 **Files:**
 - Modify: `src/irc/narrative/schemas.py` (add `RiskEvalView` frozen view)
@@ -495,10 +540,11 @@ Append to `src/irc/narrative/schemas.py`:
 ```python
 @dataclass(frozen=True)
 class RiskEvalView:
-    """Pure projection of FundEval fields consumed by the risk core.
+    """Pure projection of OpportunityRow fields consumed by the risk core.
 
-    Built at the edge so risk.py never imports FundEval. top_holdings is
-    (symbol, name_cn, weight_pct) in percent units, weight DESC."""
+    Built at the analyze edge (Task 8 _risk_view_from_row) so risk.py never
+    imports OpportunityRow. top_holdings is (symbol, name_cn, weight_pct) in
+    percent units, weight DESC."""
     valuation_state: str
     heat_state: str
     thesis_state: str
@@ -722,6 +768,7 @@ from __future__ import annotations
 import json
 import re
 
+from irc.fundamentals.types import ThesisEvidence
 from irc.narrative.schemas import (
     NarrativeFundReport,
     OverlapResult,
@@ -746,6 +793,34 @@ def _row(iid: str) -> ShortlistRow:
     return ShortlistRow(
         instrument_id=iid, name_cn=f"fund-{iid}",
         asset_class="cn_equity_fund", overlap=ov, holdings=(),
+    )
+
+
+def _evidence(iid: str) -> ThesisEvidence:
+    """A real ThesisEvidence — citation_id is computed in __post_init__ (16 hex)."""
+    return ThesisEvidence(
+        type="filing", source="cninfo", url="", date="2026-03-31",
+        summary="601899 2026Q1 财报已披露（口径未核实）",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None,
+    )
+
+
+def _report(iid: str, *, level: str = "elevated",
+            evidence: tuple[ThesisEvidence, ...] = ()) -> NarrativeFundReport:
+    return NarrativeFundReport(
+        instrument_id=iid, name_cn=f"fund-{iid}",
+        position_risk_level=level,  # type: ignore[arg-type]
+        risk_rationale=f"{level} — very_expensive valuation",
+        risk_drivers=("valuation_state",),
+        valuation_state="very_expensive", heat_state="overheated",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="trim_review",
+        falsification_triggers=("theme thesis moves to falsified",),
+        trim_triggers=("valuation_state in [expensive, very_expensive]",),
+        review_cadence="weekly_light_monthly_full",
+        evidence_gaps=(), thesis_evidence=evidence,
     )
 
 
@@ -774,31 +849,40 @@ def test_diagnostics_json_lists_excluded_with_reason() -> None:
     assert doc["excluded"][0]["reason"] == "no_published_holdings"
 
 
-def test_report_md_preserves_ref_markers() -> None:
-    cite = "[ref:0123456789abcdef]"
-    rpt = NarrativeFundReport(
-        instrument_id="A", name_cn="fund-A",
-        position_risk_level="elevated",
-        risk_rationale=f"elevated — very_expensive valuation {cite}",
-        risk_drivers=("valuation_state",),
-        eval_json={"opportunity_state": "small_watch", "note_cn": f"理由 {cite}"},
-    )
-    md = render_report_md("算力金属", (rpt,))
+def test_report_md_emits_ref_from_thesis_evidence() -> None:
+    ev = _evidence("A")
+    md = render_report_md("算力金属", (_report("A", evidence=(ev,)),))
+    # Citation rendered from the REAL evidence id (16 hex), reusing report.py format.
     assert _REF_RE.search(md)
-    # citation markers are passed through verbatim, never reformatted
-    assert cite in md
+    assert f"[ref:{ev.citation_id}]" in md
+    # the locked line shape: `- [ref:{id}] {type} · {source} · {date}`
+    assert f"[ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}" in md
 
 
-def test_report_json_round_trips_eval() -> None:
-    rpt = NarrativeFundReport(
-        instrument_id="A", name_cn="fund-A",
-        position_risk_level="high", risk_rationale="high — thesis falsified",
-        risk_drivers=("thesis_state",),
-        eval_json={"opportunity_state": "exclude"},
-    )
-    doc = json.loads(render_report_json("算力金属", (rpt,)))
-    assert doc["funds"][0]["position_risk_level"] == "high"
-    assert doc["funds"][0]["eval"]["opportunity_state"] == "exclude"
+def test_report_md_renders_risk_and_action_fields() -> None:
+    md = render_report_md("算力金属", (_report("A", evidence=(_evidence("A"),)),))
+    assert "elevated" in md
+    assert "small_watch" in md        # opportunity_state
+    assert "slow_dca" in md           # dca_action
+    assert "trim_review" in md        # risk_action
+    assert "weekly_light_monthly_full" in md  # review_cadence
+
+
+def test_report_md_no_evidence_has_no_ref() -> None:
+    md = render_report_md("算力金属", (_report("A", evidence=()),))
+    assert not _REF_RE.search(md)  # no citations when evidence is empty
+
+
+def test_report_json_round_trips_states_and_evidence() -> None:
+    ev = _evidence("A")
+    doc = json.loads(render_report_json("算力金属", (_report("A", level="high",
+                                                            evidence=(ev,)),)))
+    fund = doc["funds"][0]
+    assert fund["position_risk_level"] == "high"
+    assert fund["opportunity_state"] == "small_watch"
+    assert fund["risk_action"] == "trim_review"
+    assert fund["thesis_evidence"][0]["citation_id"] == ev.citation_id
+    assert fund["thesis_evidence"][0]["type"] == "filing"
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -813,7 +897,9 @@ from __future__ import annotations
 
 import json
 
+from irc.fundamentals.types import ThesisEvidence
 from irc.narrative.schemas import NarrativeFundReport, ShortlistRow
+from irc.opportunity.citation_selector import select_citations
 
 
 def render_shortlist_md(narrative: str, rows: tuple[ShortlistRow, ...]) -> str:
@@ -859,42 +945,87 @@ def render_diagnostics_json(excluded: tuple[tuple[str, str, str], ...]) -> str:
     return json.dumps(doc, ensure_ascii=False, indent=2)
 
 
+def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
+    """Reuse the locked citation format from opportunity/report.py:210.
+    `- [ref:{citation_id}] {type} · {source} · {date}` via select_citations cap=3."""
+    if not thesis_evidence:
+        return []
+    selected = select_citations(thesis_evidence, cap=3)
+    return [
+        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+        for ev in selected
+    ]
+
+
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
     lines = [f"# 主题深度分析 / Narrative report — {narrative}", ""]
-    for rpt in reports:
-        lines.append(f"## {rpt.instrument_id} {rpt.name_cn}")
-        lines.append(f"- 仓位风险等级 / position_risk_level: **{rpt.position_risk_level}**")
-        lines.append(f"- 主因 / drivers: {', '.join(rpt.risk_drivers) or '—'}")
-        lines.append(f"- 说明: {rpt.risk_rationale}")
-        note = rpt.eval_json.get("note_cn", "")
-        if note:
-            lines.append(f"- 机会评估: {note}")
+    for r in reports:
+        lines.append(f"## {r.instrument_id} {r.name_cn}")
+        lines.append(f"- 仓位风险等级 / position_risk_level: **{r.position_risk_level}**")
+        lines.append(f"- 主因 / drivers: {', '.join(r.risk_drivers) or '—'}")
+        lines.append(f"- 说明: {r.risk_rationale}")
+        lines.append(
+            f"- 机会 / dca / 风险: {r.opportunity_state} ｜ {r.dca_action} ｜ {r.risk_action}"
+        )
+        lines.append(
+            f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
+            f"逻辑={r.thesis_state} 质量={r.product_quality_state}"
+        )
+        lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
+        lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")
+        lines.append(f"- 减仓触发: {', '.join(r.trim_triggers) or '—'}")
+        bullets = _evidence_bullets(r.thesis_evidence)
+        if bullets:
+            lines.append("- 证据 / evidence:")
+            lines.extend(bullets)
         lines.append("")
     return "\n".join(lines) + "\n"
 
 
-def render_report_json(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
-    doc = {
-        "narrative": narrative,
-        "funds": [
-            {
-                "instrument_id": r.instrument_id,
-                "name_cn": r.name_cn,
-                "position_risk_level": r.position_risk_level,
-                "risk_rationale": r.risk_rationale,
-                "risk_drivers": list(r.risk_drivers),
-                "eval": r.eval_json,
-            }
-            for r in reports
-        ],
+def _evidence_dict(ev: ThesisEvidence) -> dict:
+    return {
+        "citation_id": ev.citation_id,
+        "type": ev.type,
+        "source": ev.source,
+        "date": ev.date,
+        "scope": ev.scope,
+        "citation_kind": ev.citation_kind,
     }
+
+
+def _report_dict(r: NarrativeFundReport) -> dict:
+    return {
+        "instrument_id": r.instrument_id,
+        "name_cn": r.name_cn,
+        "position_risk_level": r.position_risk_level,
+        "risk_rationale": r.risk_rationale,
+        "risk_drivers": list(r.risk_drivers),
+        "valuation_state": r.valuation_state,
+        "heat_state": r.heat_state,
+        "thesis_state": r.thesis_state,
+        "product_quality_state": r.product_quality_state,
+        "opportunity_state": r.opportunity_state,
+        "dca_action": r.dca_action,
+        "risk_action": r.risk_action,
+        "falsification_triggers": list(r.falsification_triggers),
+        "trim_triggers": list(r.trim_triggers),
+        "review_cadence": r.review_cadence,
+        "evidence_gaps": list(r.evidence_gaps),
+        "thesis_evidence": [_evidence_dict(ev) for ev in r.thesis_evidence],
+    }
+
+
+def render_report_json(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:
+    doc = {"narrative": narrative, "funds": [_report_dict(r) for r in reports]}
     return json.dumps(doc, ensure_ascii=False, indent=2)
 ```
+
+> Note: `select_citations` lives at `src/irc/opportunity/citation_selector.py` (the same module `opportunity/report.py:9` imports). The bullet format is byte-identical to `_render_thesis_evidence_bullets` at `opportunity/report.py:196-212`, preserving the SAME-3 selector contract. The renderer stays pure (no I/O); `select_citations` is itself pure.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/narrative/test_report.py -q`
-Expected: PASS (5 passed).
+Expected: PASS (7 passed).
 
 - [ ] **Step 5: Lint + commit**
 
@@ -1262,15 +1393,233 @@ git commit -m "feat(narrative): fetch_top_holdings AkShare edge + cache + live g
 
 ---
 
-## Task 8: Orchestration — `narrative_cmd.py` (I/O edge)
+## Task 8: Real per-fund analyze — `analyze.py` (I/O edge)
 
-**Reuse note:** the analyze phase reuses `evaluate_funds`/`FundEval` (which internally call `build_opportunity_row` + `derive_thesis_from_evidence`), `load_active_fund_cache` for snapshots, `derive_risk_action` for the held-position view, and `derive_position_risk_level` for the prospective view. The eval-row → `RiskEvalView` projection is built here at the edge (cores never import `FundEval`). `FetchBudgetExceeded` / `fetch_budget_exhausted` are honoured by deferring to the existing snapshot path; the narrative command itself does not re-implement budgeting — for `--analyze` it reads the cache (built by `irc fundamentals snapshot`) and stamps `evidence_gaps=("snapshot_missing",)` → `position_risk_level="insufficient"` when a snapshot is absent, surfaced not crashed.
+**This is the load-bearing analyze revision.** It delivers Goal #2 in full by reusing the existing deepest path — **untouched**: `_build_input` → `build_opportunity_row` → `build_thesis_card` (which itself calls `derive_dca_action` + `derive_risk_action`) → `derive_position_risk_level`. The resulting `NarrativeFundReport` carries the REAL `thesis_evidence` so the renderer emits genuine `[ref:...]` citations.
+
+**Confirmed reuse signatures (file:line):**
+- `build_opportunity_row(inp, theme_thesis, *, snapshot=None, theme_report=None) -> OpportunityRow` — `src/irc/opportunity/states.py:522`. Both `snapshot` and `theme_report` are None-able; a missing snapshot yields `evidence_insufficient` sub-states + populated `evidence_gaps` (no hardcoding).
+- `PositionContext(portfolio_weight, target_band_low, target_band_high, drawdown_since_entry, is_holding)` — frozen dataclass, `src/irc/opportunity/discipline.py:11-18`. For a PROSPECTIVE (non-held) buy: all four held-position fields `None`, `is_holding=False`.
+- `build_thesis_card(row, position, role, entry_reason, review_cadence="weekly_light_monthly_full") -> ThesisCard` — `src/irc/opportunity/cards.py:30`. **It internally calls `derive_dca_action(row)` AND `derive_risk_action(row, position)` (cards.py:39-40)**, so `card.risk_action`/`card.dca_action` are populated — NO separate `derive_risk_action` call needed. It also stamps `falsification_triggers`, `trim_triggers`, `do_not_sell_just_because`, `review_cadence`, and threads `row.thesis_evidence` through verbatim.
+- `_build_input(score_row, instr, holding, target_band, portfolio_total_cny, available_venues, con, *, provider) -> OpportunityInput` — `src/irc/opportunity/inputs_build.py:14`.
+- `load_active_fund_cache(fund_id, quarter, root) -> ActiveFundSnapshot | None` — `src/irc/fundamentals/snapshot_cache.py:234` (`root` is `repo_root / "data"`).
+
+**Snapshot policy (judgment call — resolves spec §3.4 "ensure snapshot" vs the cache-only architecture):** the analyze phase **READS THE CACHE ONLY**, mirroring `irc opportunity` (CLAUDE.md: "`irc opportunity` reads **cached** evidence; it does not fetch live"). It does NOT trigger the heavy sequential `fundamentals snapshot` job inline (CLAUDE.md: it is a deliberately-separate 5–15 min quarterly job, NOT part of `irc run`). A missing per-fund snapshot → `build_opportunity_row` fallback → `evidence_insufficient` states + `evidence_gaps` → `derive_position_risk_level` → `insufficient` (spec §4, surfaced not crashed). `FetchBudgetExceeded` / `fetch_budget_exhausted` never arise here because no fetch budget is computed — the cache is read, not built. See spec §1 "mirroring `irc opportunity`".
+
+**Files:**
+- Create: `src/irc/narrative/analyze.py`
+- Test: `tests/narrative/test_analyze.py`
+
+- [ ] **Step 1: Write the failing analyze tests (no network, no DuckDB)**
+
+The pure projection helpers (`_risk_view_from_row`, `_report_from_card`) are unit-testable directly with a hand-built `OpportunityRow` carrying real `thesis_evidence`. The DuckDB→row wiring (`analyze_fund`) is exercised by monkeypatching `build_opportunity_row` / `load_active_fund_cache` / `_build_input`.
+
+Create `tests/narrative/test_analyze.py`:
+
+```python
+from __future__ import annotations
+
+from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget, ThesisEvidence
+from irc.narrative import analyze as A
+from irc.narrative.schemas import Holding, OverlapResult, ShortlistRow
+from irc.opportunity.types import OpportunityRow
+
+
+def _evidence(iid: str) -> ThesisEvidence:
+    return ThesisEvidence(
+        type="filing", source="cninfo", url="", date="2026-03-31",
+        summary=f"{iid} 2026Q1 财报已披露（口径未核实）",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None,
+    )
+
+
+def _row(iid: str, *, valuation="very_expensive", gaps=()) -> OpportunityRow:
+    return OpportunityRow(
+        instrument_id=iid, name_cn=f"fund-{iid}", asset_class="cn_equity_fund",
+        theme="metals",
+        lookthrough_target=LookthroughTarget(kind="active_fund", key=iid, display_cn=f"fund-{iid}"),
+        valuation_state=valuation, heat_state="overheated", thesis_state="intact",
+        product_quality_state="acceptable", opportunity_state="small_watch",
+        opportunity_reason="估值偏高但逻辑完整", evidence_gaps=gaps,
+        thesis_evidence=(_evidence(iid),),
+        constituent_analyses=(
+            ConstituentAnalysis(symbol="601899", name_cn="紫金矿业", weight_pct=38.0,
+                                evidence=(), failure_reasons=(), one_line_view="x"),
+        ),
+    )
+
+
+def _shortlist_row(iid: str) -> ShortlistRow:
+    ov = OverlapResult(basket_weight_pct=22.0, overlap_count=3,
+                       matched_symbols=(), industry_credit_symbols=())
+    return ShortlistRow(instrument_id=iid, name_cn=f"fund-{iid}",
+                        asset_class="cn_equity_fund", overlap=ov,
+                        holdings=(Holding(symbol="601899", name_cn="紫金矿业", weight_pct=38.0),))
+
+
+def test_risk_view_reads_real_row_states() -> None:
+    view = A._risk_view_from_row(_row("000A"), _shortlist_row("000A"))
+    assert view.valuation_state == "very_expensive"
+    assert view.heat_state == "overheated"
+    assert view.evidence_gaps == ()
+    assert view.top_holdings[0] == ("601899", "紫金矿业", 38.0)  # from constituent_analyses
+
+
+def test_risk_view_falls_back_to_screen_holdings_when_no_constituents() -> None:
+    row = _row("000A")
+    row = OpportunityRow(**{**row.__dict__, "constituent_analyses": ()})
+    view = A._risk_view_from_row(row, _shortlist_row("000A"))
+    assert view.top_holdings[0] == ("601899", "紫金矿业", 38.0)  # from screen Holding
+
+
+def test_report_from_card_carries_evidence_and_states() -> None:
+    rpt = A._report_from_card(_row("000A"), _shortlist_row("000A"),
+                              role="satellite_cn_metals")
+    assert rpt.position_risk_level in ("elevated", "high")
+    assert "valuation_state" in rpt.risk_drivers
+    assert rpt.opportunity_state == "small_watch"
+    assert rpt.risk_action == "trim_review"  # is_holding=False but expensive+hot fires trim
+    assert rpt.thesis_evidence and rpt.thesis_evidence[0].citation_id == _evidence("000A").citation_id
+    assert rpt.review_cadence == "weekly_light_monthly_full"
+
+
+def test_report_from_card_missing_snapshot_is_insufficient() -> None:
+    row = _row("000A", valuation="evidence_insufficient",
+               gaps=("missing_constituent_snapshot",))
+    rpt = A._report_from_card(row, _shortlist_row("000A"), role="r")
+    assert rpt.position_risk_level == "insufficient"
+    assert "evidence_gaps" in rpt.risk_drivers
+
+
+def test_analyze_fund_wires_cache_and_builder(monkeypatch) -> None:
+    monkeypatch.setattr(A, "load_active_fund_cache", lambda iid, q, root: None)
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: object())
+    monkeypatch.setattr(A, "build_opportunity_row",
+                        lambda inp, tt, *, snapshot, theme_report: _row("000A"))
+    rpt = A.analyze_fund(
+        _shortlist_row("000A"), instr=None, con=object(), provider=object(),
+        quarter="2026Q1", data_dir=__import__("pathlib").Path("/tmp"),
+        role="satellite_cn_metals",
+    )
+    assert rpt.thesis_evidence[0].citation_id == _evidence("000A").citation_id
+```
+
+> Verify `ConstituentAnalysis`'s real constructor before running — it is `(symbol, name_cn, weight_pct, evidence, failure_reasons, one_line_view, audit_errors=())` per CONTEXT.md "ConstituentAnalysis". If a field name differs, adjust the test fixture (the production code reads only `.symbol`, `.name_cn`, `.weight_pct`).
+
+- [ ] **Step 2: Run test to verify it fails**
+
+Run: `uv run pytest tests/narrative/test_analyze.py -q`
+Expected: FAIL — `ModuleNotFoundError: No module named 'irc.narrative.analyze'`.
+
+- [ ] **Step 3: Write `src/irc/narrative/analyze.py`**
+
+```python
+from __future__ import annotations
+
+import duckdb
+
+from irc.fundamentals.provider import CnFundamentalsProvider
+from irc.fundamentals.snapshot_cache import load_active_fund_cache
+from irc.narrative.risk import derive_position_risk_level
+from irc.narrative.schemas import (
+    NarrativeFundReport,
+    RiskEvalView,
+    ShortlistRow,
+)
+from irc.opportunity.cards import build_thesis_card
+from irc.opportunity.discipline import PositionContext
+from irc.opportunity.inputs_build import _build_input
+from irc.opportunity.states import build_opportunity_row
+from irc.opportunity.types import OpportunityRow
+from irc.schemas.universe import Instrument
+
+_PROSPECTIVE_POSITION = PositionContext(
+    portfolio_weight=None, target_band_low=None, target_band_high=None,
+    drawdown_since_entry=None, is_holding=False,
+)
+
+
+def _top_holdings_from_row(row: OpportunityRow,
+                           shortlist_row: ShortlistRow) -> tuple[tuple[str, str, float], ...]:
+    if row.constituent_analyses:
+        ranked = sorted(row.constituent_analyses, key=lambda c: -c.weight_pct)
+        return tuple((c.symbol, c.name_cn, c.weight_pct) for c in ranked)
+    holds = sorted(shortlist_row.holdings, key=lambda h: -h.weight_pct)
+    return tuple((h.symbol, h.name_cn, h.weight_pct) for h in holds)
+
+
+def _risk_view_from_row(row: OpportunityRow, shortlist_row: ShortlistRow) -> RiskEvalView:
+    return RiskEvalView(
+        valuation_state=row.valuation_state,
+        heat_state=row.heat_state,
+        thesis_state=row.thesis_state,
+        product_quality_state=row.product_quality_state,
+        evidence_gaps=row.evidence_gaps,
+        top_holdings=_top_holdings_from_row(row, shortlist_row),
+    )
+
+
+def _report_from_card(row: OpportunityRow, shortlist_row: ShortlistRow,
+                      *, role: str) -> NarrativeFundReport:
+    entry_reason = row.opportunity_reason.split("；")[0].split(";")[0]
+    card = build_thesis_card(row, _PROSPECTIVE_POSITION, role, entry_reason)
+    view = _risk_view_from_row(row, shortlist_row)
+    level, rationale, drivers = derive_position_risk_level(view, shortlist_row.overlap, {})
+    return NarrativeFundReport(
+        instrument_id=card.instrument_id, name_cn=card.name_cn,
+        position_risk_level=level, risk_rationale=rationale, risk_drivers=drivers,
+        valuation_state=card.valuation_state, heat_state=card.heat_state,
+        thesis_state=card.thesis_state, product_quality_state=card.product_quality_state,
+        opportunity_state=card.opportunity_state, dca_action=card.dca_action,
+        risk_action=card.risk_action,
+        falsification_triggers=card.falsification_triggers,
+        trim_triggers=card.trim_triggers, review_cadence=card.review_cadence,
+        evidence_gaps=card.evidence_gaps, thesis_evidence=card.thesis_evidence,
+    )
+
+
+def analyze_fund(
+    shortlist_row: ShortlistRow, *, instr: Instrument | None,
+    con: duckdb.DuckDBPyConnection, provider: CnFundamentalsProvider,
+    quarter: str, data_dir, role: str,
+) -> NarrativeFundReport:
+    """I/O edge: build the REAL OpportunityRow (cache-only) -> ThesisCard ->
+    prospective risk report for one shortlisted fund. Mirrors fund_eval_cmd."""
+    iid = shortlist_row.instrument_id
+    score_row = {"instrument_id": iid, "asset_class": shortlist_row.asset_class, "role": role}
+    inp = _build_input(score_row, instr, None, None, 0.0, set(), con, provider=provider)
+    snapshot = load_active_fund_cache(iid, quarter, data_dir)
+    row = build_opportunity_row(inp, None, snapshot=snapshot, theme_report=None)
+    return _report_from_card(row, shortlist_row, role=role)
+```
+
+> Note: `load_active_fund_cache`, `_build_input`, and `build_opportunity_row` are module-level names so `test_analyze.py` can monkeypatch them without touching DuckDB. The file is ~70 lines (< 200). `entry_reason` takes the first `；`/`;`-delimited segment of `opportunity_reason` (a plain-text reason; `[ref:...]` markers do NOT appear there — they live only in `thesis_evidence`).
+
+- [ ] **Step 4: Run test to verify it passes**
+
+Run: `uv run pytest tests/narrative/test_analyze.py -q`
+Expected: PASS (5 passed).
+
+- [ ] **Step 5: Lint + commit**
+
+```bash
+uv run ruff check src/irc/narrative/analyze.py tests/narrative/test_analyze.py
+git add src/irc/narrative/analyze.py tests/narrative/test_analyze.py
+git commit -m "feat(narrative): real per-fund analyze (OpportunityRow+ThesisCard+citations)"
+```
+
+---
+
+## Task 9: Orchestration — `narrative_cmd.py` (I/O edge)
+
+**Reuse note:** `narrative_cmd` is the thin command edge: load config → screen → (if `--analyze`) open DuckDB read-only + `default_cn_provider()` + build the instrument index (mirroring `fund_eval_cmd._instr_by_id`) → call `analyze.analyze_fund` per shortlisted fund → render → write. It honours the cache-only snapshot policy (Task 8) and the missing-data guard (write the screen first, then error with an actionable message). The screen path is unchanged from the original plan.
 
 **Files:**
 - Create: `src/irc/commands/narrative_cmd.py`
 - Test: `tests/narrative/test_narrative_cmd.py`
 
-- [ ] **Step 1: Write the failing integration tests (no network)**
+- [ ] **Step 1: Write the failing integration tests (no network / no DuckDB)**
 
 Create `tests/narrative/test_narrative_cmd.py`:
 
@@ -1281,7 +1630,9 @@ import json
 from pathlib import Path
 
 from irc.commands import narrative_cmd
-from irc.narrative.schemas import Holding
+from irc.fundamentals.types import LookthroughTarget, ThesisEvidence
+from irc.narrative.schemas import Holding, NarrativeFundReport
+from irc.opportunity.types import OpportunityRow
 
 
 def _wire_repo(tmp_path: Path) -> Path:
@@ -1303,9 +1654,17 @@ def _wire_repo(tmp_path: Path) -> Path:
     return tmp_path
 
 
+def _evidence(iid: str) -> ThesisEvidence:
+    return ThesisEvidence(
+        type="filing", source="cninfo", url="", date="2026-03-31",
+        summary=f"{iid} 2026Q1 财报已披露（口径未核实）",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id=iid, parent_fund_id=None, constituent_key=None,
+    )
+
+
 def test_screen_only_writes_shortlist_and_diagnostics(tmp_path: Path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
-    # universe: two funds — one with basket holdings, one with none.
     universe = (
         ("000A", "有色基金", "cn_equity_fund"),
         ("000B", "空仓基金", "cn_equity_fund"),
@@ -1344,6 +1703,74 @@ def test_unknown_narrative_returns_error(tmp_path: Path) -> None:
     assert rc == 2
 
 
+def test_analyze_renders_real_citations(tmp_path: Path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    # make analyze deterministic + DB-free: stub the open-db edge + per-fund analyze.
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+    expensive = NarrativeFundReport(
+        instrument_id="000A", name_cn="有色基金",
+        position_risk_level="high", risk_rationale="high — very_expensive valuation",
+        risk_drivers=("valuation_state",),
+        valuation_state="very_expensive", heat_state="overheated",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="trim_review",
+        falsification_triggers=("theme thesis moves to falsified",),
+        trim_triggers=("valuation_state in [expensive, very_expensive]",),
+        review_cadence="weekly_light_monthly_full",
+        evidence_gaps=(), thesis_evidence=(_evidence("000A"),),
+    )
+    monkeypatch.setattr(narrative_cmd, "analyze_fund",
+                        lambda row, **k: expensive)
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 0
+    report_md = (out_dir / "compute_metals_report.md").read_text()
+    import re
+    assert re.search(r"\[ref:[0-9a-f]{16}\]", report_md)
+    assert "high" in report_md and "trim_review" in report_md
+
+
+def test_analyze_missing_db_writes_screen_then_errors(tmp_path: Path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    # no data/local.duckdb in the temp repo, no cached quarter
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: None)
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 2
+    # screen outputs still written before the error
+    assert (out_dir / "compute_metals_shortlist.json").exists()
+    assert not (out_dir / "compute_metals_report.json").exists()
+
+
 def test_run_twice_byte_identical(tmp_path: Path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
     monkeypatch.setattr(
@@ -1380,8 +1807,13 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import duckdb
+
+from irc.commands.fund_eval_cmd import _instr_by_id, _latest_quarter
 from irc.config_loader import load_repo_configs
+from irc.fundamentals.provider import default_cn_provider
 from irc.io_utils import atomic_write_text
+from irc.narrative.analyze import analyze_fund
 from irc.narrative.config import available_narratives, load_narrative_basket
 from irc.narrative.holdings_fetch import fetch_top_holdings
 from irc.narrative.report import (
@@ -1391,12 +1823,9 @@ from irc.narrative.report import (
     render_shortlist_json,
     render_shortlist_md,
 )
-from irc.narrative.risk import derive_position_risk_level
 from irc.narrative.schemas import (
     NarrativeBasket,
     NarrativeFundReport,
-    OverlapResult,
-    RiskEvalView,
     ShortlistRow,
 )
 from irc.narrative.screen import rank_shortlist, score_overlap
@@ -1424,75 +1853,89 @@ def _screen(basket: NarrativeBasket, universe: tuple[tuple[str, str, str], ...],
         if not holdings:
             excluded.append((iid, name, "no_published_holdings"))
             continue
-        overlap = score_overlap(holdings, basket)
         candidates.append(ShortlistRow(
             instrument_id=iid, name_cn=name, asset_class=asset_class,
-            overlap=overlap, holdings=holdings,
+            overlap=score_overlap(holdings, basket), holdings=holdings,
         ))
     shortlist = rank_shortlist(
-        tuple(candidates),
-        min_basket_weight_pct=basket.min_basket_weight_pct,
-        min_overlap_count=basket.min_overlap_count,
-        top_n=basket.top_n,
+        tuple(candidates), min_basket_weight_pct=basket.min_basket_weight_pct,
+        min_overlap_count=basket.min_overlap_count, top_n=basket.top_n,
     )
     return shortlist, tuple(excluded)
 
 
-def _eval_view_from_holdings(row: ShortlistRow) -> RiskEvalView:
-    top = tuple((h.symbol, h.name_cn, h.weight_pct) for h in
-                sorted(row.holdings, key=lambda h: -h.weight_pct))
-    return RiskEvalView(
-        valuation_state="evidence_insufficient",
-        heat_state="evidence_insufficient",
-        thesis_state="evidence_insufficient",
-        product_quality_state="evidence_insufficient",
-        evidence_gaps=("snapshot_missing",),
-        top_holdings=top,
-    )
+def _open_analyze_context(root: Path, db_path: str | None, quarter: str | None):
+    """Open DuckDB read-only + resolve provider/quarter/instr-index. Returns
+    (con, provider, quarter, instr_index) or None when prerequisites are absent."""
+    db = Path(db_path) if db_path else (root / "data" / "local.duckdb")
+    resolved_quarter = quarter or _latest_quarter(root)
+    if not db.exists() or resolved_quarter is None:
+        return None
+    try:
+        con = duckdb.connect(str(db), read_only=True)
+    except Exception:
+        return None
+    return (con, default_cn_provider(), resolved_quarter, _instr_by_id(root))
 
 
-def _analyze(shortlist: tuple[ShortlistRow, ...]) -> tuple[NarrativeFundReport, ...]:
-    # v1 analyze: surfaces a prospective risk read. When a fundamentals snapshot
-    # is absent the row is evidence_insufficient -> position_risk_level=insufficient
-    # (surfaced, never crashed). Full snapshot wiring is a follow-up; the screen
-    # gate is the load-bearing deliverable.
-    reports: list[NarrativeFundReport] = []
-    for row in shortlist:
-        view = _eval_view_from_holdings(row)
-        level, rationale, drivers = derive_position_risk_level(view, row.overlap, {})
-        reports.append(NarrativeFundReport(
-            instrument_id=row.instrument_id, name_cn=row.name_cn,
-            position_risk_level=level, risk_rationale=rationale,
-            risk_drivers=drivers,
-            eval_json={"evidence_gaps": list(view.evidence_gaps)},
-        ))
-    return reports
+def _run_analyze(root: Path, shortlist: tuple[ShortlistRow, ...], *,
+                 db_path: str | None, quarter: str | None,
+                 role: str) -> tuple[NarrativeFundReport, ...] | None:
+    ctx = _open_analyze_context(root, db_path, quarter)
+    if ctx is None:
+        return None
+    con, provider, resolved_quarter, instr_index = ctx
+    try:
+        return tuple(
+            analyze_fund(
+                row, instr=instr_index.get(row.instrument_id), con=con,
+                provider=provider, quarter=resolved_quarter,
+                data_dir=root / "data", role=role,
+            )
+            for row in shortlist
+        )
+    finally:
+        con.close()
+
+
+def _write_screen(out: Path, name: str, label: str,
+                  shortlist: tuple[ShortlistRow, ...],
+                  excluded: tuple[tuple[str, str, str], ...]) -> None:
+    atomic_write_text(out / f"{name}_shortlist.md", render_shortlist_md(label, shortlist))
+    atomic_write_text(out / f"{name}_shortlist.json", render_shortlist_json(label, shortlist))
+    atomic_write_text(out / f"{name}_screen_diagnostics.json",
+                      render_diagnostics_json(excluded))
 
 
 def run_narrative(
     repo_root: str, name: str, *, analyze: bool = False,
-    out_dir: str | None = None,
+    out_dir: str | None = None, quarter: str | None = None,
+    db_path: str | None = None, role: str = "satellite_cn_metals",
 ) -> int:
     root = Path(repo_root)
     try:
         basket = load_narrative_basket(name, root)
     except FileNotFoundError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
-        avail = ", ".join(available_narratives(root)) or "(none)"
-        print(f"Available narratives: {avail}", file=sys.stderr)
+        print(f"Available narratives: {', '.join(available_narratives(root)) or '(none)'}",
+              file=sys.stderr)
         return 2
     out = Path(out_dir) if out_dir else (root / "outputs" / _today() / "narrative")
     out.mkdir(parents=True, exist_ok=True)
-    cache_dir = root / "data" / "narrative_holdings"
-    universe = _enumerate_cn_funds(root)
-    shortlist, excluded = _screen(basket, universe, cache_dir)
     label = basket.display_name_cn or basket.narrative_id
-    atomic_write_text(out / f"{name}_shortlist.md", render_shortlist_md(label, shortlist))
-    atomic_write_text(out / f"{name}_shortlist.json", render_shortlist_json(label, shortlist))
-    atomic_write_text(out / f"{name}_screen_diagnostics.json",
-                      render_diagnostics_json(excluded))
+    shortlist, excluded = _screen(
+        basket, _enumerate_cn_funds(root), root / "data" / "narrative_holdings",
+    )
+    _write_screen(out, name, label, shortlist, excluded)
     if analyze:
-        reports = _analyze(shortlist)
+        reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+        if reports is None:
+            print(
+                f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "
+                f"cached snapshot quarter (run `irc fundamentals snapshot`). "
+                f"Shortlist written to {out}.", file=sys.stderr,
+            )
+            return 2
         atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports))
         atomic_write_text(out / f"{name}_report.json", render_report_json(label, reports))
     print(f"narrative {name} OK: {len(shortlist)} shortlisted, "
@@ -1500,24 +1943,24 @@ def run_narrative(
     return 0
 ```
 
-> Note: `fetch_top_holdings` and `_enumerate_cn_funds` are referenced as module-level names so the integration tests can monkeypatch them.
+> Note: `_enumerate_cn_funds`, `fetch_top_holdings`, `analyze_fund`, and `_open_analyze_context` are module-level names so the integration tests monkeypatch them without touching the network or DuckDB. `_instr_by_id` / `_latest_quarter` are reused verbatim from `fund_eval_cmd` (untouched). File is ~110 lines (< 200).
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/narrative/test_narrative_cmd.py -q`
-Expected: PASS (3 passed).
+Expected: PASS (5 passed).
 
 - [ ] **Step 5: Lint + commit**
 
 ```bash
 uv run ruff check src/irc/commands/narrative_cmd.py tests/narrative/test_narrative_cmd.py
 git add src/irc/commands/narrative_cmd.py tests/narrative/test_narrative_cmd.py
-git commit -m "feat(narrative): narrative_cmd orchestration (screen + analyze)"
+git commit -m "feat(narrative): narrative_cmd orchestration (screen + analyze gate)"
 ```
 
 ---
 
-## Task 9: CLI wiring — `irc narrative <name>`
+## Task 10: CLI wiring — `irc narrative <name>`
 
 **Files:**
 - Modify: `src/irc/cli.py` (add a top-level `@main.command`, lazy import)
@@ -1581,31 +2024,40 @@ Insert after the `eval_funds` command block (after line ~162, before the `alloca
 @click.option("--screen-only", "screen_only", is_flag=True, default=False,
               help="Stop after the light screen (default behaviour when no flag given).")
 @click.option("--analyze", "analyze", is_flag=True, default=False,
-              help="Run the screen then deep-analyse the shortlist (slow snapshot path).")
+              help="Run the screen then deep-analyse the shortlist (cache-only snapshot path).")
+@click.option("--quarter", type=str, default=None,
+              help="Snapshot quarter for --analyze (default: latest cached on disk).")
+@click.option("--db", "db_path", type=click.Path(dir_okay=False), default=None,
+              help="DuckDB path for --analyze (default data/local.duckdb).")
+@click.option("--role", type=str, default="satellite_cn_metals",
+              help="Role label stamped on synthesized analyze rows (display only).")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--out", "out_dir", type=click.Path(file_okay=False), default=None,
               help="Output dir (default outputs/<today>/narrative/).")
 def narrative(
-    name: str, screen_only: bool, analyze: bool, repo_root: str, out_dir: str | None,
+    name: str, screen_only: bool, analyze: bool, quarter: str | None,
+    db_path: str | None, role: str, repo_root: str, out_dir: str | None,
 ) -> None:
     from irc.commands.narrative_cmd import run_narrative
-    # --screen-only is the default; --analyze opts into the slow path.
+    # --screen-only is the default; --analyze opts into the cache-only deep path.
     rc = run_narrative(
         repo_root=repo_root, name=name, analyze=(analyze and not screen_only),
-        out_dir=out_dir,
+        out_dir=out_dir, quarter=quarter, db_path=db_path, role=role,
     )
     raise SystemExit(rc)
 ```
 
+> Note: `--min-overlap` (spec §3.1) is intentionally NOT added in this item — the config's `thresholds.min_basket_weight_pct` is the single source of truth for V1, and a CLI override would split the determinism contract across two surfaces. Flag this to the user if a runtime override is wanted; it is a one-line follow-up (`run_narrative(min_overlap=...)` → overrides `basket.min_basket_weight_pct` before `_screen`).
+
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/narrative/test_narrative_cmd.py -q`
-Expected: PASS (5 passed).
+Expected: PASS (7 passed).
 
 - [ ] **Step 5: Verify the command is registered**
 
 Run: `uv run irc narrative --help`
-Expected: usage text mentioning `--screen-only`, `--analyze`, `--out`, `--repo-root`.
+Expected: usage text mentioning `--screen-only`, `--analyze`, `--quarter`, `--db`, `--role`, `--out`, `--repo-root`.
 
 - [ ] **Step 6: Commit**
 
@@ -1616,7 +2068,7 @@ git commit -m "feat(narrative): wire irc narrative top-level command"
 
 ---
 
-## Task 10: Acceptance + determinism gates
+## Task 11: Acceptance + determinism gates
 
 **Files:**
 - Test: `tests/narrative/test_acceptance.py`
@@ -1630,6 +2082,10 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
+
+from irc.fundamentals.types import ThesisEvidence
+from irc.narrative.report import render_report_md
+from irc.narrative.schemas import NarrativeFundReport
 
 REPO = Path(__file__).resolve().parents[2]
 NARRATIVE_SRC = REPO / "src" / "irc" / "narrative"
@@ -1648,21 +2104,34 @@ def test_holdings_fetch_uses_only_portfolio_endpoint() -> None:
     assert "基金概况" not in src
 
 
-def test_report_md_passes_ref_markers_through() -> None:
-    # Any [ref:...] markers placed in eval_json/rationale must keep the 16-hex form.
-    from irc.narrative.report import render_report_md
-    from irc.narrative.schemas import NarrativeFundReport
-
-    cite = "[ref:0123456789abcdef]"
+def test_rendered_analyze_report_satisfies_citation_regex() -> None:
+    # Build a report from a REAL ThesisEvidence (16-hex citation_id computed in
+    # __post_init__) — NOT a hand-injected string — and assert the rendered
+    # md carries the locked `\[ref:[0-9a-f]{16}\]` marker (spec §5 acceptance).
+    ev = ThesisEvidence(
+        type="filing", source="cninfo", url="", date="2026-03-31",
+        summary="601899 2026Q1 财报已披露（口径未核实）",
+        scope="instrument", citation_kind="data",
+        owner_instrument_id="000A", parent_fund_id=None, constituent_key=None,
+    )
     rpt = NarrativeFundReport(
-        instrument_id="A", name_cn="f", position_risk_level="low",
-        risk_rationale=f"low {cite}", risk_drivers=(),
-        eval_json={"note_cn": f"x {cite}"},
+        instrument_id="000A", name_cn="有色基金",
+        position_risk_level="high", risk_rationale="high — very_expensive valuation",
+        risk_drivers=("valuation_state",),
+        valuation_state="very_expensive", heat_state="overheated",
+        thesis_state="intact", product_quality_state="acceptable",
+        opportunity_state="small_watch", dca_action="slow_dca",
+        risk_action="trim_review",
+        falsification_triggers=(), trim_triggers=(),
+        review_cadence="weekly_light_monthly_full",
+        evidence_gaps=(), thesis_evidence=(ev,),
     )
     md = render_report_md("算力金属", (rpt,))
-    for m in _REF_RE.findall(md):
+    matches = _REF_RE.findall(md)
+    assert matches  # at least one citation rendered
+    for m in matches:
         assert re.fullmatch(r"\[ref:[0-9a-f]{16}\]", m)
-    assert _REF_RE.search(md)
+    assert f"[ref:{ev.citation_id}]" in md
 ```
 
 - [ ] **Step 2: Run the acceptance tests**
@@ -1689,7 +2158,7 @@ git commit -m "test(narrative): acceptance — forbidden-literal + ref-regex + d
 
 ---
 
-## Task 11: Full-suite verification + final review
+## Task 12: Full-suite verification + final review
 
 - [ ] **Step 1: Run the whole narrative suite**
 
@@ -1728,25 +2197,28 @@ git commit -m "chore(narrative): full-suite verification + budgets" || echo "not
 ## Self-Review (run against the spec)
 
 **Spec coverage:**
-- §1 narrative→shortlist by holdings look-through → Tasks 2, 3, 8.
-- §1 deepest per-fund analysis reuse → Task 8 `_analyze` reuses `derive_position_risk_level`; full `evaluate_funds` snapshot wiring is staged as a documented v1 limitation (screen is the load-bearing deliverable; analyze surfaces the prospective risk read and is `insufficient` without a snapshot — never crashes).
+- §1 narrative→shortlist by holdings look-through → Tasks 2, 3, 9.
+- §1 deepest per-fund analysis reuse → **Task 8 (`analyze.py`)** reuses `_build_input` → `build_opportunity_row` → `build_thesis_card` (→ `derive_dca_action` + `derive_risk_action`) → `derive_position_risk_level`, producing `opportunity_state`, `dca_action`, `risk_action`, falsification/trim triggers, review cadence, AND cited `thesis_evidence`. **Goal #2 is FULLY delivered** — faithful reuse, no core modified.
 - §1 / §3.6 new `position_risk_level` ∈ {low, moderate, elevated, high, insufficient} → Task 4 (one test per driver + insufficient-on-gaps).
+- §1 cited thesis evidence (holdings-level + fund-level) → Task 5 renderer reuses `select_citations` + the `opportunity/report.py:210` `[ref:...]` line format; Task 8 carries the real `thesis_evidence`; Task 11 acceptance asserts the locked `\[ref:[0-9a-f]{16}\]` regex on a real-evidence report.
 - §1 reusable by config, no code change → Task 6 config loader; adding `ai`/`robots` is a new YAML only.
-- §1 screen→analyze gate, cheap by default → Task 9 `--screen-only` default, `--analyze` opt-in.
-- §2 non-goals respected → no `Theme` Literal change, no edits to `eval-funds`/`discover`/`score`/`opportunity`; verified in Task 11 Step 3.
-- §3.2 package files all created (Tasks 1–8).
+- §1 screen→analyze gate, cheap by default → Task 10 `--screen-only` default, `--analyze` opt-in (cache-only, mirroring `irc opportunity`).
+- §2 non-goals respected → no `Theme` Literal change, no edits to `eval-funds`/`discover`/`score`/`opportunity`; verified in Task 12 Step 3.
+- §3.1 CLI flags → Task 10 (`--screen-only`/`--analyze`/`--quarter`/`--db`/`--role`/`--out`/`--repo-root`; `--min-overlap` deferred with a flagged note).
+- §3.2 package files all created (Tasks 1–9) incl. the added `analyze.py` edge.
 - §3.3 config schema → Task 6 YAML + loader.
-- §3.5 symbol-first/name-second match + industry credit + either-threshold + stable sort + no-silent-drop → Tasks 2, 3, 8.
-- §4 error handling: missing config fail-fast (Tasks 6, 8/9), no-holdings → diagnostics (Task 8), determinism (Tasks 5, 8, 10).
-- §5 testing: pure unit (Tasks 2–5), config (6), integration (8), live double-gated (7), acceptance greps (10).
-- §6 budgets → Task 11 Step 5.
+- §3.4 data flow incl. "ensure snapshot" → Task 8 cache-only policy + Task 9 missing-data guard (resolved per CLAUDE.md "`irc opportunity` reads cached evidence").
+- §3.5 symbol-first/name-second match + industry credit + either-threshold + stable sort + no-silent-drop → Tasks 2, 3, 9.
+- §4 error handling: missing config fail-fast (Tasks 6, 9/10), no-holdings → diagnostics (Task 9), snapshot-fail → `insufficient` (Task 8), missing-db guard (Task 9), determinism (Tasks 5, 9, 11).
+- §5 testing: pure unit (Tasks 2–5), config (6), analyze projection (8), integration (9), live double-gated (7), acceptance greps + real-evidence citation regex (11).
+- §6 budgets → Task 12 Step 5.
 - §7 DRAFT basket seeded + marked → Task 6 YAML comment.
 
 **Placeholder scan:** no TBD/TODO; every code step shows full content.
 
-**Type consistency:** `score_overlap`/`rank_shortlist` signatures, `OverlapResult`/`ShortlistRow`/`RiskEvalView`/`NarrativeFundReport` field names, and `derive_position_risk_level`'s `(level, rationale, drivers)` return are consistent across Tasks 1–10.
+**Type consistency:** `score_overlap`/`rank_shortlist` signatures, `OverlapResult`/`ShortlistRow`/`RiskEvalView`/`NarrativeFundReport` field names (the expanded `NarrativeFundReport` carries the real card states + `thesis_evidence: tuple[ThesisEvidence, ...]`), `derive_position_risk_level`'s `(level, rationale, drivers)` return, and the confirmed reuse signatures (`build_opportunity_row`, `PositionContext`, `build_thesis_card`) are consistent across Tasks 1–11.
 
 **Known spec gaps / judgment calls (flag for the user):**
-1. **`drawdown_3y` / `volatility` (§3.6):** not present on `FundEval` or reliably on `OpportunityInput`. Handled as an injected `metrics: dict[str, float]` that defaults empty; those drivers fire only when a future caller supplies them (never fabricated). See Task 4 reuse note.
-2. **Eval-row shape (§1, §3.4):** the reusable "eval row" is `FundEval`, not a bespoke type; the risk core consumes a small `RiskEvalView` projection built at the edge so the pure core never imports `FundEval`. See Task 4.
-3. **Analyze depth (§3.4):** v1 analyze emits the prospective risk read and routes snapshot-absent funds to `insufficient`; full `evaluate_funds`/snapshot integration (build_opportunity_row evidence + `[ref:...]` citations on the report) is a documented follow-up so this item ships the screen gate + risk level without modifying the snapshot fetch budget path. Confirm this scoping is acceptable.
+1. **`drawdown_3y` / `volatility` (§3.6):** not present on the `OpportunityRow` / `OpportunityInput` surface. Handled as an injected `metrics: dict[str, float]` that defaults empty (`{}` is what Task 8 passes today); those drivers fire only when a future caller supplies them (never fabricated). See Task 4 reuse note.
+2. **Snapshot policy (§3.4 "ensure fundamentals snapshot (heavy fetch if missing/stale)") vs cache-only architecture:** RESOLVED as **cache-only** — the analyze phase mirrors `irc opportunity` (CLAUDE.md: reads cached evidence, does NOT fetch live; `fundamentals snapshot` is a deliberately-separate 5–15 min quarterly job). A missing per-fund snapshot → `evidence_insufficient` → `insufficient` (surfaced). If DuckDB or a cached quarter is entirely absent for `--analyze`, the screen outputs are written first, then an actionable error is printed and rc=2 (Task 9). Confirm this is the desired behaviour (the spec's "heavy fetch" phrasing is the one place it diverges from "mirroring `irc opportunity`").
+3. **`--min-overlap` CLI override (§3.1):** intentionally NOT wired in this item to keep the threshold's single source of truth in the config (determinism). A one-line follow-up if a runtime override is wanted. Flagged in Task 10.
