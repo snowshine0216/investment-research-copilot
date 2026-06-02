@@ -1,0 +1,30 @@
+# ⚠️ DRAFT — seeded for user approval, then FROZEN (spec §7).
+# compute_metals = copper / aluminium / tin industrial metals + PCB-gold names
+# whose demand is tied to AI-datacenter buildout. Review the basket before use.
+narrative_id: compute_metals
+display_name_cn: 算力金属
+display_name_en: Compute-demand metals
+thesis_cn: AI 数据中心建设拉动铜/铝/锡等工业金属与 PCB 用金需求
+basket:
+  # — copper / copper-gold / copper-cobalt —
+  - { symbol: "601899", name_cn: 紫金矿业, metal: copper_gold }
+  - { symbol: "603993", name_cn: 洛阳钼业, metal: copper_cobalt }
+  - { symbol: "600362", name_cn: 江西铜业, metal: copper }
+  - { symbol: "000630", name_cn: 铜陵有色, metal: copper }
+  - { symbol: "600547", name_cn: 山东黄金, metal: gold }
+  # — aluminium —
+  - { symbol: "601600", name_cn: 中国铝业, metal: aluminium }
+  - { symbol: "600219", name_cn: 南山铝业, metal: aluminium }
+  - { symbol: "000807", name_cn: 云铝股份, metal: aluminium }
+  # — tin —
+  - { symbol: "000960", name_cn: 锡业股份, metal: tin }
+  # — PCB-gold / electronics-grade metals tied to AI compute —
+  - { symbol: "002182", name_cn: 云海金属, metal: magnesium }
+  - { symbol: "600961", name_cn: 株冶集团, metal: zinc }
+industries_sw:
+  - 有色金属/工业金属
+  - 有色金属/贵金属
+thresholds:
+  min_basket_weight_pct: 15.0   # ≥15% of top-10 sits in the basket …
+  min_overlap_count: 2          # … OR ≥2 distinct hits (basket symbol/name + SW-industry credit)
+top_n: 15
