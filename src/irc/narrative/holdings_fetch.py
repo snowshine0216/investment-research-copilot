@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+import json
+from datetime import datetime, timezone
+from pathlib import Path
+
+import pandas as pd
+
+from irc.fundamentals.akshare_fundamentals import _ak_call
+from irc.narrative.schemas import Holding
+
+_TOP_N = 10
+_NEEDED = {"股票代码", "股票名称", "占净值比例"}
+_INDUSTRY_COLS = ("申万一级行业", "所属行业")
+
+
+def _current_year() -> str:
+    return str(datetime.now(timezone.utc).year)
+
+
+def _industry(row: pd.Series) -> str:
+    for col in _INDUSTRY_COLS:
+        if col in row.index and pd.notna(row[col]):
+            return str(row[col])
+    return ""
+
+
+def _to_holding(row: pd.Series) -> Holding:
+    try:
+        weight = float(row["占净值比例"])
+    except (TypeError, ValueError):
+        weight = 0.0
+    return Holding(
+        symbol=str(row["股票代码"]).strip(),
+        name_cn=str(row["股票名称"]).strip(),
+        weight_pct=weight,
+        sw_industry=_industry(row),
+    )
+
+
+def _parse(df: pd.DataFrame) -> tuple[Holding, ...]:
+    if not isinstance(df, pd.DataFrame) or df.empty or not _NEEDED.issubset(df.columns):
+        return ()
+    ranked = df.sort_values("占净值比例", ascending=False).head(_TOP_N)
+    return tuple(_to_holding(row) for _i, row in ranked.iterrows())
+
+
+def _read_cache(path: Path) -> tuple[Holding, ...] | None:
+    if not path.exists():
+        return None
+    try:
+        body = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return tuple(Holding(**h) for h in body.get("holdings", []))
+
+
+def _write_cache(path: Path, holdings: tuple[Holding, ...]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    doc = {"holdings": [h.__dict__ for h in holdings]}
+    path.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def fetch_top_holdings(fund_id: str, *, cache_dir: Path) -> tuple[Holding, ...]:
+    """I/O edge: top-10 disclosed holdings for a fund (AkShare, cached). Never raises."""
+    cache_path = cache_dir / f"{fund_id}.json"
+    cached = _read_cache(cache_path)
+    if cached is not None:
+        return cached
+    try:
+        df = _ak_call("fund_portfolio_hold_em", symbol=fund_id, date=_current_year())
+    except Exception:
+        return ()
+    holdings = _parse(df)
+    _write_cache(cache_path, holdings)
+    return holdings
