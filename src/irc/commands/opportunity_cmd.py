@@ -29,7 +29,6 @@ from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provide
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
-    load_nav_cache,
     load_latest_nav_cached as _load_latest_nav_cached,
     write_active_fund_cache,
     write_nav_cache,

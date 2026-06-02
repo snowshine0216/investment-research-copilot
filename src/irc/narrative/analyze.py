@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import duckdb
@@ -22,6 +23,8 @@ from irc.opportunity.inputs_build import _build_input
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import OpportunityRow
 from irc.schemas.universe import Instrument
+
+_log = logging.getLogger(__name__)
 
 
 def error_report(shortlist_row: ShortlistRow, reason: str) -> NarrativeFundReport:
@@ -106,7 +109,14 @@ def _load_snapshot_for_row(
     if target.kind == "active_fund":
         return load_active_fund_cache(inp.instrument_id, quarter, data_dir)
     if (target.kind in QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
-        return _load_latest_nav_cached(target.provider_symbol, data_dir)
+        snap = _load_latest_nav_cached(target.provider_symbol, data_dir)
+        if snap is None:
+            _log.debug(
+                "analyze: no cached fund-level snapshot for %s (kind=%s) — "
+                "evidence will be insufficient (cache miss or swallowed read error)",
+                target.provider_symbol, target.kind,
+            )
+        return snap
     return None
 
 

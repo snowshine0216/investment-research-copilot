@@ -90,12 +90,17 @@ def _build_and_cache_fund_level_one(
     try:
         snap = build_snapshot(target, provider=provider)
     except FetchBudgetExceeded:
+        # Budget is enforced pre-flight by autobuild_fund_level_funds; guard kept for symmetry.
         raise
     except Exception as exc:
         _log.warning("narrative_autobuild: fund-level build failed for %s — %s",
                      target.provider_symbol, exc)
         return
     if not isinstance(snap, FundLevelSnapshot):
+        _log.warning(
+            "narrative_autobuild: build_snapshot returned unexpected type %s for %s — skip write",
+            type(snap).__name__, target.provider_symbol,
+        )
         return
     if "qdii_information_unavailable" in snap.evidence_gaps or not snap.source_report_quarter:
         _log.warning("narrative_autobuild: no cacheable fund-level snapshot for %s",

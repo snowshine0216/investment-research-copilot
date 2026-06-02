@@ -138,6 +138,25 @@ def test_load_snapshot_for_row_dispatches_fund_level(monkeypatch) -> None:
     assert isinstance(snap, FundLevelSnapshot)
 
 
+def test_load_snapshot_for_row_returns_none_when_no_provider_symbol(monkeypatch) -> None:
+    """FIX 4: silent-miss branch — when the resolved target has no provider_symbol,
+    _load_snapshot_for_row must return None without calling any cache loader."""
+    active_calls: list = []
+    nav_calls: list = []
+    monkeypatch.setattr(A, "load_active_fund_cache",
+                        lambda iid, q, root: active_calls.append(iid))
+    monkeypatch.setattr(A, "_load_latest_nav_cached",
+                        lambda iid, root: nav_calls.append(iid))
+    # A bare cn_etf with no tracked_index/theme routes to broad_index "unknown"
+    # with no provider_symbol — the silent-miss branch.
+    inp = _inp("000Z", "cn_etf")
+    result = A._load_snapshot_for_row(inp, quarter="2026Q1",
+                                      data_dir=__import__("pathlib").Path("/tmp"))
+    assert result is None
+    assert active_calls == []
+    assert nav_calls == []
+
+
 def test_analyze_fund_fund_level_issues_no_build(monkeypatch) -> None:
     """AC4 — analyze_fund reads only; never invokes build_snapshot."""
     import irc.fundamentals.snapshot as S
