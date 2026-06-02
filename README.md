@@ -210,15 +210,16 @@ jq '.funds[] | {id: .instrument_id, name: .name_cn, wt: .basket_weight_pct, n: .
 **Full deep analysis (`--analyze`) — screen, then opportunity-grade per-fund eval + a prospective-buy `position_risk_level`:**
 
 ```bash
-# Prerequisites — the analyze phase READS CACHE (like `irc opportunity`); it does not fetch live.
+# Prerequisite — the analyze phase needs the DuckDB market store:
 uv run irc ingest                                         # builds data/local.duckdb
-uv run irc fundamentals snapshot --target all --top-n 10  # quarterly; several minutes (builds the snapshot cache)
 
-uv run irc narrative compute_metals --analyze             # screen + deep analyze (latest cached quarter)
+uv run irc narrative compute_metals --analyze             # screen + deep analyze (auto-builds missing snapshots)
 uv run irc narrative compute_metals --analyze --quarter 2026Q2 --top-n 10
 ```
 
-`--analyze` additionally writes `compute_metals_report.{md,json}` — per shortlisted fund: the four sub-states, `opportunity_state`, `dca_action`, `risk_action`, falsification/trim triggers, review cadence, cited `[ref:…]` thesis evidence, and the new **`position_risk_level`** ∈ `{low, moderate, elevated, high, insufficient}` for the *prospective* buy. A fund whose snapshot is missing/stale surfaces as `insufficient` (never crashes) — run `fundamentals snapshot` first for a complete read. If `data/local.duckdb` or a cached quarter is entirely absent, the screen outputs are still written and the command exits with an actionable message.
+`--analyze` **auto-builds** the per-fund snapshot cache for shortlisted funds that lack one — active funds (`cn_equity_fund`) get an `active_fund` snapshot, passive funds (`cn_etf` / QDII / `us_etf` / `hk_etf`) get a fund-level NAV snapshot — so narrative-*discovered* funds (absent from `scoring.json`) get deepened, not just screened. Autobuild is default-on; set `IRC_NARRATIVE_AUTOBUILD=0` to disable it (then the phase is cache-only like `irc opportunity`), and it is bounded by `IRC_FETCH_BUDGET` (a budget trip exits cleanly with `rc=3`). `irc fundamentals snapshot` (quarterly) pre-warms the index/sector NAV caches but is **not** a prerequisite for narrative-discovered funds — it cannot populate their cache. If `data/local.duckdb` or a snapshot quarter is entirely absent, the screen outputs are still written and the command exits `rc=2` with an actionable message.
+
+`--analyze` additionally writes `compute_metals_report.{md,json}` — per shortlisted fund: the four sub-states, `opportunity_state`, `dca_action`, `risk_action`, falsification/trim triggers, review cadence, cited `[ref:…]` thesis evidence (the `.md` renders the evidence **prose** + a citation-id-sorted **footnote appendix** that resolves every `[ref:…]`, plus product-quality **drivers** — 费率/规模/任职/跟踪误差 — next to `质量`), and the **`position_risk_level`** ∈ `{low, moderate, elevated, high, insufficient}` for the *prospective* buy. A fund whose evidence can't be gathered surfaces as `insufficient` (never crashes); on `insufficient` rows the `.md` **suppresses** the unearned action triad / triggers / sub-states (H3 gapped-row discipline) and shows a `证据不足 / insufficient — refresh evidence` line instead (the `.json` keeps the full data). The `.md` adds no datum the `.json` lacks.
 
 Flags: `--screen-only` (default) · `--analyze` · `--min-overlap PCT` (override the config basket-weight threshold) · `--top-n N` · `--quarter <YYYYQn>` · `--db <path>` · `--out <dir>` · `--repo-root <path>`.
 
