@@ -1,0 +1,34 @@
+# ⚠️ DRAFT — seeded for review, then approve & freeze (mirrors compute_metals §7 flow).
+# ai = AI compute supply chain: 算力芯片 / AI 服务器 / 光模块 / 先进 PCB / 半导体设备.
+# Review the basket + industries_sw before relying on the shortlist.
+narrative_id: ai
+display_name_cn: AI 算力
+display_name_en: AI compute (chips / servers / optical modules)
+thesis_cn: AI 训练与推理需求拉动算力芯片、AI 服务器、光模块、先进 PCB 与半导体设备
+basket:
+  # — 光模块 optical modules —
+  - { symbol: "300308", name_cn: 中际旭创 }
+  - { symbol: "300502", name_cn: 新易盛 }
+  - { symbol: "300394", name_cn: 天孚通信 }
+  # — 算力芯片 compute chips (GPU/DCU/CPU/design) —
+  - { symbol: "688256", name_cn: 寒武纪 }
+  - { symbol: "688041", name_cn: 海光信息 }
+  - { symbol: "603501", name_cn: 韦尔股份 }
+  # — AI 服务器 / 算力 AI servers —
+  - { symbol: "000977", name_cn: 浪潮信息 }
+  - { symbol: "601138", name_cn: 工业富联 }
+  - { symbol: "603019", name_cn: 中科曙光 }
+  # — 先进 PCB advanced PCB —
+  - { symbol: "002463", name_cn: 沪电股份 }
+  - { symbol: "002916", name_cn: 深南电路 }
+  # — 半导体设备 semiconductor equipment —
+  - { symbol: "002371", name_cn: 北方华创 }
+industries_sw:
+  - 电子/半导体
+  - 电子/光学光电子
+  - 计算机/计算机设备
+  - 通信/通信设备
+thresholds:
+  min_basket_weight_pct: 15.0   # ≥15% of top-10 sits in the basket …
+  min_overlap_count: 2          # … OR ≥2 distinct hits (basket symbol/name + SW-industry credit)
+top_n: 15
