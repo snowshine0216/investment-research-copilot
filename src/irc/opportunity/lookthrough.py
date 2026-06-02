@@ -62,6 +62,9 @@ _BROAD_INDEX_KEYS: frozenset[str] = frozenset(_BROAD_INDEX_DISPLAY.keys())
 _QDII_US_KEYS: frozenset[str] = frozenset(_QDII_US_DISPLAY.keys())
 _QDII_HK_KEYS: frozenset[str] = frozenset(_QDII_HK_DISPLAY.keys())
 
+# Canonical set of QDII lookthrough kinds (used by narrative autobuild + analyze).
+QDII_KINDS: tuple[str, ...] = ("qdii_us", "qdii_hk", "qdii_global")
+
 
 def _normalize_qdii_key(raw: str, aliases: dict[str, str]) -> str | None:
     """Try to match raw (already lowercased) against known aliases."""

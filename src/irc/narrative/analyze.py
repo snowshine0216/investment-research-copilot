@@ -4,12 +4,11 @@ from pathlib import Path
 
 import duckdb
 
-from irc.commands.opportunity_cmd import _load_latest_nav_cached
 from irc.fundamentals.provider import CnFundamentalsProvider
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS
-from irc.fundamentals.snapshot_cache import load_active_fund_cache
+from irc.fundamentals.snapshot_cache import load_active_fund_cache, load_latest_nav_cached as _load_latest_nav_cached
 from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
-from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.lookthrough import map_lookthrough, QDII_KINDS
 from irc.opportunity.types import OpportunityInput
 from irc.narrative.risk import derive_position_risk_level
 from irc.narrative.schemas import (
@@ -94,9 +93,6 @@ def _report_from_card(
     )
 
 
-_QDII_KINDS = ("qdii_us", "qdii_hk", "qdii_global")
-
-
 def _load_snapshot_for_row(
     inp: OpportunityInput, *, quarter: str, data_dir: Path,
 ) -> ActiveFundSnapshot | FundLevelSnapshot | None:
@@ -109,7 +105,7 @@ def _load_snapshot_for_row(
     target = map_lookthrough(inp)
     if target.kind == "active_fund":
         return load_active_fund_cache(inp.instrument_id, quarter, data_dir)
-    if (target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
+    if (target.kind in QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
         return _load_latest_nav_cached(target.provider_symbol, data_dir)
     return None
 

@@ -30,6 +30,7 @@ from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
     load_nav_cache,
+    load_latest_nav_cached as _load_latest_nav_cached,
     write_active_fund_cache,
     write_nav_cache,
 )
@@ -306,22 +307,7 @@ def _load_latest_active_fund_cached(
 
 # ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
 # _FUND_LEVEL_KINDS is imported from irc.fundamentals.snapshot (single source of truth).
-
-
-def _load_latest_nav_cached(
-    fund_id: str, root: Path,
-) -> FundLevelSnapshot | None:
-    """Scan `root/fundamentals/*/nav/fund_{fund_id}.json`; return most-recent quarter."""
-    base = root / "fundamentals"
-    if not base.exists():
-        return None
-    candidates = sorted(base.glob(f"*/nav/fund_{fund_id}.json"))
-    for path in reversed(candidates):
-        quarter = path.parent.parent.name
-        loaded = load_nav_cache(fund_id, quarter, root)
-        if loaded is not None:
-            return loaded
-    return None
+# _load_latest_nav_cached is imported from snapshot_cache (canonical home; FIX 1).
 
 
 def _is_nav_stale(

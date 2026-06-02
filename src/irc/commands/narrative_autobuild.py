@@ -10,8 +10,8 @@ from irc.commands.opportunity_cmd import (
     FetchBudgetExceeded,
     FetchPlan,
     _fetch_budget,
-    _load_latest_nav_cached,
 )
+from irc.fundamentals.snapshot_cache import load_latest_nav_cached as _load_latest_nav_cached
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_active_fund_cache,
@@ -23,12 +23,11 @@ from irc.fundamentals.types import (
     FundLevelSnapshot,
     LookthroughTarget,
 )
-from irc.opportunity.lookthrough import map_lookthrough
+from irc.opportunity.lookthrough import map_lookthrough, QDII_KINDS
 from irc.opportunity.types import OpportunityInput
 from irc.narrative.schemas import ShortlistRow
 from irc.schemas.universe import Instrument
 
-_QDII_KINDS = ("qdii_us", "qdii_hk", "qdii_global")
 _log = logging.getLogger(__name__)
 
 
@@ -74,7 +73,7 @@ def _fund_level_eligible_target(
         target_band_low=None, target_band_high=None, venue_compatible=True,
     )
     target = map_lookthrough(inp)
-    if (target.kind in _QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
+    if (target.kind in QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
         return target
     return None
 
