@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRC — System Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #34d399; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 980px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; } .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; } .card-dot.amber { background: #fbbf24; } .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: color 0.2s, background 0.2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>Investment Research Copilot — System Architecture</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">Layered view of the <code>irc</code> CLI — Input → Transform → Output with pure stage cores and effects pushed to the edges.</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1060 910">
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#64748b" /></marker>
+          <marker id="ah-cyan" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#22d3ee" /></marker>
+          <marker id="ah-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399" /></marker>
+          <marker id="ah-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" /></marker>
+          <marker id="ah-violet" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#a78bfa" /></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        </defs>
+        <rect width="1060" height="910" fill="url(#grid)" />
+
+        <!-- inter-band connectors (drawn first, behind boxes) -->
+        <line x1="145" y1="112" x2="145" y2="150" stroke="#22d3ee" stroke-width="1.5" marker-end="url(#ah-cyan)"/>
+        <text x="152" y="136" fill="#94a3b8" font-size="9">dispatch</text>
+        <line x1="540" y1="216" x2="540" y2="297" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <text x="548" y="262" fill="#94a3b8" font-size="9">invoke stage core</text>
+        <line x1="540" y1="454" x2="540" y2="497" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="548" y="480" fill="#94a3b8" font-size="9">typed by</text>
+        <line x1="905" y1="554" x2="905" y2="611" stroke="#fb7185" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="800" y="600" fill="#94a3b8" font-size="9" text-anchor="end">effects at edges</text>
+        <line x1="220" y1="670" x2="220" y2="711" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
+        <text x="230" y="694" fill="#94a3b8" font-size="9">HTTP · SDK</text>
+        <line x1="530" y1="782" x2="530" y2="819" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#ah-violet)"/>
+        <text x="540" y="806" fill="#94a3b8" font-size="9">persist · atomic writes</text>
+
+        <!-- ===================== ① ENTRY ===================== -->
+        <text x="30" y="44" fill="#64748b" font-size="11" font-weight="600">① ENTRY</text>
+        <rect x="30" y="54" width="230" height="58" rx="6" fill="#0f172a"/>
+        <rect x="30" y="54" width="230" height="58" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="145" y="82" fill="white" font-size="12" font-weight="600" text-anchor="middle">irc CLI</text>
+        <text x="145" y="99" fill="#94a3b8" font-size="9" text-anchor="middle">Click group · cli.py</text>
+        <rect x="300" y="54" width="730" height="58" rx="6" fill="#0f172a"/>
+        <rect x="300" y="54" width="730" height="58" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="665" y="80" fill="white" font-size="12" font-weight="600" text-anchor="middle">commands/ — thin command layer · 18 modules</text>
+        <text x="665" y="99" fill="#94a3b8" font-size="9" text-anchor="middle">parse args · load + validate config · invoke stage core · write outputs</text>
+
+        <!-- ===================== ② ORCHESTRATION ===================== -->
+        <text x="30" y="140" fill="#64748b" font-size="11" font-weight="600">② ORCHESTRATION</text>
+        <rect x="30" y="152" width="480" height="64" rx="6" fill="#0f172a"/>
+        <rect x="30" y="152" width="480" height="64" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="270" y="180" fill="white" font-size="12" font-weight="600" text-anchor="middle">Pipeline Orchestrator · run_cmd</text>
+        <text x="270" y="200" fill="#94a3b8" font-size="9" text-anchor="middle">10-stage sequence · --from / --only / --resume</text>
+        <rect x="550" y="152" width="480" height="64" rx="6" fill="#0f172a"/>
+        <rect x="550" y="152" width="480" height="64" rx="6" fill="rgba(8,51,68,0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="790" y="180" fill="white" font-size="11" font-weight="600" text-anchor="middle">pipeline_state · pipeline_halt · pipeline_outputs</text>
+        <text x="790" y="200" fill="#94a3b8" font-size="9" text-anchor="middle">halt sidecar + resume · required-output gates</text>
+
+        <!-- ===================== ③ STAGE CORES ===================== -->
+        <rect x="24" y="242" width="1012" height="212" rx="12" fill="rgba(6,78,59,0.06)" stroke="#34d399" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="36" y="262" fill="#34d399" font-size="11" font-weight="600">③ STAGE CORES — pure logic · no I/O · unit-testable without mocks</text>
+
+        <!-- row 1 -->
+        <rect x="40" y="300" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="114" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">discovery</text>
+        <text x="114" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">5-step funnel</text>
+        <rect x="206" y="300" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="280" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">scoring</text>
+        <text x="280" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">5 factors + gold</text>
+        <rect x="372" y="300" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="446" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">allocation</text>
+        <text x="446" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">weights + corr</text>
+        <rect x="538" y="300" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="612" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">trades</text>
+        <text x="612" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">trade plan</text>
+        <rect x="704" y="300" width="148" height="58" rx="6" fill="rgba(190,24,93,0.18)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="778" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">opportunity</text>
+        <text x="778" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">thesis + discipline</text>
+        <rect x="870" y="300" width="148" height="58" rx="6" fill="rgba(190,24,93,0.18)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="944" y="326" fill="white" font-size="12" font-weight="600" text-anchor="middle">memo</text>
+        <text x="944" y="343" fill="#94a3b8" font-size="9" text-anchor="middle">synthesis + audit</text>
+
+        <!-- row 2 -->
+        <rect x="40" y="384" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="114" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">decision</text>
+        <text x="114" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">readiness gates</text>
+        <rect x="206" y="384" width="148" height="58" rx="6" fill="rgba(190,24,93,0.18)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="280" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">fundamentals</text>
+        <text x="280" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">filings + ratios</text>
+        <rect x="372" y="384" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="446" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">research</text>
+        <text x="446" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">web themes</text>
+        <rect x="538" y="384" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="612" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">news</text>
+        <text x="612" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">RSS events</text>
+        <rect x="704" y="384" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="778" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">queries</text>
+        <text x="778" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">grounded Q&amp;A</text>
+        <rect x="870" y="384" width="148" height="58" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="944" y="410" fill="white" font-size="12" font-weight="600" text-anchor="middle">evals</text>
+        <text x="944" y="427" fill="#94a3b8" font-size="9" text-anchor="middle">per-stage eval</text>
+
+        <!-- ===================== ④ CONTRACTS ===================== -->
+        <text x="30" y="486" fill="#64748b" font-size="11" font-weight="600">④ CONTRACTS &amp; CROSS-CUTTING</text>
+        <rect x="40" y="498" width="235" height="56" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="157" y="524" fill="white" font-size="12" font-weight="600" text-anchor="middle">schemas/</text>
+        <text x="157" y="541" fill="#94a3b8" font-size="9" text-anchor="middle">frozen dataclasses + pydantic</text>
+        <rect x="288" y="498" width="235" height="56" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="405" y="524" fill="white" font-size="12" font-weight="600" text-anchor="middle">settings</text>
+        <text x="405" y="541" fill="#94a3b8" font-size="9" text-anchor="middle">pydantic-settings · .env</text>
+        <rect x="536" y="498" width="235" height="56" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="653" y="524" fill="white" font-size="12" font-weight="600" text-anchor="middle">observability</text>
+        <text x="653" y="541" fill="#94a3b8" font-size="9" text-anchor="middle">structured logging · banners</text>
+        <rect x="784" y="498" width="235" height="56" rx="6" fill="rgba(30,41,59,0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="901" y="524" fill="white" font-size="12" font-weight="600" text-anchor="middle">http_proxy</text>
+        <text x="901" y="541" fill="#94a3b8" font-size="9" text-anchor="middle">uniform IRC_HTTPS_PROXY</text>
+
+        <!-- ===================== ⑤ I/O EDGE ===================== -->
+        <rect x="24" y="580" width="1012" height="96" rx="12" fill="transparent" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="36" y="601" fill="#fb7185" font-size="11" font-weight="600">⑤ I/O EDGE — effects boundary · filesystem · network · LLM · AkShare/OpenBB</text>
+        <rect x="40" y="612" width="360" height="56" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="220" y="636" fill="white" font-size="12" font-weight="600" text-anchor="middle">data/</text>
+        <text x="220" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">DuckDB · manifest · akshare/openbb · wgc · holdings</text>
+        <rect x="420" y="612" width="210" height="56" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="525" y="636" fill="white" font-size="12" font-weight="600" text-anchor="middle">llm/</text>
+        <text x="525" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">gateway · retry · cost</text>
+        <rect x="650" y="612" width="250" height="56" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="775" y="636" fill="white" font-size="12" font-weight="600" text-anchor="middle">research/search/</text>
+        <text x="775" y="652" fill="#94a3b8" font-size="9" text-anchor="middle">tavily · brave · bocha · jina</text>
+        <rect x="920" y="612" width="100" height="56" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="970" y="636" fill="white" font-size="11" font-weight="600" text-anchor="middle">io_utils</text>
+        <text x="970" y="652" fill="#94a3b8" font-size="8" text-anchor="middle">atomic writes</text>
+
+        <!-- ===================== ⑥ EXTERNAL + STORAGE ===================== -->
+        <text x="30" y="700" fill="#fbbf24" font-size="11" font-weight="600">⑥ EXTERNAL SERVICES &amp; LOCAL STORAGE</text>
+        <rect x="40" y="712" width="180" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="130" y="738" fill="white" font-size="11" font-weight="600" text-anchor="middle">Market &amp; Macro</text>
+        <text x="130" y="755" fill="#94a3b8" font-size="8" text-anchor="middle">AkShare · OpenBB</text>
+        <text x="130" y="768" fill="#94a3b8" font-size="8" text-anchor="middle">Tushare · WGC</text>
+        <rect x="240" y="712" width="180" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="330" y="738" fill="white" font-size="11" font-weight="600" text-anchor="middle">Filings &amp; Valuation</text>
+        <text x="330" y="755" fill="#94a3b8" font-size="8" text-anchor="middle">SEC EDGAR · Sina</text>
+        <text x="330" y="768" fill="#94a3b8" font-size="8" text-anchor="middle">EastMoney F10</text>
+        <rect x="440" y="712" width="180" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="530" y="738" fill="white" font-size="11" font-weight="600" text-anchor="middle">Web Search</text>
+        <text x="530" y="755" fill="#94a3b8" font-size="8" text-anchor="middle">Tavily · Brave</text>
+        <text x="530" y="768" fill="#94a3b8" font-size="8" text-anchor="middle">Bocha · Jina</text>
+        <rect x="640" y="712" width="180" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="730" y="738" fill="white" font-size="11" font-weight="600" text-anchor="middle">News</text>
+        <text x="730" y="755" fill="#94a3b8" font-size="8" text-anchor="middle">RSS feeds</text>
+        <text x="730" y="768" fill="#94a3b8" font-size="8" text-anchor="middle">(feedparser)</text>
+        <rect x="840" y="712" width="180" height="70" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="930" y="738" fill="white" font-size="11" font-weight="600" text-anchor="middle">LLM Providers</text>
+        <text x="930" y="755" fill="#94a3b8" font-size="8" text-anchor="middle">DeepSeek</text>
+        <text x="930" y="768" fill="#94a3b8" font-size="8" text-anchor="middle">OpenRouter→Claude</text>
+
+        <rect x="40" y="820" width="980" height="62" rx="6" fill="rgba(76,29,149,0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="530" y="846" fill="white" font-size="12" font-weight="600" text-anchor="middle">Local Storage — the only mutable filesystem state</text>
+        <text x="530" y="865" fill="#94a3b8" font-size="9" text-anchor="middle">data/local.duckdb (DuckDB) · outputs/&lt;YYYY-MM-DD&gt;/ · data/fundamentals/&lt;quarter&gt;/ caches · data/research/</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>Layering &amp; data flow</h3></div>
+        <ul>
+          <li>• Input → Transform → Output, one direction</li>
+          <li>• Stage cores are pure &amp; deterministic</li>
+          <li>• I/O confined to data/ · llm/ · search/ · commands/</li>
+          <li>• Outputs date-partitioned, atomic .tmp→replace</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot cyan"></div><h3>Pipeline (irc run)</h3></div>
+        <ul>
+          <li>• ingest → [research?] → discover → score</li>
+          <li>• → gold → allocate → plan → opportunity</li>
+          <li>• → memo → decision</li>
+          <li>• halt-and-resume via pipeline_state sidecar</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot rose"></div><h3>Coupling to watch</h3></div>
+        <ul>
+          <li>• memo ↔ opportunity ↔ fundamentals (rose) are</li>
+          <li>&nbsp;&nbsp;bidirectionally coupled — see module diagram</li>
+          <li>• research gated by RESEARCH_ENABLED</li>
+          <li>• opportunity reads <em>cached</em> evidence only</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">Investment Research Copilot • Python 3.12 · Click · DuckDB · pandas · AkShare/OpenBB · DeepSeek/OpenRouter • generated 2026-06-01</p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a'); link.download = 'irc-architecture.png'; link.href = canvas.toDataURL('image/png'); link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height); pdf.save('irc-architecture.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IRC — External Dependencies</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha384-ZZ1pncU3bQe8y31yfZdMFdSpttDoPmOZg2wguVK9almUodir1PghgT0eY7Mrty8H" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js" integrity="sha384-en/ztfPSRkGfME4KIm05joYXynqzUgbsG5nMrj/xEFAHXkeZfO3yMK8QQ+mP7p1/" crossorigin="anonymous"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'JetBrains Mono', monospace; background: #020617; min-height: 100vh; padding: 2rem; color: white; }
+    .container { max-width: 1200px; margin: 0 auto; }
+    .header { margin-bottom: 2rem; }
+    .header-row { display: flex; align-items: center; gap: 1rem; margin-bottom: 0.5rem; }
+    .pulse-dot { width: 12px; height: 12px; background: #fbbf24; border-radius: 50%; animation: pulse 2s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+    h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.025em; }
+    .subtitle { color: #94a3b8; font-size: 0.875rem; margin-left: 1.75rem; }
+    .diagram-container { background: rgba(15, 23, 42, 0.5); border-radius: 1rem; border: 1px solid #1e293b; padding: 1.5rem; overflow-x: auto; }
+    svg { width: 100%; min-width: 980px; display: block; }
+    .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-top: 2rem; }
+    .card { background: rgba(15, 23, 42, 0.5); border-radius: 0.75rem; border: 1px solid #1e293b; padding: 1.25rem; }
+    .card-header { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; }
+    .card-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .card-dot.cyan { background: #22d3ee; } .card-dot.emerald { background: #34d399; }
+    .card-dot.violet { background: #a78bfa; } .card-dot.amber { background: #fbbf24; } .card-dot.rose { background: #fb7185; }
+    .card h3 { font-size: 0.875rem; font-weight: 600; }
+    .card ul { list-style: none; color: #94a3b8; font-size: 0.75rem; }
+    .card li { margin-bottom: 0.375rem; }
+    .footer { text-align: center; margin-top: 1.5rem; color: #475569; font-size: 0.75rem; }
+    .toolbar { display: flex; gap: 0.5rem; margin-left: auto; flex-shrink: 0; align-items: center; }
+    .toolbar-toggle { background: transparent; border: none; color: #475569; cursor: pointer; font-size: 1.25rem; line-height: 1; padding: 0.25rem 0.5rem; border-radius: 0.375rem; transition: color 0.2s, background 0.2s; }
+    .toolbar-toggle:hover { color: #94a3b8; background: rgba(30, 41, 59, 0.5); }
+    .toolbar-actions { display: none; gap: 0.5rem; }
+    .toolbar.expanded .toolbar-actions { display: flex; }
+    .toolbar-actions button { background: rgba(30, 41, 59, 0.8); border: 1px solid #334155; color: #94a3b8; padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-family: inherit; font-size: 0.75rem; cursor: pointer; transition: all 0.2s; white-space: nowrap; }
+    .toolbar-actions button:hover { background: rgba(51, 65, 85, 0.8); color: white; border-color: #475569; }
+    @media print { body { background: #020617; padding: 1rem; } .toolbar { display: none !important; } }
+  </style>
+</head>
+<body>
+  <div class="container" id="report-container">
+    <div class="header">
+      <div class="header-row">
+        <div class="pulse-dot"></div>
+        <h1>IRC — Third-Party / External Dependencies</h1>
+        <div class="toolbar">
+          <div class="toolbar-actions">
+            <button onclick="copyAsImage(this)">📋 Copy</button>
+            <button onclick="downloadPNG(this)">🖼️ PNG</button>
+            <button onclick="downloadPDF(this)">📄 PDF</button>
+          </div>
+          <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
+        </div>
+      </div>
+      <p class="subtitle">Which I/O module talks to which external service, by what transport — source → transport → destination.</p>
+    </div>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1060 850">
+        <defs>
+          <marker id="ah-emerald" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399" /></marker>
+          <marker id="ah-amber" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fbbf24" /></marker>
+          <marker id="ah-rose" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#fb7185" /></marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse"><path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1e293b" stroke-width="0.5"/></pattern>
+        </defs>
+        <rect width="1060" height="850" fill="url(#grid)" />
+
+        <!-- column headers -->
+        <text x="165" y="44" fill="#34d399" font-size="11" font-weight="600" text-anchor="middle">IRC I/O MODULES</text>
+        <text x="165" y="58" fill="#64748b" font-size="8" text-anchor="middle">effects layer · the only place that does network I/O</text>
+        <text x="530" y="44" fill="#94a3b8" font-size="11" font-weight="600" text-anchor="middle">TRANSPORT</text>
+        <text x="530" y="58" fill="#64748b" font-size="8" text-anchor="middle">rose = routed via IRC_HTTPS_PROXY</text>
+        <text x="870" y="44" fill="#fbbf24" font-size="11" font-weight="600" text-anchor="middle">EXTERNAL SERVICES</text>
+        <text x="870" y="58" fill="#64748b" font-size="8" text-anchor="middle">third-party APIs &amp; data sources</text>
+
+        <!-- row connectors (behind boxes) -->
+        <line x1="290" y1="150" x2="443" y2="150" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="617" y1="150" x2="718" y2="150" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
+        <line x1="290" y1="264" x2="443" y2="264" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="617" y1="264" x2="718" y2="264" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
+        <line x1="290" y1="378" x2="443" y2="378" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+        <line x1="617" y1="378" x2="718" y2="378" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+        <line x1="290" y1="492" x2="443" y2="492" stroke="#34d399" stroke-width="1.5" marker-end="url(#ah-emerald)"/>
+        <line x1="617" y1="492" x2="718" y2="492" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#ah-amber)"/>
+        <line x1="290" y1="606" x2="443" y2="606" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+        <line x1="617" y1="606" x2="718" y2="606" stroke="#fb7185" stroke-width="1.5" marker-end="url(#ah-rose)"/>
+
+        <!-- ===== Row 1: Market & Macro ===== -->
+        <rect x="40" y="108" width="250" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="165" y="132" fill="white" font-size="12" font-weight="600" text-anchor="middle">data/</text>
+        <text x="165" y="150" fill="#94a3b8" font-size="9" text-anchor="middle">openbb_client · akshare_client</text>
+        <text x="165" y="164" fill="#94a3b8" font-size="9" text-anchor="middle">wgc_ingest · fund_holdings</text>
+        <text x="165" y="182" fill="#34d399" font-size="8" text-anchor="middle">ingest stage</text>
+        <rect x="445" y="128" width="170" height="44" rx="6" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.25"/>
+        <text x="530" y="147" fill="#e2e8f0" font-size="9" text-anchor="middle">AkShare CN (direct)</text>
+        <text x="530" y="161" fill="#e2e8f0" font-size="9" text-anchor="middle">OpenBB Python SDK</text>
+        <rect x="720" y="108" width="300" height="84" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="870" y="130" fill="white" font-size="12" font-weight="600" text-anchor="middle">Market &amp; Macro Data</text>
+        <text x="870" y="148" fill="#94a3b8" font-size="8" text-anchor="middle">AkShare — CN funds/ETF, macro series</text>
+        <text x="870" y="162" fill="#94a3b8" font-size="8" text-anchor="middle">OpenBB — US/HK OHLCV (QDII proxy)</text>
+        <text x="870" y="176" fill="#94a3b8" font-size="8" text-anchor="middle">World Gold Council — gold price/flows</text>
+
+        <!-- ===== Row 2: Filings & Valuation ===== -->
+        <rect x="40" y="222" width="250" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="165" y="246" fill="white" font-size="12" font-weight="600" text-anchor="middle">fundamentals/</text>
+        <text x="165" y="264" fill="#94a3b8" font-size="9" text-anchor="middle">edgar_client · hkex_client</text>
+        <text x="165" y="278" fill="#94a3b8" font-size="9" text-anchor="middle">tushare_provider · akshare_filing</text>
+        <text x="165" y="296" fill="#34d399" font-size="8" text-anchor="middle">quarterly snapshot</text>
+        <rect x="445" y="242" width="170" height="44" rx="6" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.25"/>
+        <text x="530" y="261" fill="#e2e8f0" font-size="9" text-anchor="middle">HTTPS · SEC User-Agent</text>
+        <text x="530" y="275" fill="#e2e8f0" font-size="9" text-anchor="middle">Tushare token</text>
+        <rect x="720" y="222" width="300" height="84" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="870" y="244" fill="white" font-size="12" font-weight="600" text-anchor="middle">Filings &amp; Valuation</text>
+        <text x="870" y="262" fill="#94a3b8" font-size="8" text-anchor="middle">SEC EDGAR — data.sec.gov XBRL facts</text>
+        <text x="870" y="276" fill="#94a3b8" font-size="8" text-anchor="middle">EastMoney F10 / search · Sina finance</text>
+        <text x="870" y="290" fill="#94a3b8" font-size="8" text-anchor="middle">Tushare Pro — api.tushare.pro (A-share)</text>
+
+        <!-- ===== Row 3: Web Search ===== -->
+        <rect x="40" y="336" width="250" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="165" y="360" fill="white" font-size="12" font-weight="600" text-anchor="middle">research/search/</text>
+        <text x="165" y="378" fill="#94a3b8" font-size="9" text-anchor="middle">tavily · brave · bocha</text>
+        <text x="165" y="392" fill="#94a3b8" font-size="9" text-anchor="middle">jina_reader · dispatch</text>
+        <text x="165" y="410" fill="#34d399" font-size="8" text-anchor="middle">research stage</text>
+        <rect x="445" y="356" width="170" height="44" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.25"/>
+        <text x="530" y="375" fill="#fecdd3" font-size="9" font-weight="600" text-anchor="middle">via IRC_HTTPS_PROXY</text>
+        <text x="530" y="389" fill="#94a3b8" font-size="8" text-anchor="middle">bearer-token APIs</text>
+        <rect x="720" y="336" width="300" height="84" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="870" y="358" fill="white" font-size="12" font-weight="600" text-anchor="middle">Web Search &amp; Extract</text>
+        <text x="870" y="376" fill="#94a3b8" font-size="8" text-anchor="middle">Tavily · Brave · Bocha — search APIs</text>
+        <text x="870" y="390" fill="#94a3b8" font-size="8" text-anchor="middle">Jina Reader — r.jina.ai (page extract)</text>
+        <text x="870" y="404" fill="#94a3b8" font-size="8" text-anchor="middle">one provider chosen by dispatch/factory</text>
+
+        <!-- ===== Row 4: News ===== -->
+        <rect x="40" y="450" width="250" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="165" y="474" fill="white" font-size="12" font-weight="600" text-anchor="middle">news/</text>
+        <text x="165" y="492" fill="#94a3b8" font-size="9" text-anchor="middle">rss_aggregator · dedup</text>
+        <text x="165" y="506" fill="#94a3b8" font-size="9" text-anchor="middle">events_calendar · topic_classifier</text>
+        <text x="165" y="524" fill="#34d399" font-size="8" text-anchor="middle">news inputs</text>
+        <rect x="445" y="470" width="170" height="44" rx="6" fill="rgba(30,41,59,0.6)" stroke="#94a3b8" stroke-width="1.25"/>
+        <text x="530" y="489" fill="#e2e8f0" font-size="9" text-anchor="middle">feedparser</text>
+        <text x="530" y="503" fill="#e2e8f0" font-size="9" text-anchor="middle">HTTP / RSS</text>
+        <rect x="720" y="450" width="300" height="84" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="870" y="476" fill="white" font-size="12" font-weight="600" text-anchor="middle">News Feeds</text>
+        <text x="870" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">Configured RSS / Atom feeds</text>
+        <text x="870" y="510" fill="#94a3b8" font-size="8" text-anchor="middle">parsed locally via feedparser</text>
+
+        <!-- ===== Row 5: LLM ===== -->
+        <rect x="40" y="564" width="250" height="84" rx="6" fill="rgba(6,78,59,0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="165" y="588" fill="white" font-size="12" font-weight="600" text-anchor="middle">llm/</text>
+        <text x="165" y="606" fill="#94a3b8" font-size="9" text-anchor="middle">gateway · http_client</text>
+        <text x="165" y="620" fill="#94a3b8" font-size="9" text-anchor="middle">retry (tenacity) · cost_tracker</text>
+        <text x="165" y="638" fill="#34d399" font-size="8" text-anchor="middle">task → provider routing</text>
+        <rect x="445" y="584" width="170" height="44" rx="6" fill="rgba(136,19,55,0.4)" stroke="#fb7185" stroke-width="1.25"/>
+        <text x="530" y="603" fill="#fecdd3" font-size="9" font-weight="600" text-anchor="middle">via IRC_HTTPS_PROXY</text>
+        <text x="530" y="617" fill="#94a3b8" font-size="8" text-anchor="middle">retry 429/5xx</text>
+        <rect x="720" y="564" width="300" height="84" rx="6" fill="rgba(120,53,15,0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="870" y="586" fill="white" font-size="12" font-weight="600" text-anchor="middle">LLM Providers</text>
+        <text x="870" y="606" fill="#94a3b8" font-size="8" text-anchor="middle">DeepSeek — api.deepseek.com (chat/reasoner)</text>
+        <text x="870" y="620" fill="#94a3b8" font-size="8" text-anchor="middle">OpenRouter — openrouter.ai → Anthropic Claude</text>
+        <text x="870" y="634" fill="#94a3b8" font-size="8" text-anchor="middle">routed per task in config/llm.yaml</text>
+
+        <!-- callouts -->
+        <rect x="40" y="690" width="490" height="128" rx="8" fill="transparent" stroke="#fb7185" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="56" y="712" fill="#fb7185" font-size="11" font-weight="600">IRC_HTTPS_PROXY — single, uniform</text>
+        <text x="56" y="734" fill="#94a3b8" font-size="9">Applied to: LLM calls · web-search providers · Jina</text>
+        <text x="56" y="750" fill="#94a3b8" font-size="9">extractor · DXY-via-EastMoney.</text>
+        <text x="56" y="772" fill="#94a3b8" font-size="9">All other AkShare calls stay DIRECT (CN domains</text>
+        <text x="56" y="788" fill="#94a3b8" font-size="9">reachable without a proxy).</text>
+        <text x="56" y="810" fill="#64748b" font-size="8">src/irc/http_proxy.py · IRC_HTTPS_PROXY</text>
+
+        <rect x="550" y="690" width="470" height="128" rx="8" fill="transparent" stroke="#fbbf24" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="566" y="712" fill="#fbbf24" font-size="11" font-weight="600">Auth &amp; secrets — .env only</text>
+        <text x="566" y="734" fill="#94a3b8" font-size="9">DEEPSEEK_API_KEY (required) · OPENROUTER_API_KEY</text>
+        <text x="566" y="750" fill="#94a3b8" font-size="9">TAVILY_API_KEY · BRAVE_API_KEY · BOCHA_API_KEY</text>
+        <text x="566" y="766" fill="#94a3b8" font-size="9">TUSHARE_TOKEN · SEC requires descriptive User-Agent</text>
+        <text x="566" y="788" fill="#94a3b8" font-size="9">YAML configs reference env var NAMES — keys never inlined.</text>
+        <text x="566" y="810" fill="#64748b" font-size="8">src/irc/settings.py · pydantic-settings</text>
+      </svg>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="card-header"><div class="card-dot amber"></div><h3>Data sources</h3></div>
+        <ul>
+          <li>• AkShare — CN funds/ETF + macro (direct)</li>
+          <li>• OpenBB — US/HK OHLCV for QDII proxy</li>
+          <li>• Tushare Pro — A-share fundamentals (token)</li>
+          <li>• SEC EDGAR · EastMoney · Sina · WGC</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot rose"></div><h3>Proxied vs direct</h3></div>
+        <ul>
+          <li>• Proxied: LLM · web-search · Jina · DXY</li>
+          <li>• Direct: AkShare CN domains</li>
+          <li>• feedparser RSS — plain HTTP</li>
+          <li>• tenacity retries 429/5xx + network errors</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-dot emerald"></div><h3>LLM routing</h3></div>
+        <ul>
+          <li>• Tasks → providers in config/llm.yaml</li>
+          <li>• DeepSeek chat/reasoner — most tasks</li>
+          <li>• OpenRouter→Claude — memo synth + audit</li>
+          <li>• gateway.resolve_route is pure; call() does I/O</li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="footer">Investment Research Copilot • third-party integration map • secrets in .env, configs reference env var names • generated 2026-06-01</p>
+  </div>
+
+  <script>
+    async function copyAsImage(btn) {
+      const orig = btn.textContent;
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+        btn.textContent = '✓ Copied!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPNG(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const link = document.createElement('a'); link.download = 'irc-external-dependency.png'; link.href = canvas.toDataURL('image/png'); link.click();
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+    async function downloadPDF(btn) {
+      const orig = btn.textContent; btn.textContent = '⏳ ...';
+      try {
+        const el = document.getElementById('report-container');
+        const r = el.getBoundingClientRect();
+        const pad = 32;
+        const canvas = await html2canvas(document.body, { backgroundColor: '#020617', scale: 2, useCORS: true, ignoreElements: (e) => e.classList && e.classList.contains('toolbar'), x: r.left + window.scrollX - pad, y: r.top + window.scrollY - pad, width: r.width + pad * 2, height: r.height + pad * 2 });
+        const imgData = canvas.toDataURL('image/png');
+        const { jsPDF } = window.jspdf;
+        const orientation = canvas.width > canvas.height ? 'landscape' : 'portrait';
+        const pdf = new jsPDF({ orientation, unit: 'px', format: [canvas.width, canvas.height], hotfixes: ['px_scaling'] });
+        pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height); pdf.save('irc-external-dependency.pdf');
+        btn.textContent = '✓ Done!';
+      } catch (e) { btn.textContent = '✗ Failed'; }
+      setTimeout(() => btn.textContent = orig, 2000);
+    }
+  </script>
+</body>
+</html>
