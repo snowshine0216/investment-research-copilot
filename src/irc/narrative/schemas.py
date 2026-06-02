@@ -55,6 +55,8 @@ class Holding:
 class OverlapResult:
     """Result of matching a fund's top-10 against a basket."""
 
+    # Intentionally includes SW-industry-credit weight as well as direct basket-match
+    # weight (spec §3.5): total thematic exposure, not just symbol-exact basket hits.
     basket_weight_pct: float
     overlap_count: int
     matched_symbols: tuple[str, ...]

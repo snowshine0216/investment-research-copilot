@@ -8,19 +8,23 @@ from irc.narrative.schemas import (
 )
 
 
-def _basket_hit(holding: Holding, basket: NarrativeBasket) -> bool:
-    symbols = {s.symbol for s in basket.basket}
-    names = {s.name_cn for s in basket.basket}
+def _basket_hit(holding: Holding, symbols: frozenset[str], names: frozenset[str]) -> bool:
     return holding.symbol in symbols or holding.name_cn in names
 
 
-def _industry_hit(holding: Holding, basket: NarrativeBasket) -> bool:
-    return bool(holding.sw_industry) and holding.sw_industry in basket.industries_sw
+def _industry_hit(holding: Holding, industries: frozenset[str]) -> bool:
+    return bool(holding.sw_industry) and holding.sw_industry in industries
 
 
 def score_overlap(holdings: tuple[Holding, ...], basket: NarrativeBasket) -> OverlapResult:
     """Pure: match a fund's top-10 against the basket (symbol first, name second),
-    crediting SW-industry membership for non-basket names. No double-count."""
+    crediting SW-industry membership for non-basket names. No double-count.
+
+    basket_weight_pct includes weight from both direct basket hits AND
+    SW-industry-credit hits (per spec §3.5), not only direct basket matches."""
+    symbols = frozenset(s.symbol for s in basket.basket)
+    names = frozenset(s.name_cn for s in basket.basket)
+    industries = frozenset(basket.industries_sw)
     matched: list[str] = []
     industry_credit: list[str] = []
     weight = 0.0
@@ -29,10 +33,10 @@ def score_overlap(holdings: tuple[Holding, ...], basket: NarrativeBasket) -> Ove
         if h.symbol in seen:
             continue
         seen.add(h.symbol)
-        if _basket_hit(h, basket):
+        if _basket_hit(h, symbols, names):
             matched.append(h.symbol)
             weight += h.weight_pct
-        elif _industry_hit(h, basket):
+        elif _industry_hit(h, industries):
             industry_credit.append(h.symbol)
             weight += h.weight_pct
     return OverlapResult(
