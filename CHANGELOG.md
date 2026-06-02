@@ -74,6 +74,18 @@ system's deepest per-fund analysis on the shortlist.
   `summary` + `url`). The narrative renderer remains display-only — it is **not** an
   ADR-0004 §3 SAME-3 citation-set surface, so the appendix is exempt from citation-set
   equality. The product-quality scorer itself is unchanged (F-1 follow-up).
+- **H3 display discipline for `insufficient` narrative rows (2026-06-02):** in the
+  `<name>_report.md`, funds whose `position_risk_level == "insufficient"` no longer print
+  earned-looking conclusions they have not earned. The action triad (`机会`/`dca`/`风险`),
+  the falsification/trim triggers, the review cadence, AND the `子状态` line (估值/热度/逻辑/质量
+  — themselves H3-forbidden conclusion fields) are now **suppressed** for such rows; in their
+  place a bilingual "证据不足 / insufficient — 行动建议已抑制" line names the `evidence_gaps`
+  and points at `irc narrative <name> --analyze` to refresh. Each insufficient fund still lists
+  its id/name, `position_risk_level`, risk drivers/rationale, the raw numeric `产品驱动`
+  metrics (data, not a verdict), and any partial cited evidence. Sufficient rows are unchanged.
+  This mirrors the opportunity/discipline H3 gapped-row field discipline
+  (`failure_renderer.py`). `.md`-only — the `.json` remains the full source of truth (keeps all
+  conclusions); `risk.py`/`position_risk_level`/the scorer are untouched.
 
 ### Added — `eval-funds` (2026-06-01)
 
