@@ -19,14 +19,39 @@ def _footnote_line(ev: ThesisEvidence) -> str:
     return f"{base} · {ev.url}" if ev.url else base
 
 
-def _footnote_lines(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
-    """Full-pool footnote table for one fund, deduped by citation_id, sorted by
-    citation_id ASC (RD-4 determinism). Draws from the flattened r.thesis_evidence
-    superset so every appendix/inline ref resolves (RD-6, AC4)."""
-    if not thesis_evidence:
+def _union_evidence(r: "NarrativeFundReport") -> tuple[ThesisEvidence, ...]:
+    """Union of r.thesis_evidence + every constituent's evidence (deduped by citation_id).
+
+    Guarantees every inline [ref:hex] emitted by _appendix_constituent_line resolves
+    in the footnote table regardless of whether the constituent evidence is mirrored
+    into r.thesis_evidence (FIX 2, RD-6).
+    """
+    seen: dict[str, ThesisEvidence] = {}
+    for ev in r.thesis_evidence:
+        if ev.citation_id not in seen:
+            seen[ev.citation_id] = ev
+    for c in r.constituent_analyses:
+        for ev in c.evidence:
+            if ev.citation_id not in seen:
+                seen[ev.citation_id] = ev
+    return tuple(seen[cid] for cid in sorted(seen))
+
+
+def _footnote_lines(r: "NarrativeFundReport") -> list[str]:
+    """Full-pool footnote table for one fund.
+
+    Pool = union of r.thesis_evidence + every constituent's evidence (FIX 2).
+    Deduped by citation_id with deterministic survivor (FIX 3): sorted by
+    (citation_id, citation_kind) ASC before dict build — last-write wins on
+    a stable sort key, so the survivor is independent of input order.
+    Sorted citation_id ASC in the output (RD-4 determinism).
+    """
+    pool = _union_evidence(r)
+    if not pool:
         return []
-    by_id = {ev.citation_id: ev for ev in thesis_evidence}
-    return [_footnote_line(by_id[cid]) for cid in sorted(by_id)]
+    # pool is already sorted by citation_id (from _union_evidence), so each cid's
+    # survivor is deterministically the first occurrence (dedup via 'if not in seen').
+    return [_footnote_line(ev) for ev in pool]
 
 
 def _fmt_metric(v: float | None) -> str:

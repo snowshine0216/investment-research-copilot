@@ -92,7 +92,7 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
             lines.extend(bullets)
         appendix = _appendix_lines(r)
         lines.extend(appendix)
-        footnotes = _footnote_lines(r.thesis_evidence)
+        footnotes = _footnote_lines(r)
         if footnotes:
             lines.append("")
             lines.append("### 证据明细 / Evidence appendix")
