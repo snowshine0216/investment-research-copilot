@@ -106,3 +106,31 @@ def _appendix_lines(r: NarrativeFundReport) -> list[str]:
         return []
     return ["", "#### 持仓明细 / Holdings",
             *[_appendix_constituent_line(c) for c in _rank_constituents(r.constituent_analyses)]]
+
+
+def _insufficient_refresh_line(narrative: str, r: NarrativeFundReport) -> str:
+    """H3 analog: the single bilingual refresh line that REPLACES the suppressed
+    triad/triggers/cadence on an insufficient row. Names evidence_gaps (mirrors
+    failure_renderer.py's `原因: {gaps}`), points at the real refresh path
+    (`--analyze`, NOT `fundamentals snapshot`). Deterministic — evidence_gaps is a
+    stable tuple, risk_rationale a str, narrative an arg; no I/O.
+
+    On both production insufficient paths evidence_gaps is non-empty (error_report
+    sets `(reason,)`; _report_from_card reaches insufficient only via non-empty
+    view.evidence_gaps), so the fallbacks are defensive-unreachable (grill Q3)."""
+    gaps = ", ".join(r.evidence_gaps) or r.risk_rationale or "evidence_insufficient"
+    return (
+        f"- ⚠️ 证据不足 / insufficient — 行动建议已抑制 (未形成结论)；"
+        f"缺口: {gaps}；刷新: `uv run irc narrative {narrative} --analyze`"
+    )
+
+
+def _insufficient_middle(narrative: str, r: NarrativeFundReport) -> list[str]:
+    """The verdict-suppressed middle block for an insufficient row: the raw
+    产品驱动 numeric segment (a gap-fact, KEEP — grill Q2) on its own line, then
+    the refresh line. NO 子状态 line, NO 机会/dca/风险 triad, NO triggers, NO
+    review_cadence (all H3-forbidden conclusions — grill Q1)."""
+    return [
+        f"- 产品驱动: {_product_drivers_segment(r.product_metrics)}",
+        _insufficient_refresh_line(narrative, r),
+    ]

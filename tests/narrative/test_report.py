@@ -18,6 +18,10 @@ from irc.narrative.report import (
     render_shortlist_json,
     render_shortlist_md,
 )
+from irc.narrative.report_appendix import (
+    _insufficient_middle,
+    _insufficient_refresh_line,
+)
 
 _REF_RE = re.compile(r"\[ref:[0-9a-f]{16}\]")
 
@@ -317,6 +321,52 @@ def test_report_md_product_drivers_on_own_line() -> None:
     substate_lines = [ln for ln in block.splitlines() if ln.startswith("- 子状态:")]
     assert len(substate_lines) == 1
     assert "产品驱动" not in substate_lines[0]  # decoupled (grill Q2)
+
+
+# --- Task 2 (004): insufficient helpers ---
+
+def _report_insufficient(iid: str, *, gaps=("missing_product_metadata",),
+                         evidence: tuple[ThesisEvidence, ...] = (),
+                         pm: ProductMetrics | None = None) -> NarrativeFundReport:
+    """An insufficient row that — like the _report_from_card path — carries REAL
+    sub-state verdicts (not all evidence_insufficient), to prove field-level
+    suppression (grill Q1)."""
+    base = _report(iid, level="insufficient", evidence=evidence)
+    return replace(
+        base,
+        risk_rationale="evidence_gaps present — risk cannot be assessed",
+        risk_drivers=("evidence_gaps",),
+        evidence_gaps=gaps,
+        product_metrics=pm,
+    )
+
+
+def test_insufficient_refresh_line_names_gap_and_analyze() -> None:
+    r = _report_insufficient("A", gaps=("missing_valuation_data", "missing_product_metadata"))
+    line = _insufficient_refresh_line("算力金属", r)
+    assert line.startswith("- ⚠️ 证据不足 / insufficient")
+    assert "missing_valuation_data" in line
+    assert "missing_product_metadata" in line
+    assert "uv run irc narrative 算力金属 --analyze" in line
+
+
+def test_insufficient_refresh_line_falls_back_to_rationale_then_literal() -> None:
+    r_no_gaps = replace(_report_insufficient("A"), evidence_gaps=(),
+                        risk_rationale="some why")
+    assert "some why" in _insufficient_refresh_line("算力金属", r_no_gaps)
+    r_empty = replace(_report_insufficient("A"), evidence_gaps=(), risk_rationale="")
+    assert "evidence_insufficient" in _insufficient_refresh_line("算力金属", r_empty)
+
+
+def test_insufficient_middle_has_product_drivers_and_refresh_no_substate() -> None:
+    pm = ProductMetrics(expense_ratio=0.005)
+    mid = _insufficient_middle("算力金属", _report_insufficient("A", pm=pm))
+    text = "\n".join(mid)
+    assert "- 产品驱动: " in text
+    assert "费率=0.005" in text
+    assert "⚠️ 证据不足 / insufficient" in text
+    assert "子状态" not in text     # no sub-state line
+    assert "机会 / dca / 风险" not in text  # no triad
 
 
 # --- Task 7: AC8 — .json stays full source of truth (additive) ---
