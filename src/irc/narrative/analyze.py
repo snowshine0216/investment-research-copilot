@@ -1,11 +1,16 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import duckdb
 
 from irc.fundamentals.provider import CnFundamentalsProvider
-from irc.fundamentals.snapshot_cache import load_active_fund_cache
+from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS
+from irc.fundamentals.snapshot_cache import load_active_fund_cache, load_latest_nav_cached as _load_latest_nav_cached
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
+from irc.opportunity.lookthrough import map_lookthrough, QDII_KINDS
+from irc.opportunity.types import OpportunityInput
 from irc.narrative.risk import derive_position_risk_level
 from irc.narrative.schemas import (
     NarrativeFundReport,
@@ -18,6 +23,8 @@ from irc.opportunity.inputs_build import _build_input
 from irc.opportunity.states import build_opportunity_row
 from irc.opportunity.types import OpportunityRow
 from irc.schemas.universe import Instrument
+
+_log = logging.getLogger(__name__)
 
 
 def error_report(shortlist_row: ShortlistRow, reason: str) -> NarrativeFundReport:
@@ -89,6 +96,30 @@ def _report_from_card(
     )
 
 
+def _load_snapshot_for_row(
+    inp: OpportunityInput, *, quarter: str, data_dir: Path,
+) -> ActiveFundSnapshot | FundLevelSnapshot | None:
+    """Read-only snapshot loader; dispatches on the resolved lookthrough kind.
+
+    active_fund → load_active_fund_cache(fixed analyze-context quarter).
+    fund-level / QDII (w/ provider_symbol) → latest-nav/ FundLevelSnapshot scan.
+    Performs NO fetch (AC4).
+    """
+    target = map_lookthrough(inp)
+    if target.kind == "active_fund":
+        return load_active_fund_cache(inp.instrument_id, quarter, data_dir)
+    if (target.kind in QDII_KINDS or target.kind in _FUND_LEVEL_KINDS) and target.provider_symbol:
+        snap = _load_latest_nav_cached(target.provider_symbol, data_dir)
+        if snap is None:
+            _log.debug(
+                "analyze: no cached fund-level snapshot for %s (kind=%s) — "
+                "evidence will be insufficient (cache miss or swallowed read error)",
+                target.provider_symbol, target.kind,
+            )
+        return snap
+    return None
+
+
 def analyze_fund(
     shortlist_row: ShortlistRow,
     *,
@@ -104,6 +135,6 @@ def analyze_fund(
     iid = shortlist_row.instrument_id
     score_row = {"instrument_id": iid, "asset_class": shortlist_row.asset_class, "role": role}
     inp = _build_input(score_row, instr, None, None, 0.0, set(), con, provider=provider)
-    snapshot = load_active_fund_cache(iid, quarter, data_dir)
+    snapshot = _load_snapshot_for_row(inp, quarter=quarter, data_dir=data_dir)
     row = build_opportunity_row(inp, None, snapshot=snapshot, theme_report=None)
     return _report_from_card(row, shortlist_row, role=role)

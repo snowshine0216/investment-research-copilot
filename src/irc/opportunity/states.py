@@ -523,7 +523,7 @@ def build_opportunity_row(
     inp: OpportunityInput,
     theme_thesis: dict[str, str] | None,
     *,
-    snapshot: ConstituentSnapshot | ActiveFundSnapshot | None = None,
+    snapshot: ConstituentSnapshot | ActiveFundSnapshot | FundLevelSnapshot | None = None,
     theme_report: ThemeReport | None = None,
 ) -> OpportunityRow:
     """Compose a full OpportunityRow for a single instrument. Pure function.

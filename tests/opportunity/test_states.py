@@ -756,3 +756,14 @@ def test_partition_gaps_empty_input_returns_three_empty_tuples():
 def test_advisory_gap_codes_re_exported_from_states():
     from irc.opportunity.states import ADVISORY_GAP_CODES
     assert "top_holdings_broker_thin" in ADVISORY_GAP_CODES
+
+
+def test_build_opportunity_row_snapshot_annotation_includes_fund_level() -> None:
+    """RD-6a: the snapshot param must declare FundLevelSnapshot (production passes one)."""
+    import typing
+
+    from irc.fundamentals.types import FundLevelSnapshot
+    from irc.opportunity.states import build_opportunity_row
+
+    hints = typing.get_type_hints(build_opportunity_row)
+    assert FundLevelSnapshot in typing.get_args(hints["snapshot"])

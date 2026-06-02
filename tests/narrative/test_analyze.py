@@ -76,9 +76,32 @@ def test_report_from_card_missing_snapshot_is_insufficient() -> None:
     assert "evidence_gaps" in rpt.risk_drivers
 
 
+from irc.fundamentals.types import FundLevelSnapshot, FundNavReport  # noqa: E402
+from irc.opportunity.types import OpportunityInput  # noqa: E402
+
+
+def _inp(iid: str, asset_class: str, *, tracked_index=None, theme=None) -> OpportunityInput:
+    return OpportunityInput(
+        instrument_id=iid, asset_class=asset_class, market="cn_off_exchange",
+        theme=theme, tracked_index=tracked_index, name_cn=f"fund-{iid}", role="r",
+        is_holding=False, portfolio_weight=None, target_band_low=None,
+        target_band_high=None, venue_compatible=True,
+    )
+
+
+def _fund_level_snap(iid: str) -> FundLevelSnapshot:
+    return FundLevelSnapshot(
+        fund_id=iid, nav_report=FundNavReport(
+            fund_id=iid, fund_name=iid, latest_nav=4.5, latest_nav_date="2026-03-15",
+            nav_history=(("2026-03-15", 4.5),), source_report_quarter="2026Q1"),
+        announcements=(), evidence=(_evidence(iid),),
+        source_report_quarter="2026Q1", cache_probed_at="2026-06-02",
+    )
+
+
 def test_analyze_fund_wires_cache_and_builder(monkeypatch) -> None:
     monkeypatch.setattr(A, "load_active_fund_cache", lambda iid, q, root: None)
-    monkeypatch.setattr(A, "_build_input", lambda *a, **k: object())
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _inp("000A", "cn_equity_fund"))
     monkeypatch.setattr(A, "build_opportunity_row",
                         lambda inp, tt, *, snapshot, theme_report: _row("000A"))
     rpt = A.analyze_fund(
@@ -87,3 +110,69 @@ def test_analyze_fund_wires_cache_and_builder(monkeypatch) -> None:
         role="satellite_cn_metals",
     )
     assert rpt.thesis_evidence[0].citation_id == _evidence("000A").citation_id
+
+
+def test_load_snapshot_for_row_dispatches_active(monkeypatch) -> None:
+    calls = {"active": 0, "nav": 0}
+    monkeypatch.setattr(A, "load_active_fund_cache",
+                        lambda iid, q, root: calls.__setitem__("active", calls["active"] + 1))
+    monkeypatch.setattr(A, "_load_latest_nav_cached",
+                        lambda iid, root: calls.__setitem__("nav", calls["nav"] + 1))
+    inp = _inp("000A", "cn_equity_fund")
+    A._load_snapshot_for_row(inp, quarter="2026Q1",
+                             data_dir=__import__("pathlib").Path("/tmp"))
+    assert calls == {"active": 1, "nav": 0}  # AC5/AC14 — active loader only
+
+
+def test_load_snapshot_for_row_dispatches_fund_level(monkeypatch) -> None:
+    calls = {"active": 0, "nav": 0}
+    monkeypatch.setattr(A, "load_active_fund_cache",
+                        lambda iid, q, root: calls.__setitem__("active", calls["active"] + 1))
+    monkeypatch.setattr(A, "_load_latest_nav_cached",
+                        lambda iid, root: (calls.__setitem__("nav", calls["nav"] + 1),
+                                           _fund_level_snap("000B"))[1])
+    inp = _inp("000B", "cn_etf", tracked_index="csi300")
+    snap = A._load_snapshot_for_row(inp, quarter="2026Q1",
+                                    data_dir=__import__("pathlib").Path("/tmp"))
+    assert calls == {"active": 0, "nav": 1}  # fund-level loader only
+    assert isinstance(snap, FundLevelSnapshot)
+
+
+def test_load_snapshot_for_row_returns_none_when_no_provider_symbol(monkeypatch) -> None:
+    """FIX 4: silent-miss branch — when the resolved target has no provider_symbol,
+    _load_snapshot_for_row must return None without calling any cache loader."""
+    active_calls: list = []
+    nav_calls: list = []
+    monkeypatch.setattr(A, "load_active_fund_cache",
+                        lambda iid, q, root: active_calls.append(iid))
+    monkeypatch.setattr(A, "_load_latest_nav_cached",
+                        lambda iid, root: nav_calls.append(iid))
+    # A bare cn_etf with no tracked_index/theme routes to broad_index "unknown"
+    # with no provider_symbol — the silent-miss branch.
+    inp = _inp("000Z", "cn_etf")
+    result = A._load_snapshot_for_row(inp, quarter="2026Q1",
+                                      data_dir=__import__("pathlib").Path("/tmp"))
+    assert result is None
+    assert active_calls == []
+    assert nav_calls == []
+
+
+def test_analyze_fund_fund_level_issues_no_build(monkeypatch) -> None:
+    """AC4 — analyze_fund reads only; never invokes build_snapshot."""
+    import irc.fundamentals.snapshot as S
+
+    def _no_build(*a, **k):
+        raise AssertionError("analyze_fund must not build")
+
+    monkeypatch.setattr(S, "build_snapshot", _no_build)
+    monkeypatch.setattr(A, "load_active_fund_cache", lambda iid, q, root: None)
+    monkeypatch.setattr(A, "_load_latest_nav_cached", lambda iid, root: _fund_level_snap("000B"))
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: _inp("000B", "cn_etf",
+                                                                tracked_index="csi300"))
+    monkeypatch.setattr(A, "build_opportunity_row",
+                        lambda inp, tt, *, snapshot, theme_report: _row("000B"))
+    rpt = A.analyze_fund(
+        _shortlist_row("000B"), instr=None, con=object(), provider=object(),
+        quarter="2026Q1", data_dir=__import__("pathlib").Path("/tmp"), role="r",
+    )
+    assert rpt.instrument_id == "000B"

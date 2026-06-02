@@ -230,6 +230,8 @@ def _fund_level_eligible_target(
 ```
 
 > `_build_input` only uses `provider` to construct the `OpportunityInput` skeleton's downstream fields; the `map_lookthrough` decision reads only `asset_class`/`theme`/`tracked_index`/`instrument_id`/`name_cn`, all instr-derived. Passing `provider=None` is safe here because no provider-dependent field is consulted for the eligibility decision; if a future `_build_input` change touches the provider on this path, pass the real provider through (it is already available in `_run_analyze`). Confirm during green that `_build_input(..., provider=None)` does not raise for a fund-level instr.
+>
+> **[DRIFT ACCEPTED — 002-drift.md]** Implementation built `OpportunityInput` directly from `instr` fields rather than calling `_build_input(..., provider=None)`. This is equivalent for the eligibility decision (only instr-derived fields are read by `map_lookthrough`) and avoids the `provider=None` type-mismatch entirely. `inputs_build` is not imported. The `con` parameter is accepted in the signature for parity but not used. AC2/RD-3 goal satisfied.
 
 - [ ] **Step 4: Run tests to verify they pass**
 

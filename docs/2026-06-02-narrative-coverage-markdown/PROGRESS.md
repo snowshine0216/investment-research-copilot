@@ -9,7 +9,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
-| 002 | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-002` | ✅ 9620ea4 | ✅ db009cd | ✅ #96 | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 inline nit (pre-push P0 layer-fix) | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -35,6 +35,12 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 - 002-spec: [items/002-spec.md](items/002-spec.md) (commit e40cb27; 14 ACs; passive eligibility on LookthroughTarget.kind + qdii; passive nav-snapshot autobuild edge; **theme_report sourcing deferred** — FundLevelSnapshot branch never reads it, so `None` recovers robots_report; flagged as bounded follow-up)
 - 002-grill: [items/002-grill.md](items/002-grill.md) (commits f1deb2e/0939f6f; Verdict PASS; 8 Q; theme_report=None confirmed via thesis_evidence.py:348-373; 2 spec corrections — passive autobuild needs instrument index (not ShortlistRow); CONTEXT.md +3 terms; no new ADR)
 - 002-plan: [items/002-plan.md](items/002-plan.md) (commit 1f3e7f4; 10 tasks / ~50 steps; all 14 ACs → tests; unifies autobuild into `autobuild_narrative` w/ shared preflight FetchPlan [RD-7a]; widens build_opportunity_row snapshot annotation [RD-6a]; 3 judgment calls flagged)
+- 002-drift: [items/002-drift.md](items/002-drift.md) (commit db009cd; Verdict PASS; 1 accepted deviation [direct OpportunityInput build] + plan amend; 251-line file NOTE; 8 invariants verified)
+- 002-ship: [items/002-ship.md](items/002-ship.md) → PR [#96](https://github.com/snowshine0216/investment-research-copilot/pull/96) (base=feature; blast-radius tests 7 pre-existing-fail/1090 pass, 0 in-branch)
+- 002-review: [items/002-review.md](items/002-review.md) (Verdict PASS-WITH-NITS; adversarial P0 REFUTED [table-fallback gaps force insufficient]; layer-inversion P0 + QDII dup + observability FIXED pre-push c98be90/d97b3e3; re-review P0=none) · [items/002-ship-blocked.md](items/002-ship-blocked.md)
+- 002-verify: [items/002-verify.md](items/002-verify.md) (commit 746475e; Verdict PASS; 14 ACs — offline CLI+import-health+layering grep + 906 test-backed; 0 failures)
+- 002-pr-review: [items/002-pr-review.md](items/002-pr-review.md) (Verdict PASS-WITH-NITS; [PR #96 comment](https://github.com/snowshine0216/investment-research-copilot/pull/96#issuecomment-4601702712); 1 nit [stale msg wording] — fixed inline; 0 bugs)
+- 002-fix: 1 inline nit (budget-msg wording generalized to active+passive); the pre-push layer-inversion P0 + dup + observability were fixed in the /ship review round.
 
 ## Run-level
 | gate | status |

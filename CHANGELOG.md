@@ -46,8 +46,20 @@ system's deepest per-fund analysis on the shortlist.
   `insufficient`, never crashing the run. `analyze_fund` stays read-only (effects at the
   command edge). The misleading `--analyze` prerequisite error string (which told users
   to run `irc fundamentals snapshot` — a command that cannot populate this cache) is
-  corrected to name `irc ingest` + the autobuild behaviour. Passive `cn_etf` funds are
-  not yet deepened (follow-up).
+  corrected to name `irc ingest` + the autobuild behaviour.
+- **Passive-ETF fund-level deepening for `--analyze` (2026-06-02):** `irc narrative
+  --analyze` now deepens passive funds (`cn_etf` and `qdii_*`/`us_etf`/`hk_etf` with a
+  resolvable underlying), recovering `robots_report`'s all-passive shortlist. `analyze_fund`
+  gains a read-side dispatch on the resolved look-through kind: it loads a fund-level
+  `FundLevelSnapshot` (NAV data leg + announcement info leg) and feeds it through the
+  same dual-leg-gated thesis derivation as `irc opportunity` (a fund passing the dual-leg
+  gate reaches a real `thesis_state`, not `insufficient`). A passive nav-snapshot
+  autobuild edge (unified with the active path into a single `autobuild_narrative` with one
+  shared fetch-budget preflight) builds + caches missing nav snapshots; `theme_report`
+  stays `None` (the fund-level thesis branch is theme-independent — genuine theme sourcing
+  is a separate follow-up). Effects stay at the command edge; `analyze_fund` remains
+  read-only. Refactor: the nav-cache loader moved from `commands/` to
+  `fundamentals/snapshot_cache.py`, removing a `commands↔narrative` import cycle.
 
 ### Added — `eval-funds` (2026-06-01)
 

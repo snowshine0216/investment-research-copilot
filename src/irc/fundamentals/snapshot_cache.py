@@ -375,3 +375,19 @@ def load_nav_cache(
     if not isinstance(body, dict):
         return None
     return _fund_level_from_dict(body)
+
+
+def load_latest_nav_cached(
+    fund_id: str, root: Path,
+) -> FundLevelSnapshot | None:
+    """Scan `root/fundamentals/*/nav/fund_{fund_id}.json`; return most-recent quarter."""
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/nav/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_nav_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
