@@ -7,6 +7,7 @@ from irc.narrative.report_appendix import (
     _appendix_lines,
     _footnote_lines,
     _product_drivers_segment,
+    _safe_summary,
 )
 from irc.narrative.schemas import NarrativeFundReport, ShortlistRow
 from irc.opportunity.citation_selector import select_citations
@@ -55,6 +56,14 @@ def render_diagnostics_json(excluded: tuple[tuple[str, str, str], ...]) -> str:
     return json.dumps(doc, ensure_ascii=False, indent=2)
 
 
+def _evidence_bullet_line(ev: ThesisEvidence) -> str:
+    """One inline evidence bullet. Summary sanitized (FIX 5): newlines collapsed,
+    trailing separator omitted when summary is empty."""
+    s = _safe_summary(ev.summary)
+    base = f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+    return f"{base} · {s}" if s else base
+
+
 def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     """Inline cell: locked `- [ref:{id}] {type} · {source} · {date}` prefix
     (opportunity/report.py:210, mirrored not imported) with a trailing
@@ -62,10 +71,7 @@ def _evidence_bullets(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     if not thesis_evidence:
         return []
     selected = select_citations(thesis_evidence, cap=3)
-    return [
-        f"  - [ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date} · {ev.summary}"
-        for ev in selected
-    ]
+    return [_evidence_bullet_line(ev) for ev in selected]
 
 
 _WEAK_FLOOR_LEGEND = (

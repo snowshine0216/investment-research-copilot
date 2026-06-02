@@ -12,10 +12,19 @@ from irc.narrative.schemas import NarrativeFundReport
 from irc.opportunity.citation_selector import select_citations
 
 
+def _safe_summary(summary: str) -> str:
+    """Collapse any \\n/\\r in summary to a single space and strip edges.
+    Returns empty string when summary is blank (FIX 5)."""
+    return " ".join(summary.splitlines()).strip()
+
+
 def _footnote_line(ev: ThesisEvidence) -> str:
     """One footnote resolving a [ref:hex]. 16-hex id read verbatim (ADR 0001).
-    `· {url}` appended only when url is non-empty."""
-    base = f"[ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date} · {ev.summary}"
+    `· {url}` appended only when url is non-empty. Summary sanitized (FIX 5)."""
+    s = _safe_summary(ev.summary)
+    base = f"[ref:{ev.citation_id}] {ev.type} · {ev.source} · {ev.date}"
+    if s:
+        base = f"{base} · {s}"
     return f"{base} · {ev.url}" if ev.url else base
 
 
