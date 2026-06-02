@@ -50,10 +50,10 @@ def _footnote_lines(r: "NarrativeFundReport") -> list[str]:
     """Full-pool footnote table for one fund.
 
     Pool = union of r.thesis_evidence + every constituent's evidence (FIX 2).
-    Deduped by citation_id with deterministic survivor (FIX 3): sorted by
-    (citation_id, citation_kind) ASC before dict build — last-write wins on
-    a stable sort key, so the survivor is independent of input order.
-    Sorted citation_id ASC in the output (RD-4 determinism).
+    Deduped by citation_id with a deterministic survivor (FIX 3): first-write
+    wins over the fixed traversal order (r.thesis_evidence first, then each
+    constituent's evidence) — input-order-independent because the source tuples
+    are deterministic. Output is sorted by citation_id ASC (RD-4 determinism).
     """
     pool = _union_evidence(r)
     if not pool:
