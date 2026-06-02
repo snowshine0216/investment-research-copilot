@@ -437,6 +437,13 @@ from pathlib import Path as _Path  # noqa: E402
 _REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root
 
 
+def test_passive_autobuild_no_live_network_marker() -> None:
+    """AC13 — module contains no direct AkShare import (fetch goes via build_snapshot)."""
+    src = (_REPO_ROOT / "src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
+    assert "import akshare" not in src
+    assert "akshare" not in src  # no direct akshare reference; fetch is via build_snapshot
+
+
 def test_module_has_no_forbidden_indicator() -> None:
     src = (_REPO_ROOT / "src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
     assert "基金概况" not in src
