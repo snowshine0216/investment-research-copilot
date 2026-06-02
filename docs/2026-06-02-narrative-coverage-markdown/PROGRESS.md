@@ -63,9 +63,20 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 ## Run-level
 | gate | status |
 |------|--------|
-| run-doc-sync | ⏳ |
-| run-final-verify | ⏳ |
-| run-close-out | ⏳ |
+| run-doc-sync | ✅ [run-doc-sync.md](run-doc-sync.md) (PASS after README fix-forward) |
+| run-final-verify | ✅ [run-final-verify.md](run-final-verify.md) (PASS — integrated CLI + renderer smoke) |
+| run-close-out | ✅ feature PR #99 opened (not merged) |
+
+## FINAL STATUS — run complete (2026-06-02)
+- **Items merged:** 4 / 4 — 001 (PR #95, f81d6f1), 002 (#96, fd624c5), 003 (#97, afce294), 004 (#98, 2723c7c). All squash-merged into the feature branch.
+- **Items SKIPPED / BLOCKED:** none.
+- **Feature branch:** `autodev/narrative-coverage-markdown-feature`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/99
+- **Merged into protected branch:** no (PR #99 left OPEN into `main` for user review; `main` is protected, no opt-in this turn).
+- **Workflow-completeness audit:** PASS — all 4 items have spec/grill/plan/drift/ship/verify/review/pr-review with PASS / PASS-WITH-NITS verdicts; qa absent (correct, non-web).
+- **Phase-3 cross-cutting tests:** integrated suite = 8 documented pre-existing failures (unchanged) **+ 1 environmental flake** (`test_e2e_plan3_full_pipeline::test_e2e_irc_run_full_pipeline` — "research quality gate failed"; research/run-pipeline code is byte-identical to base, untouched by this run → NOT a regression). **0 new code-caused failures.** Diff scope: 10 files, all narrative/analyze/report + autobuild reuse + 1-line states.py annotation; risk.py/scorer/research untouched.
+- **Notable in-flow catches:** #95 P0 (FetchBudgetExceeded uncaught + con leak); #96 P0 (layer inversion narrative→commands; removed a `commands↔narrative` import cycle); #97 (AC8 .json gap + dangling footnote refs + non-det dedup); #98 (post-ship P1: refresh command used display label not narrative_id) — all fixed + re-verified.
+- **Follow-ups (deferred, documented):** F-1 `classify_product_quality` weak-floor scorer fix; genuine passive `theme_report` sourcing; full `from_dict` round-trip of narrative `.json` evidence provenance.
 
 ## Notes / decisions
 - 2026-06-02: Run created. Scope = 4 consolidated items (user choice). Full Opus authoring (user choice).
