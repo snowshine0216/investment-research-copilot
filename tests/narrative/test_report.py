@@ -381,15 +381,26 @@ def test_insufficient_middle_has_product_drivers_and_refresh_no_substate() -> No
 # --- Task 3 (004): per-row branch tests (AC1-AC5, AC9) ---
 
 _FORBIDDEN_INSUFFICIENT_TOKENS = (
-    # action triad
-    "机会 / dca / 风险", "small_watch", "pause_wait", "slow_dca", "do_not_buy",
-    "trim_review", "review_required",
+    # action triad — full OpportunityState vocabulary
+    "机会 / dca / 风险",
+    "core_dca", "small_watch", "pause_wait", "exclude",
+    # full DcaAction vocabulary
+    "accelerate_dca", "normal_dca", "slow_dca", "pause_dca", "do_not_buy",
+    # full RiskAction vocabulary
+    "trim_review", "exit_review", "review_required",
     # triggers + cadence markers
     "证伪触发", "减仓触发", "复核节奏",
-    # sub-state line marker + sub-state verdict tokens (grill Q1/Q6)
+    # sub-state line marker + full sub-state verdict tokens (grill Q1/Q6)
     "子状态",
-    "expensive", "very_expensive", "overheated", "crowded", "under_pressure",
-    "falsified", "weak", "poor", "intact", "cheap", "acceptable",
+    # ValuationState
+    "cheap", "reasonable_low", "fair", "expensive", "very_expensive",
+    # HeatState
+    "cold", "normal", "crowded", "overheated",
+    # ThesisState
+    "intact", "under_pressure", "falsified",
+    # ProductQualityState
+    "strong", "acceptable", "weak", "poor",
+    # shared evidence_insufficient sentinel (all sub-state dims)
     "evidence_insufficient",
 )
 
@@ -410,6 +421,36 @@ def test_insufficient_block_forbidden_tokens_locked() -> None:
     failure_renderer.py criterion 18). No triad/trigger/cadence/sub-state-verdict
     token survives on an insufficient block."""
     r = _report_insufficient("A")
+    block = render_report_md("算力金属", (r,)).split("## A ")[1]
+    for tok in _FORBIDDEN_INSUFFICIENT_TOKENS:
+        assert tok not in block, f"forbidden token survived insufficient block: {tok}"
+
+
+def _report_insufficient_alt(iid: str) -> NarrativeFundReport:
+    """Insufficient row using the previously-missing token vocabulary so
+    _FORBIDDEN_INSUFFICIENT_TOKENS is non-vacuous for core_dca / accelerate_dca /
+    exit_review / cold / fair / reasonable_low / strong / exclude etc."""
+    base = _report(iid, level="insufficient", evidence=())
+    return replace(
+        base,
+        opportunity_state="core_dca",
+        dca_action="accelerate_dca",
+        risk_action="exit_review",
+        valuation_state="reasonable_low",
+        heat_state="cold",
+        thesis_state="under_pressure",
+        product_quality_state="strong",
+        risk_rationale="evidence_gaps present — risk cannot be assessed",
+        risk_drivers=("evidence_gaps",),
+        evidence_gaps=("missing_product_metadata",),
+    )
+
+
+def test_insufficient_block_forbidden_tokens_non_vacuous_alt_fixture() -> None:
+    """F2: _FORBIDDEN_INSUFFICIENT_TOKENS must suppress tokens beyond the default
+    fixture's vocabulary (core_dca, accelerate_dca, exit_review, reasonable_low,
+    cold, under_pressure, strong).  Exercises the previously-missing tokens."""
+    r = _report_insufficient_alt("A")
     block = render_report_md("算力金属", (r,)).split("## A ")[1]
     for tok in _FORBIDDEN_INSUFFICIENT_TOKENS:
         assert tok not in block, f"forbidden token survived insufficient block: {tok}"
