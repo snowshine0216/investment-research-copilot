@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | ✅ c70ba52 | ✅ 1269290 | ✅ #95 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds (P0 fixed pre-push) | ✅ f81d6f1 |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -43,3 +43,4 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 ## Notes / decisions
 - 2026-06-02: Run created. Scope = 4 consolidated items (user choice). Full Opus authoring (user choice).
 - 2026-06-02: `main` is protected + default → synthesized feature branch; no merge-to-main opt-in this turn.
+- 2026-06-02: Item 001 MERGED into feature branch via squash PR #95 (commit f81d6f1). Pre-push /ship review caught a real P0 (FetchBudgetExceeded uncaught + con leak) — fixed before push. Post-ship: verify PASS, review PASS, pr-review PASS-WITH-NITS (2 nits). 8 pre-existing test failures on base (unrelated; verified by checkout).
