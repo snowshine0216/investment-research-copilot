@@ -161,8 +161,11 @@ def run_narrative(
         if reports is None:
             print(
                 f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "
-                f"cached snapshot quarter (run `irc fundamentals snapshot`). "
-                f"Shortlist written to {out}.", file=sys.stderr,
+                f"snapshot quarter under data/fundamentals/. Active-fund snapshots are "
+                f"auto-built during a successful --analyze (set IRC_NARRATIVE_AUTOBUILD=0 "
+                f"to disable); if none exist yet, run `irc opportunity` once or re-run "
+                f"--analyze online. Shortlist written to {out}.",
+                file=sys.stderr,
             )
             return 2
         atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports))

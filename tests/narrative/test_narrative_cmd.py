@@ -284,6 +284,33 @@ def test_cli_narrative_screen_only(tmp_path: Path, monkeypatch) -> None:
     assert (out / "compute_metals_shortlist.json").exists()
 
 
+def test_analyze_missing_db_error_string_is_corrected(tmp_path, monkeypatch, capsys) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: None)
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "irc ingest" in err
+    assert "data/fundamentals/" in err
+    assert "auto-built" in err
+    assert "fundamentals snapshot" not in err  # the bonus-bug instruction is gone
+
+
 def test_analyze_invokes_autobuild_with_resolved_quarter(tmp_path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
     monkeypatch.setattr(
