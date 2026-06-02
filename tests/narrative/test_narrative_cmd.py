@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
+from click.testing import CliRunner
+
+from irc.cli import main as cli_main
 from irc.commands import narrative_cmd
 from irc.fundamentals.types import ThesisEvidence
 from irc.narrative.schemas import Holding, NarrativeFundReport
@@ -113,7 +117,6 @@ def test_analyze_renders_real_citations(tmp_path: Path, monkeypatch) -> None:
     )
     assert rc == 0
     report_md = (out_dir / "compute_metals_report.md").read_text()
-    import re
     assert re.search(r"\[ref:[0-9a-f]{16}\]", report_md)
     assert "high" in report_md and "trim_review" in report_md
 
@@ -191,3 +194,36 @@ def test_min_overlap_override_widens_shortlist(tmp_path: Path, monkeypatch) -> N
                                 analyze=False, out_dir=str(out_dir), min_overlap=10.0)
     widened = json.loads((out_dir / "compute_metals_shortlist.json").read_text())["funds"]
     assert [r["instrument_id"] for r in widened] == ["000A"]
+
+
+def test_cli_narrative_unknown_exits_2(tmp_path: Path) -> None:
+    _wire_repo(tmp_path)
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_main,
+        ["narrative", "nope", "--repo-root", str(tmp_path), "--out", str(tmp_path / "o")],
+    )
+    assert result.exit_code == 2
+
+
+def test_cli_narrative_screen_only(tmp_path: Path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    out = repo / "outputs" / "2026-06-02" / "narrative"
+    runner = CliRunner()
+    result = runner.invoke(
+        cli_main,
+        ["narrative", "compute_metals", "--repo-root", str(repo),
+         "--out", str(out), "--screen-only"],
+    )
+    assert result.exit_code == 0
+    assert (out / "compute_metals_shortlist.json").exists()
