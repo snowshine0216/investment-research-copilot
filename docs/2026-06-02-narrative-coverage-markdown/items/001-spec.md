@@ -32,9 +32,14 @@ out of scope (items 002 / 003 / 004).
    never built by this item. Verified by a unit test asserting the build function
    is invoked for a `cn_equity_fund` row and **not** invoked for a `cn_etf` row.
 2. **Cache-presence gate (no refetch).** Autobuild skips any eligible fund that
-   already has a cached `active_fund` snapshot (probe via the latest-quarter
-   cache lookup before building). Verified by a unit test: a fund with a
-   pre-seeded cache file triggers zero `build_snapshot` calls.
+   already has a cached `active_fund` snapshot ~~(probe via the latest-quarter
+   cache lookup before building)~~ — corrected by grill: probe via the
+   **resolved analyze-context quarter** (`load_active_fund_cache(iid, quarter,
+   data_dir)` — the exact quarter `analyze_fund` will subsequently read), NOT a
+   cross-module "latest-quarter" lookup, so the probe and the consumer agree on
+   the quarter (idempotence, AC8) and no `commands/opportunity_cmd.py` private
+   helper is imported. Verified by a unit test: a fund with a pre-seeded cache
+   file (for the resolved quarter) triggers zero `build_snapshot` calls.
 3. **Effects at edges.** All fetch/build/cache-write I/O lives in the
    `commands/` layer (a new thin helper in `narrative_cmd.py`), invoked before the
    per-fund `analyze_fund` loop or per-fund just ahead of it. `analyze_fund`'s
@@ -183,7 +188,12 @@ out of scope (items 002 / 003 / 004).
 
 ### Could not be fully resolved from MASTER-SPEC / handoff / code alone
 
-- **Whether to also stamp Policy B verdicts in the narrative path.** The
+- ~~**Whether to also stamp Policy B verdicts in the narrative path.**~~ —
+  resolved by grill (see `## Resolved decisions` Q-G2 below); the minimal
+  posture (supply snapshot only, no `evaluate_policy_b`/rule-2.5 stamping) is
+  **confirmed in scope** and the rule-2.5 citation-parity enrichment is a
+  documented follow-up. Retained for provenance.
+  The
   opportunity path runs `evaluate_policy_b` + rule-2.5 fund-level evidence stamping
   after building the row (opportunity_cmd.py:939-954); the narrative `analyze_fund`
   path does **not**. This spec deliberately keeps the narrative path's existing
@@ -193,3 +203,113 @@ out of scope (items 002 / 003 / 004).
   narrative report via rule 2.5, that is a **follow-up** beyond item 001's stated
   scope (#1 + #6) and should be a separate item. Flagged for the planning step /
   reviewer to confirm this minimal posture is acceptable.
+
+## Resolved decisions
+
+Grilled against CONTEXT.md + ADR 0001/0002/0003 and the real code paths
+(`narrative_cmd.py`, `narrative/analyze.py`, `opportunity_cmd.py:840`/`939-954`,
+`opportunity/states.py::build_opportunity_row`, `opportunity/lookthrough.py:88`,
+`opportunity/policy_b.py` `fired_rule`). Every Q below was auto-accepted on its
+recommended answer (no-user-in-loop grill mode).
+
+- **Q-G1: Is narrative autobuild the same concept as opportunity autobuild, or a
+  variant deserving its own naming?**
+  A: Same concept (build-and-cache an `ActiveFundSnapshot`, cache-presence gated,
+  default-on, env kill-switch) on a **different command surface**; it gets its own
+  env var `IRC_NARRATIVE_AUTOBUILD` (default `"1"`) so the two kill-switches are
+  **independently** togglable, and a glossary nuance because it inverts the
+  previously-locked "narrative `--analyze` is cache-only" invariant.
+  Rationale: independent toggling is a real operator need; the cache-only inversion
+  must be recorded as deliberate, not silent drift.
+  Doc impact: CONTEXT.md (new "Narrative active-fund autobuild" term + amended
+  "Analyze deepens, then reads cache" entry). No ADR — mirrors ADR 0002.
+
+- **Q-G2: Should the narrative autobuild path also run `evaluate_policy_b` +
+  rule-2.5 fund-level evidence stamping like opportunity_cmd.py:939-954?**
+  A: **No — keep the minimal posture for item 001.** Supply the snapshot only; let
+  `build_opportunity_row → derive_thesis_from_evidence` consume it as today. The
+  narrative report has no dual-coverage gate, no H3 partition, no publishability
+  decision, so Policy B's gap-codes would have no consumer and `thesis_state` is
+  already set exclusively by `derive_thesis_from_evidence` (ADR 0003 — Policy B
+  must never set it). The only consequence is that a **foreign-heavy** active fund's
+  narrative report carries per-constituent citation legs but not the rule-2.5
+  fund-level NAV+announcement legs — a citation-completeness gap, NOT a correctness
+  or publishability defect, and it does not change the headline `position_risk_level`
+  bug this item fixes.
+  Rationale: keeps publishability semantics consistent with CONTEXT.md / ADR 0003;
+  avoids semantic creep into the read-only stage core.
+  Scope: **in scope** — confirmed minimal posture. Rule-2.5 citation parity in
+  narrative reports is a **documented follow-up** (a separate future
+  narrative-citation-parity item), out of scope for 001.
+  Doc impact: CONTEXT.md (new "Narrative path is Policy-B-free" boundary term).
+  No ADR (reaffirms ADR 0003's existing boundary; not a new hard-to-reverse
+  decision).
+
+- **Q-G3: Does the rule-2.5 deferral warrant an ADR?**
+  A: No. Three-of-three fails: not hard to reverse (a follow-up adds the stamp with
+  zero migration), not surprising (strict subset of ADR 0003 §7 — the narrative
+  path simply doesn't invoke the publishability layer), no novel trade-off (already
+  recorded in ADR 0003).
+  Doc impact: none (CONTEXT.md boundary note + this section suffice).
+
+- **Q-G4: Does flipping "narrative --analyze is cache-only" → "auto-builds" need an
+  ADR?**
+  A: No — CONTEXT.md amendment instead. Reversible (`IRC_NARRATIVE_AUTOBUILD=0`
+  restores the exact cache-only behaviour), unsurprising (directly mirrors
+  ADR 0002's opportunity autobuild), no novel trade-off.
+  Doc impact: CONTEXT.md ("Analyze deepens, then reads cache" amendment). No ADR.
+
+- **Q-G5: "active fund" / `cn_equity_fund` vs index LOF terminology (resolved-Q #1
+  claims index LOFs labelled `cn_equity_fund` are treated as active).**
+  A: No conflict to fix. `lookthrough.py:88` routes `cn_equity_fund → active_fund`
+  unconditionally for the *entire* pipeline, so an index LOF mislabelled
+  `cn_equity_fund` is already treated as active everywhere — the narrative gate
+  inherits the same benign over-inclusion as the opportunity path. The spec's use
+  of "active fund" / `cn_equity_fund` is consistent with CONTEXT.md.
+  Doc impact: none.
+
+- **Q-G6: "shortlist" / "look-through" terminology drift?**
+  A: None. "Shortlist row" (`ShortlistRow`) and "look-through" (`map_lookthrough`)
+  match CONTEXT.md "Narrative selector" / "Screen → analyze gate" and the code.
+  Doc impact: none.
+
+- **Q-G7: Cache-presence probe — reuse `_load_latest_active_fund_cached`
+  (latest-quarter, private to opportunity_cmd.py) or probe the resolved quarter?**
+  A: Probe the **resolved analyze-context quarter** via the public
+  `load_active_fund_cache(iid, quarter, data_dir)` — the exact quarter
+  `analyze_fund` will read. Rationale: probing "latest" while `analyze_fund` reads
+  "resolved" could build/write quarter X yet read quarter Y → non-idempotent
+  (breaks AC8); and it avoids a `narrative_cmd.py → opportunity_cmd.py` private
+  cross-command import.
+  Doc impact: spec strike-through on Acceptance #2. No CONTEXT/ADR change.
+
+- **Q-G8: `FetchBudgetExceeded` / `_fetch_budget` — reuse or re-define?**
+  A: **Reuse** the public `FetchBudgetExceeded` exception class and `_fetch_budget()`
+  helper from `opportunity_cmd.py` (a legitimate shared seam — unlike the private
+  cache probe). The narrative pre-build estimate is a documented constant fan-out:
+  `n_eligible_missing × (constant × TOP_N_DEFAULT)`, compared against
+  `_fetch_budget()` (`IRC_FETCH_BUDGET`, default 2000), raising before the first
+  fetch. No narrative-specific budget knob (reuse the "Preflight fetch budget"
+  concept). For a `top_n≈15` shortlist this never trips in practice.
+  Doc impact: none (already glossaried under "Preflight fetch budget").
+
+- **Q-G9: Does the corrected error string over-promise autobuild?**
+  A: Tighten so it does not imply autobuild rescues the `None`-context case. The
+  error fires precisely when `_open_analyze_context` returns `None` (no DuckDB or
+  no discoverable quarter) — i.e. autobuild cannot even start. Name the real
+  prerequisites (`irc ingest` for `data/local.duckdb`; a snapshot quarter under
+  `data/fundamentals/`), state that active-fund snapshots are auto-built **during a
+  successful `--analyze`** (once the context opens), and **drop** the
+  `irc fundamentals snapshot` instruction (the bonus bug — it cannot populate the
+  `active_fund/` cache narrative reads). Resolved-Q #6 wording is directionally
+  correct and stands with this tightening; Acceptance #9's grep assertions
+  (`fundamentals snapshot` absent, new substring present) are unchanged.
+  Doc impact: none beyond this note.
+
+- **Q-G10: `build_snapshot` return type vs `write_active_fund_cache` input
+  (Acceptance #5).**
+  A: No change. For `kind == "active_fund"` targets `build_snapshot` returns an
+  `ActiveFundSnapshot`; the `isinstance(...)` guard before
+  `write_active_fund_cache(snap: ActiveFundSnapshot, root)` is the correct
+  defensive shape and mirrors `opportunity_cmd.py` exactly.
+  Doc impact: none.
