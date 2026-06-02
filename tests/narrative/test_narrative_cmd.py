@@ -8,8 +8,9 @@ from click.testing import CliRunner
 
 from irc.cli import main as cli_main
 from irc.commands import narrative_cmd
-from irc.fundamentals.types import ThesisEvidence
+from irc.fundamentals.types import ConstituentAnalysis, LookthroughTarget, ThesisEvidence
 from irc.narrative.schemas import Holding, NarrativeFundReport
+from irc.opportunity.types import OpportunityRow
 
 
 def _wire_repo(tmp_path: Path) -> Path:
@@ -37,6 +38,22 @@ def _evidence(iid: str) -> ThesisEvidence:
         summary=f"{iid} 2026Q1 财报已披露（口径未核实）",
         scope="instrument", citation_kind="data",
         owner_instrument_id=iid, parent_fund_id=None, constituent_key=None,
+    )
+
+
+def _row(iid: str) -> OpportunityRow:
+    return OpportunityRow(
+        instrument_id=iid, name_cn=f"fund-{iid}", asset_class="cn_equity_fund",
+        theme="metals",
+        lookthrough_target=LookthroughTarget(kind="active_fund", key=iid,
+                                             display_cn=f"fund-{iid}"),
+        valuation_state="fair", heat_state="normal", thesis_state="intact",
+        product_quality_state="acceptable", opportunity_state="small_watch",
+        opportunity_reason="逻辑完整", evidence_gaps=(),
+        thesis_evidence=(_evidence(iid),),
+        constituent_analyses=(ConstituentAnalysis(
+            symbol="601899", name_cn="紫金矿业", weight_pct=20.0,
+            evidence=(), failure_reasons=(), one_line_view="x"),),
     )
 
 
@@ -409,3 +426,61 @@ def test_analyze_idempotent_second_run_zero_builds(tmp_path, monkeypatch) -> Non
     second = (out_dir / "compute_metals_report.json").read_text()
     assert build_count["n"] == 1  # second run: cache present → zero new builds (AC8)
     assert first == second  # byte-identical report JSON
+
+
+def test_analyze_recovers_active_fund_with_real_thesis(tmp_path, monkeypatch) -> None:
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+    monkeypatch.setattr(narrative_cmd, "_open_analyze_context",
+                        lambda root, db_path, quarter: ("CON", "PROV", "2026Q1", {}))
+
+    # autobuild edge: build a non-empty active-fund snapshot that gets cached
+    from irc.commands import narrative_autobuild as NA
+    from irc.fundamentals.types import ActiveFundSnapshot
+
+    def _fake_build(target, *, top_n, provider):
+        ev = ThesisEvidence(
+            type="filing", source="601899", url="", date="2026-03-31",
+            summary="601899 2026Q1 财报已披露（口径未核实）", scope="constituent",
+            citation_kind="data", owner_instrument_id="000A",
+            parent_fund_id="000A", constituent_key="601899",
+        )
+        return ActiveFundSnapshot(
+            fund_id="000A", source_report_date="2026-03-31",
+            source_report_quarter="2026Q1", cache_probed_at="",
+            constituent_analyses=(ConstituentAnalysis(
+                symbol="601899", name_cn="紫金矿业", weight_pct=20.0,
+                evidence=(ev,), failure_reasons=(), one_line_view="x"),),
+            failure_reasons_by_symbol={},
+        )
+
+    monkeypatch.setattr(NA, "build_snapshot", _fake_build)
+
+    # keep analyze_fund DB-free: stub its _build_input + build_opportunity_row so the
+    # REAL cache load (load_active_fund_cache) is what supplies the snapshot.
+    from irc.narrative import analyze as A
+
+    def _fake_row(inp, tt, *, snapshot, theme_report):
+        assert snapshot is not None  # the autobuilt cache must be loaded
+        return _row("000A")  # local helper below
+
+    monkeypatch.setattr(A, "_build_input", lambda *a, **k: object())
+    monkeypatch.setattr(A, "build_opportunity_row", _fake_row)
+
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                     analyze=True, out_dir=str(out_dir))
+    assert rc == 0
+    report = json.loads((out_dir / "compute_metals_report.json").read_text())
+    fund = report["funds"][0]
+    assert fund["thesis_state"] != "evidence_insufficient"
+    assert fund.get("thesis_evidence")  # non-empty → deepened, not screened (AC11)
