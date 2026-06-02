@@ -84,7 +84,15 @@ _WEAK_FLOOR_LEGEND = (
 
 
 def _has_weak_fund(reports: tuple[NarrativeFundReport, ...]) -> bool:
-    return any(r.product_quality_state == "weak" for r in reports)
+    """True only when at least one fund actually DISPLAYS 质量=weak.
+
+    Insufficient rows suppress the 子状態 line (incl. 質量=), so a weak+insufficient
+    fund must NOT trigger the legend (orphan legend guard, 004-FIX-1).
+    """
+    return any(
+        r.product_quality_state == "weak" and r.position_risk_level != "insufficient"
+        for r in reports
+    )
 
 
 def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -> str:

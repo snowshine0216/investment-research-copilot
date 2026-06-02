@@ -12,6 +12,7 @@ from irc.narrative.schemas import (
     ShortlistRow,
 )
 from irc.narrative.report import (
+    _WEAK_FLOOR_LEGEND,
     render_diagnostics_json,
     render_report_json,
     render_report_md,
@@ -713,3 +714,29 @@ def test_empty_summary_produces_no_trailing_separator() -> None:
             # No trailing separator: line must not end with " · " or "· "
             assert not line.rstrip().endswith("·"), f"trailing · in: {line!r}"
             assert not line.rstrip().endswith("· "), f"trailing '· ' in: {line!r}"
+
+
+# ── 004-FIX-1 — weak-floor legend scoped to DISPLAYED 质量 ───────────────────
+
+def _report_weak_insufficient(iid: str) -> NarrativeFundReport:
+    """A fund that is both weak AND insufficient — 质量=weak is suppressed in .md."""
+    base = _report_insufficient(iid)
+    return replace(base, product_quality_state="weak")
+
+
+def test_weak_insufficient_only_no_legend() -> None:
+    """FIX-1a: when the ONLY weak fund is also insufficient, 质量=weak is not displayed
+    on any row, so the weak-floor legend must NOT appear (orphan legend bug)."""
+    r = _report_weak_insufficient("A")
+    md = render_report_md("算力金属", (r,))
+    assert _WEAK_FLOOR_LEGEND not in md
+
+
+def test_weak_sufficient_has_legend() -> None:
+    """FIX-1b: when a report has a sufficient (non-insufficient) weak fund,
+    质量=weak IS displayed on its row, so the weak-floor legend MUST appear."""
+    pm = ProductMetrics(expense_ratio=0.005)
+    r = replace(_report("A", level="elevated"), product_quality_state="weak",
+                product_metrics=pm)
+    md = render_report_md("算力金属", (r,))
+    assert _WEAK_FLOOR_LEGEND in md
