@@ -1,0 +1,133 @@
+instruments:
+  # === 沪深300 (大盘核心) ===
+  - { instrument_id: "510300", ticker: "510300", market: cn_on_exchange,
+      name_cn: "华泰柏瑞沪深300ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "沪深300", venue_required: [cn_brokerage] }
+  - { instrument_id: "510310", ticker: "510310", market: cn_on_exchange,
+      name_cn: "沪深300ETF易方达", asset_class: cn_etf, currency: cny,
+      tracked_index: "沪深300", venue_required: [cn_brokerage] }
+  - { instrument_id: "510330", ticker: "510330", market: cn_on_exchange,
+      name_cn: "沪深300ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "沪深300", venue_required: [cn_brokerage] }
+  - { instrument_id: "159919", ticker: "159919", market: cn_on_exchange,
+      name_cn: "沪深300ETF嘉实", asset_class: cn_etf, currency: cny,
+      tracked_index: "沪深300", venue_required: [cn_brokerage] }
+  # === 上证50 (大盘蓝筹) ===
+  - { instrument_id: "510050", ticker: "510050", market: cn_on_exchange,
+      name_cn: "上证50ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "上证50", venue_required: [cn_brokerage] }
+  # === 中证A500 (新核心宽基) ===
+  - { instrument_id: "563360", ticker: "563360", market: cn_on_exchange,
+      name_cn: "A500ETF华泰柏瑞", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证A500", venue_required: [cn_brokerage] }
+  - { instrument_id: "159352", ticker: "159352", market: cn_on_exchange,
+      name_cn: "A500ETF南方", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证A500", venue_required: [cn_brokerage] }
+  - { instrument_id: "159361", ticker: "159361", market: cn_on_exchange,
+      name_cn: "A500ETF易方达", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证A500", venue_required: [cn_brokerage] }
+  # === 中证500 / 中证1000 (中小盘) ===
+  - { instrument_id: "510500", ticker: "510500", market: cn_on_exchange,
+      name_cn: "南方中证500ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证500", venue_required: [cn_brokerage] }
+  - { instrument_id: "159922", ticker: "159922", market: cn_on_exchange,
+      name_cn: "中证500ETF嘉实", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证500", venue_required: [cn_brokerage] }
+  - { instrument_id: "512100", ticker: "512100", market: cn_on_exchange,
+      name_cn: "中证1000ETF南方", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证1000", venue_required: [cn_brokerage] }
+  - { instrument_id: "159845", ticker: "159845", market: cn_on_exchange,
+      name_cn: "中证1000ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证1000", venue_required: [cn_brokerage] }
+  # === 创业板 / 科创板 (成长) ===
+  - { instrument_id: "159915", ticker: "159915", market: cn_on_exchange,
+      name_cn: "创业板ETF易方达", asset_class: cn_etf, currency: cny,
+      tracked_index: "创业板指", venue_required: [cn_brokerage] }
+  - { instrument_id: "159949", ticker: "159949", market: cn_on_exchange,
+      name_cn: "创业板50ETF华安", asset_class: cn_etf, currency: cny,
+      tracked_index: "创业板50", venue_required: [cn_brokerage] }
+  - { instrument_id: "588000", ticker: "588000", market: cn_on_exchange,
+      name_cn: "科创50ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "科创50", venue_required: [cn_brokerage] }
+  - { instrument_id: "588080", ticker: "588080", market: cn_on_exchange,
+      name_cn: "科创50ETF易方达", asset_class: cn_etf, currency: cny,
+      tracked_index: "科创50", venue_required: [cn_brokerage] }
+  # === 红利低波 (防御) ===
+  - { instrument_id: "512890", ticker: "512890", market: cn_on_exchange,
+      name_cn: "红利低波ETF华泰柏瑞", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证红利低波", venue_required: [cn_brokerage] }
+  - { instrument_id: "515450", ticker: "515450", market: cn_on_exchange,
+      name_cn: "红利低波50ETF南方", asset_class: cn_etf, currency: cny,
+      tracked_index: "标普红利低波50", venue_required: [cn_brokerage] }
+  - { instrument_id: "515080", ticker: "515080", market: cn_on_exchange,
+      name_cn: "中证红利ETF招商", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证红利", venue_required: [cn_brokerage] }
+  # === 国债 / 政金债 (cn_bond_fund) ===
+  - { instrument_id: "511010", ticker: "511010", market: cn_on_exchange,
+      name_cn: "国债ETF国泰", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "5年国债", venue_required: [cn_brokerage] }
+  - { instrument_id: "511260", ticker: "511260", market: cn_on_exchange,
+      name_cn: "十年国债ETF国泰", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "10年国债", venue_required: [cn_brokerage] }
+  - { instrument_id: "511020", ticker: "511020", market: cn_on_exchange,
+      name_cn: "国债ETF平安", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "5年国债", venue_required: [cn_brokerage] }
+  - { instrument_id: "511520", ticker: "511520", market: cn_on_exchange,
+      name_cn: "政金债ETF富国", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "中债政金债", venue_required: [cn_brokerage] }
+  - { instrument_id: "159650", ticker: "159650", market: cn_on_exchange,
+      name_cn: "国开债ETF博时", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "国开债", venue_required: [cn_brokerage] }
+  # === 信用债 / 可转债 ===
+  - { instrument_id: "511220", ticker: "511220", market: cn_on_exchange,
+      name_cn: "城投债ETF海富通", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "城投债", venue_required: [cn_brokerage] }
+  - { instrument_id: "511180", ticker: "511180", market: cn_on_exchange,
+      name_cn: "可转债ETF海富通", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "中证可转债", venue_required: [cn_brokerage] }
+  - { instrument_id: "511380", ticker: "511380", market: cn_on_exchange,
+      name_cn: "可转债ETF博时", asset_class: cn_bond_fund, currency: cny,
+      tracked_index: "中证可转债", venue_required: [cn_brokerage] }
+  # === 主题ETF (央企创新) — referenced by 2026-05-18 outputs but absent before ===
+  - { instrument_id: "512960", ticker: "512960", market: cn_on_exchange,
+      name_cn: "央企创新ETF博时", asset_class: cn_etf, currency: cny,
+      theme: soe, tracked_index: "中证国新央企科技引领",
+      venue_required: [cn_brokerage] }
+  # === 主动权益基金 (consumer / blue-chip / balanced) ===
+  # Registered so the opportunity pipeline can resolve a real name; otherwise
+  # the discipline report rendered "<id> <id>" for each (see
+  # docs/2026-05-18-fix-memo-audit/items/003-spec.md).
+  - { instrument_id: "110022", ticker: "110022", market: cn_off_exchange,
+      name_cn: "易方达消费行业", asset_class: cn_equity_fund, currency: cny,
+      theme: consumer, venue_required: [cmb_fund] }
+  - { instrument_id: "005827", ticker: "005827", market: cn_off_exchange,
+      name_cn: "易方达蓝筹精选", asset_class: cn_equity_fund, currency: cny,
+      venue_required: [cmb_fund] }
+  - { instrument_id: "163417", ticker: "163417", market: cn_off_exchange,
+      name_cn: "兴全合宜A", asset_class: cn_equity_fund, currency: cny,
+      venue_required: [cmb_fund] }
+  - { instrument_id: "161005", ticker: "161005", market: cn_off_exchange,
+      name_cn: "富国天惠成长LOF", asset_class: cn_equity_fund, currency: cny,
+      venue_required: [cmb_fund] }
+  # === 机器人 / 智能制造 (主题ETF) — added 2026-06-02 so `irc narrative robots`
+  # has robotics-concentrated funds to screen (the generated catalog omits them).
+  # Each verified to resolve + overlap the robots basket (562500/159770/159551/
+  # 562360/560630: ~22% basket weight, 4 hits; 159667 工业母机: 8%, 2 hits).
+  - { instrument_id: "562500", ticker: "562500", market: cn_on_exchange,
+      name_cn: "机器人ETF华夏", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证机器人", venue_required: [cn_brokerage] }
+  - { instrument_id: "159770", ticker: "159770", market: cn_on_exchange,
+      name_cn: "机器人ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证机器人", venue_required: [cn_brokerage] }
+  - { instrument_id: "159551", ticker: "159551", market: cn_on_exchange,
+      name_cn: "机器人ETF基金", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证机器人", venue_required: [cn_brokerage] }
+  - { instrument_id: "560630", ticker: "560630", market: cn_on_exchange,
+      name_cn: "机器人ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证机器人", venue_required: [cn_brokerage] }
+  - { instrument_id: "562360", ticker: "562360", market: cn_on_exchange,
+      name_cn: "智能制造ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证智能制造", venue_required: [cn_brokerage] }
+  - { instrument_id: "159667", ticker: "159667", market: cn_on_exchange,
+      name_cn: "工业母机ETF", asset_class: cn_etf, currency: cny,
+      tracked_index: "中证机床ZZ", venue_required: [cn_brokerage] }
