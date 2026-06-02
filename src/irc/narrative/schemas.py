@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-from irc.fundamentals.types import ThesisEvidence
+from irc.fundamentals.types import ConstituentAnalysis, ThesisEvidence
 from irc.opportunity.types import (
     DcaAction,
     HeatState,
@@ -73,6 +73,19 @@ class ShortlistRow:
 
 
 @dataclass(frozen=True)
+class ProductMetrics:
+    """M2 product-quality drivers, projected from OpportunityInput at the
+    analyze edge. Display-only — no classifier reads it (RD-5). `None` means
+    'unprovidable / not ingested' and renders as `—`. `tracking_error` is
+    populated for passive vehicles only."""
+
+    expense_ratio: float | None = None
+    aum_cny: float | None = None
+    manager_tenure_years: float | None = None
+    tracking_error: float | None = None
+
+
+@dataclass(frozen=True)
 class NarrativeFundReport:
     """Per-fund analyze record. Carries the REAL OpportunityRow/ThesisCard state
     plus the prospective-buy risk level. `thesis_evidence` holds the ACTUAL
@@ -97,6 +110,11 @@ class NarrativeFundReport:
     review_cadence: str
     evidence_gaps: tuple[str, ...]
     thesis_evidence: tuple[ThesisEvidence, ...] = ()
+    # Item 003: display-only carriers. constituent_analyses is threaded from
+    # card/row (the renderer stopped dropping it); product_metrics is built from
+    # OpportunityInput. Neither feeds any gate/classifier (RD-5).
+    constituent_analyses: tuple[ConstituentAnalysis, ...] = ()
+    product_metrics: ProductMetrics | None = None
 
 
 @dataclass(frozen=True)

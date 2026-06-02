@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import json
 import re
+from dataclasses import replace
 
-from irc.fundamentals.types import ThesisEvidence
+from irc.fundamentals.types import ConstituentAnalysis, ThesisEvidence
 from irc.narrative.schemas import (
     NarrativeFundReport,
     OverlapResult,
+    ProductMetrics,
     ShortlistRow,
 )
 from irc.narrative.report import (
@@ -118,3 +120,20 @@ def test_report_json_round_trips_states_and_evidence() -> None:
     assert fund["risk_action"] == "trim_review"
     assert fund["thesis_evidence"][0]["citation_id"] == ev.citation_id
     assert fund["thesis_evidence"][0]["type"] == "filing"
+
+
+# --- Task 1: schema tests ---
+
+def test_product_metrics_defaults_are_none() -> None:
+    pm = ProductMetrics()
+    assert pm.expense_ratio is None
+    assert pm.aum_cny is None
+    assert pm.manager_tenure_years is None
+    assert pm.tracking_error is None
+
+
+def test_narrative_fund_report_new_fields_default_empty() -> None:
+    # Existing _report() constructor must still be valid (no new required args).
+    r = _report("A")
+    assert r.constituent_analyses == ()
+    assert r.product_metrics is None
