@@ -169,6 +169,29 @@ def _evidence_dict(ev: ThesisEvidence) -> dict:
     }
 
 
+def _product_metrics_dict(pm) -> dict | None:
+    if pm is None:
+        return None
+    return {
+        "expense_ratio": pm.expense_ratio,
+        "aum_cny": pm.aum_cny,
+        "manager_tenure_years": pm.manager_tenure_years,
+        "tracking_error": pm.tracking_error,
+    }
+
+
+def _constituent_dict(c) -> dict:
+    return {
+        "symbol": c.symbol,
+        "name_cn": c.name_cn,
+        "weight_pct": c.weight_pct,
+        "one_line_view": c.one_line_view,
+        "failure_reasons": list(c.failure_reasons),
+        "audit_errors": list(c.audit_errors),
+        "evidence": [_evidence_dict(e) for e in c.evidence],
+    }
+
+
 def _report_dict(r: NarrativeFundReport) -> dict:
     return {
         "instrument_id": r.instrument_id,
@@ -188,6 +211,8 @@ def _report_dict(r: NarrativeFundReport) -> dict:
         "review_cadence": r.review_cadence,
         "evidence_gaps": list(r.evidence_gaps),
         "thesis_evidence": [_evidence_dict(ev) for ev in r.thesis_evidence],
+        "product_metrics": _product_metrics_dict(r.product_metrics),
+        "constituent_analyses": [_constituent_dict(c) for c in r.constituent_analyses],
     }
 
 

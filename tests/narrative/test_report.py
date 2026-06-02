@@ -301,3 +301,31 @@ def test_report_md_no_product_metrics_renders_em_dash_drivers() -> None:
     md = render_report_md("算力金属", (_report("A"),))  # product_metrics is None
     block = md.split("## A ")[1]
     assert "费率=—" in block  # None bundle → all em-dash, never crashes
+
+
+# --- Task 7: AC8 — .json stays full source of truth (additive) ---
+
+def test_report_json_includes_product_metrics_and_constituents() -> None:
+    ev = _evidence("601899")
+    ca = ConstituentAnalysis(
+        symbol="601899", name_cn="紫金矿业", weight_pct=8.5,
+        evidence=(ev,), failure_reasons=(), one_line_view="紫金 +20%", audit_errors=(),
+    )
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=None)
+    r = replace(_report("A", evidence=(ev,)), constituent_analyses=(ca,), product_metrics=pm)
+    doc = json.loads(render_report_json("算力金属", (r,)))
+    fund = doc["funds"][0]
+    # additive — every existing key still present (round-trip AC8)
+    assert fund["thesis_evidence"][0]["citation_id"] == ev.citation_id
+    assert fund["product_metrics"]["expense_ratio"] == 0.005
+    assert fund["product_metrics"]["tracking_error"] is None
+    assert fund["constituent_analyses"][0]["symbol"] == "601899"
+    assert fund["constituent_analyses"][0]["one_line_view"] == "紫金 +20%"
+
+
+def test_report_json_two_calls_byte_identical() -> None:
+    ev = _evidence("A")
+    pm = ProductMetrics(expense_ratio=0.005)
+    r = replace(_report("A", evidence=(ev,)), product_metrics=pm)
+    assert render_report_json("算力金属", (r,)) == render_report_json("算力金属", (r,))
