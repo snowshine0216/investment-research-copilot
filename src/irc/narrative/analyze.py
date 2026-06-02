@@ -14,6 +14,7 @@ from irc.opportunity.types import OpportunityInput
 from irc.narrative.risk import derive_position_risk_level
 from irc.narrative.schemas import (
     NarrativeFundReport,
+    ProductMetrics,
     RiskEvalView,
     ShortlistRow,
 )
@@ -76,8 +77,18 @@ def _risk_view_from_row(row: OpportunityRow, shortlist_row: ShortlistRow) -> Ris
     )
 
 
+def _product_metrics_from_input(inp: OpportunityInput) -> ProductMetrics:
+    """Project the four display-only product-quality drivers (RD-5). Pure."""
+    return ProductMetrics(
+        expense_ratio=inp.expense_ratio,
+        aum_cny=inp.aum_cny,
+        manager_tenure_years=inp.manager_tenure_years,
+        tracking_error=inp.tracking_error,
+    )
+
+
 def _report_from_card(
-    row: OpportunityRow, shortlist_row: ShortlistRow, *, role: str,
+    row: OpportunityRow, shortlist_row: ShortlistRow, *, inp: OpportunityInput, role: str,
 ) -> NarrativeFundReport:
     entry_reason = row.opportunity_reason.split("；")[0].split(";")[0]
     card = build_thesis_card(row, _PROSPECTIVE_POSITION, role, entry_reason)
@@ -93,6 +104,8 @@ def _report_from_card(
         falsification_triggers=card.falsification_triggers,
         trim_triggers=card.trim_triggers, review_cadence=card.review_cadence,
         evidence_gaps=card.evidence_gaps, thesis_evidence=card.thesis_evidence,
+        constituent_analyses=card.constituent_analyses,
+        product_metrics=_product_metrics_from_input(inp),
     )
 
 
@@ -137,4 +150,4 @@ def analyze_fund(
     inp = _build_input(score_row, instr, None, None, 0.0, set(), con, provider=provider)
     snapshot = _load_snapshot_for_row(inp, quarter=quarter, data_dir=data_dir)
     row = build_opportunity_row(inp, None, snapshot=snapshot, theme_report=None)
-    return _report_from_card(row, shortlist_row, role=role)
+    return _report_from_card(row, shortlist_row, inp=inp, role=role)

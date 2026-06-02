@@ -55,8 +55,33 @@ def test_risk_view_falls_back_to_screen_holdings_when_no_constituents() -> None:
     assert view.top_holdings[0] == ("601899", "紫金矿业", 38.0)  # from screen Holding
 
 
+def test_report_from_card_carries_constituent_analyses() -> None:
+    inp = _inp("000A", "cn_equity_fund")
+    rpt = A._report_from_card(_row("000A"), _shortlist_row("000A"), inp=inp, role="satellite")
+    assert rpt.constituent_analyses != ()
+    assert rpt.constituent_analyses[0].one_line_view == "x"
+
+
+def test_report_from_card_carries_product_metrics_from_input() -> None:
+    inp = _inp("000A", "cn_equity_fund")
+    # OpportunityInput with populated metrics
+    from dataclasses import replace as dc_replace
+    inp_with_metrics = dc_replace(
+        inp, expense_ratio=0.005, aum_cny=5.0e8,
+        manager_tenure_years=7.0, tracking_error=None,
+    )
+    rpt = A._report_from_card(_row("000A"), _shortlist_row("000A"),
+                              inp=inp_with_metrics, role="satellite")
+    assert rpt.product_metrics is not None
+    assert rpt.product_metrics.expense_ratio == 0.005
+    assert rpt.product_metrics.aum_cny == 5.0e8
+    assert rpt.product_metrics.manager_tenure_years == 7.0
+    assert rpt.product_metrics.tracking_error is None
+
+
 def test_report_from_card_carries_evidence_and_states() -> None:
     rpt = A._report_from_card(_row("000A"), _shortlist_row("000A"),
+                              inp=_inp("000A", "cn_equity_fund"),
                               role="satellite_cn_metals")
     assert rpt.position_risk_level in ("elevated", "high")
     assert "valuation_state" in rpt.risk_drivers
@@ -71,7 +96,7 @@ def test_report_from_card_carries_evidence_and_states() -> None:
 def test_report_from_card_missing_snapshot_is_insufficient() -> None:
     row = _row("000A", valuation="evidence_insufficient",
                gaps=("missing_constituent_snapshot",))
-    rpt = A._report_from_card(row, _shortlist_row("000A"), role="r")
+    rpt = A._report_from_card(row, _shortlist_row("000A"), inp=_inp("000A", "cn_equity_fund"), role="r")
     assert rpt.position_risk_level == "insufficient"
     assert "evidence_gaps" in rpt.risk_drivers
 
