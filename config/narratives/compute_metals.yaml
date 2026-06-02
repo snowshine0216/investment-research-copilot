@@ -26,5 +26,5 @@ industries_sw:
   - 有色金属/贵金属
 thresholds:
   min_basket_weight_pct: 15.0   # ≥15% of top-10 sits in the basket …
-  min_overlap_count: 2          # … OR ≥2 distinct basket names appear
+  min_overlap_count: 2          # … OR ≥2 distinct hits (basket symbol/name + SW-industry credit)
 top_n: 15

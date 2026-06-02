@@ -40,3 +40,27 @@ def test_malformed_config_rejected(tmp_path: Path) -> None:
 
 def test_available_narratives_includes_compute_metals() -> None:
     assert "compute_metals" in available_narratives(REPO)
+
+
+def test_empty_basket_raises_value_error(tmp_path: Path) -> None:
+    """F6: basket: [] must raise ValueError (fail-fast)."""
+    d = tmp_path / "config" / "narratives"
+    d.mkdir(parents=True)
+    (d / "empty_basket.yaml").write_text(
+        "narrative_id: empty_basket\nbasket: []\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="empty basket"):
+        load_narrative_basket("empty_basket", tmp_path)
+
+
+def test_missing_basket_key_raises_value_error(tmp_path: Path) -> None:
+    """F6: missing basket: key (defaults to []) must also raise ValueError."""
+    d = tmp_path / "config" / "narratives"
+    d.mkdir(parents=True)
+    (d / "no_basket.yaml").write_text(
+        "narrative_id: no_basket\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="empty basket"):
+        load_narrative_basket("no_basket", tmp_path)
