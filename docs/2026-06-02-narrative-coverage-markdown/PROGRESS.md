@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ `claude/narrative-coverage-markdown-001` | 🔄 | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -25,6 +25,7 @@ QA column is ⏭️ for all items (non-web project — `/verify` is the post-shi
 <!-- items/<id>-spec.md, -grill.md, -plan.md, -drift.md, -ship.md, -verify.md, -review.md, -pr-review.md -->
 - 001-spec: [items/001-spec.md](items/001-spec.md) (commit c554491; 11 acceptance criteria; 1 open Q flagged for planner — Policy B / rule-2.5 evidence stamping, minimal posture chosen)
 - 001-grill: [items/001-grill.md](items/001-grill.md) (commit b56ff2e; Verdict PASS; 10 Q resolved; CONTEXT.md +2 terms; no new ADR; Policy-B-free minimal posture confirmed — rule-2.5 parity is a documented follow-up)
+- 001-plan: [items/001-plan.md](items/001-plan.md) (commit b8cbbb1; 10 tasks / ~46 steps; all 11 ACs → tests; new `src/irc/commands/narrative_autobuild.py` helper; effects-at-edges, analyze_fund stays read-only; 2 spec-gap judgment calls flagged for reviewer)
 
 ## Run-level
 | gate | status |
