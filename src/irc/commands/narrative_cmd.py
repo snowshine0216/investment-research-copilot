@@ -13,6 +13,7 @@ from irc.config_loader import load_repo_configs
 from irc.fundamentals.provider import default_cn_provider
 from irc.io_utils import atomic_write_text
 from irc.commands.narrative_autobuild import autobuild_active_funds
+from irc.commands.opportunity_cmd import FetchBudgetExceeded
 from irc.narrative.analyze import analyze_fund, error_report
 from irc.narrative.config import available_narratives, load_narrative_basket
 from irc.narrative.holdings_fetch import fetch_top_holdings
@@ -92,12 +93,12 @@ def _run_analyze(
     if ctx is None:
         return None
     con, provider, resolved_quarter, instr_index = ctx
-    autobuild_active_funds(
-        shortlist, provider=provider, quarter=resolved_quarter,
-        data_dir=root / "data", today_iso=_today(),
-    )
     reports: list[NarrativeFundReport] = []
     try:
+        autobuild_active_funds(
+            shortlist, provider=provider, quarter=resolved_quarter,
+            data_dir=root / "data", today_iso=_today(),
+        )
         for row in shortlist:
             try:
                 reports.append(
@@ -117,7 +118,7 @@ def _run_analyze(
         try:
             con.close()
         except Exception:
-            pass
+            _log.debug("con.close failed", exc_info=True)
     return tuple(reports)
 
 
@@ -157,7 +158,16 @@ def run_narrative(
     )
     _write_screen(out, name, label, shortlist, excluded)
     if analyze:
-        reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+        try:
+            reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+        except FetchBudgetExceeded as exc:
+            print(
+                f"ERROR: fetch budget exceeded ({exc}). "
+                f"Raise IRC_FETCH_BUDGET or set IRC_NARRATIVE_AUTOBUILD=0 to skip the "
+                f"active-fund autobuild. Shortlist written to {out}.",
+                file=sys.stderr,
+            )
+            return 3
         if reports is None:
             print(
                 f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "

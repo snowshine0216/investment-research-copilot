@@ -428,6 +428,58 @@ def test_analyze_idempotent_second_run_zero_builds(tmp_path, monkeypatch) -> Non
     assert first == second  # byte-identical report JSON
 
 
+def test_run_narrative_returns_3_on_fetch_budget_exceeded(
+    tmp_path, monkeypatch, capsys,
+) -> None:
+    """P0: FetchBudgetExceeded during autobuild returns rc=3, no traceback,
+    actionable stderr, and the DuckDB connection is closed."""
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=20.0),
+        ),
+    )
+
+    # Track con.close() calls via a wrapper
+    close_calls: list[bool] = []
+
+    class _FakeCon:
+        def close(self):
+            close_calls.append(True)
+
+    fake_con = _FakeCon()
+    monkeypatch.setattr(
+        narrative_cmd, "_open_analyze_context",
+        lambda root, db_path, quarter: (fake_con, "PROV", "2026Q1", {}),
+    )
+
+    plan = FetchPlan(active_fund_misses=1, active_fund_stale=0,
+                     passive_misses=0, passive_stale=0, top_n=10)
+    monkeypatch.setattr(
+        narrative_cmd, "autobuild_active_funds",
+        lambda *a, **k: (_ for _ in ()).throw(FetchBudgetExceeded(plan, 35, 1)),
+    )
+
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    rc = narrative_cmd.run_narrative(
+        repo_root=str(repo), name="compute_metals", analyze=True,
+        out_dir=str(out_dir),
+    )
+    assert rc == 3
+    err = capsys.readouterr().err
+    assert "IRC_FETCH_BUDGET" in err
+    assert "IRC_NARRATIVE_AUTOBUILD=0" in err
+    assert str(out_dir) in err  # shortlist path mentioned
+    assert close_calls  # con.close() was called (finally path ran)
+
+
 def test_analyze_recovers_active_fund_with_real_thesis(tmp_path, monkeypatch) -> None:
     repo = _wire_repo(tmp_path)
     monkeypatch.setattr(
