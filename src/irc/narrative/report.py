@@ -80,6 +80,21 @@ def _footnote_lines(thesis_evidence: tuple[ThesisEvidence, ...]) -> list[str]:
     return [_footnote_line(by_id[cid]) for cid in sorted(by_id)]
 
 
+def _fmt_metric(v: float | None) -> str:
+    """`—` for None (AC6); plain float otherwise. No locale/dict leak (ADR 0004)."""
+    return "—" if v is None else f"{v}"
+
+
+def _product_drivers_segment(pm) -> str:
+    """M2 drivers next to 质量 (AC6/AC7). pm may be None (→ all —). Passive's
+    tracking_error renders when present; — otherwise. Never re-classifies (F-1)."""
+    expense = _fmt_metric(pm.expense_ratio if pm else None)
+    aum = _fmt_metric(pm.aum_cny if pm else None)
+    tenure = _fmt_metric(pm.manager_tenure_years if pm else None)
+    track = _fmt_metric(pm.tracking_error if pm else None)
+    return f"费率={expense} 规模={aum} 任职={tenure} 跟踪误差={track}"
+
+
 def _rank_constituents(cas: tuple) -> tuple:
     """weight_pct DESC, symbol ASC tiebreak (mirrors opportunity/report.py:131)."""
     return tuple(sorted(cas, key=lambda c: (-c.weight_pct, c.symbol)))
@@ -122,7 +137,8 @@ def render_report_md(narrative: str, reports: tuple[NarrativeFundReport, ...]) -
         )
         lines.append(
             f"- 子状态: 估值={r.valuation_state} 热度={r.heat_state} "
-            f"逻辑={r.thesis_state} 质量={r.product_quality_state}"
+            f"逻辑={r.thesis_state} 质量={r.product_quality_state} "
+            f"｜ 产品驱动: {_product_drivers_segment(r.product_metrics)}"
         )
         lines.append(f"- 复核节奏 / review_cadence: {r.review_cadence}")
         lines.append(f"- 证伪触发: {', '.join(r.falsification_triggers) or '—'}")

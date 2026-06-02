@@ -247,3 +247,57 @@ def test_report_md_passive_fund_has_no_constituent_block_but_has_footnotes() -> 
     block = md.split("## G ")[1]
     assert "（权重" not in block  # no per-constituent bullets
     assert "证据明细" in block    # footnotes still render
+
+
+# --- Task 6: AC6/AC7 — product-quality drivers next to 质量 ---
+
+def _report_pm(iid: str, pm: ProductMetrics, *, quality="weak") -> NarrativeFundReport:
+    base = _report(iid)
+    return replace(base, product_quality_state=quality, product_metrics=pm)
+
+
+def test_report_md_renders_product_drivers() -> None:
+    pm = ProductMetrics(expense_ratio=0.005, aum_cny=5.0e8,
+                        manager_tenure_years=7.0, tracking_error=0.002)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    assert "质量=weak" in block
+    assert "费率=0.005" in block
+    assert "规模=" in block       # aum formatted, not None
+    assert "任职=7.0" in block
+    assert "跟踪误差=0.002" in block
+
+
+def test_report_md_none_metric_renders_em_dash() -> None:
+    pm = ProductMetrics(expense_ratio=None, aum_cny=None,
+                        manager_tenure_years=7.0, tracking_error=None)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    assert "费率=—" in block
+    assert "规模=—" in block
+    assert "任职=7.0" in block
+
+
+def test_report_md_metadata_floored_weak_shows_all_em_dash() -> None:
+    pm = ProductMetrics()  # all None — the metadata-thin floor case (RD-2)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    assert "质量=weak" in block
+    assert "费率=— 规模=— 任职=—" in block  # visibly floored, not real signal
+
+
+def test_report_md_genuine_weak_shows_real_numbers() -> None:
+    pm = ProductMetrics(expense_ratio=0.02, aum_cny=1.0e7, manager_tenure_years=1.0)
+    md = render_report_md("算力金属", (_report_pm("A", pm),))
+    block = md.split("## A ")[1]
+    # All gating metrics are real (no em-dash on the drivers line up to 任职=)
+    drivers_line = block.split("质量=weak")[1].split("\n")[0]
+    assert "费率=—" not in drivers_line
+    assert "规模=—" not in drivers_line
+    assert "任职=—" not in drivers_line
+
+
+def test_report_md_no_product_metrics_renders_em_dash_drivers() -> None:
+    md = render_report_md("算力金属", (_report("A"),))  # product_metrics is None
+    block = md.split("## A ")[1]
+    assert "费率=—" in block  # None bundle → all em-dash, never crashes
