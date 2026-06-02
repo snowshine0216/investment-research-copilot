@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 from dataclasses import replace
 from pathlib import Path
 
@@ -57,6 +56,8 @@ def _build_and_cache_one(
     """
     try:
         snap = build_snapshot(target, top_n=TOP_N_DEFAULT, provider=provider)
+    except FetchBudgetExceeded:
+        raise
     except Exception as exc:  # degrade — never crash the run (AC6)
         _log.warning("narrative_autobuild: build failed for %s — %s",
                      target.provider_symbol, exc)
@@ -71,10 +72,8 @@ def _build_and_cache_one(
     try:
         write_active_fund_cache(to_cache, data_dir)
     except Exception as cache_exc:  # disk error is environmental — degrade
-        sys.stderr.write(
-            f"cache_write_failed:{target.provider_symbol}:"
-            f"{type(cache_exc).__name__}\n"
-        )
+        _log.error("narrative_autobuild: cache write failed for %s — %s",
+                   target.provider_symbol, cache_exc)
 
 
 def _eligible_missing(

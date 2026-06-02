@@ -155,12 +155,35 @@ def test_budget_guard_raises_before_any_build(tmp_path, monkeypatch) -> None:
 
 from pathlib import Path as _Path  # noqa: E402
 
+_REPO_ROOT = _Path(__file__).resolve().parents[2]  # tests/narrative/ → repo root
+
 
 def test_module_has_no_forbidden_indicator() -> None:
-    src = _Path("src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
+    src = (_REPO_ROOT / "src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
     assert "基金概况" not in src
 
 
 def test_module_never_writes_budget_exhausted_sentinel() -> None:
-    src = _Path("src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
+    src = (_REPO_ROOT / "src/irc/commands/narrative_autobuild.py").read_text(encoding="utf-8")
     assert "fetch_budget_exhausted" not in src
+
+
+def test_build_one_reraises_fetch_budget_exceeded(tmp_path, monkeypatch) -> None:
+    """P1: FetchBudgetExceeded must propagate out, not degrade."""
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+
+    target = NA._target_for_row(_shortlist_row("000A"))
+    plan = FetchPlan(active_fund_misses=1, active_fund_stale=0,
+                     passive_misses=0, passive_stale=0, top_n=10)
+
+    def _budget_boom(t, *, top_n, provider):
+        raise FetchBudgetExceeded(plan, 35, 1)
+
+    monkeypatch.setattr(NA, "build_snapshot", _budget_boom)
+    written: list = []
+    monkeypatch.setattr(NA, "write_active_fund_cache",
+                        lambda snap, root: written.append(snap))
+    with pytest.raises(FetchBudgetExceeded):
+        NA._build_and_cache_one(target, provider=object(), data_dir=tmp_path,
+                                today_iso="2026-06-02")
+    assert written == []  # re-raised before any write
