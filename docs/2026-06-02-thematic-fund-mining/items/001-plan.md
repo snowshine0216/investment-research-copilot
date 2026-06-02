@@ -1791,6 +1791,33 @@ def test_run_twice_byte_identical(tmp_path: Path, monkeypatch) -> None:
                                 analyze=False, out_dir=str(out_dir))
     second = (out_dir / "compute_metals_shortlist.json").read_text()
     assert first == second
+
+
+def test_min_overlap_override_widens_shortlist(tmp_path: Path, monkeypatch) -> None:
+    # spec §3.1: --min-overlap lowers the basket-weight bar. Config is
+    # min_basket_weight_pct=15 / min_overlap_count=2. A fund with one basket
+    # holding at 12% (count=1) misses BOTH config thresholds → dropped by default,
+    # but qualifies once --min-overlap=10 overrides the weight bar.
+    repo = _wire_repo(tmp_path)
+    monkeypatch.setattr(
+        narrative_cmd, "_enumerate_cn_funds",
+        lambda root: (("000A", "有色基金", "cn_equity_fund"),),
+    )
+    monkeypatch.setattr(
+        narrative_cmd, "fetch_top_holdings",
+        lambda fid, *, cache_dir: (
+            Holding(symbol="601899", name_cn="紫金矿业", weight_pct=12.0),
+        ),
+    )
+    out_dir = repo / "outputs" / "2026-06-02" / "narrative"
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=False, out_dir=str(out_dir))
+    default_funds = json.loads((out_dir / "compute_metals_shortlist.json").read_text())["funds"]
+    assert default_funds == []  # 12% < 15% weight and count 1 < 2 → dropped
+    narrative_cmd.run_narrative(repo_root=str(repo), name="compute_metals",
+                                analyze=False, out_dir=str(out_dir), min_overlap=10.0)
+    widened = json.loads((out_dir / "compute_metals_shortlist.json").read_text())["funds"]
+    assert [r["instrument_id"] for r in widened] == ["000A"]
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -1804,6 +1831,7 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'irc.commands.narrative
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -1911,6 +1939,7 @@ def run_narrative(
     repo_root: str, name: str, *, analyze: bool = False,
     out_dir: str | None = None, quarter: str | None = None,
     db_path: str | None = None, role: str = "satellite_cn_metals",
+    min_overlap: float | None = None,
 ) -> int:
     root = Path(repo_root)
     try:
@@ -1920,6 +1949,9 @@ def run_narrative(
         print(f"Available narratives: {', '.join(available_narratives(root)) or '(none)'}",
               file=sys.stderr)
         return 2
+    # spec §3.1: --min-overlap overrides the config's min_basket_weight_pct (immutably).
+    if min_overlap is not None:
+        basket = replace(basket, min_basket_weight_pct=min_overlap)
     out = Path(out_dir) if out_dir else (root / "outputs" / _today() / "narrative")
     out.mkdir(parents=True, exist_ok=True)
     label = basket.display_name_cn or basket.narrative_id
@@ -1948,14 +1980,14 @@ def run_narrative(
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/narrative/test_narrative_cmd.py -q`
-Expected: PASS (5 passed).
+Expected: PASS (6 passed).
 
 - [ ] **Step 5: Lint + commit**
 
 ```bash
 uv run ruff check src/irc/commands/narrative_cmd.py tests/narrative/test_narrative_cmd.py
 git add src/irc/commands/narrative_cmd.py tests/narrative/test_narrative_cmd.py
-git commit -m "feat(narrative): narrative_cmd orchestration (screen + analyze gate)"
+git commit -m "feat(narrative): narrative_cmd orchestration (screen + analyze gate + min-overlap)"
 ```
 
 ---
@@ -2025,6 +2057,9 @@ Insert after the `eval_funds` command block (after line ~162, before the `alloca
               help="Stop after the light screen (default behaviour when no flag given).")
 @click.option("--analyze", "analyze", is_flag=True, default=False,
               help="Run the screen then deep-analyse the shortlist (cache-only snapshot path).")
+@click.option("--min-overlap", "min_overlap", type=float, default=None,
+              help="Min basket-weight %% to qualify; overrides the config "
+                   "thresholds.min_basket_weight_pct when given (spec §3.1).")
 @click.option("--quarter", type=str, default=None,
               help="Snapshot quarter for --analyze (default: latest cached on disk).")
 @click.option("--db", "db_path", type=click.Path(dir_okay=False), default=None,
@@ -2035,24 +2070,26 @@ Insert after the `eval_funds` command block (after line ~162, before the `alloca
 @click.option("--out", "out_dir", type=click.Path(file_okay=False), default=None,
               help="Output dir (default outputs/<today>/narrative/).")
 def narrative(
-    name: str, screen_only: bool, analyze: bool, quarter: str | None,
-    db_path: str | None, role: str, repo_root: str, out_dir: str | None,
+    name: str, screen_only: bool, analyze: bool, min_overlap: float | None,
+    quarter: str | None, db_path: str | None, role: str, repo_root: str,
+    out_dir: str | None,
 ) -> None:
     from irc.commands.narrative_cmd import run_narrative
     # --screen-only is the default; --analyze opts into the cache-only deep path.
     rc = run_narrative(
         repo_root=repo_root, name=name, analyze=(analyze and not screen_only),
         out_dir=out_dir, quarter=quarter, db_path=db_path, role=role,
+        min_overlap=min_overlap,
     )
     raise SystemExit(rc)
 ```
 
-> Note: `--min-overlap` (spec §3.1) is intentionally NOT added in this item — the config's `thresholds.min_basket_weight_pct` is the single source of truth for V1, and a CLI override would split the determinism contract across two surfaces. Flag this to the user if a runtime override is wanted; it is a one-line follow-up (`run_narrative(min_overlap=...)` → overrides `basket.min_basket_weight_pct` before `_screen`).
+> Note: `--min-overlap` (spec §3.1) overrides the config's `min_basket_weight_pct` via `dataclasses.replace` (immutable) before `_screen`; determinism is preserved because the override value is a pure input to `rank_shortlist`, not wall-clock/random state.
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/narrative/test_narrative_cmd.py -q`
-Expected: PASS (7 passed).
+Expected: PASS (8 passed).
 
 - [ ] **Step 5: Verify the command is registered**
 
@@ -2204,7 +2241,7 @@ git commit -m "chore(narrative): full-suite verification + budgets" || echo "not
 - §1 reusable by config, no code change → Task 6 config loader; adding `ai`/`robots` is a new YAML only.
 - §1 screen→analyze gate, cheap by default → Task 10 `--screen-only` default, `--analyze` opt-in (cache-only, mirroring `irc opportunity`).
 - §2 non-goals respected → no `Theme` Literal change, no edits to `eval-funds`/`discover`/`score`/`opportunity`; verified in Task 12 Step 3.
-- §3.1 CLI flags → Task 10 (`--screen-only`/`--analyze`/`--quarter`/`--db`/`--role`/`--out`/`--repo-root`; `--min-overlap` deferred with a flagged note).
+- §3.1 CLI flags → Task 10 (`--screen-only`/`--analyze`/`--min-overlap`/`--quarter`/`--db`/`--role`/`--out`/`--repo-root`); `--min-overlap` overrides the config `min_basket_weight_pct` via `dataclasses.replace`, tested in Task 9 (`test_min_overlap_override_widens_shortlist`).
 - §3.2 package files all created (Tasks 1–9) incl. the added `analyze.py` edge.
 - §3.3 config schema → Task 6 YAML + loader.
 - §3.4 data flow incl. "ensure snapshot" → Task 8 cache-only policy + Task 9 missing-data guard (resolved per CLAUDE.md "`irc opportunity` reads cached evidence").
@@ -2221,4 +2258,4 @@ git commit -m "chore(narrative): full-suite verification + budgets" || echo "not
 **Known spec gaps / judgment calls (flag for the user):**
 1. **`drawdown_3y` / `volatility` (§3.6):** not present on the `OpportunityRow` / `OpportunityInput` surface. Handled as an injected `metrics: dict[str, float]` that defaults empty (`{}` is what Task 8 passes today); those drivers fire only when a future caller supplies them (never fabricated). See Task 4 reuse note.
 2. **Snapshot policy (§3.4 "ensure fundamentals snapshot (heavy fetch if missing/stale)") vs cache-only architecture:** RESOLVED as **cache-only** — the analyze phase mirrors `irc opportunity` (CLAUDE.md: reads cached evidence, does NOT fetch live; `fundamentals snapshot` is a deliberately-separate 5–15 min quarterly job). A missing per-fund snapshot → `evidence_insufficient` → `insufficient` (surfaced). If DuckDB or a cached quarter is entirely absent for `--analyze`, the screen outputs are written first, then an actionable error is printed and rc=2 (Task 9). Confirm this is the desired behaviour (the spec's "heavy fetch" phrasing is the one place it diverges from "mirroring `irc opportunity`").
-3. **`--min-overlap` CLI override (§3.1):** intentionally NOT wired in this item to keep the threshold's single source of truth in the config (determinism). A one-line follow-up if a runtime override is wanted. Flagged in Task 10.
+3. **`--min-overlap` CLI override (§3.1):** WIRED per spec — overrides the config `min_basket_weight_pct` immutably via `dataclasses.replace` before `_screen` (Task 9/10). Determinism holds: the override is a pure input to `rank_shortlist`, not wall-clock/random state. Tested by `test_min_overlap_override_widens_shortlist`.
