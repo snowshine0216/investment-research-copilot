@@ -111,6 +111,15 @@ def test_threshold_constants_are_named():
     assert TOP_HOLDINGS_BROKER_THIN_WEIGHT_PCT_THRESHOLD == 20.0
 
 
+from irc.opportunity.advisory_gaps import ADVISORY_GAP_CODES
+
+
+def test_valuation_divergence_code_is_advisory():
+    assert "valuation_price_fundamental_divergence" in ADVISORY_GAP_CODES
+    # The pre-existing advisory member is preserved.
+    assert "top_holdings_broker_thin" in ADVISORY_GAP_CODES
+
+
 def test_top_n_by_weight_deterministic_on_equal_weight():
     """Equal-weight tie-break is by symbol ASC, not insertion order.
 
