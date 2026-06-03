@@ -97,6 +97,57 @@ def test_divergence_fires_on_large_gap_within_same_band():
     assert valuation_divergence_code(inp) == VALUATION_DIVERGENCE_CODE
 
 
+def test_fundamental_percentile_decides_each_band():
+    # When valuation_percentile_fundamental is present it OVERRIDES the NAV pct.
+    cases = {
+        0.10: "cheap",
+        0.30: "reasonable_low",
+        0.55: "fair",
+        0.80: "expensive",
+        0.95: "very_expensive",
+    }
+    for fund_pct, expected in cases.items():
+        inp = _make(
+            valuation_percentile_fundamental=fund_pct,
+            valuation_percentile_self=0.50,  # deliberately disagrees
+        )
+        state, _ = classify_valuation(inp)
+        assert state == expected, (fund_pct, state)
+
+
+def test_fundamental_none_falls_back_to_nav_byte_for_byte():
+    # Regression lock (AC2): no fundamental pct → identical to today's NAV path.
+    inp = _make(valuation_percentile_fundamental=None, valuation_percentile_self=0.95)
+    state, reason = classify_valuation(inp)
+    assert state == "very_expensive"
+    # The fallback path must not mention the fundamental percentile.
+    assert "PE" not in reason or "PE 百分位" not in reason
+
+
+def test_classify_valuation_appends_divergence_note_without_signature_change():
+    inp = _make(
+        valuation_percentile_fundamental=0.10,  # cheap
+        valuation_percentile_self=0.85,          # expensive
+    )
+    out = classify_valuation(inp)
+    assert isinstance(out, tuple) and len(out) == 2
+    state, reason = out
+    assert state == "cheap"  # fundamental decides
+    assert "背离" in reason  # divergence caveat present
+
+
+def test_pb_corroboration_note_appears_without_changing_state():
+    # PE-band cheap but PB percentile >= 0.70 → cyclical-earnings caveat, state stays cheap.
+    inp = _make(
+        valuation_percentile_fundamental=0.10,
+        valuation_percentile_fundamental_pb=0.85,
+        valuation_percentile_self=0.10,  # agree → no divergence note
+    )
+    state, reason = classify_valuation(inp)
+    assert state == "cheap"
+    assert "PB" in reason
+
+
 from irc.opportunity.states import classify_heat
 
 

@@ -238,24 +238,32 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
     """
     if inp.asset_class in _BOND_ASSET_CLASSES:
         return classify_bond_valuation(inp)
-    pct = _percentile(inp)
+    # Phase 1 (item 001): the FUNDAMENTAL index PE-TTM percentile decides the
+    # band when present; otherwise fall back to the NAV self-history percentile
+    # (AC2 — byte-for-byte unchanged for vehicles with no fundamental data).
+    fund_pct = inp.valuation_percentile_fundamental
+    if fund_pct is not None:
+        pct = fund_pct
+        anchor_label = "PE 百分位"
+    else:
+        pct = _percentile(inp)
+        anchor_label = "估值百分位"
     if pct is None:
         return "evidence_insufficient", "估值数据缺失，未能判定。"
     if pct < 0.20:
-        state, reason = "cheap", f"估值百分位 {pct:.0%} 偏低。"
+        state, reason = "cheap", f"{anchor_label} {pct:.0%} 偏低。"
     elif pct < 0.40:
-        state, reason = "reasonable_low", f"估值百分位 {pct:.0%} 偏低但未极低。"
+        state, reason = "reasonable_low", f"{anchor_label} {pct:.0%} 偏低但未极低。"
     elif pct < 0.70:
-        state, reason = "fair", f"估值百分位 {pct:.0%} 中性。"
+        state, reason = "fair", f"{anchor_label} {pct:.0%} 中性。"
     elif pct < 0.90:
-        state, reason = "expensive", f"估值百分位 {pct:.0%} 偏高。"
+        state, reason = "expensive", f"{anchor_label} {pct:.0%} 偏高。"
     else:
-        state, reason = "very_expensive", f"估值百分位 {pct:.0%} 极高。"
-    # Equity sanity anchor (§B3): high price percentile can persist for
-    # years (1995-2000); if earnings_yield - real_yield_10y > 0 the
-    # equity is still offering a positive expected real return, which a
-    # DCA investor should know before treating "very_expensive" as
-    # "avoid".
+        state, reason = "very_expensive", f"{anchor_label} {pct:.0%} 极高。"
+    # Equity sanity anchor (§B3): high price percentile can persist for years
+    # (1995-2000); if earnings_yield - real_yield_10y > 0 the equity is still
+    # offering a positive expected real return, which a DCA investor should know
+    # before treating "very_expensive" as "avoid".
     if (
         state in _EXPENSIVE_VALUATION_STATES
         and inp.asset_class in _EQUITY_ASSET_CLASSES
@@ -272,6 +280,28 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
                 f"长期实际回报预期偏弱。"
             )
     if inp.asset_class in _EQUITY_ASSET_CLASSES:
+        # Step 3 (§4.4): price/fundamental divergence reason note. The advisory
+        # code itself is folded into advisory_gaps by build_opportunity_row (R2);
+        # here we only annotate the reason. classify_valuation keeps (state, reason).
+        if valuation_divergence_code(inp) is not None:
+            nav_pct = _percentile(inp)
+            reason = (
+                f"{reason} 价格与基本面估值百分位背离"
+                f"（价格 {nav_pct:.0%} vs 基本面 {fund_pct:.0%}），"
+                f"以基本面为准。"
+            )
+        # Step 4 (§4.4, Q5): PB corroboration note — cyclical/earnings-quality
+        # caveat when PE says cheap but PB percentile is elevated. NO state change.
+        pb_pct = inp.valuation_percentile_fundamental_pb
+        if (
+            state in _NOTCHABLE_VALUATION_STATES
+            and pb_pct is not None
+            and pb_pct >= 0.70
+        ):
+            reason = (
+                f"{reason} 但 PB 百分位 {pb_pct:.0%} 偏高，"
+                f"或为周期性盈利高估，便宜判断需谨慎。"
+            )
         fundamental = valuation_fundamental_signal(inp)
         if fundamental is not None:
             reason = f"{reason} {_fundamental_reason_phrase(fundamental, inp)}"
