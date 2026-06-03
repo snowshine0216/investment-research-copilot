@@ -100,7 +100,7 @@ def _series_map(df: pd.DataFrame, candidate_cols: tuple[str, ...]) -> dict[str, 
         return {}
     parsed = pd.to_datetime(df[date_col], errors="coerce")
     out: dict[str, float | None] = {}
-    for d, raw in zip(parsed, df[col], strict=False):
+    for d, raw in zip(parsed, df[col], strict=True):
         if pd.isna(d):
             continue
         try:
