@@ -118,6 +118,13 @@ class OpportunityInput:
     # no classifier reads it (inert until item 002). See CONTEXT.md
     # "Valuation inputs".
     consensus_upside_pct: float | None = None
+    # Item 001 Phase 1: index PE-TTM / PB historical percentile (fundamental
+    # anchor). Direction matches the price percentile: high = expensive.
+    # `valuation_percentile_fundamental` is the PRIMARY equity valuation anchor
+    # when present; `..._pb` is corroboration-only (never notches the state).
+    # Both None today for any vehicle without a cached index_valuation_history.
+    valuation_percentile_fundamental: float | None = None
+    valuation_percentile_fundamental_pb: float | None = None
 
 
 @dataclass(frozen=True)

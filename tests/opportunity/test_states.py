@@ -11,6 +11,12 @@ def _make(**kwargs) -> OpportunityInput:
     return OpportunityInput(**base)
 
 
+def test_opportunity_input_has_fundamental_percentile_fields_defaulting_none():
+    inp = _make()
+    assert inp.valuation_percentile_fundamental is None
+    assert inp.valuation_percentile_fundamental_pb is None
+
+
 def test_valuation_evidence_insufficient_when_no_data():
     state, reason = classify_valuation(_make())
     assert state == "evidence_insufficient"
