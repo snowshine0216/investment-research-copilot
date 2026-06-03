@@ -145,6 +145,41 @@ _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
 _NOTCHABLE_VALUATION_STATES: frozenset[str] = frozenset({"cheap", "reasonable_low"})
 
+DIVERGENCE_PCT_GAP: float = 0.25
+VALUATION_DIVERGENCE_CODE: str = "valuation_price_fundamental_divergence"
+
+# Shared band thresholds — the single source of truth for the percentile->band
+# mapping used by classify_valuation AND valuation_divergence_code (DRY).
+_VALUATION_BANDS: tuple[tuple[float, str], ...] = (
+    (0.20, "cheap"),
+    (0.40, "reasonable_low"),
+    (0.70, "fair"),
+    (0.90, "expensive"),
+)
+
+
+def _band(pct: float) -> str:
+    """Map a percentile to its valuation band tier (matches classify_valuation)."""
+    for upper, name in _VALUATION_BANDS:
+        if pct < upper:
+            return name
+    return "very_expensive"
+
+
+def valuation_divergence_code(inp: OpportunityInput) -> str | None:
+    """Return the advisory code when the fundamental and NAV percentiles
+    disagree (different band-tier OR |gap| >= DIVERGENCE_PCT_GAP); else None.
+
+    Single source of truth (R2): classify_valuation uses it for the reason note;
+    build_opportunity_row folds it into advisory_gaps.
+    """
+    f, n = inp.valuation_percentile_fundamental, inp.valuation_percentile_self
+    if f is None or n is None:
+        return None
+    if _band(f) != _band(n) or abs(f - n) >= DIVERGENCE_PCT_GAP:
+        return VALUATION_DIVERGENCE_CODE
+    return None
+
 
 def expected_real_return_positive(inp: OpportunityInput) -> bool | None:
     """Earnings-yield vs real-yield sanity anchor (review §B3).

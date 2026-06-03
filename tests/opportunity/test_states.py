@@ -61,6 +61,42 @@ def test_valuation_never_infers_cheapness_from_drawdown_alone():
     assert state == "evidence_insufficient"
 
 
+from irc.opportunity.states import (
+    VALUATION_DIVERGENCE_CODE,
+    valuation_divergence_code,
+)
+
+
+def _div(**kwargs):
+    return _make(asset_class="cn_etf", market="cn_on_exchange", **kwargs)
+
+
+def test_divergence_none_when_either_percentile_missing():
+    assert valuation_divergence_code(_div(valuation_percentile_fundamental=0.1)) is None
+    assert valuation_divergence_code(_div(valuation_percentile_self=0.1)) is None
+    assert valuation_divergence_code(_div()) is None
+
+
+def test_divergence_none_when_same_band_and_small_gap():
+    # both in `fair` band (0.40..0.70), gap 0.05 < 0.25
+    inp = _div(valuation_percentile_fundamental=0.50, valuation_percentile_self=0.55)
+    assert valuation_divergence_code(inp) is None
+
+
+def test_divergence_fires_on_band_tier_crossing():
+    # fundamental cheap (<0.20), self fair (0.40..0.70); gap 0.45 also >= 0.25
+    inp = _div(valuation_percentile_fundamental=0.10, valuation_percentile_self=0.55)
+    assert valuation_divergence_code(inp) == VALUATION_DIVERGENCE_CODE
+
+
+def test_divergence_fires_on_large_gap_within_same_band():
+    # NOTE: choose two values in the SAME band but >= 0.25 apart.
+    # fair band spans 0.40..0.70 (width 0.30) → 0.41 and 0.69 are both `fair`,
+    # gap 0.28 >= 0.25 → divergence by the gap rule alone.
+    inp = _div(valuation_percentile_fundamental=0.41, valuation_percentile_self=0.69)
+    assert valuation_divergence_code(inp) == VALUATION_DIVERGENCE_CODE
+
+
 from irc.opportunity.states import classify_heat
 
 
