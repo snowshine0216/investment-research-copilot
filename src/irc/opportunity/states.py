@@ -574,6 +574,12 @@ def derive_contributing_dimensions(
     return frozenset()
 
 
+def _divergence_gaps(inp: OpportunityInput) -> tuple[str, ...]:
+    """0/1-tuple wrapping valuation_divergence_code for the gap stream (R2)."""
+    code = valuation_divergence_code(inp)
+    return (code,) if code is not None else ()
+
+
 def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
     """Gaps for the non-thesis classifier inputs, using the typed labels from
     the May-14 spec (`missing_valuation_data`, `missing_flow_or_return_data`,
@@ -649,7 +655,9 @@ def build_opportunity_row(
     dimensions = derive_contributing_dimensions(valuation, heat, thesis, product, state)
     target = map_lookthrough(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
-    combined_gaps = tuple(structural_gaps) + tuple(thesis_gaps)
+    combined_gaps = (
+        tuple(structural_gaps) + tuple(thesis_gaps) + _divergence_gaps(inp)
+    )
     evidence_gaps_filtered, expected_omissions, advisory_gaps = (
         _partition_gaps(combined_gaps)
     )

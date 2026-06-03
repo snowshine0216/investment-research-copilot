@@ -902,3 +902,41 @@ def test_build_opportunity_row_snapshot_annotation_includes_fund_level() -> None
 
     hints = typing.get_type_hints(build_opportunity_row)
     assert FundLevelSnapshot in typing.get_args(hints["snapshot"])
+
+
+# ---------------------------------------------------------------------------
+# Task 10: thread divergence into build_opportunity_row (R2/H3)
+# ---------------------------------------------------------------------------
+
+def _broad_index_inp(**kwargs):
+    base = dict(
+        instrument_id="510300",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        name_cn="沪深300ETF",
+        tracked_index="csi300",
+        # enough heat + product signals so the row is otherwise publishable
+        ret_1m=0.0, ret_3m=0.0, expense_ratio=0.005, aum_cny=5.0e10,
+    )
+    base.update(kwargs)
+    return OpportunityInput(**base)
+
+
+def test_build_row_routes_divergence_to_advisory_not_evidence_gaps():
+    inp = _broad_index_inp(
+        valuation_percentile_fundamental=0.10,  # cheap
+        valuation_percentile_self=0.85,          # expensive → divergence
+    )
+    # theme_thesis provided so classify_thesis has a table; snapshot=None path.
+    row = build_opportunity_row(inp, {"宽基": "intact"})
+    assert "valuation_price_fundamental_divergence" in row.advisory_gaps
+    assert "valuation_price_fundamental_divergence" not in row.evidence_gaps
+
+
+def test_build_row_no_divergence_code_when_percentiles_agree():
+    inp = _broad_index_inp(
+        valuation_percentile_fundamental=0.10,
+        valuation_percentile_self=0.12,  # agree → no divergence
+    )
+    row = build_opportunity_row(inp, {"宽基": "intact"})
+    assert "valuation_price_fundamental_divergence" not in row.advisory_gaps
