@@ -1,18 +1,25 @@
 Verdict: PASS-WITH-NITS
 
-Source: /code-review on PR #101
-PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/101#issuecomment-4609772009
-Findings: 3
-  - src/irc/opportunity/states.py:588 — latent-bug — `_structural_evidence_gaps` does not check `valuation_percentile_fundamental`; emits `missing_valuation_data` (row-blocking) even when the fundamental percentile is present and `classify_valuation` returns a valid non-evidence_insufficient state. Fires when price series is empty but index valuation history is cached. Fix: add `and inp.valuation_percentile_fundamental is None` to the guard.
-  - src/irc/fundamentals/akshare_index_valuation.py:103 — nit — `zip(strict=False)` silently truncates if `parsed` and `df[col]` ever diverge in length; prefer `strict=True` for safety (currently harmless, both are same-DataFrame columns).
-  - src/irc/commands/ingest_cmd.py:25 — nit — cross-module import of private symbol `_BROAD_INDEX_KEYS`; pre-existing pattern, cosmetic only.
+Source: /code-review on PR #101 (round 2)
+PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/101#issuecomment-4610020750
+Round-1 latent bug (missing_valuation_data): CONFIRMED FIXED
+Findings: 2
+  - src/irc/opportunity/inputs_loader.py:178 — nit — docstring says "are inert until item 002" but item 001 (this PR) already activates valuation_percentile_fundamental via classify_valuation; stale wording misleads maintainers.
+  - src/irc/opportunity/inputs_loader.py:171,180 — nit — `provider` parameter is accepted and `default_cn_provider()` is instantiated but never used after the R3 migration; dead parameter obscures the cache-only design.
 
-## Classification rationale
-- Finding 1 is a latent-bug by CLAUDE.md convention: the classification output (cheap/fair/etc.) and the publishability gate contradict each other for a reachable input (NAV fetch failure + warm index valuation cache). Not a crash, not a silent wrong verdict, but a mis-gated row.
-- Findings 2–3 are nits: no observable wrong output, no CLAUDE.md hard violation.
+## Round-1 fix verification
+`_structural_evidence_gaps` at states.py:588-593 now requires all three of
+`valuation_percentile_self`, `valuation_percentile_vs_benchmark`, AND
+`valuation_percentile_fundamental` to be None before emitting
+`missing_valuation_data`. Two regression tests confirmed in
+tests/opportunity/test_states.py:437-474:
+  - test_no_missing_valuation_gap_when_fundamental_percentile_present
+  - test_missing_valuation_gap_when_all_three_percentiles_none
+All 110 tests in test_states.py + test_inputs_loader.py pass.
 
 ## Not flagged (by design)
-- R3: live `provider.fetch_index_valuation` removed from opportunity stage — explicitly by-design per design spec §4.3.
-- R4: `CnFundamentalsProvider` Protocol stays 3-method — by-design (R4).
+- R3: live provider.fetch_index_valuation removed from opportunity stage — by-design per spec §4.3.
+- R4: CnFundamentalsProvider Protocol stays 3-method — by-design.
 - No VERSION bump — project convention (accumulate under [Unreleased]).
-- Provider-migration lock retirement — necessary R3 consequence (accepted in 001-drift.md).
+- _BROAD_INDEX_KEYS private import in ingest_cmd.py — accepted cosmetic nit from round 1.
+- test_build_rows_qdii_row_carries_sentinel_gap failure — pre-existing (Item 016 / commit 61ccf88 on base branch); this PR did not modify snapshot.py or opportunity_cmd.py.
