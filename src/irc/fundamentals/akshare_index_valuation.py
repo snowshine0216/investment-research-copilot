@@ -19,7 +19,11 @@ from typing import Any
 
 import pandas as pd
 
-from irc.fundamentals.index_valuation_types import IndexValuation
+from irc.fundamentals.index_valuation_types import (
+    IndexValuation,
+    IndexValuationHistory,
+    IndexValuationPoint,
+)
 from irc.opportunity.lookthrough import _BROAD_INDEX_DISPLAY
 
 # Subset of broad-index keys we map to a Chinese name for the legulegu endpoint.
@@ -80,6 +84,64 @@ def _fetch_frame(fn_name: str, cn_name: str) -> pd.DataFrame | None:
     except Exception:
         return None
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+
+
+def _series_map(df: pd.DataFrame, candidate_cols: tuple[str, ...]) -> dict[str, float | None]:
+    """Pure: map each parseable date to the first matching metric column value.
+
+    Unknown/missing column or empty frame → empty map. Non-coercible cells → None
+    for that date. Date parsing mirrors `_latest_row`'s `_DATE_COLS` precedence.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return {}
+    col = next((c for c in candidate_cols if c in df.columns), None)
+    date_col = next((c for c in _DATE_COLS if c in df.columns), None)
+    if col is None or date_col is None:
+        return {}
+    parsed = pd.to_datetime(df[date_col], errors="coerce")
+    out: dict[str, float | None] = {}
+    for d, raw in zip(parsed, df[col], strict=False):
+        if pd.isna(d):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = None
+        if value is not None and pd.isna(value):
+            value = None
+        out[d.date().isoformat()] = value
+    return out
+
+
+def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | None:
+    """Full PE/PB series for a recognised broad index; None for unknown keys or
+    adapter failure. AkShare-only ingest infra (R4) — NOT a provider method."""
+    cn_name = _INDEX_PE_PB_NAME.get(index_key)
+    if cn_name is None:
+        return None
+    try:
+        pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
+        pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    except Exception:
+        return None
+    if pe_df is None and pb_df is None:
+        return None
+    pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS)
+    pb_map = _series_map(pb_df if pb_df is not None else pd.DataFrame(), _PB_COLS)
+    div_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _DIV_COLS)
+    dates = sorted(set(pe_map) | set(pb_map))
+    if not dates:
+        return None
+    rows = tuple(
+        IndexValuationPoint(
+            date_iso=d,
+            pe_ttm=pe_map.get(d),
+            pb=pb_map.get(d),
+            dividend_yield=div_map.get(d),
+        )
+        for d in dates
+    )
+    return IndexValuationHistory(index_key=index_key, rows=rows)
 
 
 def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:

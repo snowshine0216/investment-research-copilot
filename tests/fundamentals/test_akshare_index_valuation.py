@@ -106,3 +106,48 @@ def test_fetch_returns_valuation_with_none_metrics_on_empty_frames() -> None:
     assert out.pe_ttm is None
     assert out.pb is None
     assert out.dividend_yield is None
+
+
+from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation_history
+from irc.fundamentals.index_valuation_types import IndexValuationHistory
+
+
+def test_fetch_history_unknown_index_returns_none_without_calling_ak() -> None:
+    with patch("irc.fundamentals.akshare_index_valuation._ak_call") as mocked:
+        out = fetch_cn_index_valuation_history("not_a_broad_index")
+    assert out is None
+    mocked.assert_not_called()
+
+
+def test_fetch_history_extracts_full_series() -> None:
+    def _fake(fn_name, **kwargs):
+        return _PE_FRAME if fn_name == "stock_index_pe_lg" else _PB_FRAME
+
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call", side_effect=_fake
+    ):
+        out = fetch_cn_index_valuation_history("csi300")
+    assert isinstance(out, IndexValuationHistory)
+    assert out.index_key == "csi300"
+    # _PE_FRAME / _PB_FRAME each have 3 dated rows aligned on 日期.
+    assert len(out.rows) == 3
+    assert [r.date_iso for r in out.rows] == ["2026-05-28", "2026-05-29", "2026-05-30"]
+    assert out.rows[-1].pe_ttm == 12.1
+    assert out.rows[-1].pb == 1.31
+    assert out.rows[-1].dividend_yield is None
+
+
+def test_fetch_history_degrades_to_none_on_adapter_exception() -> None:
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        side_effect=RuntimeError("network down"),
+    ):
+        assert fetch_cn_index_valuation_history("csi300") is None
+
+
+def test_fetch_history_returns_none_on_empty_frames() -> None:
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        return_value=pd.DataFrame(),
+    ):
+        assert fetch_cn_index_valuation_history("csi300") is None
