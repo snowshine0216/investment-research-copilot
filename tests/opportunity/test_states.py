@@ -197,6 +197,48 @@ def test_active_fund_acceptable_when_tenure_and_aum_present():
     assert state in ("acceptable", "strong")
 
 
+def test_active_fund_not_floored_to_weak_when_cost_scale_sound_and_aum_stability_missing():
+    """F-1 floor removal: a sound active fund (low fee, large AUM, adequate
+    tenure) must NOT be floored to 'weak' just because aum_stability_pct is
+    absent. Missing AUM-stability caps the ceiling at 'acceptable' (it cannot
+    reach 'strong'), but never floors a genuinely sound product."""
+    state, _ = classify_product_quality(_make(
+        asset_class="cn_equity_fund",
+        market="cn_off_exchange",
+        expense_ratio=0.008, aum_cny=5e9,
+        manager_tenure_years=6.0, aum_stability_pct=None,
+    ))
+    assert state == "acceptable"
+
+
+def test_active_fund_strong_requires_present_low_aum_stability():
+    """Regression guard for the active 'strong' gate: it needs score>=0.5 AND
+    tenure>=5 AND aum_stability_pct present & <= _AUM_STABILITY_STRONG_MAX. This
+    path is dead in production today (aum_stability_pct is never ingested) but the
+    threshold is live logic — pin it so F-1 ingestion can't silently regress it."""
+    state, _ = classify_product_quality(_make(
+        asset_class="cn_equity_fund",
+        market="cn_off_exchange",
+        expense_ratio=0.005, aum_cny=1e10,
+        manager_tenure_years=6.0, aum_stability_pct=0.10,
+    ))
+    assert state == "strong"
+
+
+def test_active_fund_weak_reason_reflects_cost_scale_when_genuinely_weak():
+    """A genuinely weak active fund (small AUM, mediocre fee) stays 'weak',
+    but the reason must attribute it to real cost/scale weakness — not to the
+    removed 'missing AUM-stability evidence' floor."""
+    state, reason = classify_product_quality(_make(
+        asset_class="cn_equity_fund",
+        market="cn_off_exchange",
+        expense_ratio=0.014, aum_cny=166_000_000.0,
+        manager_tenure_years=8.5, aum_stability_pct=None,
+    ))
+    assert state == "weak"
+    assert "成本" in reason or "规模" in reason
+
+
 from irc.opportunity.states import compose_opportunity_state, build_opportunity_row
 
 
