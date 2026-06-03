@@ -73,6 +73,7 @@ def _none_if_na(value) -> float | None:
 
 _BOND_ASSET_CLASSES_REQUIRING_YIELD: frozenset[str] = frozenset({"cn_bond_fund"})
 _CN_10Y_YIELD_SERIES_ID = "cn_10y_yield"
+_CPI_YOY_SERIES_ID = "cn_cpi_yoy"  # not ingested in Phase 1; nominal-gap fallback used.
 
 
 def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
@@ -94,20 +95,71 @@ def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
     return float((series <= latest).mean())
 
 
+def _cn_10y_yield_latest(con: duckdb.DuckDBPyConnection) -> float | None:
+    df = con.execute(
+        "SELECT value FROM macro_series WHERE series_id = ? ORDER BY date DESC LIMIT 1",
+        [_CN_10Y_YIELD_SERIES_ID],
+    ).fetchdf()
+    if df.empty:
+        return None
+    return _none_if_na(df.iloc[0]["value"])
+
+
+def _cpi_yoy_latest(con: duckdb.DuckDBPyConnection) -> float | None:
+    df = con.execute(
+        "SELECT value FROM macro_series WHERE series_id = ? ORDER BY date DESC LIMIT 1",
+        [_CPI_YOY_SERIES_ID],
+    ).fetchdf()
+    if df.empty:
+        return None
+    return _none_if_na(df.iloc[0]["value"])
+
+
+def _real_yield_10y_ratio(con: duckdb.DuckDBPyConnection) -> float | None:
+    """R1 ratio units. Default = nominal 10Y CGB yield as a ratio (股债利差).
+    If a CN CPI-YoY series is present, switch to the true-real gap. Never reuse
+    real_yield_10y_tips (US TIPS, percent)."""
+    cn_10y = _cn_10y_yield_latest(con)
+    if cn_10y is None:
+        return None
+    cpi = _cpi_yoy_latest(con)
+    if cpi is not None:
+        return (cn_10y - cpi) / 100.0
+    return cn_10y / 100.0
+
+
+def _index_valuation_series(
+    con: duckdb.DuckDBPyConnection, index_key: str
+) -> pd.DataFrame:
+    df = con.execute(
+        "SELECT date, pe_ttm, pb, dividend_yield FROM index_valuation_history "
+        "WHERE index_key = ? ORDER BY date",
+        [index_key],
+    ).fetchdf()
+    return df
+
+
 def _index_valuation_metrics(
-    tracked_index: str | None,
-    *,
-    provider: CnFundamentalsProvider,
-) -> tuple[float | None, float | None, float | None]:
-    """Return (pe_ttm, pb, dividend_yield) for a recognised broad index, else
-    (None, None, None). Index valuation is INERT today (item 002 consumes it)."""
+    con: duckdb.DuckDBPyConnection, tracked_index: str | None,
+) -> tuple[float | None, float | None, float | None, float | None, float | None]:
+    """Return (pe_ttm, pb, dividend_yield, pe_percentile, pb_percentile) from the
+    CACHED index_valuation_history table (R3 — no live fetch). (None,)*5 when the
+    index is not a recognised broad index or has no cached rows."""
     key = (tracked_index or "").strip().lower() or None
     if key is None or key not in _BROAD_INDEX_KEYS:
-        return None, None, None
-    valuation = provider.fetch_index_valuation(key)
-    if valuation is None:
-        return None, None, None
-    return valuation.pe_ttm, valuation.pb, valuation.dividend_yield
+        return None, None, None, None, None
+    df = _index_valuation_series(con, key)
+    if df.empty:
+        return None, None, None, None, None
+    latest = df.iloc[-1]
+    pe = _none_if_na(latest["pe_ttm"])
+    pb = _none_if_na(latest["pb"])
+    div = _none_if_na(latest["dividend_yield"])
+    pe_series = pd.Series(df["pe_ttm"].to_numpy(), index=pd.to_datetime(df["date"]))
+    pb_series = pd.Series(df["pb"].to_numpy(), index=pd.to_datetime(df["date"]))
+    pe_pct = self_history_percentile(pe_series)
+    pb_pct = self_history_percentile(pb_series)
+    return pe, pb, div, pe_pct, pb_pct
 
 
 def populate_inputs(
@@ -152,9 +204,13 @@ def populate_inputs(
 
     latest_close = float(series.iloc[-1]) if not series.empty else None
     upside = consensus_upside_pct(broker_reports, latest_close)
-    pe_ttm, pb, dividend_yield = _index_valuation_metrics(
-        skeleton.tracked_index, provider=provider
+    pe_ttm, pb, dividend_yield, fund_pct, fund_pct_pb = _index_valuation_metrics(
+        con, skeleton.tracked_index
     )
+    earnings_yield = (
+        1.0 / pe_ttm if pe_ttm is not None and pe_ttm > 0 else None
+    )
+    real_yield = _real_yield_10y_ratio(con)
 
     return replace(
         skeleton,
@@ -173,4 +229,8 @@ def populate_inputs(
         pb=pb,
         dividend_yield=dividend_yield,
         consensus_upside_pct=upside,
+        valuation_percentile_fundamental=fund_pct,
+        valuation_percentile_fundamental_pb=fund_pct_pb,
+        earnings_yield=earnings_yield,
+        real_yield_10y=real_yield,
     )
