@@ -39,13 +39,19 @@ def ingest_index_valuation_history(
                 build_ref_id("akshare", "index_valuation_history", key, pt.date_iso),
             ])
     if params:
-        con.executemany(
-            """
-            INSERT OR REPLACE INTO index_valuation_history
-                (index_key, date, pe_ttm, pb, dividend_yield,
-                 _ingested_at, _source, _raw_ref)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            params,
-        )
+        con.execute("BEGIN")
+        try:
+            con.executemany(
+                """
+                INSERT OR REPLACE INTO index_valuation_history
+                    (index_key, date, pe_ttm, pb, dividend_yield,
+                     _ingested_at, _source, _raw_ref)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                params,
+            )
+            con.execute("COMMIT")
+        except Exception:
+            con.execute("ROLLBACK")
+            raise
     return len(params)
