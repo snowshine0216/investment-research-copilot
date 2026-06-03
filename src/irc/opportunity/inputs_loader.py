@@ -11,7 +11,7 @@ from irc.opportunity.returns import (
     rolling_returns,
     self_history_percentile,
 )
-from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
+from irc.fundamentals.provider import CnFundamentalsProvider
 from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
@@ -174,10 +174,16 @@ def populate_inputs(
 
     `broker_reports` (default empty) feeds the consensus-upside metric; today
     no wired feed carries target prices, so the metric degrades to None
-    (ADR 0009). Index pe/pb/dividend are populated only for recognised broad
-    indices and are inert until item 002.
+    (ADR 0009). Index pe/pb/dividend + PE/PB historical percentiles are read
+    from the cached `index_valuation_history` table (no live fetch) for
+    recognised broad indices and now ground the equity valuation verdict
+    (item 001 Phase 1); other vehicles fall back to the NAV percentile.
+
+    The `provider` parameter is retained for API stability and so the
+    no-live-fetch test can prove the index path never touches the network;
+    it is no longer consumed here (the index fetch moved to the ingest
+    stage — R3).
     """
-    provider = provider or default_cn_provider()
     meta = _instrument_meta(con, skeleton.instrument_id)
     tracking_err = _tracking_error(con, skeleton.instrument_id)
     series = _price_series(con, skeleton.instrument_id)
