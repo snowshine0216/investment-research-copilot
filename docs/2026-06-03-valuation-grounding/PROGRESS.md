@@ -4,7 +4,7 @@
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅   | ⏭️   | ✅   | ✅ claude/valuation-grounding-001 | ✅ dd13a43 | ✅    | ✅ #101 | ✅     | ✅ inline | ✅        | ✅ 3 rounds | 🔄    |
+| 001 | ✅   | ⏭️   | ✅   | ✅ claude/valuation-grounding-001 | ✅ dd13a43 | ✅    | ✅ #101 | ✅     | ✅ inline | ✅        | ✅ 3 rounds | ✅ 655427b |
 
 ### Evidence / notes
 
@@ -19,6 +19,8 @@
 - **001-drift** ✅ — `items/001-drift.md` (`Verdict: PASS`, commit `9a59ee7`). All 12 tasks present; R1–R5/H3/基金概况/risk.py-empty/provider.py-empty/AC2 all verified against actual diff. 1 harmless dead try/except note amended into the plan; 4 test migrations accepted (R3 consequence).
 - **001-impl** ✅ — 12 commits `a6e66cd..dd13a43` on `claude/valuation-grounding-001`. 33 new tests pass; 19 files (10 source + 9 test). Guards: risk.py + provider.py byte-identical (AC8/AC7); `基金概况` grep clean; ruff clean. The only red tests (`test_build_rows_qdii_row_carries_sentinel_gap`, `test_only_stage_runs_single`, `test_provider_migration`×2) are **confirmed pre-existing** on the base branch — not regressions. Deviations: (1) added `import duckdb` to test header; (2) `git add -f` for new files under gitignored `data/`; (3) migrated 4 pre-existing consensus/pe-pb tests off `_StubProvider(index_val=...)` (necessary consequence of R3 removing the live fetch).
 - **verify** column is the active post-ship verifier (non-web project). No `/qa` column.
+
+- **001-merge** ✅ — PR #101 squash-merged into `feat/fundamental-valuation-grounding` (commit `655427b`, MERGED 2026-06-03). Pre-merge gate: non-protected base ✓, ship artifact + open PR ✓, drift PASS ✓ (grill ⏭️ spec mode), verify PASS ✓ (qa absent — non-web XOR), review PASS-WITH-NITS ✓, pr-review PASS-WITH-NITS ✓, PR comments addressed ✓. Sub-branch deleted.
 
 ### Legend
 
