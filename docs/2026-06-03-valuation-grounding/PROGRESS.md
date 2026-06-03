@@ -25,3 +25,21 @@
 ### Legend
 
 ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop chewing) · ⏭️ skipped-by-mode · ⛔ refused gate
+
+---
+
+## Final status — RUN COMPLETE (2026-06-03)
+
+**Mode:** spec · N=1 · non-web · PR shape A.
+
+- **Items merged:** 1/1 — item 001 (Phase 1 fundamental-grounded valuation) → PR **#101** squash-merged into `feat/fundamental-valuation-grounding` (commit `655427b`).
+- **Items SKIPPED:** 0. **Items BLOCKED:** 0. (Out-of-scope deferrals — Phase 2 look-through, QDII fundamental valuation, sector-index coverage, CN-CPI real-yield, `+1` divergence risk driver — recorded in `SKIPPED.md`; they were never in scope.)
+- **Phase 3 gates:** workflow-completeness audit ✅ (all verdict files present/well-formed; grill ⏭️ spec mode; qa absent — non-web XOR) · build/CLI/ruff sanity ✅ · doc-sync ✅ (`doc-sync.md`; 3 new CONTEXT.md entries + 1 corrected, README note, **ADR 0012** created) · run-level final-verify ✅ (`final-verify.md`).
+- **Per-item verdicts on disk:** spec, plan, drift (PASS), ship (PR #101), verify (PASS), review (PASS-WITH-NITS), pr-review (PASS-WITH-NITS). Fix loop: 3 rounds.
+- **Notable catches:** ship review found a P0 (stale fundamental percentile on NULL latest row); the orchestrator caught **2 R3 regressions mis-flagged as pre-existing** (provider-migration locks — verified PASS-on-base/FAIL-on-branch); pr-review found a latent `missing_valuation_data` publishability bug — all fixed before merge.
+
+**Feature branch:** `feat/fundamental-valuation-grounding`
+**Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/102 (feature → `main`)
+**Merged into protected branch:** no — PR #102 left OPEN for user review (the guardrail held; `main` is protected, autodev does not auto-merge without explicit opt-in).
+
+**Follow-up work (deferred, in `TODOS.md`):** `index_valuation_history` stale-cache age signal; Phase 2 holdings look-through; QDII fundamental valuation; sector-index coverage; CN-CPI real-yield switch.
