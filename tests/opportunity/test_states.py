@@ -518,9 +518,6 @@ def test_heat_gap_added_when_only_one_heat_input():
 # ---------------------------------------------------------------------------
 
 
-from irc.opportunity.states import build_opportunity_row, compose_opportunity_state
-
-
 def test_compose_small_watch_reason_names_weak_product_quality():
     state, reason = compose_opportunity_state(
         valuation="reasonable_low",
