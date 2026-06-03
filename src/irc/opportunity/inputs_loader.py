@@ -157,8 +157,8 @@ def _index_valuation_metrics(
     div = _none_if_na(latest["dividend_yield"])
     pe_series = pd.Series(df["pe_ttm"].to_numpy(), index=pd.to_datetime(df["date"]))
     pb_series = pd.Series(df["pb"].to_numpy(), index=pd.to_datetime(df["date"]))
-    pe_pct = self_history_percentile(pe_series)
-    pb_pct = self_history_percentile(pb_series)
+    pe_pct = self_history_percentile(pe_series) if pe is not None else None
+    pb_pct = self_history_percentile(pb_series) if pb is not None else None
     return pe, pb, div, pe_pct, pb_pct
 
 

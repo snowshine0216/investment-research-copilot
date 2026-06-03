@@ -459,6 +459,38 @@ def test_population_consumes_consensus_upside_per_item_002(tmp_path):
     con.close()
 
 
+def test_populate_inputs_null_latest_pe_pb_yields_none_percentile(tmp_path):
+    """Finding 1 (P0): when the LATEST cached index_valuation_history row has
+    NULL pe_ttm / pb, the percentile must also be None — not a stale value
+    computed from the prior non-null rows.
+
+    Seed ≥30 valid PE/PB points followed by a final row with NULL pe_ttm and
+    pb.  Assert pe_ttm is None, pb is None, AND both fundamental percentiles
+    are None (no stale percentile served).
+    """
+    con = duckdb.connect(str(tmp_path / "null_latest.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    # 35 valid rows + 1 final NULL row
+    valid_pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(35)]
+    null_pair = (None, None)
+    _seed_index_valuation_history(con, "csi300", [*valid_pairs, null_pair])
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm is None, "pe_ttm must be None when latest row has NULL pe_ttm"
+    assert inp.pb is None, "pb must be None when latest row has NULL pb"
+    assert inp.valuation_percentile_fundamental is None, (
+        "percentile must NOT be served from stale rows when latest pe_ttm is NULL"
+    )
+    assert inp.valuation_percentile_fundamental_pb is None, (
+        "pb percentile must NOT be served from stale rows when latest pb is NULL"
+    )
+    con.close()
+
+
 def test_consensus_upside_notch_fires_on_genuinely_cheap_percentile(tmp_path):
     """Item 002 (AC7) — SECOND row exercising the AC3 one-notch corroboration.
 
