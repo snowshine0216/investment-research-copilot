@@ -3,9 +3,11 @@ Verdict: PASS-WITH-NITS
 Source: /code-review on PR #101 (round 2)
 PR comment URL: https://github.com/snowshine0216/investment-research-copilot/pull/101#issuecomment-4610020750
 Round-1 latent bug (missing_valuation_data): CONFIRMED FIXED
-Findings: 2
-  - src/irc/opportunity/inputs_loader.py:178 — nit — docstring says "are inert until item 002" but item 001 (this PR) already activates valuation_percentile_fundamental via classify_valuation; stale wording misleads maintainers.
-  - src/irc/opportunity/inputs_loader.py:171,180 — nit — `provider` parameter is accepted and `default_cn_provider()` is instantiated but never used after the R3 migration; dead parameter obscures the cache-only design.
+Findings: 2 (both nits — loop-exit contract already met: 0 blockers, 0 latent bugs)
+  - src/irc/opportunity/inputs_loader.py:178 — nit — docstring says "are inert until item 002" but item 001 (this PR) already activates valuation_percentile_fundamental via classify_valuation; stale wording misleads maintainers. **RESOLVED** (commit drop-dead-provider): docstring corrected to state the cached-read grounding.
+  - src/irc/opportunity/inputs_loader.py:171,180 — nit — `provider` parameter is accepted and `default_cn_provider()` is instantiated but never used after the R3 migration; dead parameter obscures the cache-only design. **RESOLVED** (same commit): removed the dead `provider = provider or default_cn_provider()` assignment + the now-unused `default_cn_provider` import. The `provider` PARAMETER is intentionally kept (API stability + the AC6 no-live-fetch test passes a raising stub to prove the index path never calls it). Non-behavioral: ruff clean, 110 opportunity tests pass, risk.py/provider.py byte-identical to base.
+
+Both nits were optional (PASS-WITH-NITS already satisfied the exit contract); addressed for quality. No re-review dispatched — the changes are non-behavioral doc + dead-code removal, fully covered by the existing tests + ruff.
 
 ## Round-1 fix verification
 `_structural_evidence_gaps` at states.py:588-593 now requires all three of
