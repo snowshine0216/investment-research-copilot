@@ -12,6 +12,8 @@ from irc.commands.fund_eval_cmd import _instr_by_id, _latest_quarter
 from irc.config_loader import load_repo_configs
 from irc.fundamentals.provider import default_cn_provider
 from irc.io_utils import atomic_write_text
+from irc.commands.narrative_autobuild import autobuild_narrative
+from irc.commands.opportunity_cmd import FetchBudgetExceeded
 from irc.narrative.analyze import analyze_fund, error_report
 from irc.narrative.config import available_narratives, load_narrative_basket
 from irc.narrative.holdings_fetch import fetch_top_holdings
@@ -93,6 +95,10 @@ def _run_analyze(
     con, provider, resolved_quarter, instr_index = ctx
     reports: list[NarrativeFundReport] = []
     try:
+        autobuild_narrative(
+            shortlist, provider=provider, instr_index=instr_index, con=con,
+            quarter=resolved_quarter, data_dir=root / "data", today_iso=_today(),
+        )
         for row in shortlist:
             try:
                 reports.append(
@@ -102,6 +108,8 @@ def _run_analyze(
                         data_dir=root / "data", role=role,
                     )
                 )
+            except FetchBudgetExceeded:
+                raise
             except Exception as exc:
                 _log.warning(
                     "_run_analyze: analyze_fund failed for %s — %s",
@@ -112,7 +120,7 @@ def _run_analyze(
         try:
             con.close()
         except Exception:
-            pass
+            _log.debug("con.close failed", exc_info=True)
     return tuple(reports)
 
 
@@ -152,15 +160,27 @@ def run_narrative(
     )
     _write_screen(out, name, label, shortlist, excluded)
     if analyze:
-        reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+        try:
+            reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+        except FetchBudgetExceeded as exc:
+            print(
+                f"ERROR: fetch budget exceeded ({exc}). "
+                f"Raise IRC_FETCH_BUDGET or set IRC_NARRATIVE_AUTOBUILD=0 to skip the "
+                f"snapshot autobuild (active + passive funds). Shortlist written to {out}.",
+                file=sys.stderr,
+            )
+            return 3
         if reports is None:
             print(
                 f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "
-                f"cached snapshot quarter (run `irc fundamentals snapshot`). "
-                f"Shortlist written to {out}.", file=sys.stderr,
+                f"snapshot quarter under data/fundamentals/. Active-fund snapshots are "
+                f"auto-built during a successful --analyze (set IRC_NARRATIVE_AUTOBUILD=0 "
+                f"to disable); if none exist yet, run `irc opportunity` once or re-run "
+                f"--analyze online. Shortlist written to {out}.",
+                file=sys.stderr,
             )
             return 2
-        atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports))
+        atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports, name=name))
         atomic_write_text(out / f"{name}_report.json", render_report_json(label, reports))
     print(f"narrative {name} OK: {len(shortlist)} shortlisted, "
           f"{len(excluded)} excluded -> {out}")

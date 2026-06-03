@@ -36,6 +36,56 @@ system's deepest per-fund analysis on the shortlist.
   `--role` / `--out` / `--repo-root`. Reusable for new narratives (`ai`, `robots`) by
   adding a `config/narratives/<name>.yaml` — **no code change**. The seeded
   `compute_metals` basket is a **DRAFT** pending user approval.
+- **Active-fund autobuild for `--analyze` (2026-06-02):** `irc narrative --analyze`
+  now auto-builds + caches the `active_fund` snapshot for shortlisted
+  `cn_equity_fund` funds that lack one (mirrors `irc opportunity` autobuild), so
+  narrative-*discovered* funds — absent from `scoring.json` — get deepened instead of
+  screened to `insufficient`. Default-on; disable with `IRC_NARRATIVE_AUTOBUILD=0`.
+  Pre-fetch `IRC_FETCH_BUDGET` guard: a budget trip exits cleanly (`rc=3`, actionable
+  message), never a partial report; per-fund build failure degrades that fund to
+  `insufficient`, never crashing the run. `analyze_fund` stays read-only (effects at the
+  command edge). The misleading `--analyze` prerequisite error string (which told users
+  to run `irc fundamentals snapshot` — a command that cannot populate this cache) is
+  corrected to name `irc ingest` + the autobuild behaviour.
+- **Passive-ETF fund-level deepening for `--analyze` (2026-06-02):** `irc narrative
+  --analyze` now deepens passive funds (`cn_etf` and `qdii_*`/`us_etf`/`hk_etf` with a
+  resolvable underlying), recovering `robots_report`'s all-passive shortlist. `analyze_fund`
+  gains a read-side dispatch on the resolved look-through kind: it loads a fund-level
+  `FundLevelSnapshot` (NAV data leg + announcement info leg) and feeds it through the
+  same dual-leg-gated thesis derivation as `irc opportunity` (a fund passing the dual-leg
+  gate reaches a real `thesis_state`, not `insufficient`). A passive nav-snapshot
+  autobuild edge (unified with the active path into a single `autobuild_narrative` with one
+  shared fetch-budget preflight) builds + caches missing nav snapshots; `theme_report`
+  stays `None` (the fund-level thesis branch is theme-independent — genuine theme sourcing
+  is a separate follow-up). Effects stay at the command edge; `analyze_fund` remains
+  read-only. Refactor: the nav-cache loader moved from `commands/` to
+  `fundamentals/snapshot_cache.py`, removing a `commands↔narrative` import cycle.
+- **Narrative report `.md` enrichment (2026-06-02):** the `<name>_report.md` now explains
+  *why* a fund earned its verdict, not just the verdict. Each fund block carries the
+  `ThesisEvidence.summary` prose on its cited evidence (was opaque `[ref:hex]` IDs only),
+  a per-constituent holdings section with `one_line_view`, and a deterministic,
+  citation-id-sorted **evidence-footnote appendix** (`证据明细`) that resolves every inline
+  `[ref:…]` to a human-readable `type · source · date · summary · url` line — drawn from the
+  union of fund-level + constituent evidence so no reference dangles. Product-quality
+  **drivers** (费率 / 规模 / 任职 / 跟踪误差) are surfaced next to `质量`, with a report-level
+  legend noting that `质量` is currently a structural floor (pending follow-up F-1, since
+  `aum_stability_pct` is not yet ingested) so readers weight the drivers over the `weak`
+  label. The `.md` adds no datum the `.json` lacks (the `.json` evidence now also carries
+  `summary` + `url`). The narrative renderer remains display-only — it is **not** an
+  ADR-0004 §3 SAME-3 citation-set surface, so the appendix is exempt from citation-set
+  equality. The product-quality scorer itself is unchanged (F-1 follow-up).
+- **H3 display discipline for `insufficient` narrative rows (2026-06-02):** in the
+  `<name>_report.md`, funds whose `position_risk_level == "insufficient"` no longer print
+  earned-looking conclusions they have not earned. The action triad (`机会`/`dca`/`风险`),
+  the falsification/trim triggers, the review cadence, AND the `子状态` line (估值/热度/逻辑/质量
+  — themselves H3-forbidden conclusion fields) are now **suppressed** for such rows; in their
+  place a bilingual "证据不足 / insufficient — 行动建议已抑制" line names the `evidence_gaps`
+  and points at `irc narrative <name> --analyze` to refresh. Each insufficient fund still lists
+  its id/name, `position_risk_level`, risk drivers/rationale, the raw numeric `产品驱动`
+  metrics (data, not a verdict), and any partial cited evidence. Sufficient rows are unchanged.
+  This mirrors the opportunity/discipline H3 gapped-row field discipline
+  (`failure_renderer.py`). `.md`-only — the `.json` remains the full source of truth (keeps all
+  conclusions); `risk.py`/`position_risk_level`/the scorer are untouched.
 
 ### Added — `eval-funds` (2026-06-01)
 
