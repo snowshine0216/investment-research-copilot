@@ -145,6 +145,41 @@ _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
 _NOTCHABLE_VALUATION_STATES: frozenset[str] = frozenset({"cheap", "reasonable_low"})
 
+DIVERGENCE_PCT_GAP: float = 0.25
+VALUATION_DIVERGENCE_CODE: str = "valuation_price_fundamental_divergence"
+
+# Shared band thresholds — the single source of truth for the percentile->band
+# mapping used by classify_valuation AND valuation_divergence_code (DRY).
+_VALUATION_BANDS: tuple[tuple[float, str], ...] = (
+    (0.20, "cheap"),
+    (0.40, "reasonable_low"),
+    (0.70, "fair"),
+    (0.90, "expensive"),
+)
+
+
+def _band(pct: float) -> str:
+    """Map a percentile to its valuation band tier (matches classify_valuation)."""
+    for upper, name in _VALUATION_BANDS:
+        if pct < upper:
+            return name
+    return "very_expensive"
+
+
+def valuation_divergence_code(inp: OpportunityInput) -> str | None:
+    """Return the advisory code when the fundamental and NAV percentiles
+    disagree (different band-tier OR |gap| >= DIVERGENCE_PCT_GAP); else None.
+
+    Single source of truth (R2): classify_valuation uses it for the reason note;
+    build_opportunity_row folds it into advisory_gaps.
+    """
+    f, n = inp.valuation_percentile_fundamental, inp.valuation_percentile_self
+    if f is None or n is None:
+        return None
+    if _band(f) != _band(n) or abs(f - n) >= DIVERGENCE_PCT_GAP:
+        return VALUATION_DIVERGENCE_CODE
+    return None
+
 
 def expected_real_return_positive(inp: OpportunityInput) -> bool | None:
     """Earnings-yield vs real-yield sanity anchor (review §B3).
@@ -203,24 +238,32 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
     """
     if inp.asset_class in _BOND_ASSET_CLASSES:
         return classify_bond_valuation(inp)
-    pct = _percentile(inp)
+    # Phase 1 (item 001): the FUNDAMENTAL index PE-TTM percentile decides the
+    # band when present; otherwise fall back to the NAV self-history percentile
+    # (AC2 — byte-for-byte unchanged for vehicles with no fundamental data).
+    fund_pct = inp.valuation_percentile_fundamental
+    if fund_pct is not None:
+        pct = fund_pct
+        anchor_label = "PE 百分位"
+    else:
+        pct = _percentile(inp)
+        anchor_label = "估值百分位"
     if pct is None:
         return "evidence_insufficient", "估值数据缺失，未能判定。"
     if pct < 0.20:
-        state, reason = "cheap", f"估值百分位 {pct:.0%} 偏低。"
+        state, reason = "cheap", f"{anchor_label} {pct:.0%} 偏低。"
     elif pct < 0.40:
-        state, reason = "reasonable_low", f"估值百分位 {pct:.0%} 偏低但未极低。"
+        state, reason = "reasonable_low", f"{anchor_label} {pct:.0%} 偏低但未极低。"
     elif pct < 0.70:
-        state, reason = "fair", f"估值百分位 {pct:.0%} 中性。"
+        state, reason = "fair", f"{anchor_label} {pct:.0%} 中性。"
     elif pct < 0.90:
-        state, reason = "expensive", f"估值百分位 {pct:.0%} 偏高。"
+        state, reason = "expensive", f"{anchor_label} {pct:.0%} 偏高。"
     else:
-        state, reason = "very_expensive", f"估值百分位 {pct:.0%} 极高。"
-    # Equity sanity anchor (§B3): high price percentile can persist for
-    # years (1995-2000); if earnings_yield - real_yield_10y > 0 the
-    # equity is still offering a positive expected real return, which a
-    # DCA investor should know before treating "very_expensive" as
-    # "avoid".
+        state, reason = "very_expensive", f"{anchor_label} {pct:.0%} 极高。"
+    # Equity sanity anchor (§B3): high price percentile can persist for years
+    # (1995-2000); if earnings_yield - real_yield_10y > 0 the equity is still
+    # offering a positive expected real return, which a DCA investor should know
+    # before treating "very_expensive" as "avoid".
     if (
         state in _EXPENSIVE_VALUATION_STATES
         and inp.asset_class in _EQUITY_ASSET_CLASSES
@@ -237,6 +280,28 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
                 f"长期实际回报预期偏弱。"
             )
     if inp.asset_class in _EQUITY_ASSET_CLASSES:
+        # Step 3 (§4.4): price/fundamental divergence reason note. The advisory
+        # code itself is folded into advisory_gaps by build_opportunity_row (R2);
+        # here we only annotate the reason. classify_valuation keeps (state, reason).
+        if valuation_divergence_code(inp) is not None:
+            nav_pct = _percentile(inp)
+            reason = (
+                f"{reason} 价格与基本面估值百分位背离"
+                f"（价格 {nav_pct:.0%} vs 基本面 {fund_pct:.0%}），"
+                f"以基本面为准。"
+            )
+        # Step 4 (§4.4, Q5): PB corroboration note — cyclical/earnings-quality
+        # caveat when PE says cheap but PB percentile is elevated. NO state change.
+        pb_pct = inp.valuation_percentile_fundamental_pb
+        if (
+            state in _NOTCHABLE_VALUATION_STATES
+            and pb_pct is not None
+            and pb_pct >= 0.70
+        ):
+            reason = (
+                f"{reason} 但 PB 百分位 {pb_pct:.0%} 偏高，"
+                f"或为周期性盈利高估，便宜判断需谨慎。"
+            )
         fundamental = valuation_fundamental_signal(inp)
         if fundamental is not None:
             reason = f"{reason} {_fundamental_reason_phrase(fundamental, inp)}"
@@ -509,12 +574,22 @@ def derive_contributing_dimensions(
     return frozenset()
 
 
+def _divergence_gaps(inp: OpportunityInput) -> tuple[str, ...]:
+    """0/1-tuple wrapping valuation_divergence_code for the gap stream (R2)."""
+    code = valuation_divergence_code(inp)
+    return (code,) if code is not None else ()
+
+
 def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
     """Gaps for the non-thesis classifier inputs, using the typed labels from
     the May-14 spec (`missing_valuation_data`, `missing_flow_or_return_data`,
     `missing_product_metadata`)."""
     gaps: list[str] = []
-    if inp.valuation_percentile_self is None and inp.valuation_percentile_vs_benchmark is None:
+    if (
+        inp.valuation_percentile_self is None
+        and inp.valuation_percentile_vs_benchmark is None
+        and inp.valuation_percentile_fundamental is None
+    ):
         gaps.append("missing_valuation_data")
     heat_n = sum(1 for x in [
         inp.ret_1m, inp.ret_3m, inp.ret_6m, inp.ret_12m,
@@ -584,7 +659,9 @@ def build_opportunity_row(
     dimensions = derive_contributing_dimensions(valuation, heat, thesis, product, state)
     target = map_lookthrough(inp)
     reason = " | ".join([state_reason, val_reason, heat_reason, thesis_reason, product_reason])
-    combined_gaps = tuple(structural_gaps) + tuple(thesis_gaps)
+    combined_gaps = (
+        tuple(structural_gaps) + tuple(thesis_gaps) + _divergence_gaps(inp)
+    )
     evidence_gaps_filtered, expected_omissions, advisory_gaps = (
         _partition_gaps(combined_gaps)
     )

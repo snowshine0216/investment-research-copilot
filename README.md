@@ -354,7 +354,7 @@ The system does not scan every fund deeply on every run. Universe generation run
 
 `irc opportunity` reads cached evidence; it does not fetch it live. Refresh inputs in this order when you want decision-grade thesis cards:
 
-1. `uv run irc ingest` — refresh local market/fund data used by discovery and scoring.
+1. `uv run irc ingest` — refresh local market/fund data used by discovery and scoring (also refreshes `index_valuation_history`, the cached index PE/PB series backing the fundamental equity-valuation anchor for broad-index CN vehicles — the opportunity stage reads it but never fetches it live).
 2. `uv run irc research` — refresh macro, policy, gold-driver, geopolitics, and holdings-sector citations under `data/research/`.
 3. `uv run irc fundamentals snapshot --target all --top-n 10` — refresh constituent filings and broker reports for every registered snapshot target under `data/fundamentals/`.
 4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, opportunity, memo, and decision from the refreshed inputs.

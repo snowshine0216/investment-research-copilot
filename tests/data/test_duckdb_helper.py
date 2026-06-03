@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import duckdb
 import pytest
 
 import irc.data.duckdb_helper as duckdb_helper
@@ -105,3 +106,20 @@ def test_fund_holdings_remains_in_expected_tables() -> None:
     """AC1 corollary — fund_holdings is still listed in EXPECTED_TABLES."""
     from irc.data.duckdb_helper import EXPECTED_TABLES
     assert "fund_holdings" in EXPECTED_TABLES
+
+
+def test_index_valuation_history_in_expected_tables() -> None:
+    assert "index_valuation_history" in EXPECTED_TABLES
+
+
+def test_ensure_schema_creates_index_valuation_history(tmp_path) -> None:
+    con = duckdb.connect(str(tmp_path / "t.duckdb"))
+    ensure_schema(con)
+    cols = {
+        r[1]
+        for r in con.execute("PRAGMA table_info('index_valuation_history')").fetchall()
+    }
+    assert {"index_key", "date", "pe_ttm", "pb", "dividend_yield"} <= cols
+    # Idempotent: a second call must not raise.
+    ensure_schema(con)
+    con.close()

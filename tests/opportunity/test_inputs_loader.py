@@ -193,6 +193,95 @@ def _seed_csi300_instrument_with_prices(con) -> None:
     )
 
 
+def _seed_index_valuation_history(con, index_key, pe_pb_pairs, base_date=date(2025, 1, 1)):
+    rows = []
+    for i, (pe, pb) in enumerate(pe_pb_pairs):
+        d = date.fromordinal(base_date.toordinal() + i)
+        rows.append((index_key, d, pe, pb, None))
+    con.executemany(
+        "INSERT INTO index_valuation_history VALUES "
+        "(?,?,?,?,?, TIMESTAMP '2026-05-15', 'test', 'test:iv')",
+        rows,
+    )
+
+
+def test_populate_inputs_reads_cached_index_valuation_percentile(tmp_path):
+    con = duckdb.connect(str(tmp_path / "iv.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    # 30+ rising PE points so self_history_percentile fires; latest is the max.
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(40)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300", name_cn="沪深300ETF",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    # latest PE = 10 + 39*0.1 = 13.9; pb = 1 + 39*0.01 = 1.39
+    assert inp.pe_ttm == pytest.approx(13.9)
+    assert inp.pb == pytest.approx(1.39)
+    assert inp.valuation_percentile_fundamental == pytest.approx(1.0)
+    assert inp.valuation_percentile_fundamental_pb == pytest.approx(1.0)
+    # earnings_yield = 1/13.9
+    assert inp.earnings_yield == pytest.approx(1.0 / 13.9)
+    con.close()
+
+
+def test_populate_inputs_fundamental_percentile_none_under_30_points(tmp_path):
+    con = duckdb.connect(str(tmp_path / "iv2.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 10)  # < 30 points
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.valuation_percentile_fundamental is None
+    assert inp.valuation_percentile_fundamental_pb is None
+    # latest pe/pb still populated (for reason text + earnings_yield).
+    assert inp.pe_ttm == pytest.approx(12.0)
+    assert inp.earnings_yield == pytest.approx(1.0 / 12.0)
+    con.close()
+
+
+def test_populate_inputs_real_yield_in_ratio_units(tmp_path):
+    # R1 regression: cn_10y_yield = 2.45 (percent) → real_yield_10y ≈ 0.0245 (ratio).
+    con = duckdb.connect(str(tmp_path / "iv3.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    _seed_cn_10y_yield(con, [2.45, 2.45, 2.45])
+    _seed_index_valuation_history(con, "csi300", [(14.0, 1.3)] * 30)
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.real_yield_10y == pytest.approx(0.0245)
+    # earnings_yield = 1/14 ≈ 0.0714 > 0.0245 → anchor reads POSITIVE.
+    assert inp.earnings_yield == pytest.approx(1.0 / 14.0)
+    from irc.opportunity.states import expected_real_return_positive
+    assert expected_real_return_positive(inp) is True
+    con.close()
+
+
+def test_populate_inputs_no_live_index_fetch(tmp_path):
+    # R3: a provider whose fetch_index_valuation raises must NOT be invoked.
+    con = duckdb.connect(str(tmp_path / "iv4.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 30)
+    provider = _StubProvider(raise_on_fetch=True)
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    # Must not raise — the index path reads the cached table, never the provider.
+    inp = populate_inputs(con, skeleton, holding_entry_date=None, provider=provider)
+    assert inp.pe_ttm == pytest.approx(12.0)
+    con.close()
+
+
 def _stub_index_valuation(index_key, *, fetch=None):  # noqa: ARG001
     return IndexValuation(
         index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None,
@@ -223,19 +312,14 @@ def test_populate_inputs_fills_pe_pb_for_recognised_broad_index(tmp_path):
     con = duckdb.connect(str(tmp_path / "csi.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    provider = _StubProvider(index_val=IndexValuation(
-        index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None, as_of_iso="2026-05-31",
-    ))
+    _seed_index_valuation_history(con, "csi300", [(12.1, 1.31)])
     skeleton = OpportunityInput(
-        instrument_id="510300",
-        asset_class="cn_etf",
-        market="cn_on_exchange",
-        tracked_index="csi300",
-        name_cn="沪深300ETF",
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300", name_cn="沪深300ETF",
     )
-    inp = populate_inputs(con, skeleton, holding_entry_date=None, provider=provider)
-    assert inp.pe_ttm == 12.1
-    assert inp.pb == 1.31
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm == pytest.approx(12.1)
+    assert inp.pb == pytest.approx(1.31)
     assert inp.dividend_yield is None
     con.close()
 
@@ -249,16 +333,11 @@ def test_populate_inputs_leaves_pe_pb_none_for_unrecognised_index(tmp_path):
         " DATE '2020-01-01', 0.005, 1.0e9, NULL, 3.0, "
         " TIMESTAMP '2026-05-15', 'test', 'test:159999')"
     )
-    # raise_on_fetch=True: the provider must NOT be called for an unrecognised index;
-    # the _BROAD_INDEX_KEYS guard fires first and short-circuits before any fetch.
-    provider = _StubProvider(raise_on_fetch=True)
     skeleton = OpportunityInput(
-        instrument_id="159999",
-        asset_class="cn_etf",
-        market="cn_on_exchange",
-        tracked_index="some_sector_theme",
+        instrument_id="159999", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="some_sector_theme",
     )
-    inp = populate_inputs(con, skeleton, holding_entry_date=None, provider=provider)
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
     assert inp.pe_ttm is None
     assert inp.pb is None
     assert inp.dividend_yield is None
@@ -274,14 +353,13 @@ def test_populate_inputs_leaves_pe_pb_none_for_gold_and_bond(tmp_path):
         " DATE '2020-01-01', 0.005, 5.0e10, NULL, 6.0, "
         " TIMESTAMP '2026-05-15', 'test', 'test:518880')"
     )
-    provider = _StubProvider(index_val=None)
     skeleton = OpportunityInput(
         instrument_id="518880",
         asset_class="gold",
         market="cn_on_exchange",
         tracked_index=None,
     )
-    inp = populate_inputs(con, skeleton, holding_entry_date=None, provider=provider)
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
     assert inp.pe_ttm is None and inp.pb is None and inp.dividend_yield is None
     con.close()
 
@@ -290,14 +368,13 @@ def test_populate_inputs_consensus_upside_none_with_no_broker_reports(tmp_path):
     con = duckdb.connect(str(tmp_path / "noupside.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    provider = _StubProvider(index_val=IndexValuation(
-        index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None, as_of_iso="2026-05-31",
-    ))
+    # Item 001: index_valuation_history now drives pe/pb (not provider).
+    _seed_index_valuation_history(con, "csi300", [(12.1, 1.31)])
     skeleton = OpportunityInput(
         instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
         tracked_index="csi300",
     )
-    inp = populate_inputs(con, skeleton, holding_entry_date=None, provider=provider)
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
     assert inp.consensus_upside_pct is None  # no reports passed → None (ADR 0009)
     con.close()
 
@@ -306,9 +383,8 @@ def test_populate_inputs_consensus_upside_computed_when_reports_carry_targets(tm
     con = duckdb.connect(str(tmp_path / "upside.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)  # latest close == 100.0
-    provider = _StubProvider(index_val=IndexValuation(
-        index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None, as_of_iso="2026-05-31",
-    ))
+    # Item 001: index_valuation_history now drives pe/pb (not provider).
+    _seed_index_valuation_history(con, "csi300", [(12.1, 1.31)])
     reports = (
         BrokerReport("510300", "中信", "买入", 120.0, "2026-05-08", "t"),
         BrokerReport("510300", "中金", "增持", 100.0, "2026-05-07", "t"),
@@ -318,7 +394,7 @@ def test_populate_inputs_consensus_upside_computed_when_reports_carry_targets(tm
         tracked_index="csi300",
     )
     inp = populate_inputs(
-        con, skeleton, holding_entry_date=None, broker_reports=reports, provider=provider
+        con, skeleton, holding_entry_date=None, broker_reports=reports,
     )
     # median([120, 100]) = 110 ; 110/100 - 1 = 0.10
     assert inp.consensus_upside_pct == pytest.approx(0.10)
@@ -346,9 +422,9 @@ def test_population_consumes_consensus_upside_per_item_002(tmp_path):
     con = duckdb.connect(str(tmp_path / "consume.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    provider = _StubProvider(index_val=IndexValuation(
-        index_key="csi300", pe_ttm=12.1, pb=1.31, dividend_yield=None, as_of_iso="2026-05-31",
-    ))
+    # Item 001: seed the cached index_valuation_history table (single row — no percentile).
+    _seed_index_valuation_history(con, "csi300", [(12.1, 1.31)])
+    provider = _StubProvider(raise_on_fetch=True)  # must NOT be called (R3)
     skeleton = OpportunityInput(
         instrument_id="510300", asset_class="cn_etf", market="cn_on_exchange",
         tracked_index="csi300",
@@ -379,6 +455,38 @@ def test_population_consumes_consensus_upside_per_item_002(tmp_path):
     # (ii) All-None dormancy (AC6): the bare row is byte-identical to pre-002.
     assert classify_valuation(bare) == classify_valuation(
         dataclasses.replace(bare, consensus_upside_pct=None)
+    )
+    con.close()
+
+
+def test_populate_inputs_null_latest_pe_pb_yields_none_percentile(tmp_path):
+    """Finding 1 (P0): when the LATEST cached index_valuation_history row has
+    NULL pe_ttm / pb, the percentile must also be None — not a stale value
+    computed from the prior non-null rows.
+
+    Seed ≥30 valid PE/PB points followed by a final row with NULL pe_ttm and
+    pb.  Assert pe_ttm is None, pb is None, AND both fundamental percentiles
+    are None (no stale percentile served).
+    """
+    con = duckdb.connect(str(tmp_path / "null_latest.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    # 35 valid rows + 1 final NULL row
+    valid_pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(35)]
+    null_pair = (None, None)
+    _seed_index_valuation_history(con, "csi300", [*valid_pairs, null_pair])
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm is None, "pe_ttm must be None when latest row has NULL pe_ttm"
+    assert inp.pb is None, "pb must be None when latest row has NULL pb"
+    assert inp.valuation_percentile_fundamental is None, (
+        "percentile must NOT be served from stale rows when latest pe_ttm is NULL"
+    )
+    assert inp.valuation_percentile_fundamental_pb is None, (
+        "pb percentile must NOT be served from stale rows when latest pb is NULL"
     )
     con.close()
 
