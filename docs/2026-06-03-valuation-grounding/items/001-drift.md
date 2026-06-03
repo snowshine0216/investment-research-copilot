@@ -23,3 +23,21 @@ Drift findings:
   - Task 11 (populate_inputs) — known-acceptable test migration scope (accepted per prompt context)
     Evidence: diff migrates 4 pre-existing tests off `_StubProvider(index_val=...)` to cached-table seeding, not the 2 named explicitly in the plan. The 4 extra tests (`test_populate_inputs_leaves_pe_pb_none_for_gold_and_bond`, `test_populate_inputs_consensus_upside_none_with_no_broker_reports`, `test_populate_inputs_consensus_upside_computed_when_reports_carry_targets`, `test_population_consumes_consensus_upside_per_item_002`) all only changed the pe/pb seeding mechanism and preserved original assertion intent.
     Action: accepted with rationale — necessary consequence of R3 removing the live-fetch seam.
+
+CORRECTION (post-ship-review, by orchestrator): the "4 failing tests confirmed
+pre-existing" context I gave this drift dispatch was WRONG for 2 of them. The
+ship steps-8/9 review + an independent base-branch run found that
+`tests/fundamentals/test_provider_migration.py::test_index_metrics_via_provider_matches_pre_migration`
+and `::test_index_metrics_unknown_key_does_not_call_ak` PASS on base but FAILED on
+this branch — i.e. they were R3 regressions, NOT pre-existing. They asserted the
+pre-R3 contract (`_index_valuation_metrics(tracked_index, provider=...)` routing
+through the provider) which R3 §4.3 deliberately replaced with a cached read, so
+the old-signature calls raised TypeError. Resolution: the two obsolete
+`_index_valuation_metrics`-via-provider locks were retired (same R3 churn category
+as the Task-11 migrations); cached-read coverage lives in test_inputs_loader.py and
+`provider.fetch_index_valuation` keeps its own coverage in test_provider.py (R4).
+This does NOT change the code-drift verdict (PASS stands — all 12 plan tasks and
+all invariants verified against the diff); it adds one more necessary test
+migration the impl/drift passes missed. The genuinely pre-existing failures reduce
+to 2: `test_build_rows_qdii_row_carries_sentinel_gap` and `test_only_stage_runs_single`
+(both independently re-confirmed failing on base).
