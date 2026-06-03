@@ -13,6 +13,7 @@ EXPECTED_TABLES: frozenset[str] = frozenset(
         "fund_holdings",
         "fund_metrics",
         "events_log",
+        "index_valuation_history",
     }
 )
 
@@ -90,6 +91,15 @@ _DDL_STATEMENTS: tuple[str, ...] = (
         severity  VARCHAR   NOT NULL,
         message   VARCHAR   NOT NULL,
         {_PROVENANCE_COLS}
+    )""",
+    f"""CREATE TABLE IF NOT EXISTS index_valuation_history (
+        index_key      VARCHAR NOT NULL,
+        date           DATE    NOT NULL,
+        pe_ttm         DOUBLE,
+        pb             DOUBLE,
+        dividend_yield DOUBLE,
+        {_PROVENANCE_COLS},
+        PRIMARY KEY (index_key, date)
     )""",
 )
 
