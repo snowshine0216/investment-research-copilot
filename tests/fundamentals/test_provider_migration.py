@@ -1,37 +1,22 @@
-"""Locks: routing the four call-sites through AkShareProvider yields output
+"""Locks: routing the call-sites through AkShareProvider yields output
 byte-identical to the pre-migration direct calls on the same stubbed _ak_call.
+
+Note (item 001 / R3, design spec §4.3): the `_index_valuation_metrics` call-site
+no longer routes through the provider — it reads the cached `index_valuation_history`
+DuckDB table (live provider fetch removed). The two former
+`_index_valuation_metrics`-via-provider locks were therefore retired here; the new
+cached-read contract is covered by `tests/opportunity/test_inputs_loader.py`, and
+`AkShareProvider.fetch_index_valuation` itself retains its own coverage in
+`tests/fundamentals/test_provider.py` (R4 — the provider method stays a valid,
+tested seam). The remaining lock below covers the snapshot constituent-fetch seam,
+which is unchanged by item 001.
 """
 from __future__ import annotations
 
 from unittest.mock import patch
 
-import pandas as pd
-
-from irc.fundamentals import akshare_index_valuation
-from irc.fundamentals.provider import AkShareProvider
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.types import LookthroughTarget
-from irc.opportunity.inputs_loader import _index_valuation_metrics
-
-_PE_FRAME = pd.DataFrame({"日期": ["2026-05-30"], "平均市盈率": [12.1]})
-_PB_FRAME = pd.DataFrame({"日期": ["2026-05-30"], "市净率": [1.31]})
-
-
-def test_index_metrics_via_provider_matches_pre_migration() -> None:
-    def _fake(fn_name, **kwargs):
-        return _PE_FRAME if fn_name == "stock_index_pe_lg" else _PB_FRAME
-
-    with patch.object(akshare_index_valuation, "_ak_call", side_effect=_fake):
-        out = _index_valuation_metrics("csi300", provider=AkShareProvider())
-    # Same as fetch_cn_index_valuation("csi300").pe_ttm / .pb / .dividend_yield.
-    assert out == (12.1, 1.31, None)
-
-
-def test_index_metrics_unknown_key_does_not_call_ak() -> None:
-    with patch.object(akshare_index_valuation, "_ak_call") as mocked:
-        out = _index_valuation_metrics("not_a_broad_index", provider=AkShareProvider())
-    assert out == (None, None, None)
-    mocked.assert_not_called()
 
 
 class _RecordingProvider:
