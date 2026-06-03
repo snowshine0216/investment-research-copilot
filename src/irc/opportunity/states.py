@@ -585,7 +585,11 @@ def _structural_evidence_gaps(inp: OpportunityInput) -> list[str]:
     the May-14 spec (`missing_valuation_data`, `missing_flow_or_return_data`,
     `missing_product_metadata`)."""
     gaps: list[str] = []
-    if inp.valuation_percentile_self is None and inp.valuation_percentile_vs_benchmark is None:
+    if (
+        inp.valuation_percentile_self is None
+        and inp.valuation_percentile_vs_benchmark is None
+        and inp.valuation_percentile_fundamental is None
+    ):
         gaps.append("missing_valuation_data")
     heat_n = sum(1 for x in [
         inp.ret_1m, inp.ret_3m, inp.ret_6m, inp.ret_12m,

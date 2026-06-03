@@ -434,6 +434,46 @@ def test_build_opportunity_row_records_evidence_gaps():
     assert "missing_product_metadata" in row.evidence_gaps
 
 
+def test_no_missing_valuation_gap_when_fundamental_percentile_present():
+    """Finding 1 fix: fundamental percentile alone is sufficient valuation data.
+
+    A broad-index ETF with a warm index_valuation_history cache gives
+    valuation_percentile_fundamental but a failed price/NAV fetch leaves
+    valuation_percentile_self and valuation_percentile_vs_benchmark None.
+    _structural_evidence_gaps must NOT flag missing_valuation_data, because the
+    fundamental percentile gives a valid valuation verdict via classify_valuation.
+    Row must be publishable (no missing_valuation_data in evidence_gaps).
+    """
+    inp = _make(
+        theme="broad", tracked_index="csi300", asset_class="cn_etf",
+        # No price/NAV percentile — simulates failed price fetch
+        valuation_percentile_self=None,
+        valuation_percentile_vs_benchmark=None,
+        # Fundamental percentile present from warm index_valuation_history cache
+        valuation_percentile_fundamental=0.10,
+        # Enough heat signals (>=2) and product metadata so row is otherwise publishable
+        ret_3m=0.02, ret_6m=0.05,
+        expense_ratio=0.0015, aum_cny=20e9,
+    )
+    row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
+    assert "missing_valuation_data" not in row.evidence_gaps
+
+
+def test_missing_valuation_gap_when_all_three_percentiles_none():
+    """Regression: when ALL THREE valuation percentiles are None, the gap MUST
+    still be flagged. This preserves the existing behavior."""
+    inp = _make(
+        theme="broad", tracked_index="csi300", asset_class="cn_etf",
+        valuation_percentile_self=None,
+        valuation_percentile_vs_benchmark=None,
+        valuation_percentile_fundamental=None,
+        ret_3m=0.02, ret_6m=0.05,
+        expense_ratio=0.0015, aum_cny=20e9,
+    )
+    row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
+    assert "missing_valuation_data" in row.evidence_gaps
+
+
 def test_build_opportunity_row_no_structural_gaps_when_metrics_present():
     """With all four classifier dimensions populated, the only remaining gaps
     are the thesis-fundamentals gaps (no snapshot / no theme report)."""
