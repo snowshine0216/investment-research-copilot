@@ -452,6 +452,27 @@ def test_inline_partial_success_renders_evidence_plus_failure_reasons() -> None:
     assert "持有头部白酒 (⚠️ broker_report_unavailable)" in out
 
 
+def _disc_row(**kwargs) -> DisciplineRow:
+    base = dict(
+        instrument_id="510300", name_cn="沪深300ETF", asset_class="cn_etf",
+        theme="宽基", opportunity_state="core_dca", dca_action="normal_dca",
+        risk_action="none", note_cn="ok",
+    )
+    base.update(kwargs)
+    return DisciplineRow(**base)
+
+
+def test_discipline_report_surfaces_divergence_advisory():
+    row = _disc_row(advisory_gaps=("valuation_price_fundamental_divergence",))
+    md = compose_discipline_markdown([row], date="2026-06-03")
+    assert "价格与基本面估值背离" in md
+
+
+def test_discipline_report_no_divergence_suffix_when_absent():
+    md = compose_discipline_markdown([_disc_row()], date="2026-06-03")
+    assert "价格与基本面估值背离" not in md
+
+
 def test_render_section_inline_top_5_orders_by_weight_desc() -> None:
     """Constituents render by weight_pct descending (rank 1 first)."""
     from irc.opportunity.report import _render_section

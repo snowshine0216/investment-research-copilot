@@ -217,10 +217,14 @@ def _render_section(title: str, rows: list[DisciplineRow]) -> str:
         return f"## {title}\n\n（无）\n"
     lines = [f"## {title}\n"]
     for r in rows:
+        advisory_notes: list[str] = []
+        gaps = getattr(r, "advisory_gaps", ())
+        if "top_holdings_broker_thin" in gaps:
+            advisory_notes.append("核心持仓券商覆盖不足")
+        if "valuation_price_fundamental_divergence" in gaps:
+            advisory_notes.append("价格与基本面估值背离")
         advisory_suffix = (
-            " ｜ 证据缺口：核心持仓券商覆盖不足"
-            if "top_holdings_broker_thin" in getattr(r, "advisory_gaps", ())
-            else ""
+            " ｜ 证据缺口：" + "；".join(advisory_notes) if advisory_notes else ""
         )
         lines.append(
             f"- **{r.instrument_id} {r.name_cn}** "
