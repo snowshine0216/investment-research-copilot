@@ -11,6 +11,12 @@ def _make(**kwargs) -> OpportunityInput:
     return OpportunityInput(**base)
 
 
+def test_opportunity_input_has_fundamental_percentile_fields_defaulting_none():
+    inp = _make()
+    assert inp.valuation_percentile_fundamental is None
+    assert inp.valuation_percentile_fundamental_pb is None
+
+
 def test_valuation_evidence_insufficient_when_no_data():
     state, reason = classify_valuation(_make())
     assert state == "evidence_insufficient"
@@ -53,6 +59,93 @@ def test_valuation_uses_vs_benchmark_when_self_history_missing():
 def test_valuation_never_infers_cheapness_from_drawdown_alone():
     state, _ = classify_valuation(_make(drawdown_since_entry=0.30))
     assert state == "evidence_insufficient"
+
+
+from irc.opportunity.states import (
+    VALUATION_DIVERGENCE_CODE,
+    valuation_divergence_code,
+)
+
+
+def _div(**kwargs):
+    return _make(asset_class="cn_etf", market="cn_on_exchange", **kwargs)
+
+
+def test_divergence_none_when_either_percentile_missing():
+    assert valuation_divergence_code(_div(valuation_percentile_fundamental=0.1)) is None
+    assert valuation_divergence_code(_div(valuation_percentile_self=0.1)) is None
+    assert valuation_divergence_code(_div()) is None
+
+
+def test_divergence_none_when_same_band_and_small_gap():
+    # both in `fair` band (0.40..0.70), gap 0.05 < 0.25
+    inp = _div(valuation_percentile_fundamental=0.50, valuation_percentile_self=0.55)
+    assert valuation_divergence_code(inp) is None
+
+
+def test_divergence_fires_on_band_tier_crossing():
+    # fundamental cheap (<0.20), self fair (0.40..0.70); gap 0.45 also >= 0.25
+    inp = _div(valuation_percentile_fundamental=0.10, valuation_percentile_self=0.55)
+    assert valuation_divergence_code(inp) == VALUATION_DIVERGENCE_CODE
+
+
+def test_divergence_fires_on_large_gap_within_same_band():
+    # NOTE: choose two values in the SAME band but >= 0.25 apart.
+    # fair band spans 0.40..0.70 (width 0.30) → 0.41 and 0.69 are both `fair`,
+    # gap 0.28 >= 0.25 → divergence by the gap rule alone.
+    inp = _div(valuation_percentile_fundamental=0.41, valuation_percentile_self=0.69)
+    assert valuation_divergence_code(inp) == VALUATION_DIVERGENCE_CODE
+
+
+def test_fundamental_percentile_decides_each_band():
+    # When valuation_percentile_fundamental is present it OVERRIDES the NAV pct.
+    cases = {
+        0.10: "cheap",
+        0.30: "reasonable_low",
+        0.55: "fair",
+        0.80: "expensive",
+        0.95: "very_expensive",
+    }
+    for fund_pct, expected in cases.items():
+        inp = _make(
+            valuation_percentile_fundamental=fund_pct,
+            valuation_percentile_self=0.50,  # deliberately disagrees
+        )
+        state, _ = classify_valuation(inp)
+        assert state == expected, (fund_pct, state)
+
+
+def test_fundamental_none_falls_back_to_nav_byte_for_byte():
+    # Regression lock (AC2): no fundamental pct → identical to today's NAV path.
+    inp = _make(valuation_percentile_fundamental=None, valuation_percentile_self=0.95)
+    state, reason = classify_valuation(inp)
+    assert state == "very_expensive"
+    # The fallback path must not mention the fundamental percentile.
+    assert "PE 百分位" not in reason
+
+
+def test_classify_valuation_appends_divergence_note_without_signature_change():
+    inp = _make(
+        valuation_percentile_fundamental=0.10,  # cheap
+        valuation_percentile_self=0.85,          # expensive
+    )
+    out = classify_valuation(inp)
+    assert isinstance(out, tuple) and len(out) == 2
+    state, reason = out
+    assert state == "cheap"  # fundamental decides
+    assert "背离" in reason  # divergence caveat present
+
+
+def test_pb_corroboration_note_appears_without_changing_state():
+    # PE-band cheap but PB percentile >= 0.70 → cyclical-earnings caveat, state stays cheap.
+    inp = _make(
+        valuation_percentile_fundamental=0.10,
+        valuation_percentile_fundamental_pb=0.85,
+        valuation_percentile_self=0.10,  # agree → no divergence note
+    )
+    state, reason = classify_valuation(inp)
+    assert state == "cheap"
+    assert "PB" in reason
 
 
 from irc.opportunity.states import classify_heat
@@ -341,6 +434,46 @@ def test_build_opportunity_row_records_evidence_gaps():
     assert "missing_product_metadata" in row.evidence_gaps
 
 
+def test_no_missing_valuation_gap_when_fundamental_percentile_present():
+    """Finding 1 fix: fundamental percentile alone is sufficient valuation data.
+
+    A broad-index ETF with a warm index_valuation_history cache gives
+    valuation_percentile_fundamental but a failed price/NAV fetch leaves
+    valuation_percentile_self and valuation_percentile_vs_benchmark None.
+    _structural_evidence_gaps must NOT flag missing_valuation_data, because the
+    fundamental percentile gives a valid valuation verdict via classify_valuation.
+    Row must be publishable (no missing_valuation_data in evidence_gaps).
+    """
+    inp = _make(
+        theme="broad", tracked_index="csi300", asset_class="cn_etf",
+        # No price/NAV percentile — simulates failed price fetch
+        valuation_percentile_self=None,
+        valuation_percentile_vs_benchmark=None,
+        # Fundamental percentile present from warm index_valuation_history cache
+        valuation_percentile_fundamental=0.10,
+        # Enough heat signals (>=2) and product metadata so row is otherwise publishable
+        ret_3m=0.02, ret_6m=0.05,
+        expense_ratio=0.0015, aum_cny=20e9,
+    )
+    row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
+    assert "missing_valuation_data" not in row.evidence_gaps
+
+
+def test_missing_valuation_gap_when_all_three_percentiles_none():
+    """Regression: when ALL THREE valuation percentiles are None, the gap MUST
+    still be flagged. This preserves the existing behavior."""
+    inp = _make(
+        theme="broad", tracked_index="csi300", asset_class="cn_etf",
+        valuation_percentile_self=None,
+        valuation_percentile_vs_benchmark=None,
+        valuation_percentile_fundamental=None,
+        ret_3m=0.02, ret_6m=0.05,
+        expense_ratio=0.0015, aum_cny=20e9,
+    )
+    row = build_opportunity_row(inp, theme_thesis={"broad": "intact"})
+    assert "missing_valuation_data" in row.evidence_gaps
+
+
 def test_build_opportunity_row_no_structural_gaps_when_metrics_present():
     """With all four classifier dimensions populated, the only remaining gaps
     are the thesis-fundamentals gaps (no snapshot / no theme report)."""
@@ -383,9 +516,6 @@ def test_heat_gap_added_when_only_one_heat_input():
 # ---------------------------------------------------------------------------
 # Weak-link label in the catch-all small_watch reason
 # ---------------------------------------------------------------------------
-
-
-from irc.opportunity.states import build_opportunity_row, compose_opportunity_state
 
 
 def test_compose_small_watch_reason_names_weak_product_quality():
@@ -809,3 +939,41 @@ def test_build_opportunity_row_snapshot_annotation_includes_fund_level() -> None
 
     hints = typing.get_type_hints(build_opportunity_row)
     assert FundLevelSnapshot in typing.get_args(hints["snapshot"])
+
+
+# ---------------------------------------------------------------------------
+# Task 10: thread divergence into build_opportunity_row (R2/H3)
+# ---------------------------------------------------------------------------
+
+def _broad_index_inp(**kwargs):
+    base = dict(
+        instrument_id="510300",
+        asset_class="cn_etf",
+        market="cn_on_exchange",
+        name_cn="沪深300ETF",
+        tracked_index="csi300",
+        # enough heat + product signals so the row is otherwise publishable
+        ret_1m=0.0, ret_3m=0.0, expense_ratio=0.005, aum_cny=5.0e10,
+    )
+    base.update(kwargs)
+    return OpportunityInput(**base)
+
+
+def test_build_row_routes_divergence_to_advisory_not_evidence_gaps():
+    inp = _broad_index_inp(
+        valuation_percentile_fundamental=0.10,  # cheap
+        valuation_percentile_self=0.85,          # expensive → divergence
+    )
+    # theme_thesis provided so classify_thesis has a table; snapshot=None path.
+    row = build_opportunity_row(inp, {"宽基": "intact"})
+    assert "valuation_price_fundamental_divergence" in row.advisory_gaps
+    assert "valuation_price_fundamental_divergence" not in row.evidence_gaps
+
+
+def test_build_row_no_divergence_code_when_percentiles_agree():
+    inp = _broad_index_inp(
+        valuation_percentile_fundamental=0.10,
+        valuation_percentile_self=0.12,  # agree → no divergence
+    )
+    row = build_opportunity_row(inp, {"宽基": "intact"})
+    assert "valuation_price_fundamental_divergence" not in row.advisory_gaps

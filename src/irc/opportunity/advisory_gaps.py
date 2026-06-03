@@ -22,6 +22,7 @@ _TOP_N: Final[int] = 5
 
 ADVISORY_GAP_CODES: Final[frozenset[str]] = frozenset({
     "top_holdings_broker_thin",
+    "valuation_price_fundamental_divergence",
 })
 
 

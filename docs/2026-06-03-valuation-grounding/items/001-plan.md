@@ -250,6 +250,8 @@ def _series_map(df: pd.DataFrame, candidate_cols: tuple[str, ...]) -> dict[str, 
 
 (c) add the fetcher (degrade-to-`None`; full union of PE + PB dates, sorted ascending):
 
+> **[drift-note, 001-drift.md Task 2]** The impl wrapped the two `_fetch_frame` calls in an extra `try/except Exception: return None` block. Since `_fetch_frame` already catches all exceptions internally and returns `None`, the outer wrapper is dead code — the degrade-to-None contract is identical. Accepted: small divergence, vague plan wording.
+
 ```python
 def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | None:
     """Full PE/PB series for a recognised broad index; None for unknown keys or
@@ -257,8 +259,11 @@ def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | 
     cn_name = _INDEX_PE_PB_NAME.get(index_key)
     if cn_name is None:
         return None
-    pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
-    pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    try:
+        pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
+        pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    except Exception:
+        return None
     if pe_df is None and pb_df is None:
         return None
     pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS)

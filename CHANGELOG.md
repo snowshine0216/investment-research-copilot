@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — fundamental-grounded equity valuation (Phase 1, 2026-06-03)
+
+The equity `valuation_state` for **broad-index CN vehicles** is now decided by a
+**fundamental index PE-TTM historical percentile**, not the price/NAV self-history
+percentile. The NAV percentile stays as the fallback (no fundamental data) and as a
+divergence signal.
+
+- **Data layer (effects at the edge):** new AkShare-only `fetch_cn_index_valuation_history`
+  keeps the full legulegu PE/PB series (the latest-row-only fetch discarded it); a new
+  `index_valuation_history` DuckDB table + ingest-stage writer refresh it on `irc run
+  --from ingest`. The forbidden `基金概况` indicator is never used. The
+  `CnFundamentalsProvider` Protocol stays 3-method (the history fetch is ingest infra,
+  not a provider method).
+- **Classifier (pure):** `classify_valuation` bands on `valuation_percentile_fundamental`
+  when present (existing cheap/.20·reasonable_low/.40·fair/.70·expensive/.90 thresholds),
+  else falls back byte-for-byte to the NAV percentile. PB percentile adds a cyclical-earnings
+  corroboration note (never notches the state). The dormant `earnings_yield − real_yield_10y`
+  anchor is lit up with **ratio-unit** data (`earnings_yield = 1/pe_ttm`; `real_yield_10y =
+  cn_10y_yield/100`, the 股债利差 nominal gap until CN CPI is ingested).
+- **Divergence advisory:** a single pure `valuation_divergence_code` detector emits
+  `valuation_price_fundamental_divergence` (band-tier crossing **or** `|gap| ≥ 0.25`) into
+  `advisory_gaps` (never `evidence_gaps` — H3/SAME-3 untouched, row stays publishable);
+  surfaced as a discipline-report legend note.
+- **`irc opportunity` performs no live index fetch** — `populate_inputs` reads only the
+  cached `index_valuation_history` table (the live `provider.fetch_index_valuation` call was
+  removed). **Risk inherits** the grounded verdict with **no change** to
+  `derive_position_risk_level`.
+- Scope: broad-index CN ETFs/index funds only. QDII (US/HK), sector-theme ETFs, and active
+  funds fall back to the NAV percentile by design (QDII fundamental valuation and Phase-2
+  holdings look-through are deferred to later specs).
+
 ### Fixed — remove the active-fund `product_quality_state` floor (F-1, 2026-06-03)
 
 `classify_product_quality` no longer forces every active fund (`cn_equity_fund`

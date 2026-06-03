@@ -21,6 +21,8 @@ from irc.data.akshare_client import (
 )
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.fund_holdings_ingestor import ingest_many as ingest_fund_holdings
+from irc.data.index_valuation_ingestor import ingest_index_valuation_history
+from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
@@ -456,7 +458,10 @@ def run_ingest(repo_root: str) -> int:
         ensure_schema(con)
         start, end = _date_window()
         ob_counts: dict[str, int] = {"prices": 0, "macro_series": 0, "instruments": 0}
-        ak_counts: dict[str, int] = {"prices": 0, "nav_history": 0, "fund_holdings": 0}
+        ak_counts: dict[str, int] = {
+            "prices": 0, "nav_history": 0, "fund_holdings": 0,
+            "index_valuation_history": 0,
+        }
         holdings_counts: dict[str, int] = {
             "wrote": 0, "skipped_fresh": 0,
             "skipped_no_data": 0, "failed": 0,
@@ -556,6 +561,19 @@ def run_ingest(repo_root: str) -> int:
                     "downstream stages fall back to defaults when absent.",
                     series.source_id, exc,
                 )
+
+        # Item 001 Phase 1a — index PE/PB history (best-effort, non-fatal).
+        # Cached source for the opportunity-stage fundamental valuation anchor;
+        # the opportunity stage never fetches live (R3). Mirrors fund_holdings:
+        # a fetch miss degrades the verdict to NAV-fallback, not a halt.
+        try:
+            iv_rows = ingest_index_valuation_history(
+                con, tuple(sorted(_BROAD_INDEX_KEYS)), now_iso=_now_iso(),
+            )
+            ak_counts["index_valuation_history"] = iv_rows
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment
+            _log.warning("index_valuation_history ingest failed: %s", exc, exc_info=True)
+            ak_counts["index_valuation_history"] = 0
 
         nav_candidates = [
             i for i in all_instruments
