@@ -121,7 +121,7 @@ def test_fundamental_none_falls_back_to_nav_byte_for_byte():
     state, reason = classify_valuation(inp)
     assert state == "very_expensive"
     # The fallback path must not mention the fundamental percentile.
-    assert "PE" not in reason or "PE 百分位" not in reason
+    assert "PE 百分位" not in reason
 
 
 def test_classify_valuation_appends_divergence_note_without_signature_change():
