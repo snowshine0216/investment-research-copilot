@@ -339,24 +339,43 @@ def _passive_quality_score(inp: OpportunityInput) -> tuple[float, int]:
     return sum(contributions) / len(contributions), len(contributions)
 
 
+# aum_stability_pct is a coefficient-of-variation-style measure (lower = more
+# stable; see scoring/factors/quality._aum_stability_score). A value at or below
+# this bound lifts a sound active fund to 'strong'; its ABSENCE only caps the
+# ceiling at 'acceptable' — it never floors an otherwise-sound product.
+_AUM_STABILITY_STRONG_MAX: float = 0.20
+
+
+def _classify_active_quality(inp: OpportunityInput) -> tuple[ProductQualityState, str]:
+    """Grade an active fund on manager tenure + cost/scale evidence.
+
+    aum_stability_pct is optional corroboration (the F-1 data slice is not yet
+    ingested): when present and low it permits 'strong'; its absence caps the
+    fund at 'acceptable' but never floors a sound product to 'weak'.
+    """
+    if inp.manager_tenure_years is None:
+        return "evidence_insufficient", "主动基金缺少基金经理任职年限证据。"
+    if inp.manager_tenure_years < 2.0:
+        return "weak", "基金经理任职年限不足两年。"
+    score, n = _passive_quality_score(inp)
+    if n < 2:
+        return "weak", "主动基金成本/规模证据不足。"
+    aum_stable = (
+        inp.aum_stability_pct is not None
+        and inp.aum_stability_pct <= _AUM_STABILITY_STRONG_MAX
+    )
+    if score >= 0.5 and inp.manager_tenure_years >= 5.0 and aum_stable:
+        return "strong", "主动基金长期经理 + 优良成本/规模 + AUM稳定。"
+    if score >= 0.0:
+        return "acceptable", "主动基金达到可观察标准。"
+    return "weak", "主动基金成本或规模存在明显劣势。"
+
+
 def classify_product_quality(inp: OpportunityInput) -> tuple[ProductQualityState, str]:
-    """Classify product quality. Active funds require manager tenure +
-    AUM stability evidence to exceed 'weak'."""
+    """Classify product quality. Active funds are graded on manager tenure +
+    cost/scale evidence; AUM stability is optional corroboration (F-1)."""
     if _is_active_fund(inp):
-        if inp.manager_tenure_years is None or inp.aum_stability_pct is None:
-            if inp.manager_tenure_years is None and inp.aum_stability_pct is None:
-                return "evidence_insufficient", "主动基金缺少基金经理与AUM稳定性证据。"
-            return "weak", "主动基金证据不足，未达可推荐水平。"
-        if inp.manager_tenure_years < 2.0:
-            return "weak", "基金经理任职年限不足两年。"
-        score, n = _passive_quality_score(inp)
-        if n < 2:
-            return "weak", "主动基金成本/规模证据不足。"
-        if score >= 0.5 and inp.manager_tenure_years >= 5.0:
-            return "strong", "主动基金长期经理 + 优良成本/规模。"
-        if score >= 0.0:
-            return "acceptable", "主动基金达到可观察标准。"
-        return "weak", "主动基金成本或规模存在明显劣势。"
+        return _classify_active_quality(inp)
 
     score, n = _passive_quality_score(inp)
     if n < 2:

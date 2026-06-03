@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — remove the active-fund `product_quality_state` floor (F-1, 2026-06-03)
+
+`classify_product_quality` no longer forces every active fund (`cn_equity_fund`
+off-exchange) to `weak` when `aum_stability_pct` is absent — that input is never
+ingested today (`metrics_loader.py` writes `NaN`), so the gate was a universal
+structural floor, not a product judgment.
+
+- New `_classify_active_quality` grades active funds on **manager tenure +
+  cost/scale** (`_passive_quality_score`). `aum_stability_pct` is now **optional
+  corroboration**: present-and-`<= 0.20` permits `strong`; its absence caps the
+  ceiling at `acceptable` but never floors a sound product to `weak`. Genuine
+  `weak` (tenure `< 2y`, thin or negative cost/scale) is preserved; `tenure is
+  None` → `evidence_insufficient`.
+- **Opportunity-state ripple (intended):** a sound active fund that is
+  cheap/quiet/intact + now-`acceptable` reaches `core_dca` instead of being
+  suppressed to `small_watch` (`compose_opportunity_state`).
+- Removed the obsolete `_WEAK_FLOOR_LEGEND` / F-1 disclaimer from the narrative
+  `.md` — a displayed `质量=weak` is now a real cost/scale verdict; the
+  `产品驱动` raw drivers line still carries 费率/规模/任职/跟踪误差.
+- Until the F-1 data slice lands, no active fund can reach `strong` (capped at
+  `acceptable`); `aum_stability_pct` stays honest-missing. Updated CONTEXT.md.
+
 ### Added — `irc narrative` thematic fund mining (2026-06-02)
 
 New top-level **`irc narrative <name>`** command — resolve an investment *narrative*

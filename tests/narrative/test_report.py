@@ -12,7 +12,6 @@ from irc.narrative.schemas import (
     ShortlistRow,
 )
 from irc.narrative.report import (
-    _WEAK_FLOOR_LEGEND,
     render_diagnostics_json,
     render_report_json,
     render_report_md,
@@ -704,17 +703,21 @@ def test_footnote_dedup_deterministic_regardless_of_input_order() -> None:
     )
 
 
-# ── FIX 4 — M2 weak-floor legend ─────────────────────────────────────────────
+# ── M2 weak-quality — no obsolete F-1 floor legend ───────────────────────────
 
-def test_report_md_weak_fund_has_floor_legend() -> None:
-    """FIX 4: a report with product_quality_state='weak' must include a legend
-    referencing the F-1 floor and the 产品驱动 drivers."""
-    pm = ProductMetrics()  # all None — metadata-thin floor
-    r = replace(_report("A"), product_quality_state="weak", product_metrics=pm)
+def test_report_md_weak_fund_has_no_floor_legend() -> None:
+    """The aum_stability_pct/F-1 floor was removed from classify_product_quality,
+    so a displayed 质量=weak now reflects a real cost/scale verdict. The obsolete
+    'structural floor' disclaimer must NOT be emitted; the per-fund 产品驱动 line
+    still carries the raw drivers an operator reads."""
+    pm = ProductMetrics(expense_ratio=0.014, aum_cny=166_000_000.0)
+    r = replace(_report("A", level="elevated"),
+                product_quality_state="weak", product_metrics=pm)
     md = render_report_md("算力金属", (r,))
-    # Legend must be present and reference the structural floor / F-1
-    assert "F-1" in md or "aum_stability_pct" in md or "floor" in md.lower() or "结构性下限" in md
-    # Legend must reference 产品驱动 (the driver metrics)
+    assert "结构性下限" not in md
+    assert "aum_stability_pct" not in md
+    assert "F-1" not in md
+    # The raw driver line is still present for the weak fund.
     assert "产品驱动" in md
 
 
@@ -765,27 +768,3 @@ def test_empty_summary_produces_no_trailing_separator() -> None:
             assert not line.rstrip().endswith("· "), f"trailing '· ' in: {line!r}"
 
 
-# ── 004-FIX-1 — weak-floor legend scoped to DISPLAYED 质量 ───────────────────
-
-def _report_weak_insufficient(iid: str) -> NarrativeFundReport:
-    """A fund that is both weak AND insufficient — 质量=weak is suppressed in .md."""
-    base = _report_insufficient(iid)
-    return replace(base, product_quality_state="weak")
-
-
-def test_weak_insufficient_only_no_legend() -> None:
-    """FIX-1a: when the ONLY weak fund is also insufficient, 质量=weak is not displayed
-    on any row, so the weak-floor legend must NOT appear (orphan legend bug)."""
-    r = _report_weak_insufficient("A")
-    md = render_report_md("算力金属", (r,))
-    assert _WEAK_FLOOR_LEGEND not in md
-
-
-def test_weak_sufficient_has_legend() -> None:
-    """FIX-1b: when a report has a sufficient (non-insufficient) weak fund,
-    质量=weak IS displayed on its row, so the weak-floor legend MUST appear."""
-    pm = ProductMetrics(expense_ratio=0.005)
-    r = replace(_report("A", level="elevated"), product_quality_state="weak",
-                product_metrics=pm)
-    md = render_report_md("算力金属", (r,))
-    assert _WEAK_FLOOR_LEGEND in md
