@@ -119,11 +119,8 @@ def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | 
     cn_name = _INDEX_PE_PB_NAME.get(index_key)
     if cn_name is None:
         return None
-    try:
-        pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
-        pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
-    except Exception:
-        return None
+    pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
+    pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
     if pe_df is None and pb_df is None:
         return None
     pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS)

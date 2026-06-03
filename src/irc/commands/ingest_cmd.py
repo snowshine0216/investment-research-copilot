@@ -572,7 +572,7 @@ def run_ingest(repo_root: str) -> int:
             )
             ak_counts["index_valuation_history"] = iv_rows
         except Exception as exc:  # noqa: BLE001 — best-effort enrichment
-            _log.warning("index_valuation_history ingest failed: %s", exc)
+            _log.warning("index_valuation_history ingest failed: %s", exc, exc_info=True)
             ak_counts["index_valuation_history"] = 0
 
         nav_candidates = [
