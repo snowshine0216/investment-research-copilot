@@ -7,7 +7,9 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+
+> drift: `items/001-drift.md` `Verdict: PASS` (commit `9506eda`); 0 unimplemented/divergent/scope-creep; 1 internally-inconsistent plan literal corrected (130→200 rows) + plan amended inline; all 5 load-bearing invariants confirmed in diff.
 
 > branch: `claude/cyclical-valuation-guard-001` (off `autodev/cyclical-valuation-guard-feature`).
 > impl: 8 task commits `cc5ec8b..11df1af`; 216 tests pass (scoped) in 1.6s; production source ruff-clean; net ruff −2 vs base (no regression).
