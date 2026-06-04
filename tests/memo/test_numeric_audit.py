@@ -908,6 +908,34 @@ def test_find_uncited_conclusions_ignores_no_core_dca_cadence_summary() -> None:
     assert findings == []
 
 
+def test_find_uncited_conclusions_ignores_execution_summary_with_paused_qdii_codes() -> None:
+    """Regression: 2026-06-04 memo halted because the LLM execution summary
+    named paused QDII codes (159941、513100) inside a PURE non-action pacing
+    paragraph. '建仓节奏…观察为主' is a Rule-9-approved non-action phrase, but
+    the LLM emitted it WITHOUT the '本期无核心定投候选，' prefix the gate knew,
+    so the bare '建仓' inside '建仓节奏' misclassified the whole summary as
+    actionable → the two paused codes tripped `uncited_conclusion`. Every
+    clause here is conditional/paused/pacing (no buy recommendation), and the
+    deterministic §6 QDII-premium block already lists these codes gate-safely,
+    so the paragraph must be exempt."""
+    from irc.memo.numeric_audit import find_uncited_conclusions
+    prose = (
+        "**执行总述**：本期10只候选可执行标的均为条件性减速定投或暂缓执行。"
+        "触发条件未满足时实际执行量为零。当前VIX=15.77，未达viX_high阈值（>25.0）；"
+        "黄金ETFweekly_drawdown_4pct为⚠（接近阈值），其他标的主要触发条件均未满足。"
+        "建仓节奏以小仓位观察为主，等待价格回落或波动率攀升触发条件后再分批执行。"
+        "QDII标的执行前须查阅二级市场溢价/折价，159941、513100等溢价超阈值标的已暂缓执行。"
+    )
+    findings = find_uncited_conclusions(
+        prose=prose,
+        cited_map={},
+        instrument_aliases={"159941": "159941", "513100": "513100"},
+        constituent_aliases={},
+        constituent_cited_map={},
+    )
+    assert findings == []
+
+
 def test_find_uncited_conclusions_ignores_no_lump_sum_build_mode() -> None:
     """A build-mode label that says no lump-sum build is not actionable."""
     from irc.memo.numeric_audit import find_uncited_conclusions
