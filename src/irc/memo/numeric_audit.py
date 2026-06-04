@@ -43,7 +43,14 @@ _ACTIONABLE_KEYWORDS: Final[tuple[str, ...]] = (
     "回避", "建仓", "加仓", "减仓", "止损",
 )
 _NON_ACTIONABLE_LABELS: Final[tuple[str, ...]] = (
-    "建仓模式", "建仓方式",
+    # `建仓节奏` (position-building *cadence*) joins `建仓模式`/`建仓方式` as a
+    # pacing meta-label: a real recommendation reads `建仓 X` / `建议建仓`,
+    # never `建仓节奏`. Stripping it prevents the bare `建仓` inside a pure
+    # non-action pacing summary (e.g. the LLM's `建仓节奏以小仓位观察为主`,
+    # emitted without the `本期无核心定投候选，` prefix the prefixed label
+    # below covers) from misclassifying the paragraph as actionable and
+    # flagging instruments it merely names as paused (2026-06-04 memo halt).
+    "建仓模式", "建仓方式", "建仓节奏",
     "不新增加仓",
     "不纳入加仓",
     "本期不列入加仓",

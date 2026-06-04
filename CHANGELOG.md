@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — memo citation gate false-positive on the execution-summary pacing line (2026-06-04)
+
+The **memo** stage was BLOCKED by the item-009 citation gate
+(`159941:uncited_conclusion`, `513100:uncited_conclusion` → `memo_blocked.md`).
+
+- **Root cause.** The LLM execution summary (§7, free prose after the
+  `IRC_EXECUTION_LINES_END` marker) is a pure non-action paragraph — every clause
+  is conditional/paused/pacing — but it contained the standalone phrase
+  `建仓节奏以小仓位观察为主` (a Rule-9-approved non-action phrase the synthesizer
+  emitted *without* the `本期无核心定投候选，` prefix the gate's exemption list
+  knew). The bare `建仓` inside `建仓节奏` made `_has_actionable_keyword`
+  misclassify the whole summary as actionable, so the two **paused** QDII codes
+  the LLM named (`159941`/`513100`, both `pause_wait`, premium-too-high) were
+  flagged `uncited_conclusion` — even though they carry no buy recommendation and
+  the deterministic §6 QDII-premium block already lists them gate-safely.
+- **Fix.** Add `建仓节奏` (position-building *cadence*) to
+  `_NON_ACTIONABLE_LABELS`, mirroring the existing `建仓模式`/`建仓方式` pacing
+  meta-labels. A real recommendation reads `建仓 X` / `建议建仓`, never
+  `建仓节奏`, so stripping it only removes the meta-pacing `建仓` and keeps the
+  gate strict for genuine actionable claims.
+
 ### Added — commodity-cyclical valuation guard + sector-PE accumulate-forward (2026-06-04)
 
 For commodity-cyclical funds with no fundamental PE anchor, the NAV self-history
