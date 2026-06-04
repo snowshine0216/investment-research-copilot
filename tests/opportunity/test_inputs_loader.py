@@ -231,7 +231,7 @@ def test_populate_inputs_fundamental_percentile_none_under_30_points(tmp_path):
     con = duckdb.connect(str(tmp_path / "iv2.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 10)  # < 30 points
+    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 10)  # 10 pts — below both the 30-pt self-history floor and MIN_PE_POINTS (120)
     skeleton = OpportunityInput(
         instrument_id="510300", asset_class="cn_etf",
         market="cn_on_exchange", tracked_index="csi300",
@@ -590,12 +590,17 @@ def test_sector_thin_series_below_min_points_yields_none(tmp_path):
 
 
 def test_sector_short_span_below_min_days_yields_none(tmp_path):
-    # 130 points but compressed into < MIN_PE_DAYS calendar span → withheld.
+    # 130 DISTINCT daily points (>= MIN_PE_POINTS=120) spanning only 129 days
+    # (< MIN_PE_DAYS=180) → the SPAN gate withholds the percentile. Distinct
+    # dates are required: (index_key, date) is the dedup key, so same-date rows
+    # would collapse to 1 and exercise the point-count gate instead of the span
+    # gate this test is meant to isolate.
     con = duckdb.connect(str(tmp_path / "sector_shortspan.duckdb"))
     ensure_schema(con)
     _seed_sector_instrument_with_prices(con)
-    # Reuse the same date for every row so the span is 0 days (< 180).
-    rows = [("csi_nonferrous", date(2026, 1, 1), 10.0 + i * 0.01, None, None)
+    base = date(2026, 1, 1)
+    rows = [("csi_nonferrous", date.fromordinal(base.toordinal() + i),
+             10.0 + i * 0.01, None, None)
             for i in range(130)]
     con.executemany(
         "INSERT OR REPLACE INTO index_valuation_history VALUES "
