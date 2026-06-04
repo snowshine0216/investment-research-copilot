@@ -56,6 +56,20 @@ def test_floor_sensitivity_counts_grounded_funds_per_floor() -> None:
     assert table[0.60] == 1  # 0.65 only
 
 
+def test_build_fund_diff_row_no_flip_when_nav_percentile_none() -> None:
+    # Bug-1 regression: when nav_percentile is None, _band_label returns "—".
+    # "—" != pe_band (e.g. "cheap") → without the fix, would_flip is spuriously True.
+    # A flip requires BOTH a real NAV band AND a real PE band.
+    row = build_fund_diff_row(
+        instrument_id="AF2", name_cn="主动基金无NAV",
+        nav_percentile=None, result=_result(0.10, None),
+    )
+    assert row.would_flip is False
+    assert row.nav_band == "—"
+    assert row.pe_band != "—"  # pe_pct=0.10 → "cheap"
+    assert row.delta_percentile is None  # delta also None when nav_percentile is None
+
+
 def test_render_diff_report_includes_caveat_and_table() -> None:
     rows = [build_fund_diff_row(
         instrument_id="AF1", name_cn="主动基金",

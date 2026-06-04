@@ -273,6 +273,22 @@ def test_no_holdings_degrades_to_none() -> None:
     assert res.pb.percentile is None and res.pb.covered_codes == ()
 
 
+def test_aggregate_metric_series_zero_weight_holding_no_zerodivision() -> None:
+    # Bug-2 regression: coverage_floor=0.0 allows every date through the
+    # present_ratio < coverage_floor check (0.0 < 0.0 is False).
+    # A holding with weight_pct=0.0 means total_w=0.0 → ZeroDivisionError
+    # without the guard. After the fix the zero-weight date is silently skipped.
+    holdings = (HoldingWeight("600519", 0.0),)
+    series = {
+        "600519": MetricSeries("600519", "eastmoney", (("2026-05-30", 18.0, 2.0),)),
+    }
+    # Must NOT raise; zero-weight date produces no output → empty series.
+    out = _aggregate_metric_series(
+        holdings, series, ("600519",), metric="pe", coverage_floor=0.0,
+    )
+    assert out.empty
+
+
 def test_immature_pe_series_degrades_to_none_pe_but_pb_may_survive() -> None:
     # Single-date series clears the floor but fails the PE 120/180 gate; PB also
     # < 30 points → both None, but coverage ratios are still reported.

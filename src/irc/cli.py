@@ -173,7 +173,7 @@ def narrative(
 @main.command("lookthrough-diff", help="Write the Phase D look-through diff report (gate-#5 artifact). Cached-only; computes regardless of the flag.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--output-dir", type=click.Path(file_okay=False), default=None)
-@click.option("--coverage-floor", type=float, default=0.50, show_default=True)
+@click.option("--coverage-floor", type=click.FloatRange(min=0.0, max=1.0, min_open=True), default=0.50, show_default=True)
 @click.option("--pb-uses-pe-gate", is_flag=True, default=False)
 def lookthrough_diff(repo_root: str, output_dir: str | None, coverage_floor: float, pb_uses_pe_gate: bool) -> None:
     from irc.commands.lookthrough_diff_cmd import run_lookthrough_diff

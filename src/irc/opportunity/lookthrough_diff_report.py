@@ -64,7 +64,7 @@ def build_fund_diff_row(
         name_cn=name_cn,
         nav_band=nav_band,
         pe_band=pe_band,
-        would_flip=(pe_pct is not None and nav_band != pe_band),
+        would_flip=(pe_pct is not None and nav_percentile is not None and nav_band != pe_band),
         delta_percentile=delta,
         pe_coverage_ratio=result.pe.coverage_ratio,
         pb_coverage_ratio=result.pb.coverage_ratio,

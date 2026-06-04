@@ -146,6 +146,8 @@ def _aggregate_metric_series(
         if present_ratio < coverage_floor:
             continue
         total_w = sum(wb.values())
+        if total_w <= 0.0:
+            continue
         ey = sum((wb[c] / total_w) * (1.0 / vb[c]) for c in wb)
         if ey <= 0.0:
             continue
