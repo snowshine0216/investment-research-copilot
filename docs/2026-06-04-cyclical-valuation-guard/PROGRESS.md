@@ -54,6 +54,6 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 ### Guardrail statement
 ```
 Feature branch: autodev/cyclical-valuation-guard-feature
-Feature-branch PR: <recorded below once opened>
+Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/106 (into main — OPEN, not merged)
 Merged into protected branch: no (PR left open for user review)
 ```
