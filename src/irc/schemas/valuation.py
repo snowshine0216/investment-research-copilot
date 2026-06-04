@@ -18,8 +18,23 @@ class Bucket(FrozenModel):
     granularity: str
 
 
+class ActiveFundLookthroughConfig(FrozenModel):
+    """Phase D active-fund holdings look-through valuation (spec §6.2).
+
+    Default OFF (shadow mode). PR2 flips `enabled` to true after the gate-#5
+    human floor decision. `coverage_floor` is a ratio of NAV (the covered
+    A-share weight must meet this). `pb_uses_pe_gate` keeps PB on the bare <30
+    floor unless flipped (§3.3)."""
+    enabled: bool = False
+    coverage_floor: float = Field(default=0.50, gt=0.0, le=1.0)
+    pb_uses_pe_gate: bool = False
+
+
 class ValuationBucketsConfig(FrozenModel):
     buckets: list[Bucket] = Field(min_length=1)
+    active_fund_lookthrough: ActiveFundLookthroughConfig = Field(
+        default_factory=ActiveFundLookthroughConfig
+    )
 
     @model_validator(mode="after")
     def _ascending(self) -> "ValuationBucketsConfig":
