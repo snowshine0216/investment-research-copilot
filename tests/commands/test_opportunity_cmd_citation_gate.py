@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -48,7 +47,7 @@ def _make_position():
     )
 
 
-def _write_outputs(rows, tmp_path, *, today="2026-05-22"):
+def _write_outputs(rows, tmp_path, *, today="2026-05-22", pending_verdicts=None):
     from irc.commands.opportunity_cmd import _write_opportunity_outputs
     out_dir = tmp_path / "outputs_scratch"
     positions = {r.instrument_id: _make_position() for r in rows}
@@ -57,7 +56,7 @@ def _write_outputs(rows, tmp_path, *, today="2026-05-22"):
     _write_opportunity_outputs(
         rows, positions, qualities, roles, {},
         out_dir, today,
-        pending_verdicts=None,
+        pending_verdicts=pending_verdicts,
         plan_hash="x",
         snapshot_cache_by_instrument=None,
     )
@@ -119,6 +118,61 @@ def test_gate_step_2b_pure_failure_constituent_raises_unconditionally(
     row = _replace(row, constituent_analyses=(bad,))
     with pytest.raises(RuntimeError, match="constituent_failure_in_publishable_row"):
         _write_outputs([row], tmp_path)
+
+
+def test_gate_step_2b_rule_2_5_publishable_constituent_failure_exempt(
+    tmp_path, monkeypatch,
+):
+    """Policy B rule 2.5 publishable funds (foreign-heavy short-circuit) must
+    NOT trip the Step 2b pure-failure gate: their foreign constituents'
+    pure-failures are expected (ADR 0003 §7), so the row is exempt and the
+    canonical artifacts are written."""
+    from dataclasses import replace as _replace
+
+    from irc.fundamentals.types import ConstituentAnalysis
+    from irc.opportunity.policy_b import PolicyBVerdict
+
+    monkeypatch.setenv("IRC_CITATION_ENFORCE_MODE", "block")
+    bad = ConstituentAnalysis(
+        symbol="00998", name_cn="中信银行", weight_pct=9.0,
+        evidence=(), failure_reasons=("filing_empty:00998",), one_line_view="",
+    )
+    row = _replace(_make_row(iid="006809"), constituent_analyses=(bad,))
+    verdict = PolicyBVerdict(
+        gap_codes=(), audit_errors=(),
+        decision_rule="foreign-heavy (share=100%); fund-level NAV+announcements accepted",
+        fired_rule="2.5",
+    )
+    out_dir = _write_outputs(
+        [row], tmp_path, pending_verdicts={"006809": verdict},
+    )
+    assert (out_dir / "opportunity_report.json").exists()
+    audit = json.loads((out_dir / "citation_audit.json").read_text())
+    assert audit["constituent_findings"] == []
+    assert audit["summary"]["blocking"] is False
+
+
+def test_gate_step_2b_non_2_5_verdict_does_not_exempt(tmp_path, monkeypatch):
+    """A publishable verdict that did NOT fire rule 2.5 grants no exemption —
+    a pure-failure constituent on such a row still raises unconditionally."""
+    from dataclasses import replace as _replace
+
+    from irc.fundamentals.types import ConstituentAnalysis
+    from irc.opportunity.policy_b import PolicyBVerdict
+
+    monkeypatch.setenv("IRC_CITATION_ENFORCE_MODE", "off")
+    bad = ConstituentAnalysis(
+        symbol="600519", name_cn="X", weight_pct=5.0,
+        evidence=(), failure_reasons=("timeout",), one_line_view="",
+    )
+    row = _replace(_make_row(), constituent_analyses=(bad,))
+    verdict = PolicyBVerdict(
+        gap_codes=(), audit_errors=(),
+        decision_rule="info-leg quorum 5 of 10; 5 satisfied (publishable)",
+        fired_rule="",
+    )
+    with pytest.raises(RuntimeError, match="constituent_failure_in_publishable_row"):
+        _write_outputs([row], tmp_path, pending_verdicts={"005827": verdict})
 
 
 def test_gate_step_1_fetch_budget_exhausted_still_raises(tmp_path, monkeypatch):

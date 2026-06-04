@@ -1204,7 +1204,19 @@ def _write_opportunity_outputs(
     # unconditional-fatal gate so it sets the strictest floor.
     cited_map = build_cited_map(tuple(publishable_rows))
     op_findings = find_uncited_opportunity_rows(publishable_rows, cited_map)
-    constituent_findings = find_incomplete_constituent_analyses(publishable_rows)
+    # Rule 2.5 (foreign-heavy) publishable funds are published on fund-level
+    # evidence and bypass all per-holding checks (ADR 0003 §7), so their
+    # foreign constituents' pure-failures are expected — exempt them from the
+    # Step 2b gap-stamp-escape gate. `fired_rule`/`gap_codes` is the canonical
+    # rule-2.5-publishable discriminator (mirrors _stamp_fund_level_evidence).
+    foreign_heavy_exempt_ids = frozenset(
+        iid
+        for iid, v in (pending_verdicts or {}).items()
+        if v.fired_rule == "2.5" and not v.gap_codes
+    )
+    constituent_findings = find_incomplete_constituent_analyses(
+        publishable_rows, foreign_heavy_exempt_ids=foreign_heavy_exempt_ids,
+    )
 
     out_dir.mkdir(parents=True, exist_ok=True)
     enforce_mode = _resolve_enforce_mode(out_dir, today)
