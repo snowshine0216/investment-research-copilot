@@ -151,6 +151,17 @@ def _tracked_index_for(fund_name: str, asset_class: str, theme: str | None) -> s
             return "信用债"
         if "可转债" in fund_name:
             return "中证可转债"
+    if asset_class == "cn_etf":
+        # §2.1 — recognised CSI sector-index ETFs emit a canonical 中文 index
+        # name (matching _SECTOR_INDEX_DISPLAY) so _INDEX_NAME_TO_SLUG resolves
+        # them and the accumulate-forward PE anchor becomes reachable. Most
+        # specific keyword first (矿业 before 有色).
+        if "矿业" in fund_name and "有色" in fund_name:
+            return "中证有色金属矿业主题"
+        if "有色" in fund_name:
+            return "中证有色金属"
+        if "资源" in fund_name:
+            return "中证资源"
     if asset_class == "cn_etf" and theme is not None:
         return fund_name
     return None

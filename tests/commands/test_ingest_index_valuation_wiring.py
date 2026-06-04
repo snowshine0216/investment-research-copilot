@@ -17,3 +17,17 @@ def test_ingest_cmd_imports_broad_index_keys_and_ingestor() -> None:
     body = inspect.getsource(ingest_cmd)
     assert "from irc.data.index_valuation_ingestor import" in body
     assert "_BROAD_INDEX_KEYS" in body
+
+
+def test_run_ingest_calls_sector_index_valuation_leg() -> None:
+    """run_ingest must invoke a SECOND ingest leg over the sector-index keys with
+    the csindex sector fetcher, so the accumulate-forward table grows weekly."""
+    src = inspect.getsource(ingest_cmd.run_ingest)
+    assert "_SECTOR_INDEX_KEYS" in src
+    assert "fetch_cn_sector_index_valuation_history" in src
+
+
+def test_ingest_cmd_imports_sector_keys_and_sector_fetcher() -> None:
+    body = inspect.getsource(ingest_cmd)
+    assert "_SECTOR_INDEX_KEYS" in body
+    assert "fetch_cn_sector_index_valuation_history" in body

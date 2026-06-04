@@ -14,7 +14,7 @@ from irc.opportunity.returns import (
 from irc.fundamentals.provider import CnFundamentalsProvider
 from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
-from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
+from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG, _INDEX_VALUATION_KEYS
 from irc.opportunity.types import OpportunityInput
 
 
@@ -74,6 +74,13 @@ def _none_if_na(value) -> float | None:
 _BOND_ASSET_CLASSES_REQUIRING_YIELD: frozenset[str] = frozenset({"cn_bond_fund"})
 _CN_10Y_YIELD_SERIES_ID = "cn_10y_yield"
 _CPI_YOY_SERIES_ID = "cn_cpi_yoy"  # not ingested in Phase 1; nominal-gap fallback used.
+
+# §3 min-history gate for thin accumulating sector-PE series. Return a non-None
+# PE percentile ONLY when the series has >= MIN_PE_POINTS non-null PE
+# observations AND spans >= MIN_PE_DAYS calendar days. csi300/csi1000 carry
+# thousands of points so the gate is a no-op for broad indices.
+MIN_PE_POINTS: int = 120
+MIN_PE_DAYS: int = 180
 
 
 def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
@@ -139,16 +146,35 @@ def _index_valuation_series(
     return df
 
 
+def _pe_series_is_mature(pe_series: pd.Series) -> bool:
+    """§3 gate: >= MIN_PE_POINTS non-null PE points AND >= MIN_PE_DAYS span."""
+    valid = pe_series.dropna()
+    if len(valid) < MIN_PE_POINTS:
+        return False
+    idx = pd.to_datetime(valid.index)
+    span_days = (idx.max() - idx.min()).days
+    return span_days >= MIN_PE_DAYS
+
+
 def _index_valuation_metrics(
     con: duckdb.DuckDBPyConnection, tracked_index: str | None,
 ) -> tuple[float | None, float | None, float | None, float | None, float | None]:
     """Return (pe_ttm, pb, dividend_yield, pe_percentile, pb_percentile) from the
     CACHED index_valuation_history table (R3 — no live fetch). (None,)*5 when the
-    index is not a recognised broad index or has no cached rows."""
-    key = (tracked_index or "").strip().lower() or None
-    if key is None or key not in _BROAD_INDEX_KEYS:
+    index is not a recognised valuation index or has no cached rows.
+
+    The `tracked_index` value may be a display name (e.g. "中证有色金属"); it is
+    normalised to a canonical slug via `_INDEX_NAME_TO_SLUG` before membership
+    in `_INDEX_VALUATION_KEYS` is tested (§2.1). The PE percentile honours the
+    §3 min-history gate AND the latest-null guard.
+    """
+    norm = (tracked_index or "").strip().lower() or None
+    if norm is None:
         return None, None, None, None, None
-    df = _index_valuation_series(con, key)
+    slug = _INDEX_NAME_TO_SLUG.get(norm) or norm
+    if slug not in _INDEX_VALUATION_KEYS:
+        return None, None, None, None, None
+    df = _index_valuation_series(con, slug)
     if df.empty:
         return None, None, None, None, None
     latest = df.iloc[-1]
@@ -157,7 +183,11 @@ def _index_valuation_metrics(
     div = _none_if_na(latest["dividend_yield"])
     pe_series = pd.Series(df["pe_ttm"].to_numpy(), index=pd.to_datetime(df["date"]))
     pb_series = pd.Series(df["pb"].to_numpy(), index=pd.to_datetime(df["date"]))
-    pe_pct = self_history_percentile(pe_series) if pe is not None else None
+    pe_pct = (
+        self_history_percentile(pe_series)
+        if pe is not None and _pe_series_is_mature(pe_series)
+        else None
+    )
     pb_pct = self_history_percentile(pb_series) if pb is not None else None
     return pe, pb, div, pe_pct, pb_pct
 

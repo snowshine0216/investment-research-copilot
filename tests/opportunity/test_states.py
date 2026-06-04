@@ -1,7 +1,7 @@
 from __future__ import annotations
 import pytest
 
-from irc.opportunity.states import classify_valuation
+from irc.opportunity.states import COMMODITY_CYCLICAL_THEMES, classify_valuation
 from irc.opportunity.types import OpportunityInput
 
 
@@ -146,6 +146,76 @@ def test_pb_corroboration_note_appears_without_changing_state():
     state, reason = classify_valuation(inp)
     assert state == "cheap"
     assert "PB" in reason
+
+
+# ---------------------------------------------------------------------------
+# §1 commodity-cyclical NAV-anchor exclusion (symmetric guard)
+# ---------------------------------------------------------------------------
+
+def test_commodity_cyclical_themes_is_metals_only():
+    # Locked membership: the guard is bound to the theme set, not a shortlist.
+    assert COMMODITY_CYCLICAL_THEMES == frozenset({"metals"})
+
+
+def test_metals_no_fundamental_anchor_withholds_low_nav_would_be_cheap():
+    # Low NAV percentile would read `cheap` — symmetric guard withholds it.
+    inp = _make(
+        asset_class="cn_equity_fund",
+        theme="metals",
+        valuation_percentile_fundamental=None,
+        valuation_percentile_self=0.05,
+    )
+    state, reason = classify_valuation(inp)
+    assert state == "evidence_insufficient"
+    assert "锚" in reason or "动量" in reason
+
+
+def test_metals_no_fundamental_anchor_withholds_high_nav_would_be_very_expensive():
+    # High NAV percentile would read `very_expensive` — symmetric guard withholds it.
+    inp = _make(
+        asset_class="cn_equity_fund",
+        theme="metals",
+        valuation_percentile_fundamental=None,
+        valuation_percentile_self=0.97,
+    )
+    state, _ = classify_valuation(inp)
+    assert state == "evidence_insufficient"
+
+
+def test_metals_guard_covers_qdii_global_cross_asset_class():
+    # qdii_global is in _EQUITY_ASSET_CLASSES; a metals-themed QDII (378546) is guarded too.
+    inp = _make(
+        asset_class="qdii_global",
+        theme="metals",
+        valuation_percentile_fundamental=None,
+        valuation_percentile_self=0.97,
+    )
+    state, _ = classify_valuation(inp)
+    assert state == "evidence_insufficient"
+
+
+def test_metals_with_pe_anchor_skips_guard_and_uses_pe_rule():
+    # A metals fund that HAS a PE anchor uses the existing PE band rule.
+    inp = _make(
+        asset_class="cn_equity_fund",
+        theme="metals",
+        valuation_percentile_fundamental=0.05,  # PE cheap
+        valuation_percentile_self=0.97,          # NAV high (ignored)
+    )
+    state, _ = classify_valuation(inp)
+    assert state == "cheap"
+
+
+def test_non_metals_equity_no_regression_keeps_nav_banding():
+    # A non-metals equity fund with no fundamental anchor still bands off NAV.
+    inp = _make(
+        asset_class="cn_equity_fund",
+        theme="semiconductor",
+        valuation_percentile_fundamental=None,
+        valuation_percentile_self=0.97,
+    )
+    state, _ = classify_valuation(inp)
+    assert state == "very_expensive"
 
 
 from irc.opportunity.states import classify_heat

@@ -22,7 +22,10 @@ from irc.data.akshare_client import (
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.fund_holdings_ingestor import ingest_many as ingest_fund_holdings
 from irc.data.index_valuation_ingestor import ingest_index_valuation_history
-from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS
+from irc.fundamentals.akshare_index_valuation import (
+    fetch_cn_sector_index_valuation_history,
+)
+from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS, _SECTOR_INDEX_KEYS
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
@@ -574,6 +577,24 @@ def run_ingest(repo_root: str) -> int:
         except Exception as exc:  # noqa: BLE001 — best-effort enrichment
             _log.warning("index_valuation_history ingest failed: %s", exc, exc_info=True)
             ak_counts["index_valuation_history"] = 0
+
+        # §2 — sector index PE history (csindex accumulate-forward, best-effort).
+        # INSERT OR REPLACE on (index_key, date) dedups overlapping weekly windows;
+        # the thin series grows over time until the §3 min-history gate switches
+        # PE grounding on. Non-fatal — a miss degrades to NAV-fallback + the §1
+        # guard, not a halt. Mirrors the broad-index leg above.
+        try:
+            sector_rows = ingest_index_valuation_history(
+                con,
+                tuple(sorted(_SECTOR_INDEX_KEYS)),
+                fetch=fetch_cn_sector_index_valuation_history,
+                now_iso=_now_iso(),
+            )
+            ak_counts["index_valuation_history"] += sector_rows
+        except Exception as exc:  # noqa: BLE001 — best-effort enrichment
+            _log.warning(
+                "sector index_valuation_history ingest failed: %s", exc, exc_info=True
+            )
 
         nav_candidates = [
             i for i in all_instruments
