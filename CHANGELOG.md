@@ -66,6 +66,29 @@ budget=2000`) — the memo (which runs *after* opportunity) was never produced, 
   `PIPELINE_HALTED.md`, and `--resume` picks up from the failed stage instead of
   restarting from `ingest`.
 
+### Fixed — rule-2.5 funds no longer crash the per-constituent pure-failure gate (2026-06-04)
+
+The **opportunity** stage aborted with
+`RuntimeError: constituent_failure_in_publishable_row: symbol=00998` (e.g. fund
+`006809 泰康香港银行指数A`), suppressing every downstream output.
+
+- **Root cause: a latent conflict between Policy B rule 2.5 and item-009's auditor.**
+  Rule 2.5 (the 2026-05-26 foreign-heavy short-circuit) *publishes* an active fund on
+  fund-level NAV+announcement evidence and bypasses all per-holding checks — so a
+  foreign constituent whose CN filings pipeline is structurally unreachable (HK-listed
+  `00998`) is a legitimate pure-failure (`evidence=() AND failure_reasons!=()`) on a
+  publishable row. Item-009's `find_incomplete_constituent_analyses` (written 2026-05-22,
+  before rule 2.5) treated **any** such constituent as an unconditional-fatal
+  "escaped-the-gap-stamp" programming bug. A transient `ConnectTimeout` on the HK-news
+  leg tipped `00998` from *partial-success* (tolerated) to *pure-failure* (fatal),
+  exposing the conflict.
+- **Fix.** `find_incomplete_constituent_analyses` gains a `foreign_heavy_exempt_ids`
+  parameter; the opportunity-stage gate populates it with the iids whose verdict is
+  rule-2.5-publishable (`fired_rule=="2.5" AND gap_codes==()`) and skips those rows
+  wholesale — mirroring rule 2.5's per-holding short-circuit. The failed constituent
+  still renders as `❌` in the `## 持仓明细` appendix; only the fatal crash is removed.
+  See [ADR 0003](docs/adr/0003-failure-mode-policy-b.md) §7.
+
 ### Added — fundamental-grounded equity valuation (Phase 1, 2026-06-03)
 
 The equity `valuation_state` for **broad-index CN vehicles** is now decided by a

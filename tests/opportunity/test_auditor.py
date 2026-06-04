@@ -245,3 +245,70 @@ def test_find_incomplete_constituent_analyses_returns_one_per_failing_constituen
     findings = find_incomplete_constituent_analyses((row,))
     symbols = sorted(f.prose_excerpt for f in findings)
     assert symbols == ["symbol=300750", "symbol=600519"]
+
+
+def test_find_incomplete_constituent_analyses_foreign_heavy_exempt_not_flagged() -> None:
+    """Policy B rule 2.5 (foreign-heavy) publishes the fund on fund-level
+    NAV+announcement evidence and short-circuits ALL per-holding checks
+    (ADR 0003 §7). A pure-failure foreign constituent (e.g. HK-listed 00998,
+    whose CN filings pipeline is structurally unreachable) on such a row is
+    therefore EXPECTED, not a programming bug — so it must be exempt when the
+    fund's instrument_id is in `foreign_heavy_exempt_ids`."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    bad = _constituent(
+        "00998", evidence=(),
+        failure_reasons=("filing_empty:00998", "hk_news_fetch_failed:00998"),
+    )
+    row = _row(iid="006809", constituent_analyses=(bad,))
+    # Baseline: without the exemption the gate still fires (no regression).
+    assert len(find_incomplete_constituent_analyses((row,))) == 1
+    # Exempt: the rule-2.5 publishable fund's pure-failures are tolerated.
+    findings = find_incomplete_constituent_analyses(
+        (row,), foreign_heavy_exempt_ids=frozenset({"006809"}),
+    )
+    assert findings == []
+
+
+def test_find_incomplete_constituent_analyses_exemption_is_per_instrument() -> None:
+    """Exemption applies ONLY to listed instrument_ids; a non-exempt fund's
+    pure-failure constituent still produces a fatal finding even when another
+    fund in the same batch is exempt."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    foreign = _row(
+        iid="006809",
+        constituent_analyses=(_constituent("00998", failure_reasons=("filing_empty:00998",)),),
+    )
+    domestic = _row(
+        iid="005827",
+        constituent_analyses=(_constituent("600519", failure_reasons=("timeout",)),),
+    )
+    findings = find_incomplete_constituent_analyses(
+        (foreign, domestic), foreign_heavy_exempt_ids=frozenset({"006809"}),
+    )
+    assert [f.prose_excerpt for f in findings] == ["symbol=600519"]
+    assert all(f.instrument_id == "005827" for f in findings)
+
+
+def test_find_incomplete_constituent_analyses_exemption_is_whole_row() -> None:
+    """DELIBERATE wholesale behavior (ADR 0003 §7): rule 2.5 publishes the fund
+    on fund-level evidence and bypasses ALL per-holding checks, so an exempt
+    row's pure-failures are tolerated regardless of constituent exchange —
+    BOTH a foreign (HK 00998) and a CN (600519) pure-failure on the same
+    rule-2.5 fund are exempt. The CN failure is not silently lost: it still
+    renders as `❌` in the `## 持仓明细` appendix. Pinned so the broadness is a
+    visible, intentional design choice, not an accidental over-exemption."""
+    from irc.opportunity.auditor import find_incomplete_constituent_analyses
+    row = _row(
+        iid="006809",
+        constituent_analyses=(
+            _constituent("00998", failure_reasons=("filing_empty:00998",)),
+            _constituent("600519", failure_reasons=("filing_fetch_failed:600519",)),
+        ),
+    )
+    # Without the exemption BOTH pure-failures are fatal findings.
+    assert len(find_incomplete_constituent_analyses((row,))) == 2
+    # With 006809 exempt (rule-2.5 publishable) the whole row is skipped.
+    findings = find_incomplete_constituent_analyses(
+        (row,), foreign_heavy_exempt_ids=frozenset({"006809"}),
+    )
+    assert findings == []

@@ -70,6 +70,8 @@ def find_uncited_opportunity_rows(
 
 def find_incomplete_constituent_analyses(
     publishable_rows: tuple[OpportunityRow, ...] | list[OpportunityRow],
+    *,
+    foreign_heavy_exempt_ids: frozenset[str] = frozenset(),
 ) -> list[NumericFinding]:
     """Return a NumericFinding per ConstituentAnalysis with `evidence == ()`
     AND `failure_reasons != ()` on a publishable row.
@@ -83,9 +85,21 @@ def find_incomplete_constituent_analyses(
     Partial-success constituents (`evidence != () AND failure_reasons != ()`)
     are NOT violations — Policy B's per-holding data leg + top-half info
     quorum is the correct disposition.
+
+    `foreign_heavy_exempt_ids` are the instrument_ids whose Policy B verdict
+    published via rule 2.5 (foreign-heavy short-circuit; `fired_rule == "2.5"`,
+    `gap_codes == ()`). Rule 2.5 publishes the fund on fund-level NAV +
+    announcement evidence and bypasses ALL per-holding checks (ADR 0003 §7),
+    so a pure-failure foreign constituent on such a row is EXPECTED — the CN
+    filings pipeline is structurally unreachable for HK/US tickers — and is
+    NOT the gap-stamp escape this gate exists to catch. The fund's whole row
+    is therefore skipped, mirroring rule 2.5's short-circuit. The failed
+    constituent still surfaces as `❌` in the `## 持仓明细` appendix.
     """
     findings: list[NumericFinding] = []
     for row in publishable_rows:
+        if row.instrument_id in foreign_heavy_exempt_ids:
+            continue
         for c in row.constituent_analyses:
             if c.evidence == () and c.failure_reasons != ():
                 findings.append(NumericFinding(
