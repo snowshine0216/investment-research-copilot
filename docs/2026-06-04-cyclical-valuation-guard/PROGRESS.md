@@ -7,7 +7,11 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 |
+
+> verify: `items/001-verify.md` `Verdict: PASS` — 12/12 real-function sub-checks (symmetric guard both directions, qdii_global lock, PE-anchor bypass, non-metals no-regression, 市盈率1 column, narrative driver, 基金概况 absent).
+> pr-review: `items/001-pr-review.md` `Verdict: PASS-WITH-NITS` — /code-review on PR #105 (comment posted); 3 nits, 0 blockers/latent/violations.
+> fix: 1 polish round — 2 test-quality nits FIXED (span-gate test now isolates MIN_PE_DAYS via 130 distinct dates; stale comment corrected); risk.py nit KEPT by design (spec §4). Exit contract met (verify PASS · review PASS-WITH-NITS · pr-review PASS-WITH-NITS).
 
 > PR: `items/001-ship.md` → https://github.com/snowshine0216/investment-research-copilot/pull/105 (base `autodev/cyclical-valuation-guard-feature`, Mode A).
 > review (inline /ship 8+9): `items/001-review.md` `Verdict: PASS-WITH-NITS` — no P0/blockers/latent bugs; nits + follow-ups documented.
