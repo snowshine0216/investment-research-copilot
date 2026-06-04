@@ -170,6 +170,20 @@ def narrative(
     raise SystemExit(rc)
 
 
+@main.command("lookthrough-diff", help="Write the Phase D look-through diff report (gate-#5 artifact). Cached-only; computes regardless of the flag.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--output-dir", type=click.Path(file_okay=False), default=None)
+@click.option("--coverage-floor", type=float, default=0.50, show_default=True)
+@click.option("--pb-uses-pe-gate", is_flag=True, default=False)
+def lookthrough_diff(repo_root: str, output_dir: str | None, coverage_floor: float, pb_uses_pe_gate: bool) -> None:
+    from irc.commands.lookthrough_diff_cmd import run_lookthrough_diff
+    rc = run_lookthrough_diff(
+        repo_root=repo_root, output_dir=output_dir,
+        coverage_floor=coverage_floor, pb_uses_pe_gate=pb_uses_pe_gate,
+    )
+    raise SystemExit(rc)
+
+
 @main.command("eval-funds", help="Evaluate an explicit fund-id list; report opportunity_state + core_dca.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--ids", type=str, default=None, help="Comma-separated fund ids.")
