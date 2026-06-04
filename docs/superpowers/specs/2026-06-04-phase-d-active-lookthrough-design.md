@@ -37,7 +37,7 @@ PB runs the **identical harmonic aggregation** on book yield (`1/PB`): `PB_fund(
 Rejected: *percentile-of-percentiles* (weight-averaging each stock's own percentile) — a mean of percentiles is not a percentile, loses the absolute-level signal, and is not comparable to the index-path semantics.
 
 ### 3.2 Coverage rule — renormalize over covered A-shares + configurable floor
-- **Covered set:** the fund's current top-N holdings that are (a) A-share (ticker shape `^\d{6}$ ` — §6.1), and (b) have a usable PE (positive; §3.6).
+- **Covered set:** the fund's current top-N holdings that are (a) A-share (6-digit numeric ticker, matched by `^\d{6}$` with **no** surrounding whitespace — §6.1), and (b) have a usable PE (positive; §3.6).
 - **Coverage ratio (review P0 — units are load-bearing):**
 
 ```
@@ -55,10 +55,12 @@ coverage = Σ_{i ∈ covered} weight_pct_i / 100.0          # ratio of NAV, NOT 
 ### 3.4 Per-date renormalization (anachronism bound)
 On each historical date `t`, aggregate only over the current-basket holdings that have a PE point at `t`, renormalizing their weights by the weight present at `t`. Drop dates where present weight `< coverage_floor` (so a date covered by one mega-cap doesn't masquerade as the whole basket). This bounds the current-weights × past-PE anachronism naturally: the series only reaches as far back as the *current* basket actually has data, and every surviving point is internally consistent.
 
-### 3.5 Source — hybrid (legulegu primary, Tushare fallback)
-- **Primary:** AkShare `stock_a_indicator_lg` (legulegu) — the same data family as the index path's `stock_index_pe_lg`/`stock_index_pb_lg`, so percentile semantics stay comparable. Free, no token, A-share only, returns per-stock `pe_ttm`/`pb`/`dv_ratio` daily history.
-- **Fallback:** Tushare `daily_basic` per-stock, fired only on a legulegu miss/empty. Token-gated (reuses the existing `tushare_provider` token plumbing); absent token ⇒ legulegu-only, misses just shrink coverage (floor catches it), **no hard failure**.
-- **Mixed-source caveat:** legulegu and Tushare PE definitions differ slightly. The `stock_valuation_history` row carries `_source`; any fund whose series mixes sources is **flagged in the diff report** (§8) so comparability risk is visible before the flag flips.
+### 3.5 Source — hybrid (EastMoney primary, Tushare fallback)
+**Endpoint correction (review P0):** legulegu's per-stock sibling `stock_a_indicator_lg` is **not present in the locked AkShare 1.18.60** (`hasattr(ak, "stock_a_indicator_lg") == False`) — verified in this checkout. The index path's `stock_index_pe_lg` is index-only; there is no legulegu per-stock endpoint to mirror. Primary is therefore EastMoney.
+- **Primary:** AkShare `stock_value_em(symbol="<6-digit>")` (EastMoney) — **one call returns the full daily history** (~2000+ trading days, ample for the 120/180 gate) with columns `数据日期` (date), `PE(TTM)`, `市净率` (PB), plus `总市值`/PEG/etc. Free, no token, A-share only, CN-direct AkShare call (no `IRC_HTTPS_PROXY` — it is a CN domain). The fetcher extracts `(date, pe_ttm=PE(TTM), pb=市净率)`. *Exact columns must be re-confirmed by the gate-#4 live test in PR1.*
+- **Fallback:** Tushare `daily_basic` per-stock, fired only on a `stock_value_em` miss/empty. Token-gated (reuses the existing `tushare_provider` token plumbing); absent token ⇒ EastMoney-only, misses just shrink coverage (floor catches it), **no hard failure**.
+- **Comparability note:** EastMoney and Tushare PE definitions differ slightly, and both differ from the index path's legulegu. This matters **less** than it first appears: Phase D percentiles each fund against **its own** constructed series (`self_history_percentile`), and the divergence advisory compares the fund's PE-percentile vs **its own** NAV-percentile — both self-referential. No cross-source *absolute* PE comparison is made. Internal consistency of a fund's series is the requirement; mixed-source funds are still `_source`-flagged in the diff report (§8) so the risk is visible.
+- **Single-source-per-stock rule:** to keep each stock's history internally consistent, a given `stock_code` is sourced wholly from EastMoney **or** wholly from Tushare (fallback is per-stock, not per-date); "mixed source" in the diff report means *different stocks in one fund came from different providers*, never one stock's series spliced across providers.
 
 ### 3.6 Negative / zero / None PE
 Exclude that holding from the covered set (do **not** cap or floor it). Coverage shrinks honestly and the floor governs. (A negative-earnings name has no meaningful PE percentile; including it would corrupt the harmonic sum.) Same treatment for non-positive PB.
@@ -77,7 +79,7 @@ The flag gates **slot population** (not just the classifier read), so shadow mod
 
 | Layer | Index path (existing) | Phase D (new) |
 |---|---|---|
-| Fetch | `fundamentals/akshare_index_valuation.py` | `fundamentals/akshare_stock_valuation.py` (legulegu) + `fundamentals/tushare_stock_valuation.py` (fallback) |
+| Fetch | `fundamentals/akshare_index_valuation.py` | `fundamentals/akshare_stock_valuation.py` (EastMoney `stock_value_em`) + `fundamentals/tushare_stock_valuation.py` (fallback) |
 | Table | `index_valuation_history` | `stock_valuation_history(stock_code, date, pe_ttm, pb, dividend_yield, <provenance>)` |
 | Ingest | `data/index_valuation_ingestor.py` | `data/stock_valuation_ingestor.py` |
 | Command | (part of `irc run` ingest) | `@fundamentals.command("stock-valuation")` → `commands/fundamentals_cmd.py:run_stock_valuation_refresh` |
@@ -91,9 +93,9 @@ Effects stay at the edges (the two fetchers + the command + DuckDB writes). `loo
 ```
 irc fundamentals stock-valuation     (own cadence, heavy — NOT in irc run)
   SELECT DISTINCT holding_ticker FROM fund_holdings
-    -> keep A-share shapes (^\d{6}$); dedup across all funds
+    -> keep A-share shapes (^\d{6}$, no surrounding space); dedup across all funds
   for each code (skip if fresh within threshold_days unless --force):
-      legulegu stock_a_indicator_lg(code) ; on miss -> tushare daily_basic
+      eastmoney stock_value_em(code) ; on miss -> tushare daily_basic(code)
   -> upsert stock_valuation_history   (per (stock_code, date), _source recorded)
 
 irc run / irc opportunity            (cached-only; invariant preserved)
@@ -113,7 +115,7 @@ irc run / irc opportunity            (cached-only; invariant preserved)
 ### 6.1 Command — `irc fundamentals stock-valuation`
 - Wiring: a new `@fundamentals.command("stock-valuation")` under the **existing** `fundamentals` group (`cli.py:228`), alongside `snapshot`.
 - Signature: `run_stock_valuation_refresh(repo_root, *, force=False, threshold_days=30) -> int`.
-- **Discovery source:** `SELECT DISTINCT holding_ticker FROM fund_holdings`, filtered to A-shares by **ticker shape** `^\d{6}$ ` (HK 5-digit / US-alpha / unknown shapes are skipped — they are uncoverable and the floor accounts for them). No reliance on a persisted exchange column (the `fund_holdings` table has none; `FundHolding.exchange` lives only on the in-memory dataclass).
+- **Discovery source:** `SELECT DISTINCT holding_ticker FROM fund_holdings`, filtered to A-shares by **ticker shape** `^\d{6}$` (6-digit numeric, no surrounding whitespace; HK 5-digit / US-alpha / unknown shapes are skipped — they are uncoverable and the floor accounts for them). No reliance on a persisted exchange column (the `fund_holdings` table has none; `FundHolding.exchange` lives only on the in-memory dataclass). On the current DB this matches **393 distinct A-share tickers**.
 - **Staleness:** per `stock_code`, skip when `stock_valuation_history` has a latest `date` fresh within `threshold_days`; `--force` refetches all. Mirrors `fund_holdings_ingestor.is_stale`. Idempotent on same-day reruns.
 - **Failure isolation:** per-stock failures are captured, never raised (mirror `ingest_many`); the command returns 0 on a completed run (even with per-stock gaps), non-zero only on a structural error (e.g. cannot open DuckDB). Failed stocks logged at WARN with code + reason.
 - Effects confined here + the ingestor; pure parsing in the fetchers.
@@ -128,17 +130,31 @@ active_fund_lookthrough:
   pb_uses_pe_gate: false  # PB stays on the <30 floor, not 120/180 (§3.3)
 ```
 
-Real schema + bundle field (validated by `irc config validate`), default-off, and semantically the right home (it is valuation config). Threaded into the opportunity inputs path the same way other config reaches `populate_inputs`. An env override is explicitly **out of scope** (one source of truth).
+Real schema + bundle field (validated by `irc config validate`), default-off, and semantically the right home (it is valuation config). An env override is explicitly **out of scope** (one source of truth).
+
+**Config threading (review P1 — name the signatures; no hidden reads).** Today `_build_input` calls `populate_inputs(con, skeleton, holding_entry_date=..., provider=...)` with **no** config (`inputs_build.py:14,63`), and `run_opportunity` loads `bundle.valuation_buckets` but does **not** pass it into `_build_rows` (`opportunity_cmd.py:1490`). The flag/floor must be threaded **explicitly** down this chain — module-level/global config reads are forbidden (FP rules):
+1. `run_opportunity` already has `bundle.valuation_buckets`; pass `bundle.valuation_buckets.active_fund_lookthrough` into `_build_rows(...)`.
+2. `_build_rows` forwards it to `_build_input(...)`.
+3. `_build_input` forwards it to `populate_inputs(con, skeleton, *, holding_entry_date, provider, lookthrough_cfg)` as a new keyword-only param (default a disabled config so existing call sites/tests stay valid).
+A focused test asserts the value reaches `populate_inputs` (no global lookup).
 
 ### 6.3 Aggregation core — `opportunity/lookthrough_valuation.py`
 Pure. Public surface:
-- `fund_valuation_percentile(holdings, series_by_code, *, coverage_floor, pb_uses_pe_gate) -> FundValuationResult` returning `(pe_percentile | None, pb_percentile | None, coverage_ratio, covered_codes, source_mix)`.
-- Internal helpers: covered-set selection (§3.2/§3.6), per-date renormalized harmonic aggregation (§3.1/§3.4), maturity gate (§3.3, reusing `_pe_series_is_mature` semantics), percentile via `self_history_percentile`.
-- Returns the coverage ratio and source mix so the diff report and the `inputs_loader` can record/flag them.
+- `fund_valuation_percentile(holdings, series_by_code, *, coverage_floor, pb_uses_pe_gate) -> FundValuationResult`.
+- **`FundValuationResult` carries per-metric coverage (review P2).** PE and PB exclude holdings **independently** — a name can have a usable PE but a missing/non-positive PB, or vice-versa (§3.6) — so a single `coverage_ratio`/`covered_codes`/`source_mix` would misstate PB provenance even though PB is corroborate-only. The result is therefore split per metric:
+  ```
+  FundValuationResult(
+    pe=MetricCoverage(percentile|None, coverage_ratio, covered_codes, source_mix),
+    pb=MetricCoverage(percentile|None, coverage_ratio, covered_codes, source_mix),
+  )
+  ```
+  `MetricCoverage` is a frozen dataclass; `source_mix` is the provider set over **that metric's** covered codes.
+- Internal helpers: covered-set selection (§3.2/§3.6, run once per metric), per-date renormalized harmonic aggregation (§3.1/§3.4), maturity gate (§3.3, reusing `_pe_series_is_mature` semantics for PE; bare `<30` floor for PB), percentile via `self_history_percentile`.
+- Returns per-metric coverage + source so the diff report (§8) and `inputs_loader` record/flag them accurately for PE and PB separately.
 
 ### 6.4 Fetchers + ingestor + table
-- `akshare_stock_valuation.py` — mirror `akshare_index_valuation.py`: thin AkShare call + pure column extraction (`pe_ttm`/`pb`/`dv_ratio`), degrade-to-None on empty/raise.
-- `tushare_stock_valuation.py` — `daily_basic` per-stock via the existing token plumbing; degrade-to-None when no token / empty.
+- `akshare_stock_valuation.py` — mirror `akshare_index_valuation.py`: thin `stock_value_em` call + pure column extraction `数据日期→date`, `PE(TTM)→pe_ttm`, `市净率→pb` (EastMoney exposes no per-stock dividend yield, so `dividend_yield` is left `None` — the column stays nullable, consistent with the index table). Degrade-to-None on empty/raise.
+- `tushare_stock_valuation.py` — `daily_basic` per-stock via the existing token plumbing; map `pe_ttm`/`pb` (and `dv_ratio→dividend_yield` when present); degrade-to-None when no token / empty.
 - `data/stock_valuation_ingestor.py` — mirror `index_valuation_ingestor.py`: atomic `INSERT OR REPLACE` into `stock_valuation_history`, `_source` per row, BEGIN/COMMIT/ROLLBACK.
 - `data/duckdb_helper.py` — add the `stock_valuation_history` DDL (PK `(stock_code, date)`, provenance cols), beside `index_valuation_history`.
 
@@ -148,7 +164,7 @@ Add an active-fund branch (`asset_class == "cn_equity_fund"`): load latest-quart
 ## 7. Error handling / degradation (degrade-to-None discipline)
 
 - No holdings / stale holdings / `coverage < floor` / series fails maturity → `None` → NAV fallback (today's behaviour).
-- Tushare token absent → legulegu-only; misses shrink coverage, floor catches it. No hard failure.
+- Tushare token absent → EastMoney-only; misses shrink coverage, floor catches it. No hard failure.
 - Non-positive PE/PB names excluded → coverage shrinks honestly (§3.6).
 - Mixed-source series → `_source`-flagged, surfaced in the diff report (§3.5/§8).
 - Flag off → every active-fund slot `None` → outputs byte-identical → H3 / SAME-3 / divergence advisory all inert (the all-`None` dormancy lock of ADR 0012).
@@ -158,7 +174,7 @@ Add an active-fund branch (`asset_class == "cn_equity_fund"`): load latest-quart
 
 A report (command output / written artifact) listing, per active fund:
 - would-flip band (NAV-derived `valuation_state` vs PE-derived), and **Δpercentile** (PE vs NAV);
-- **covered-weight ratio** and **source mix** (legulegu / Tushare / mixed);
+- **per-metric covered-weight ratio** and **source mix** (EastMoney / Tushare / mixed) — reported **separately for PE and PB** (§6.3), since their covered sets can differ;
 - the **current-basket caveat** (current weights × past PE);
 - a **coverage-floor sensitivity table** at `0.40 / 0.50 / 0.60` showing grounded-fund count at each, so precision-vs-coverage is visible before the flag flips.
 
@@ -168,7 +184,7 @@ This is what the human reviews at gate #5. It runs independently of the flag (co
 
 - **Aggregation core (rich unit tests, no mocks):** worked harmonic example; coverage-floor pass/fail with the `/100` unit boundary; non-positive-PE exclusion; per-date renormalization (holdings with shorter history); PE maturity gate (120/180) vs PB `<30` floor; degrade-to-None on every gap path.
 - **Unit-boundary test (P0 regression):** a fund whose raw `Σ weight_pct ≈ 55` but covered ratio `0.55` — assert the floor compares the ratio, not the percent sum.
-- **Fetchers:** pure column extraction unit tests; **live-gated** test (`IRC_RUN_LIVE_AKSHARE=1` + marker) confirming `stock_a_indicator_lg` returns real rows for a known A-share — no silently-guessed strings (gate #4).
+- **Fetchers:** pure column extraction unit tests; **live-gated** test (`IRC_RUN_LIVE_AKSHARE=1` + marker) confirming `stock_value_em` returns real rows with the expected `数据日期`/`PE(TTM)`/`市净率` columns for a known A-share, and that the column→`(date, pe_ttm, pb)` extraction holds — no silently-guessed strings (gate #4). A parallel live-gated Tushare `daily_basic` test when a token is present.
 - **Ingestor + table:** integration test (atomic upsert, `_source`, idempotent rerun).
 - **`inputs_loader`:** flag-off ⇒ active-fund slot `None`; flag-on ⇒ populated; index path unchanged.
 - **Flag-off byte-identical regression (P1):** a fixture run asserting active-fund opportunity outputs are byte-identical with the flag off (dormancy lock).
@@ -187,7 +203,14 @@ Per the roadmap §6, Phase D is `brainstorming → spec (this doc) → plan → 
 
 ## 11. Reach (honesty note)
 
-Phase D's ceiling is **funds that clear the coverage floor**, not all 383. On the latest `fund_holdings` snapshot the reviewer measured 131 funds present, ~73 clearing ≥0.50 and ~103 clearing ≥0.40. The roadmap and any "most funds" claim must be read against the **measured** count at the chosen floor — gate #3 reports it, the diff report's sensitivity table sizes the precision-vs-coverage trade, and the floor is config-tunable.
+Phase D's ceiling is **funds that clear the coverage floor**, not all 383. Measured on the current `data/local.duckdb` (131 funds in the latest `fund_holdings`), applying the **A-share-only covered-set rule of §3.2** (not all top-N holdings):
+
+| Floor | A-share-only (§3.2 rule) | All-holdings (wrong, for contrast) |
+|---|---:|---:|
+| ≥ 0.50 | **58** | 73 |
+| ≥ 0.40 | **93** | 103 |
+
+The A-share-only figures (58 / 93) are the honest upper bound; the earlier 73 / 103 counted every holding including HK/US and so over-stated reach. **And even 58 is an upper bound on *grounded* funds** — a fund also needs each covered stock's PE history to clear the maturity gate (§3.3), which only the real `stock_value_em` ingest can confirm. The roadmap and any "most funds" claim must be read against the **measured grounded count** gate #3 produces after a real ingest, not against 383. The diff report's sensitivity table sizes the precision-vs-coverage trade; the floor is config-tunable.
 
 ## 12. Out of scope
 
