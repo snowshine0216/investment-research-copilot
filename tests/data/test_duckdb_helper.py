@@ -123,3 +123,37 @@ def test_ensure_schema_creates_index_valuation_history(tmp_path) -> None:
     # Idempotent: a second call must not raise.
     ensure_schema(con)
     con.close()
+
+
+def test_stock_valuation_history_in_expected_tables() -> None:
+    from irc.data.duckdb_helper import EXPECTED_TABLES
+    assert "stock_valuation_history" in EXPECTED_TABLES
+
+
+def test_ensure_schema_creates_stock_valuation_history(tmp_path) -> None:
+    from irc.data.duckdb_helper import connect, ensure_schema
+    con = connect(tmp_path / "sv.duckdb")
+    ensure_schema(con)
+    cols = {
+        r[1] for r in con.execute(
+            "PRAGMA table_info('stock_valuation_history')"
+        ).fetchall()
+    }
+    assert {
+        "stock_code", "date", "pe_ttm", "pb", "dividend_yield",
+        "_ingested_at", "_source", "_raw_ref",
+    } <= cols
+    con.close()
+
+
+def test_stock_valuation_history_primary_key_is_stock_code_date(tmp_path) -> None:
+    from irc.data.duckdb_helper import connect, ensure_schema
+    con = connect(tmp_path / "sv.duckdb")
+    ensure_schema(con)
+    pk = [
+        r[1] for r in con.execute(
+            "PRAGMA table_info('stock_valuation_history')"
+        ).fetchall() if r[5]  # r[5] = pk flag
+    ]
+    assert pk == ["stock_code", "date"]
+    con.close()
