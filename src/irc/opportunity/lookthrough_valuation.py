@@ -86,13 +86,6 @@ def _all_dates(
     return tuple(sorted({p[0] for c in covered_codes for p in series_by_code[c].points}))
 
 
-def _covered_total_weight(
-    holdings: tuple[HoldingWeight, ...], covered_codes: tuple[str, ...]
-) -> float:
-    covered = set(covered_codes)
-    return sum(h.weight_pct for h in holdings if h.code in covered)
-
-
 def _present_contributions(
     holdings: tuple[HoldingWeight, ...],
     series_by_code: dict[str, MetricSeries],
@@ -124,15 +117,17 @@ def _aggregate_metric_series(
     covered_codes: tuple[str, ...],
     *, metric: _Metric, coverage_floor: float,
 ) -> pd.Series:
-    """Per-date renormalized harmonic series (§3.1/§3.4). Drops dates < floor."""
-    covered_total = _covered_total_weight(holdings, covered_codes)
+    """Per-date renormalized harmonic series (§3.1/§3.4). Drops a date when the
+    present covered+positive weight is < coverage_floor as a fraction of NAV
+    (Σ weight_pct/100, §3.2 units) — so a single mega-cap can't masquerade as
+    the whole basket (§3.4)."""
     out_idx: list[str] = []
     out_val: list[float] = []
     for iso in _all_dates(series_by_code, covered_codes):
         wb, vb = _present_contributions(holdings, series_by_code, covered_codes, metric, iso)
         if not wb:
             continue
-        present_ratio = sum(wb.values()) / covered_total if covered_total > 0 else 0.0
+        present_ratio = sum(wb.values()) / 100.0
         if present_ratio < coverage_floor:
             continue
         total_w = sum(wb.values())

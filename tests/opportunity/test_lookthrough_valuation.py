@@ -106,9 +106,10 @@ def test_worked_harmonic_two_stock_equal_weight() -> None:
 
 def test_per_date_renormalization_with_shorter_history() -> None:
     # A has 2 dates, B has only the later date. On the earlier date only A is
-    # present, so its renormalized weight is 1.0 → PE_fund = A's PE = 10.0.
+    # present; A's 45% NAV alone clears the 0.40 NAV-fraction floor (§3.2 units),
+    # so its renormalized weight is 1.0 → PE_fund = A's PE = 10.0.
     # On the later date both present → harmonic of 10 and 30 at equal weight = 15.
-    holdings = (HoldingWeight("A", 25.0), HoldingWeight("B", 25.0))
+    holdings = (HoldingWeight("A", 45.0), HoldingWeight("B", 45.0))
     series = {
         "A": MetricSeries("A", "eastmoney",
                           (("2026-05-01", 10.0, None), ("2026-05-30", 10.0, None))),
@@ -118,8 +119,28 @@ def test_per_date_renormalization_with_shorter_history() -> None:
         holdings, series, ("A", "B"), metric="pe", coverage_floor=0.40,
     )
     vals = {str(d): float(v) for d, v in out.items()}
-    assert abs(vals["2026-05-01"] - 10.0) < 1e-9   # only A present
+    assert abs(vals["2026-05-01"] - 10.0) < 1e-9   # only A present (0.45 NAV ≥ 0.40)
     assert abs(vals["2026-05-30"] - 15.0) < 1e-9   # both present
+
+
+def test_per_date_floor_is_nav_fraction_not_covered_basket() -> None:
+    # §3.4 intent: "a date covered by one mega-cap doesn't masquerade as the whole
+    # basket." The per-date floor compares present weight as a fraction of NAV
+    # (Σ weight_pct/100), NOT as a fraction of the covered basket.
+    # A=30% NAV, B=25% NAV → covered basket 55% NAV. On the early date only A is
+    # present: NAV fraction 0.30 < 0.50 floor → DROPPED (correct). If the floor
+    # used the covered-basket fraction (30/55 = 0.545 ≥ 0.50) the mega-cap A would
+    # masquerade as the whole basket and the date would survive — the bug this locks.
+    holdings = (HoldingWeight("A", 30.0), HoldingWeight("B", 25.0))
+    series = {
+        "A": MetricSeries("A", "eastmoney",
+                          (("2026-05-01", 10.0, None), ("2026-05-30", 10.0, None))),
+        "B": MetricSeries("B", "eastmoney", (("2026-05-30", 30.0, None),)),
+    }
+    out = _aggregate_metric_series(
+        holdings, series, ("A", "B"), metric="pe", coverage_floor=0.50,
+    )
+    assert list(out.index.astype(str)) == ["2026-05-30"]  # early date dropped
 
 
 def test_per_date_drops_dates_below_present_weight_floor() -> None:
