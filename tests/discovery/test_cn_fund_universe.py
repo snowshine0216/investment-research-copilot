@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from irc.discovery.cn_fund_universe import (
     UniverseBuildOptions,
+    _tracked_index_for,
     build_cn_fund_universe,
     classify_catalog_fund,
     dedupe_share_classes,
@@ -342,3 +343,29 @@ def test_qdii_global_has_its_own_cap_bucket():
     assert "270023" in ids
     classes = {it.instrument_id: it.asset_class for it in out}
     assert classes["270023"] == "qdii_global"
+
+
+def test_tracked_index_for_nonferrous_etf_emits_中证有色金属():
+    assert _tracked_index_for("华夏中证有色金属ETF", "cn_etf", "metals") == "中证有色金属"
+
+
+def test_tracked_index_for_resource_etf_emits_中证资源():
+    assert _tracked_index_for("招商中证资源ETF", "cn_etf", "metals") == "中证资源"
+
+
+def test_tracked_index_for_mining_etf_emits_矿业主题_most_specific():
+    # 有色金属矿业 contains 有色 AND 矿业 — most-specific (矿业) wins.
+    assert (
+        _tracked_index_for("国泰中证有色金属矿业主题ETF", "cn_etf", "metals")
+        == "中证有色金属矿业主题"
+    )
+
+
+def test_tracked_index_for_active_resource_fund_emits_none():
+    # Active cn_equity_fund (no single index) stays guarded → None.
+    assert _tracked_index_for("某某资源精选混合A", "cn_equity_fund", "metals") is None
+
+
+def test_tracked_index_for_non_sector_cn_etf_keeps_fund_name_fallback():
+    # A themed cn_etf NOT matching 有色/资源/矿业 keeps the existing fallback.
+    assert _tracked_index_for("半导体ETF", "cn_etf", "semiconductor") == "半导体ETF"
