@@ -95,12 +95,20 @@ class FetchPlan:
     top_n: int
     fund_level_misses: int = 0  # Item 005: gold/bond/cn_etf rows w/ provider_symbol
     fund_level_stale: int = 0   # Item 005
+    # Active funds that are date-stale but still hold a complete data leg for the
+    # latest disclosed quarter: `_maybe_freshness_probe` resolves these with a
+    # single cheap holdings probe (1 call) — NOT a full top-N re-fetch. Counting
+    # them at full cost (the historical behaviour) inflated the estimate ~35× and
+    # spuriously tripped the budget gate on routine weekly runs. `active_fund_stale`
+    # now carries ONLY funds that need a full re-fetch (data-leg gap or quarter roll).
+    active_fund_stale_probe_only: int = 0
 
     def total_calls(self) -> int:
         per_active = 1 + self.top_n * 3 + 4  # +4 = 1 NAV + 3 announcement endpoints (item 001)
         per_fund_level = 4  # 1 NAV + 3 announcement endpoints (ADR 0002 §5)
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
+            + self.active_fund_stale_probe_only * 1  # cheap freshness probe only
             + (self.fund_level_misses + self.fund_level_stale) * per_fund_level
             + self.passive_misses * 2
             + self.passive_stale * 2
@@ -113,6 +121,7 @@ class FetchBudgetExceeded(RuntimeError):
             f"FetchBudgetExceeded: "
             f"active_fund_misses={plan.active_fund_misses} "
             f"active_fund_stale={plan.active_fund_stale} "
+            f"active_fund_stale_probe_only={plan.active_fund_stale_probe_only} "
             f"fund_level_misses={plan.fund_level_misses} "
             f"fund_level_stale={plan.fund_level_stale} "
             f"passive_misses={plan.passive_misses} "
@@ -590,18 +599,23 @@ def _classify_active_fund_scores(
     threshold_days: int,
     rebuild_fundamentals: bool,
     completed_ids: set[str] | None = None,
-) -> tuple[int, int]:
-    """Count (misses, stale) among cn_equity_fund rows — for preflight budget.
+) -> tuple[int, int, int]:
+    """Count (misses, stale_full, stale_probe_only) among cn_equity_fund rows.
 
-    A miss  = no cache file on disk.
-    A stale = cache exists but probe is overdue.
+    For the preflight budget estimate:
+    - miss        = no cache file on disk → full top-N build.
+    - stale_full  = cache exists but has a data-leg gap → forced full re-fetch.
+    - stale_probe = cache exists, date-overdue, but data-leg-complete → resolves
+                    with a single cheap freshness probe (1 call), not a full
+                    re-fetch (unless that probe later finds the quarter rolled).
     rebuild_fundamentals = True → every fund counts as a miss (full re-fetch forced).
     completed_ids: funds already finished in the current resume state are excluded
-        from both miss and stale counts (resume credit, spec AC item 4 hardening).
+        from every count (resume credit, spec AC item 4 hardening).
     """
     _completed = completed_ids or set()
     misses = 0
-    stale = 0
+    stale_full = 0
+    stale_probe = 0
     seen: set[str] = set()
     for score in scores:
         if score.get("asset_class") != "cn_equity_fund":
@@ -620,10 +634,10 @@ def _classify_active_fund_scores(
         if cached is None:
             misses += 1
         elif _active_snapshot_has_required_data_leg_gap(cached):
-            stale += 1
+            stale_full += 1
         elif _is_stale(cached, today=today, threshold_days=threshold_days):
-            stale += 1
-    return misses, stale
+            stale_probe += 1
+    return misses, stale_full, stale_probe
 
 
 def _is_qdii_bound_cn_etf(iid: str, instr_index: dict) -> bool:
@@ -756,7 +770,7 @@ def _build_rows(
 
         # ── Step 2b: Preflight budget gate (P0-1) ────────────────────────────────
         # completed_ids are excluded from the cost count (resume credit).
-        misses, stale = _classify_active_fund_scores(
+        misses, stale_full, stale_probe = _classify_active_fund_scores(
             scores, root / "data",
             today=today, threshold_days=_freshness_days(),
             rebuild_fundamentals=rebuild_fundamentals,
@@ -770,12 +784,13 @@ def _build_rows(
         )
         plan = FetchPlan(
             active_fund_misses=misses,
-            active_fund_stale=stale,
+            active_fund_stale=stale_full,
             passive_misses=0,
             passive_stale=0,
             top_n=TOP_N_DEFAULT,
             fund_level_misses=fl_misses,
             fund_level_stale=fl_stale,
+            active_fund_stale_probe_only=stale_probe,
         )
         total = plan.total_calls()
         budget = _fetch_budget()
