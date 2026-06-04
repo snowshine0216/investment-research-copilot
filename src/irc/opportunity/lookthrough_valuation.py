@@ -164,6 +164,24 @@ def _aggregate_metric_series(
     return pd.Series(out_val, index=pd.to_datetime(out_idx).date)
 
 
+from irc.opportunity.inputs_loader import _pe_series_is_mature
+from irc.opportunity.returns import self_history_percentile
+
+
+def _percentile_for_metric(
+    series: pd.Series, *, metric: _Metric, pb_uses_pe_gate: bool
+) -> float | None:
+    """PE: requires the 120/180 maturity gate (reused from the index path) AND
+    the <30 floor inside self_history_percentile. PB: only the <30 floor unless
+    pb_uses_pe_gate is True (§3.3)."""
+    if series.empty:
+        return None
+    apply_pe_gate = metric == "pe" or pb_uses_pe_gate
+    if apply_pe_gate and not _pe_series_is_mature(series):
+        return None
+    return self_history_percentile(series)
+
+
 def fund_valuation_percentile(
     holdings: tuple[HoldingWeight, ...],
     series_by_code: dict[str, MetricSeries],

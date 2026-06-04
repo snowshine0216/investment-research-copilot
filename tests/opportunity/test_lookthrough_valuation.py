@@ -142,3 +142,55 @@ def test_non_positive_metric_value_excluded_per_date() -> None:
     # So early date has no positive contributor → dropped. Later date → 15.0.
     assert list(out.index.astype(str)) == ["2026-05-30"]
     assert abs(float(out.iloc[-1]) - 15.0) < 1e-9
+
+
+import pandas as pd
+
+from irc.opportunity.lookthrough_valuation import _percentile_for_metric
+
+
+def _ramp_series(n: int, span_days: int) -> pd.Series:
+    dates = pd.date_range("2025-01-01", periods=n, freq=f"{max(span_days // max(n - 1, 1), 1)}D")
+    return pd.Series([float(i + 1) for i in range(n)], index=dates)
+
+
+def test_pe_percentile_none_when_below_120_points() -> None:
+    # 100 points over a 365-day span: clears the day-span bar but NOT 120 points.
+    s = pd.Series([float(i + 1) for i in range(100)],
+                  index=pd.date_range("2025-01-01", periods=100, freq="4D"))
+    assert _percentile_for_metric(s, metric="pe", pb_uses_pe_gate=False) is None
+
+
+def test_pe_percentile_none_when_span_below_180_days() -> None:
+    # 130 points but crammed into < 180 days → fails the day-span half of the gate.
+    s = pd.Series([float(i + 1) for i in range(130)],
+                  index=pd.date_range("2025-01-01", periods=130, freq="1D"))  # 129 days
+    assert _percentile_for_metric(s, metric="pe", pb_uses_pe_gate=False) is None
+
+
+def test_pe_percentile_present_when_gate_cleared() -> None:
+    # 200 points over ~398 days → clears both halves. Latest is the max → 1.0.
+    s = pd.Series([float(i + 1) for i in range(200)],
+                  index=pd.date_range("2025-01-01", periods=200, freq="2D"))
+    assert _percentile_for_metric(s, metric="pe", pb_uses_pe_gate=False) == 1.0
+
+
+def test_pb_percentile_ignores_120_180_gate_uses_only_30_floor() -> None:
+    # 40 points, ~40-day span: fails the 120/180 gate but clears the <30 floor.
+    # PB (pb_uses_pe_gate=False) returns a percentile; PE on the same series → None.
+    s = pd.Series([float(i + 1) for i in range(40)],
+                  index=pd.date_range("2025-01-01", periods=40, freq="1D"))
+    assert _percentile_for_metric(s, metric="pb", pb_uses_pe_gate=False) == 1.0
+    assert _percentile_for_metric(s, metric="pe", pb_uses_pe_gate=False) is None
+
+
+def test_pb_percentile_none_below_30_floor() -> None:
+    s = pd.Series([1.0, 2.0, 3.0], index=pd.date_range("2025-01-01", periods=3, freq="1D"))
+    assert _percentile_for_metric(s, metric="pb", pb_uses_pe_gate=False) is None
+
+
+def test_pb_with_pe_gate_flag_applies_120_180() -> None:
+    # When pb_uses_pe_gate=True, PB inherits the 120/180 gate (flippable call).
+    s = pd.Series([float(i + 1) for i in range(40)],
+                  index=pd.date_range("2025-01-01", periods=40, freq="1D"))
+    assert _percentile_for_metric(s, metric="pb", pb_uses_pe_gate=True) is None
