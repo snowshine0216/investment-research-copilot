@@ -3,12 +3,16 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pandas as pd
+import pytest
 
 from irc.fundamentals.akshare_index_valuation import (
+    _CSINDEX_PE_TTM_COL,
     _extract_latest_value,
     fetch_cn_index_valuation,
+    fetch_cn_index_valuation_history,
+    fetch_cn_sector_index_valuation_history,
 )
-from irc.fundamentals.index_valuation_types import IndexValuation
+from irc.fundamentals.index_valuation_types import IndexValuation, IndexValuationHistory
 
 
 # ---------- pure extraction helper ----------
@@ -108,10 +112,6 @@ def test_fetch_returns_valuation_with_none_metrics_on_empty_frames() -> None:
     assert out.dividend_yield is None
 
 
-from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation_history
-from irc.fundamentals.index_valuation_types import IndexValuationHistory
-
-
 def test_fetch_history_unknown_index_returns_none_without_calling_ak() -> None:
     with patch("irc.fundamentals.akshare_index_valuation._ak_call") as mocked:
         out = fetch_cn_index_valuation_history("not_a_broad_index")
@@ -151,3 +151,86 @@ def test_fetch_history_returns_none_on_empty_frames() -> None:
         return_value=pd.DataFrame(),
     ):
         assert fetch_cn_index_valuation_history("csi300") is None
+
+
+# csindex-shaped frame: 市盈率1 (PE-TTM) + 市盈率2 (LYR) + 股息率 cols, NO pb col.
+_CSINDEX_FRAME = pd.DataFrame({
+    "日期": ["2026-05-26", "2026-05-27", "2026-05-28"],
+    "市盈率1": [26.50, 26.80, 26.97],
+    "市盈率2": [29.10, 29.20, 29.28],
+    "股息率1": [1.10, 1.10, 1.12],
+    "股息率2": [1.20, 1.20, 1.22],
+})
+
+
+def test_csindex_pe_ttm_col_is_市盈率1():
+    assert _CSINDEX_PE_TTM_COL == "市盈率1"
+
+
+def test_sector_fetch_unknown_slug_returns_none_without_calling_ak():
+    with patch("irc.fundamentals.akshare_index_valuation._ak_call") as mocked:
+        out = fetch_cn_sector_index_valuation_history("not_a_sector")
+    assert out is None
+    mocked.assert_not_called()
+
+
+def test_sector_fetch_reads_市盈率1_and_sets_pb_none():
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        return_value=_CSINDEX_FRAME,
+    ):
+        out = fetch_cn_sector_index_valuation_history("csi_nonferrous")
+    assert isinstance(out, IndexValuationHistory)
+    assert out.index_key == "csi_nonferrous"
+    assert len(out.rows) == 3
+    assert [r.date_iso for r in out.rows] == ["2026-05-26", "2026-05-27", "2026-05-28"]
+    # PE comes from 市盈率1 (TTM), NOT 市盈率2.
+    assert out.rows[-1].pe_ttm == pytest.approx(26.97)
+    # csindex has NO PB column.
+    assert all(r.pb is None for r in out.rows)
+
+
+def test_sector_fetch_fails_if_only_legulegu_pe_names_present():
+    # A frame carrying ONLY legulegu PE names (平均市盈率) must NOT yield PE —
+    # proves the fetcher does not fall back to _PE_COLS.
+    legulegu_frame = pd.DataFrame({
+        "日期": ["2026-05-28"],
+        "平均市盈率": [12.1],
+    })
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        return_value=legulegu_frame,
+    ):
+        out = fetch_cn_sector_index_valuation_history("csi_nonferrous")
+    # No 市盈率1 column → no usable PE rows → degrade to None.
+    assert out is None
+
+
+def test_sector_fetch_passes_csi_code_to_ak_call():
+    calls: list[dict] = []
+
+    def _fake(fn_name, **kwargs):
+        calls.append({"fn": fn_name, **kwargs})
+        return _CSINDEX_FRAME
+
+    with patch("irc.fundamentals.akshare_index_valuation._ak_call", side_effect=_fake):
+        fetch_cn_sector_index_valuation_history("csi_nonferrous")
+    assert calls and calls[0]["fn"] == "stock_zh_index_value_csindex"
+    # csi_nonferrous -> 930708
+    assert calls[0].get("symbol") == "930708"
+
+
+def test_sector_fetch_degrades_to_none_on_adapter_exception():
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        side_effect=RuntimeError("network down"),
+    ):
+        assert fetch_cn_sector_index_valuation_history("csi_nonferrous") is None
+
+
+def test_sector_fetch_returns_none_on_empty_frame():
+    with patch(
+        "irc.fundamentals.akshare_index_valuation._ak_call",
+        return_value=pd.DataFrame(),
+    ):
+        assert fetch_cn_sector_index_valuation_history("csi_nonferrous") is None

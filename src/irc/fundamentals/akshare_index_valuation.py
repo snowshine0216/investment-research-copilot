@@ -35,6 +35,21 @@ _PB_COLS: tuple[str, ...] = ("市净率", "平均市净率", "pb")
 _DIV_COLS: tuple[str, ...] = ("股息率", "股息率%", "dividend_yield")
 _DATE_COLS: tuple[str, ...] = ("日期", "date", "trade_date")
 
+# §2.3 csindex canonical PE column. CSI publishes 市盈率1 = total mkt-cap ÷ TTM
+# attributable net profit (PE-TTM/trailing); 市盈率2 is static/LYR. This is a
+# DEDICATED constant — csindex column names are NOT in the legulegu _PE_COLS set,
+# so this fetcher must not reuse _series_map(..., _PE_COLS).
+_CSINDEX_PE_TTM_COL: str = "市盈率1"
+
+# Sector slug -> CSI index code (csindex `stock_zh_index_value_csindex` symbol).
+# 930708 confirmed live for 中证有色金属; the other two are best-effort,
+# confirmed by the gated live test (degrade-to-None on miss).
+_SECTOR_INDEX_CODE: dict[str, str] = {
+    "csi_nonferrous": "930708",
+    "csi_resource": "000819",
+    "csi_nonferrous_mining": "931892",
+}
+
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     """Indirection for testability; avoids importing akshare at module load."""
@@ -135,6 +150,59 @@ def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | 
             pe_ttm=pe_map.get(d),
             pb=pb_map.get(d),
             dividend_yield=div_map.get(d),
+        )
+        for d in dates
+    )
+    return IndexValuationHistory(index_key=index_key, rows=rows)
+
+
+def _csindex_pe_ttm_map(df: pd.DataFrame) -> dict[str, float | None]:
+    """Pure: map each parseable date to its 市盈率1 (PE-TTM) value. Empty map when
+    the frame lacks 市盈率1 or a date column. Does NOT consult legulegu _PE_COLS."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return {}
+    if _CSINDEX_PE_TTM_COL not in df.columns:
+        return {}
+    date_col = next((c for c in _DATE_COLS if c in df.columns), None)
+    if date_col is None:
+        return {}
+    parsed = pd.to_datetime(df[date_col], errors="coerce")
+    out: dict[str, float | None] = {}
+    for d, raw in zip(parsed, df[_CSINDEX_PE_TTM_COL], strict=True):
+        if pd.isna(d):
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            value = None
+        if value is not None and pd.isna(value):
+            value = None
+        out[d.date().isoformat()] = value
+    return out
+
+
+def fetch_cn_sector_index_valuation_history(
+    index_key: str,
+) -> IndexValuationHistory | None:
+    """Full PE-TTM series (from csindex 市盈率1) for a recognised sector index;
+    None for unknown slugs / adapter failure / no usable PE rows. pb is always
+    None (csindex carries no PB column). AkShare-only ingest infra (R4)."""
+    code = _SECTOR_INDEX_CODE.get(index_key)
+    if code is None:
+        return None
+    df = _fetch_frame("stock_zh_index_value_csindex", code)
+    if df is None:
+        return None
+    pe_map = _csindex_pe_ttm_map(df)
+    dates = sorted(pe_map)
+    if not dates:
+        return None
+    rows = tuple(
+        IndexValuationPoint(
+            date_iso=d,
+            pe_ttm=pe_map.get(d),
+            pb=None,
+            dividend_yield=None,
         )
         for d in dates
     )
