@@ -14,6 +14,7 @@ EXACT column strings are pinned by the gate-#4 live test
 """
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import pandas as pd
@@ -22,6 +23,8 @@ from irc.fundamentals.stock_valuation_types import (
     StockValuationHistory,
     StockValuationPoint,
 )
+
+_log = logging.getLogger(__name__)
 
 _PE_COL: str = "PE(TTM)"
 _PB_COL: str = "市净率"
@@ -66,9 +69,15 @@ def _series_maps(
 def _fetch_frame(symbol: str) -> pd.DataFrame | None:
     try:
         df = _ak_call("stock_value_em", symbol=symbol)
-    except Exception:
+    except Exception as exc:
+        _log.warning("stock_value_em(%r) failed: %s: %s", symbol, type(exc).__name__, exc)
         return None
-    return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
+    if not isinstance(df, pd.DataFrame):
+        _log.warning(
+            "stock_value_em(%r) returned unexpected type %s", symbol, type(df).__name__
+        )
+        return pd.DataFrame()
+    return df
 
 
 def fetch_stock_valuation_history(stock_code: str) -> StockValuationHistory | None:

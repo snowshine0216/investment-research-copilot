@@ -305,7 +305,10 @@ def populate_inputs(
     # Phase D: active CN equity funds (no tracked_index) get their fundamental
     # percentile from holdings look-through — flag-gated so flag-off is
     # byte-identical (NAV fallback). The index path above is untouched.
-    if skeleton.asset_class == "cn_equity_fund":
+    # Guard: only pure active funds (tracked_index is None) enter this branch;
+    # enhanced-index cn_equity_funds that have a tracked_index must keep using
+    # the index-derived percentile set above.
+    if skeleton.asset_class == "cn_equity_fund" and skeleton.tracked_index is None:
         af_pe, af_pb = _active_fund_fundamental_percentiles(
             con, skeleton.instrument_id, lookthrough_cfg
         )

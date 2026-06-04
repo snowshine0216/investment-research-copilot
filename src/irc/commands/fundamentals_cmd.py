@@ -123,16 +123,20 @@ def run_stock_valuation_refresh(
         print(f"ERROR: cannot open DuckDB at {db_path}: {exc}")
         return 1
     try:
-        codes = _discover_ashare_codes(con)
-        token = _read_tushare_token()
-        today = _china_today()
-        now = _now_iso()
-        targets = tuple(
-            c for c in codes
-            if force or is_stock_valuation_stale(
-                con, c, today_iso=today, threshold_days=threshold_days
+        try:
+            codes = _discover_ashare_codes(con)
+            token = _read_tushare_token()
+            today = _china_today()
+            now = _now_iso()
+            targets = tuple(
+                c for c in codes
+                if force or is_stock_valuation_stale(
+                    con, c, today_iso=today, threshold_days=threshold_days
+                )
             )
-        )
+        except Exception as exc:
+            print(f"ERROR: failed to enumerate A-share codes: {exc}")
+            return 1
         written = 0
         for code in targets:
             try:

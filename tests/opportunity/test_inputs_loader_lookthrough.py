@@ -9,6 +9,22 @@ from irc.opportunity.inputs_loader import populate_inputs
 from irc.opportunity.types import OpportunityInput
 from irc.schemas.valuation import ActiveFundLookthroughConfig
 
+# ── helpers ───────────────────────────────────────────────────────────────────
+
+def _seed_index_valuation_history(
+    con, index_key: str, pe_pb_pairs: list, base_date: date = date(2025, 1, 1)
+) -> None:
+    """Mirror of the helper in test_inputs_loader.py for seeding index PE/PB history."""
+    rows = []
+    for i, (pe, pb) in enumerate(pe_pb_pairs):
+        d = date.fromordinal(base_date.toordinal() + i)
+        rows.append((index_key, d, pe, pb, None))
+    con.executemany(
+        "INSERT INTO index_valuation_history VALUES "
+        "(?,?,?,?,?, TIMESTAMP '2026-05-15', 'test', 'test:iv')",
+        rows,
+    )
+
 
 def _con(tmp_path):
     con = duckdb.connect(str(tmp_path / "lt.duckdb"))
@@ -115,4 +131,69 @@ def test_index_fund_path_unchanged_by_lookthrough_branch(tmp_path) -> None:
         lookthrough_cfg=ActiveFundLookthroughConfig(enabled=True),
     )
     assert out.valuation_percentile_fundamental is None  # no index rows cached
+    con.close()
+
+
+# ── Finding 1 (P0) regression tests: tracked_index guard ─────────────────────
+
+def _seed_enhanced_index_fund_with_index_history(con) -> None:
+    """Seed a cn_equity_fund (enhanced-index) that has a tracked_index=csi300
+    with ≥120 points spanning ≥180 days so the index PE percentile is mature."""
+    # 200 rising PE/PB pairs → latest is the max → percentile = 1.0
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+
+
+def _enhanced_index_skeleton(enabled: bool) -> OpportunityInput:
+    """cn_equity_fund WITH tracked_index — an enhanced-index fund."""
+    return OpportunityInput(
+        instrument_id="EIF1",
+        asset_class="cn_equity_fund",
+        market="cn_off_exchange",
+        theme=None,
+        tracked_index="csi300",  # has a tracked index — NOT a pure active fund
+        name_cn="沪深300增强",
+        role="",
+        is_holding=False,
+        portfolio_weight=None,
+        target_band_low=None,
+        target_band_high=None,
+        venue_compatible=True,
+    )
+
+
+def test_enhanced_index_fund_flag_off_preserves_index_derived_percentile(tmp_path) -> None:
+    """Finding 1 (P0) regression: cn_equity_fund WITH tracked_index + flag-off must
+    NOT overwrite the index-derived percentile with None.  Before the guard fix the
+    active-fund branch ran unconditionally, nuking fund_pct/fund_pct_pb to None."""
+    con = _con(tmp_path)
+    _seed_enhanced_index_fund_with_index_history(con)
+    out = populate_inputs(
+        con, _enhanced_index_skeleton(enabled=False), holding_entry_date=None,
+        lookthrough_cfg=ActiveFundLookthroughConfig(enabled=False),
+    )
+    # The index path computed a valid percentile (200 pts, 199-day span → mature).
+    # The active-fund branch must NOT have overwritten it with None.
+    assert out.valuation_percentile_fundamental is not None, (
+        "index-derived percentile was nuked by the active-fund branch "
+        "(missing tracked_index is None guard)"
+    )
+    con.close()
+
+
+def test_enhanced_index_fund_flag_on_still_uses_index_path(tmp_path) -> None:
+    """Enhanced-index funds (cn_equity_fund WITH tracked_index) always use the index
+    path, even when the look-through flag is on — the branch must be guarded by
+    `tracked_index is None` so it only fires for pure active funds."""
+    con = _con(tmp_path)
+    _seed_enhanced_index_fund_with_index_history(con)
+    out = populate_inputs(
+        con, _enhanced_index_skeleton(enabled=True), holding_entry_date=None,
+        lookthrough_cfg=ActiveFundLookthroughConfig(enabled=True, coverage_floor=0.50),
+    )
+    # No fund_holdings rows for EIF1, but the index path has mature data.
+    # The percentile must come from the index, not from look-through (which has no data).
+    assert out.valuation_percentile_fundamental is not None, (
+        "enhanced-index fund's index-derived percentile was lost when flag=on"
+    )
     con.close()

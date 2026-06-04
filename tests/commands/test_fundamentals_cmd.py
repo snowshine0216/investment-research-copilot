@@ -240,3 +240,21 @@ def test_eastmoney_miss_falls_back_to_tushare(tmp_path, monkeypatch) -> None:
     ).fetchall()
     con.close()
     assert ("tushare",) in src
+
+
+def test_run_returns_one_on_discover_error(tmp_path, monkeypatch, capsys) -> None:
+    """Finding 4: structural DuckDB error during code enumeration returns 1 with
+    an ERROR-prefixed message instead of raising a raw traceback."""
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd._discover_ashare_codes",
+        lambda con: (_ for _ in ()).throw(RuntimeError("schema missing")),
+    )
+    rc = run_stock_valuation_refresh(str(tmp_path))
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "ERROR" in out and "A-share" in out

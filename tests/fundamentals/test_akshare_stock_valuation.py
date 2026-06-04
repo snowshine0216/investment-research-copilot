@@ -62,3 +62,33 @@ def test_fetch_degrades_to_none_on_raise() -> None:
         side_effect=RuntimeError("boom"),
     ):
         assert fetch_stock_valuation_history("600519") is None
+
+
+def test_fetch_logs_warn_on_exception(caplog) -> None:
+    """Finding 2: exception in _fetch_frame must emit a WARN with symbol + reason."""
+    import logging
+    with patch(
+        "irc.fundamentals.akshare_stock_valuation._ak_call",
+        side_effect=ValueError("timeout"),
+    ), caplog.at_level(logging.WARNING, logger="irc.fundamentals.akshare_stock_valuation"):
+        result = fetch_stock_valuation_history("000001")
+    assert result is None
+    assert any(
+        "000001" in r.message and "ValueError" in r.message and "timeout" in r.message
+        for r in caplog.records
+    ), f"expected WARN with symbol+type+msg; got: {[r.message for r in caplog.records]}"
+
+
+def test_fetch_logs_warn_on_unexpected_type(caplog) -> None:
+    """Finding 3: non-DataFrame return in _fetch_frame must emit a WARN."""
+    import logging
+    with patch(
+        "irc.fundamentals.akshare_stock_valuation._ak_call",
+        return_value={"unexpected": "dict"},
+    ), caplog.at_level(logging.WARNING, logger="irc.fundamentals.akshare_stock_valuation"):
+        result = fetch_stock_valuation_history("000001")
+    assert result is None  # empty frame → no dates → None
+    assert any(
+        "000001" in r.message and "dict" in r.message
+        for r in caplog.records
+    ), f"expected WARN with symbol+type; got: {[r.message for r in caplog.records]}"
