@@ -31,6 +31,14 @@ def _state_drivers(
     out: list[tuple[str, str, int]] = []
     if view.valuation_state in ("expensive", "very_expensive"):
         out.append(("valuation_state", f"{view.valuation_state} valuation", 2))
+    if view.valuation_state == "evidence_insufficient":
+        # §4 — surface a WITHHELD valuation (commodity-cyclical NAV-anchor
+        # exclusion) so it appears in the risk rationale rather than being
+        # silently benign. Non-blocking: weight 1 (mild caveat, a tuning knob);
+        # no evidence_gap is added, so H3 publishability is unaffected.
+        out.append(
+            ("valuation_state", "valuation withheld — no fundamental anchor", 1)
+        )
     if view.heat_state in ("crowded", "overheated"):
         out.append(("heat_state", f"{view.heat_state} heat", 2))
     if view.thesis_state in ("under_pressure", "falsified"):
