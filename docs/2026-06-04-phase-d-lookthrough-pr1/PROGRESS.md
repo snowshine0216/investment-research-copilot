@@ -26,4 +26,23 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 ### Status
 
-**Item 001 complete and merged into the feature branch.** Next: Phase 3 final validation, then open the feature-branch → `main` roll-up PR (left for the user). Remaining human gates (out of the autodev loop, see SKIPPED.md): gate #4 (live AkShare confirmation), gate #5 (diff-report review + final `coverage_floor`), then PR2 (flag flip).
+**Item 001 complete and merged into the feature branch.**
+
+## Final close-out (Phase 3 — PASS)
+
+- **Items merged:** 1/1 (001 → PR #109 squash-merged into `docs/phase-d-active-lookthrough-spec` as `6df089e`).
+- **Items SKIPPED/BLOCKED:** 0 in-loop. (PR2 + gates #4/#5 are documented human follow-ups in SKIPPED.md — out of the autodev loop by design, spec §3.8/§10.)
+- **Workflow-completeness audit:** PASS — drift/ship/review/pr-review/verify verdicts present + correct; qa absent (non-web XOR); grill absent (spec-mode ⏭️).
+- **Build/test:** Phase D scope 93 passed / 2 skipped; change-blast-radius 872 passed with only 2 documented pre-existing baseline failures (identical on `main` — not regressions).
+- **Lint:** all Phase D src+test files ruff-clean (repo-wide pre-existing lint debt untouched).
+- **Doc-sync:** PASS (`doc-sync.md`) — CHANGELOG + README updated; ADR 0012 addendum + CONTEXT.md "Valuation inputs" deferred to PR2 per spec §10.
+- **Review history:** 2 P0 + 2 P1 fixed in-flow during ship; 2 latent bugs fixed post-ship (`/code-review` round 2 confirmed resolved); 2 deferred nits.
+
+Feature branch: `docs/phase-d-active-lookthrough-spec`
+Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/110
+Merged into protected branch: no (PR #110 left OPEN for user review — `main` is protected, no merge opt-in given)
+
+### Remaining human gates (NOT autodev-able — spec §10)
+1. **Gate #4** — run the live-gated fetcher tests (`IRC_RUN_LIVE_AKSHARE=1 uv run pytest -m live_akshare …`) to confirm real EastMoney `数据日期`/`PE(TTM)`/`市净率` columns.
+2. **Gate #5** — run `irc fundamentals stock-valuation` + `irc lookthrough-diff` on real cached data; review the diff report; choose the final `coverage_floor`.
+3. **PR2** — flip `active_fund_lookthrough.enabled: true` (+ chosen floor) + ADR 0012 addendum + CONTEXT.md + recorded before/after output diff. No new spec needed.
