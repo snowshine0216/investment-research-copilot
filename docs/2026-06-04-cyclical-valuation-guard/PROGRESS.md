@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 > Non-web project → post-ship verifier is **/verify** (the `verify` column), NOT `/qa`. No `qa` column.
 
@@ -15,7 +15,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 - **001 spec** ✅ — `items/001-spec.md` (verbatim copy of user spec; has Goal/Design/Acceptance).
 - **001 grill** ⏭️ — `⏭️ user-grilled` (spec Status: "Approved (brainstorm) → revised after spec review"). Orchestrator must NOT auto-invoke grill in spec mode.
-- **001 plan** ⏳ — Opus `superpowers:writing-plans` to produce `items/001-plan.md`.
+- **001 plan** ✅ — `items/001-plan.md` (commit `bffd513`; Opus writing-plans; 8 TDD tasks, 33 `uv run` verification commands).
 
 ## Branch synthesis record
 
