@@ -413,18 +413,20 @@ def test_min_pe_gate_constants_are_120_and_180():
 
 def test_sector_display_name_resolves_and_grounds_pe_when_mature(tmp_path):
     # A display-name tracked_index ("中证有色金属") resolves to slug csi_nonferrous;
-    # 130 daily non-null PE points (>120, span >180d) ground a PE percentile.
+    # 200 daily non-null PE points (>120, span 199d >180d) ground a PE percentile.
+    # (Plan originally said 130; 130 consecutive daily points span only 129 days which
+    # is < MIN_PE_DAYS=180 and would FAIL the very gate being tested. Corrected to 200.)
     con = duckdb.connect(str(tmp_path / "sector_mature.duckdb"))
     ensure_schema(con)
     _seed_sector_instrument_with_prices(con)
-    pairs = [(10.0 + i * 0.05, None) for i in range(130)]  # pb None like csindex
+    pairs = [(10.0 + i * 0.05, None) for i in range(200)]  # pb None like csindex
     _seed_index_valuation_history(con, "csi_nonferrous", pairs)
     skeleton = OpportunityInput(
         instrument_id="165520", asset_class="cn_etf",
         market="cn_on_exchange", tracked_index="中证有色金属", name_cn="中证800有色ETF",
     )
     inp = populate_inputs(con, skeleton, holding_entry_date=None)
-    assert inp.pe_ttm == pytest.approx(10.0 + 129 * 0.05)
+    assert inp.pe_ttm == pytest.approx(10.0 + 199 * 0.05)
     assert inp.valuation_percentile_fundamental is not None
     # csindex carries no PB → pb percentile stays None.
     assert inp.valuation_percentile_fundamental_pb is None
@@ -601,11 +603,13 @@ Expected: PASS **with one expected fix** — `test_populate_inputs_reads_cached_
   Edit `test_populate_inputs_reads_cached_index_valuation_percentile` (line 213): change
   `pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(40)]`
   to
-  `pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(130)]`
+  `pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]`
   and update the two latest-value asserts on lines 220-222 from `13.9`/`1.39` to the new latest:
-  `assert inp.pe_ttm == pytest.approx(10.0 + 129 * 0.1)` (== 22.9) and
-  `assert inp.pb == pytest.approx(1.0 + 129 * 0.01)` (== 2.29).
-  The `valuation_percentile_fundamental == 1.0` / `_pb == 1.0` and `earnings_yield == 1/<latest pe>` asserts stay (update the earnings_yield divisor to `22.9`).
+  `assert inp.pe_ttm == pytest.approx(10.0 + 199 * 0.1)` (== 29.9) and
+  `assert inp.pb == pytest.approx(1.0 + 199 * 0.01)` (== 2.99).
+  The `valuation_percentile_fundamental == 1.0` / `_pb == 1.0` and `earnings_yield == 1/<latest pe>` asserts stay (update the earnings_yield divisor to `29.9`).
+  (Plan originally said bump to 130 rows; 130 consecutive daily points span only 129 days which
+  is < MIN_PE_DAYS=180 so would fail the maturity gate too. Corrected to 200 → 199-day span ≥ 180.)
 
   Also audit these fixtures that seed `[(...)] * 30` or `* 30`-scale rows and assert a non-None `valuation_percentile_fundamental` — they must be bumped to ≥120 points spanning ≥180 days, OR their assertion relaxed to `is None`. Inspect each and adjust to keep intent:
   - `test_populate_inputs_real_yield_in_ratio_units` (line 248): seeds `[(14.0, 1.3)] * 30`; it asserts `real_yield`/`earnings_yield`, NOT the fundamental percentile, so it stays green (latest pe still surfaced). No change needed.
