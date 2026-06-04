@@ -195,11 +195,13 @@ This is what the human reviews at gate #5. It runs independently of the flag (co
 
 **PR1 — shadow compute (flag OFF):** fetchers + ingestor + table + command + aggregation core + flag-gated `inputs_loader` population + diff report. Must pass: tests green (gate #1), invariants intact (gate #2), grounded-fund count **measured** via a real `irc fundamentals stock-valuation` + `irc opportunity` (gate #3 — do **not** assert 383; report the real count and the floor-sensitivity table), live-symbol confirmation (gate #4), docs synced (gate #6). Produces the gate-#5 artifact. Prod byte-identical.
 
-**Human review (gate #5, non-negotiable):** the user reviews the diff report on real cached data and signs off.
+**Human review (gate #5, non-negotiable):** the user reviews the diff report on real cached data and signs off. **The `coverage_floor` default (0.50 vs 0.40 vs other) is itself a gate-#5 decision** — PR1 ships it config-tunable with a `0.50` placeholder and the sensitivity table; the *final* value is chosen here, not in PR1.
 
-**PR2 — flip the flag (flag ON):** set `enabled: true`; record the real before/after `memo.md` / `opportunity` / `narrative` valuation-bucket diff; ADR 0012 addendum (active-fund look-through now populates the slot) + CHANGELOG `[Unreleased]` + CONTEXT.md "Valuation inputs".
+**PR2 — flip the flag (flag ON):** set `enabled: true` (and the gate-#5-chosen floor); record the real before/after `memo.md` / `opportunity` / `narrative` valuation-bucket diff; ADR 0012 addendum (active-fund look-through now populates the slot) + CHANGELOG `[Unreleased]` + CONTEXT.md "Valuation inputs".
 
-Per the roadmap §6, Phase D is `brainstorming → spec (this doc) → plan → autodev the plan` — with the live-verify and human output review treated as hard gates. PR1's code+tests are autodev-able; gates #4 and #5 are not, and must stop the loop.
+**PR2 needs no new spec.** It introduces no new design — only a config flip, the gate-#5 floor value, the recorded output diff, and docs. This spec (§3.8, §10) governs it, and the **ADR 0012 addendum** is its durable design-of-record. The gate-#5 decisions (chosen floor, go/no-go, caveats) are captured as a short **review note** (in the roadmap dir or the PR2 description), not a spec. PR2 is planned *after* gate #5 — a flag-flip cannot be planned well without the review outcome — and is a small plan or direct change. The one exception: if gate #5 surfaces a genuine **methodology** flaw (the aggregation misbehaves for some fund class), that bounces back to brainstorming/spec — contingent, not planned.
+
+Per the roadmap §6, Phase D is `brainstorming → spec (this doc) → plan → autodev the plan` — with the live-verify and human output review treated as hard gates. **writing-plans produces the PR1 plan only;** PR1's code+tests are autodev-able; gates #4 and #5 are not, and must stop the loop.
 
 ## 11. Reach (honesty note)
 
