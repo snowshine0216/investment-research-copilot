@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — commodity-cyclical valuation guard + sector-PE accumulate-forward (2026-06-04)
+
+For commodity-cyclical funds with no fundamental PE anchor, the NAV self-history
+percentile is price momentum, not valuation — `narrative compute_metals --analyze`
+was reporting nearly every metals/resource fund as `very_expensive` purely off NAV
+price action.
+
+- **Symmetric NAV-anchor exclusion (`classify_valuation`).** For an equity row whose
+  `theme ∈ COMMODITY_CYCLICAL_THEMES (= {"metals"})` with
+  `valuation_percentile_fundamental is None`, the classifier now withholds **every**
+  directional verdict — `cheap` *and* `expensive`/`very_expensive` alike — and returns
+  the existing `evidence_insufficient` state before any band assignment. The exclusion
+  is symmetric on purpose (a post-crash NAV trough reading `cheap` is as much a momentum
+  artifact as a peak reading `very_expensive`). `_EQUITY_ASSET_CLASSES` includes
+  `qdii_global`, so the guard covers all 21 metals-themed rows. A fund that later gains a
+  PE anchor skips the guard and uses the PE rule. New invariant recorded in `CONTEXT.md`.
+- **Reachable sector-PE anchor + accumulate-forward (csindex).** A display-name→slug
+  normalization layer (`_INDEX_NAME_TO_SLUG`, sector keys only) makes a sector
+  `tracked_index` resolve to a canonical slug; `fetch_cn_sector_index_valuation_history`
+  reads the canonical `市盈率1` (PE-TTM) column from `stock_zh_index_value_csindex`
+  (`pb=None`); a second best-effort `ingest_index_valuation_history` leg over
+  `_SECTOR_INDEX_KEYS` grows the series weekly (`INSERT OR REPLACE` dedups). The generator
+  emits the 中文 index name for recognised 有色/资源/矿业 ETFs so the mapping survives
+  monthly universe regen; actively-managed resource funds stay guarded.
+- **Min-history gate (`MIN_PE_POINTS=120`, `MIN_PE_DAYS=180`).** A sector PE percentile is
+  surfaced only once the accumulating series is mature (≥120 non-null PE points spanning
+  ≥180 days); below that it returns `None` → the §1 guard catches it. The latest-null PE
+  guard is preserved; csi300/csi1000 (thousands of points) are unaffected.
+- **Narrative surfaces the withheld valuation** as a non-blocking mild risk driver
+  (`_state_drivers`); no `evidence_gap` is added, so H3 publishability is unaffected.
+
 ### Fixed — opportunity fetch-budget over-estimate (spurious halt); SystemExit halts are resumable (2026-06-04)
 
 A stale weekly `irc run` halted at the **opportunity** stage with
