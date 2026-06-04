@@ -243,6 +243,24 @@ def fundamentals_snapshot(repo_root: str, targets: tuple[str, ...], top_n: int) 
     raise SystemExit(rc)
 
 
+@fundamentals.command(
+    "stock-valuation",
+    help="Refresh cached per-stock PE/PB history for A-share holdings (heavy; own cadence).",
+)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--force", is_flag=True, default=False, help="Refetch every A-share, ignoring staleness.")
+@click.option(
+    "--threshold-days", type=int, default=30, show_default=True,
+    help="Skip stocks fresh within this many days.",
+)
+def fundamentals_stock_valuation(repo_root: str, force: bool, threshold_days: int) -> None:
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+    rc = run_stock_valuation_refresh(
+        repo_root=repo_root, force=force, threshold_days=threshold_days
+    )
+    raise SystemExit(rc)
+
+
 @main.command(help="Show data freshness summary.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def freshness(repo_root: str) -> None:
