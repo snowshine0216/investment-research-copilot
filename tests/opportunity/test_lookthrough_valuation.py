@@ -2,13 +2,18 @@ from __future__ import annotations
 
 import dataclasses
 
+import pandas as pd
 import pytest
 
 from irc.opportunity.lookthrough_valuation import (
     HoldingWeight,
     MetricCoverage,
     MetricSeries,
+    _aggregate_metric_series,
+    _coverage_ratio,
     _covered_codes_for_metric,
+    _meets_floor,
+    _percentile_for_metric,
     fund_valuation_percentile,
 )
 
@@ -16,6 +21,10 @@ from irc.opportunity.lookthrough_valuation import (
 def _series(code, source, points):
     return MetricSeries(code=code, source=source, points=tuple(points))
 
+
+# ---------------------------------------------------------------------------
+# Task 5 — dataclasses + covered-set selection
+# ---------------------------------------------------------------------------
 
 def test_metric_coverage_is_frozen() -> None:
     mc = MetricCoverage(percentile=0.5, coverage_ratio=0.6, covered_codes=("600519",),
@@ -47,8 +56,9 @@ def test_covered_codes_pb_independent_of_pe() -> None:
     assert _covered_codes_for_metric(holdings, series, metric="pb") == ("000001",)
 
 
-from irc.opportunity.lookthrough_valuation import _coverage_ratio, _meets_floor
-
+# ---------------------------------------------------------------------------
+# Task 6 — coverage ratio + /100 floor boundary (P0 regression)
+# ---------------------------------------------------------------------------
 
 def test_coverage_ratio_divides_percent_by_100() -> None:
     holdings = (HoldingWeight("600519", 30.0), HoldingWeight("000001", 25.0))
@@ -74,8 +84,9 @@ def test_floor_compares_ratio_not_raw_percent_sum_p0() -> None:
     assert _meets_floor(low, coverage_floor=0.50) is False
 
 
-from irc.opportunity.lookthrough_valuation import _aggregate_metric_series
-
+# ---------------------------------------------------------------------------
+# Task 7 — per-date renormalized harmonic aggregation
+# ---------------------------------------------------------------------------
 
 def test_worked_harmonic_two_stock_equal_weight() -> None:
     # Two equal-weight holdings, PE 10 and PE 30 on a single date.
@@ -144,10 +155,9 @@ def test_non_positive_metric_value_excluded_per_date() -> None:
     assert abs(float(out.iloc[-1]) - 15.0) < 1e-9
 
 
-import pandas as pd
-
-from irc.opportunity.lookthrough_valuation import _percentile_for_metric
-
+# ---------------------------------------------------------------------------
+# Task 8 — maturity gate (PE 120/180 vs PB <30 floor) + percentile
+# ---------------------------------------------------------------------------
 
 def _ramp_series(n: int, span_days: int) -> pd.Series:
     dates = pd.date_range("2025-01-01", periods=n, freq=f"{max(span_days // max(n - 1, 1), 1)}D")
@@ -194,3 +204,65 @@ def test_pb_with_pe_gate_flag_applies_120_180() -> None:
     s = pd.Series([float(i + 1) for i in range(40)],
                   index=pd.date_range("2025-01-01", periods=40, freq="1D"))
     assert _percentile_for_metric(s, metric="pb", pb_uses_pe_gate=True) is None
+
+
+# ---------------------------------------------------------------------------
+# Task 9 — public fund_valuation_percentile + degrade-to-None
+# ---------------------------------------------------------------------------
+
+def _wide_series(code, source, pe, pb):
+    # 200 points over ~398 days so the PE gate clears.
+    pts = []
+    for i in range(200):
+        d = (pd.Timestamp("2025-01-01") + pd.Timedelta(days=2 * i)).date().isoformat()
+        pts.append((d, pe, pb))
+    return MetricSeries(code, source, tuple(pts))
+
+
+def test_fund_valuation_percentile_assembles_per_metric_coverage() -> None:
+    holdings = (HoldingWeight("600519", 30.0), HoldingWeight("000001", 25.0))
+    series = {
+        "600519": _wide_series("600519", "eastmoney", 18.0, 2.0),
+        "000001": _wide_series("000001", "tushare", 18.0, 2.0),
+    }
+    res = fund_valuation_percentile(
+        holdings, series, coverage_floor=0.50, pb_uses_pe_gate=False
+    )
+    assert res.pe.percentile is not None
+    assert abs(res.pe.coverage_ratio - 0.55) < 1e-9
+    assert res.pe.covered_codes == ("600519", "000001")
+    assert res.pe.source_mix == ("eastmoney", "tushare")
+    assert res.pb.percentile is not None  # PB clears <30 floor
+
+
+def test_below_floor_yields_none_percentile_but_keeps_ratio() -> None:
+    holdings = (HoldingWeight("600519", 30.0),)
+    series = {"600519": _wide_series("600519", "eastmoney", 18.0, 2.0)}
+    res = fund_valuation_percentile(
+        holdings, series, coverage_floor=0.50, pb_uses_pe_gate=False
+    )
+    assert res.pe.percentile is None
+    assert abs(res.pe.coverage_ratio - 0.30) < 1e-9
+    assert res.pe.covered_codes == ("600519",)
+
+
+def test_no_holdings_degrades_to_none() -> None:
+    res = fund_valuation_percentile((), {}, coverage_floor=0.50, pb_uses_pe_gate=False)
+    assert res.pe.percentile is None and res.pe.coverage_ratio == 0.0
+    assert res.pb.percentile is None and res.pb.covered_codes == ()
+
+
+def test_immature_pe_series_degrades_to_none_pe_but_pb_may_survive() -> None:
+    # Single-date series clears the floor but fails the PE 120/180 gate; PB also
+    # < 30 points → both None, but coverage ratios are still reported.
+    holdings = (HoldingWeight("600519", 30.0), HoldingWeight("000001", 25.0))
+    series = {
+        "600519": MetricSeries("600519", "eastmoney", (("2026-05-30", 18.0, 2.0),)),
+        "000001": MetricSeries("000001", "eastmoney", (("2026-05-30", 18.0, 2.0),)),
+    }
+    res = fund_valuation_percentile(
+        holdings, series, coverage_floor=0.50, pb_uses_pe_gate=False
+    )
+    assert res.pe.percentile is None
+    assert res.pb.percentile is None
+    assert abs(res.pe.coverage_ratio - 0.55) < 1e-9
