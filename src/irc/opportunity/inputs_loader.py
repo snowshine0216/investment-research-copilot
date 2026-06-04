@@ -16,6 +16,7 @@ from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG, _INDEX_VALUATION_KEYS
 from irc.opportunity.types import OpportunityInput
+from irc.schemas.valuation import ActiveFundLookthroughConfig
 
 
 def _instrument_meta(con: duckdb.DuckDBPyConnection, instrument_id: str) -> dict:
@@ -199,6 +200,7 @@ def populate_inputs(
     holding_entry_date: date | None,
     broker_reports: tuple[BrokerReport, ...] = (),
     provider: CnFundamentalsProvider | None = None,
+    lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
 ) -> OpportunityInput:
     """Return a copy of skeleton with evidence fields filled from DuckDB.
 

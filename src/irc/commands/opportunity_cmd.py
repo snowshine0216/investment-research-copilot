@@ -43,6 +43,7 @@ from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.data.duckdb_helper import connect, ensure_schema
 from irc.opportunity.inputs_build import _build_input
+from irc.schemas.valuation import ActiveFundLookthroughConfig
 from irc.io_utils import atomic_write_text
 from irc.opportunity.cards import build_thesis_card
 from irc.opportunity.discipline import (
@@ -711,6 +712,7 @@ def _build_rows(
     limit: int | None = None,
     rebuild_fundamentals: bool = False,
     provider: CnFundamentalsProvider,
+    lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
 ) -> tuple[list[OpportunityRow], dict, dict, dict, dict, str, dict]:
     """Build opportunity rows for each score entry.
 
@@ -834,6 +836,7 @@ def _build_rows(
                 portfolio_total_cny, available_venues,
                 con,
                 provider=provider,
+                lookthrough_cfg=lookthrough_cfg,
             )
             target = map_lookthrough(inp)
             snap_obj: object | None = None
@@ -1496,6 +1499,7 @@ def run_opportunity(
             limit=limit,
             rebuild_fundamentals=rebuild_fundamentals,
             provider=cn_provider,
+            lookthrough_cfg=bundle.valuation_buckets.active_fund_lookthrough,
         )
         if rows:
             _print_quality_warnings(rows)
