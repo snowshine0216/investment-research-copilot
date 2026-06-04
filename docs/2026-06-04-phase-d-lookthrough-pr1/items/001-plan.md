@@ -912,6 +912,8 @@ git commit -m "feat(opportunity): coverage ratio + /100 floor boundary (P0 regre
 
 ## Task 7: per-date renormalized harmonic aggregation
 
+> **Correction applied during impl (commit 6509d4d):** This task's Step 3 *code* correctly used `present_ratio = Σ present weight_pct / 100.0` (NAV fraction, §3.2 units). The original `test_per_date_renormalization_with_shorter_history` below (weights 25/25, floor 0.40) was **inconsistent** with that code (it required a covered-basket-fraction denominator, which would let a mega-cap masquerade as the whole basket — inverting the §3.4 intent). Resolution: kept the NAV-fraction code; corrected that test's weights to 45/45 so A alone legitimately clears the 0.40 NAV floor; added `test_per_date_floor_is_nav_fraction_not_covered_basket` to lock the §3.4 mega-cap protection. The code in this task's Step 3 is the source of truth.
+
 **Files:**
 - Modify: `src/irc/opportunity/lookthrough_valuation.py`
 - Test: `tests/opportunity/test_lookthrough_valuation.py`

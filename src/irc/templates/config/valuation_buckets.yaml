@@ -4,3 +4,8 @@ buckets:
   - { max_percentile: 0.80, buy_method: dca_weekly_slow,       granularity: "24-26 weeks" }
   - { max_percentile: 0.95, buy_method: dca_monthly_threshold, granularity: "36+ weeks" }
   - { max_percentile: 1.00, buy_method: suspend,               granularity: "n/a" }
+
+active_fund_lookthrough:
+  enabled: false          # shadow mode default; PR2 flips to true
+  coverage_floor: 0.50    # ratio of NAV; covered A-share weight must meet this
+  pb_uses_pe_gate: false  # PB stays on the <30 floor, not 120/180 (§3.3)
