@@ -7,9 +7,11 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 > branch: `claude/cyclical-valuation-guard-001` (off `autodev/cyclical-valuation-guard-feature`).
+> impl: 8 task commits `cc5ec8b..11df1af`; 216 tests pass (scoped) in 1.6s; production source ruff-clean; net ruff −2 vs base (no regression).
+> impl note: plan's 130-row fixtures (Task 3 §3) span only 129d < MIN_PE_DAYS=180, so impl used 200-row fixtures (199d span) — a correct fix to an internally-inconsistent plan value. CSI codes 000819/931892 are best-effort unverified-offline (only 930708 spec-confirmed); live test file created but not executed (no network).
 
 > Non-web project → post-ship verifier is **/verify** (the `verify` column), NOT `/qa`. No `qa` column.
 
