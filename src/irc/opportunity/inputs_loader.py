@@ -17,8 +17,8 @@ from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG, _INDEX_VALUATION_KEYS
 from irc.opportunity.lookthrough_valuation import (
     HoldingWeight,
-    MIN_PE_DAYS,
-    MIN_PE_POINTS,
+    MIN_PE_DAYS,  # noqa: F401 — re-exported for backward-compat (tests import from here)
+    MIN_PE_POINTS,  # noqa: F401 — re-exported for backward-compat (tests import from here)
     MetricSeries,
     _pe_series_is_mature,
     fund_valuation_percentile,
