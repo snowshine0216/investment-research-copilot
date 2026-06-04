@@ -86,6 +86,84 @@ def _meets_floor(coverage_ratio: float, *, coverage_floor: float) -> bool:
     return coverage_ratio >= coverage_floor
 
 
+import pandas as pd
+
+
+def _present_contributions(
+    holdings: tuple[HoldingWeight, ...],
+    series_by_code: dict[str, MetricSeries],
+    covered_codes: tuple[str, ...],
+    metric: _Metric,
+    iso: str,
+) -> tuple[dict[str, float], dict[str, float]]:
+    """For date `iso`: return (weight_by_code, value_by_code) over covered codes
+    whose series has a strictly-positive metric value on that date."""
+    idx = _metric_index(metric)
+    covered = set(covered_codes)
+    weight_by_code: dict[str, float] = {}
+    value_by_code: dict[str, float] = {}
+    for h in holdings:
+        if h.code not in covered:
+            continue
+        for date_iso, pe, pb in series_by_code[h.code].points:
+            if date_iso != iso:
+                continue
+            value = (pe, pb)[idx - 1]
+            if value is not None and value > 0.0:
+                weight_by_code[h.code] = h.weight_pct
+                value_by_code[h.code] = value
+    return weight_by_code, value_by_code
+
+
+def _all_dates(
+    series_by_code: dict[str, MetricSeries], covered_codes: tuple[str, ...]
+) -> tuple[str, ...]:
+    dates: set[str] = set()
+    for code in covered_codes:
+        dates.update(p[0] for p in series_by_code[code].points)
+    return tuple(sorted(dates))
+
+
+def _covered_total_weight(
+    holdings: tuple[HoldingWeight, ...], covered_codes: tuple[str, ...]
+) -> float:
+    """Sum of weight_pct over the covered basket (denominator for per-date ratio)."""
+    covered = set(covered_codes)
+    return sum(h.weight_pct for h in holdings if h.code in covered)
+
+
+def _aggregate_metric_series(
+    holdings: tuple[HoldingWeight, ...],
+    series_by_code: dict[str, MetricSeries],
+    covered_codes: tuple[str, ...],
+    *, metric: _Metric, coverage_floor: float,
+) -> pd.Series:
+    """Per-date renormalized harmonic metric series (§3.1/§3.4). Drops dates
+    whose present fraction of the covered basket < coverage_floor."""
+    covered_total = _covered_total_weight(holdings, covered_codes)
+    out_idx: list[str] = []
+    out_val: list[float] = []
+    for iso in _all_dates(series_by_code, covered_codes):
+        weight_by_code, value_by_code = _present_contributions(
+            holdings, series_by_code, covered_codes, metric, iso
+        )
+        if not weight_by_code:
+            continue
+        present_ratio = sum(weight_by_code.values()) / covered_total if covered_total > 0 else 0.0
+        if present_ratio < coverage_floor:
+            continue
+        total_w = sum(weight_by_code.values())
+        ey = sum(
+            (weight_by_code[c] / total_w) * (1.0 / value_by_code[c])
+            for c in weight_by_code
+        )
+        if ey <= 0.0:
+            continue
+        out_idx.append(iso)
+        out_val.append(1.0 / ey)
+    return pd.Series(out_val, index=pd.to_datetime(out_idx).date)
+
+
 def fund_valuation_percentile(
     holdings: tuple[HoldingWeight, ...],
     series_by_code: dict[str, MetricSeries],

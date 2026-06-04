@@ -72,3 +72,73 @@ def test_floor_compares_ratio_not_raw_percent_sum_p0() -> None:
     low = _coverage_ratio((HoldingWeight("600519", 30.0),), ("600519",))
     assert low == 0.30
     assert _meets_floor(low, coverage_floor=0.50) is False
+
+
+from irc.opportunity.lookthrough_valuation import _aggregate_metric_series
+
+
+def test_worked_harmonic_two_stock_equal_weight() -> None:
+    # Two equal-weight holdings, PE 10 and PE 30 on a single date.
+    # EY = 0.5*(1/10) + 0.5*(1/30) = 0.05 + 0.016666... = 0.066666...
+    # PE_fund = 1 / 0.066666... = 15.0 (harmonic mean, NOT arithmetic 20).
+    holdings = (HoldingWeight("A", 25.0), HoldingWeight("B", 25.0))
+    series = {
+        "A": MetricSeries("A", "eastmoney", (("2026-05-30", 10.0, None),)),
+        "B": MetricSeries("B", "eastmoney", (("2026-05-30", 30.0, None),)),
+    }
+    out = _aggregate_metric_series(
+        holdings, series, ("A", "B"), metric="pe", coverage_floor=0.50,
+    )
+    assert list(out.index.astype(str)) == ["2026-05-30"]
+    assert abs(float(out.iloc[-1]) - 15.0) < 1e-9
+
+
+def test_per_date_renormalization_with_shorter_history() -> None:
+    # A has 2 dates, B has only the later date. On the earlier date only A is
+    # present, so its renormalized weight is 1.0 → PE_fund = A's PE = 10.0.
+    # On the later date both present → harmonic of 10 and 30 at equal weight = 15.
+    holdings = (HoldingWeight("A", 25.0), HoldingWeight("B", 25.0))
+    series = {
+        "A": MetricSeries("A", "eastmoney",
+                          (("2026-05-01", 10.0, None), ("2026-05-30", 10.0, None))),
+        "B": MetricSeries("B", "eastmoney", (("2026-05-30", 30.0, None),)),
+    }
+    out = _aggregate_metric_series(
+        holdings, series, ("A", "B"), metric="pe", coverage_floor=0.40,
+    )
+    vals = {str(d): float(v) for d, v in out.items()}
+    assert abs(vals["2026-05-01"] - 10.0) < 1e-9   # only A present
+    assert abs(vals["2026-05-30"] - 15.0) < 1e-9   # both present
+
+
+def test_per_date_drops_dates_below_present_weight_floor() -> None:
+    # A (weight 10%) alone on the early date → present ratio 0.10 < floor 0.50
+    # → that date is dropped. Both present on the later date → kept.
+    holdings = (HoldingWeight("A", 10.0), HoldingWeight("B", 45.0))
+    series = {
+        "A": MetricSeries("A", "eastmoney",
+                          (("2026-05-01", 10.0, None), ("2026-05-30", 10.0, None))),
+        "B": MetricSeries("B", "eastmoney", (("2026-05-30", 30.0, None),)),
+    }
+    out = _aggregate_metric_series(
+        holdings, series, ("A", "B"), metric="pe", coverage_floor=0.50,
+    )
+    assert list(out.index.astype(str)) == ["2026-05-30"]
+
+
+def test_non_positive_metric_value_excluded_per_date() -> None:
+    # A's value flips negative on the early date → excluded that date; only B's
+    # later positive date survives (A positive again contributes there).
+    holdings = (HoldingWeight("A", 25.0), HoldingWeight("B", 25.0))
+    series = {
+        "A": MetricSeries("A", "eastmoney",
+                          (("2026-05-01", -5.0, None), ("2026-05-30", 10.0, None))),
+        "B": MetricSeries("B", "eastmoney", (("2026-05-30", 30.0, None),)),
+    }
+    out = _aggregate_metric_series(
+        holdings, series, ("A", "B"), metric="pe", coverage_floor=0.40,
+    )
+    # Early date: only B present? No — B has no early point; A's is negative.
+    # So early date has no positive contributor → dropped. Later date → 15.0.
+    assert list(out.index.astype(str)) == ["2026-05-30"]
+    assert abs(float(out.iloc[-1]) - 15.0) < 1e-9
