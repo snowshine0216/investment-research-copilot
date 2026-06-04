@@ -15,6 +15,14 @@ from irc.fundamentals.provider import CnFundamentalsProvider
 from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG, _INDEX_VALUATION_KEYS
+from irc.opportunity.lookthrough_valuation import (
+    HoldingWeight,
+    MIN_PE_DAYS,
+    MIN_PE_POINTS,
+    MetricSeries,
+    _pe_series_is_mature,
+    fund_valuation_percentile,
+)
 from irc.opportunity.types import OpportunityInput
 from irc.schemas.valuation import ActiveFundLookthroughConfig
 
@@ -76,12 +84,8 @@ _BOND_ASSET_CLASSES_REQUIRING_YIELD: frozenset[str] = frozenset({"cn_bond_fund"}
 _CN_10Y_YIELD_SERIES_ID = "cn_10y_yield"
 _CPI_YOY_SERIES_ID = "cn_cpi_yoy"  # not ingested in Phase 1; nominal-gap fallback used.
 
-# §3 min-history gate for thin accumulating sector-PE series. Return a non-None
-# PE percentile ONLY when the series has >= MIN_PE_POINTS non-null PE
-# observations AND spans >= MIN_PE_DAYS calendar days. csi300/csi1000 carry
-# thousands of points so the gate is a no-op for broad indices.
-MIN_PE_POINTS: int = 120
-MIN_PE_DAYS: int = 180
+# MIN_PE_POINTS / MIN_PE_DAYS / _pe_series_is_mature are imported from
+# lookthrough_valuation (single source of truth — avoids circular import).
 
 
 def _cn_bond_yield_percentile(con: duckdb.DuckDBPyConnection) -> float | None:
@@ -147,16 +151,6 @@ def _index_valuation_series(
     return df
 
 
-def _pe_series_is_mature(pe_series: pd.Series) -> bool:
-    """§3 gate: >= MIN_PE_POINTS non-null PE points AND >= MIN_PE_DAYS span."""
-    valid = pe_series.dropna()
-    if len(valid) < MIN_PE_POINTS:
-        return False
-    idx = pd.to_datetime(valid.index)
-    span_days = (idx.max() - idx.min()).days
-    return span_days >= MIN_PE_DAYS
-
-
 def _index_valuation_metrics(
     con: duckdb.DuckDBPyConnection, tracked_index: str | None,
 ) -> tuple[float | None, float | None, float | None, float | None, float | None]:
@@ -191,6 +185,69 @@ def _index_valuation_metrics(
     )
     pb_pct = self_history_percentile(pb_series) if pb is not None else None
     return pe, pb, div, pe_pct, pb_pct
+
+
+def _latest_quarter_holdings(
+    con: duckdb.DuckDBPyConnection, instrument_id: str
+) -> tuple[HoldingWeight, ...]:
+    """Top-N holdings of the latest report_date for an active fund."""
+    df = con.execute(
+        "SELECT holding_ticker, weight_pct FROM fund_holdings "
+        "WHERE instrument_id = ? AND report_date = ("
+        "  SELECT MAX(report_date) FROM fund_holdings WHERE instrument_id = ?"
+        ")",
+        [instrument_id, instrument_id],
+    ).fetchdf()
+    if df.empty:
+        return ()
+    return tuple(
+        HoldingWeight(code=str(row["holding_ticker"]), weight_pct=float(row["weight_pct"]))
+        for _, row in df.iterrows()
+    )
+
+
+def _stock_series_by_code(
+    con: duckdb.DuckDBPyConnection, codes: tuple[str, ...]
+) -> dict[str, MetricSeries]:
+    """Per-code (date_iso, pe_ttm, pb) series + source from
+    stock_valuation_history. Codes with no cached rows are absent from the map."""
+    out: dict[str, MetricSeries] = {}
+    for code in codes:
+        df = con.execute(
+            "SELECT CAST(date AS VARCHAR) AS d, pe_ttm, pb, _source "
+            "FROM stock_valuation_history WHERE stock_code = ? ORDER BY date",
+            [code],
+        ).fetchdf()
+        if df.empty:
+            continue
+        points = tuple(
+            (str(row["d"]), _none_if_na(row["pe_ttm"]), _none_if_na(row["pb"]))
+            for _, row in df.iterrows()
+        )
+        source = str(df.iloc[0]["_source"])
+        out[code] = MetricSeries(code=code, source=source, points=points)
+    return out
+
+
+def _active_fund_fundamental_percentiles(
+    con: duckdb.DuckDBPyConnection,
+    instrument_id: str,
+    cfg: ActiveFundLookthroughConfig,
+) -> tuple[float | None, float | None]:
+    """Flag-gated active-fund look-through (spec §6.5). Returns (pe_pct, pb_pct).
+    When cfg.enabled is False, returns (None, None) WITHOUT computing — so the
+    flag-off path is byte-identical to today (NAV fallback). No live fetch."""
+    if not cfg.enabled:
+        return None, None
+    holdings = _latest_quarter_holdings(con, instrument_id)
+    if not holdings:
+        return None, None
+    series = _stock_series_by_code(con, tuple(h.code for h in holdings))
+    result = fund_valuation_percentile(
+        holdings, series,
+        coverage_floor=cfg.coverage_floor, pb_uses_pe_gate=cfg.pb_uses_pe_gate,
+    )
+    return result.pe.percentile, result.pb.percentile
 
 
 def populate_inputs(
@@ -245,6 +302,15 @@ def populate_inputs(
     pe_ttm, pb, dividend_yield, fund_pct, fund_pct_pb = _index_valuation_metrics(
         con, skeleton.tracked_index
     )
+    # Phase D: active CN equity funds (no tracked_index) get their fundamental
+    # percentile from holdings look-through — flag-gated so flag-off is
+    # byte-identical (NAV fallback). The index path above is untouched.
+    if skeleton.asset_class == "cn_equity_fund":
+        af_pe, af_pb = _active_fund_fundamental_percentiles(
+            con, skeleton.instrument_id, lookthrough_cfg
+        )
+        fund_pct = af_pe
+        fund_pct_pb = af_pb
     earnings_yield = (
         1.0 / pe_ttm if pe_ttm is not None and pe_ttm > 0 else None
     )

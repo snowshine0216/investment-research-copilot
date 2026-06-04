@@ -12,8 +12,23 @@ from typing import Literal
 
 import pandas as pd
 
-from irc.opportunity.inputs_loader import _pe_series_is_mature
 from irc.opportunity.returns import self_history_percentile
+
+# PE maturity gate constants (§3.3 / inputs_loader §3). Defined here so
+# lookthrough_valuation is the single source of truth; inputs_loader re-imports
+# them to avoid a circular dependency.
+MIN_PE_POINTS: int = 120
+MIN_PE_DAYS: int = 180
+
+
+def _pe_series_is_mature(pe_series: pd.Series) -> bool:
+    """§3 gate: >= MIN_PE_POINTS non-null PE points AND >= MIN_PE_DAYS span."""
+    valid = pe_series.dropna()
+    if len(valid) < MIN_PE_POINTS:
+        return False
+    idx = pd.to_datetime(valid.index)
+    span_days = (idx.max() - idx.min()).days
+    return span_days >= MIN_PE_DAYS
 
 _Metric = Literal["pe", "pb"]
 
