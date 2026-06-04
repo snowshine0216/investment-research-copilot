@@ -98,3 +98,23 @@ def test_multiple_drivers_escalate_to_high() -> None:
     )
     assert level == "high"
     assert {"valuation_state", "heat_state"}.issubset(set(drivers))
+
+
+def test_evidence_insufficient_valuation_surfaces_driver_non_blocking():
+    # A withheld valuation (no fundamental anchor) on a publishable row surfaces a
+    # mild driver — NOT silently dropped, NOT forced to 'insufficient'.
+    level, rationale, drivers = derive_position_risk_level(
+        _view(valuation_state="evidence_insufficient"), _overlap(), {}
+    )
+    assert "valuation_state" in drivers
+    assert "valuation withheld" in rationale
+    # weight 1 alone → 'moderate' (not insufficient, not high).
+    assert level == "moderate"
+
+
+def test_evidence_insufficient_valuation_does_not_force_insufficient_level():
+    # evidence_gaps drives 'insufficient'; a withheld VALUATION state must not.
+    level, _r, _d = derive_position_risk_level(
+        _view(valuation_state="evidence_insufficient"), _overlap(), {}
+    )
+    assert level != "insufficient"

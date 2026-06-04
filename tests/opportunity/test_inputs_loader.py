@@ -10,7 +10,7 @@ from irc.data.duckdb_helper import ensure_schema
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity import inputs_loader
-from irc.opportunity.inputs_loader import populate_inputs
+from irc.opportunity.inputs_loader import MIN_PE_DAYS, MIN_PE_POINTS, populate_inputs
 from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
 
@@ -209,21 +209,21 @@ def test_populate_inputs_reads_cached_index_valuation_percentile(tmp_path):
     con = duckdb.connect(str(tmp_path / "iv.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    # 30+ rising PE points so self_history_percentile fires; latest is the max.
-    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(40)]
+    # 200 rising PE points (>120 MIN_PE_POINTS, 199d span >180d) so gate passes; latest is max.
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]
     _seed_index_valuation_history(con, "csi300", pairs)
     skeleton = OpportunityInput(
         instrument_id="510300", asset_class="cn_etf",
         market="cn_on_exchange", tracked_index="csi300", name_cn="沪深300ETF",
     )
     inp = populate_inputs(con, skeleton, holding_entry_date=None)
-    # latest PE = 10 + 39*0.1 = 13.9; pb = 1 + 39*0.01 = 1.39
-    assert inp.pe_ttm == pytest.approx(13.9)
-    assert inp.pb == pytest.approx(1.39)
+    # latest PE = 10 + 199*0.1 = 29.9; pb = 1 + 199*0.01 = 2.99
+    assert inp.pe_ttm == pytest.approx(29.9)
+    assert inp.pb == pytest.approx(2.99)
     assert inp.valuation_percentile_fundamental == pytest.approx(1.0)
     assert inp.valuation_percentile_fundamental_pb == pytest.approx(1.0)
-    # earnings_yield = 1/13.9
-    assert inp.earnings_yield == pytest.approx(1.0 / 13.9)
+    # earnings_yield = 1/29.9
+    assert inp.earnings_yield == pytest.approx(1.0 / 29.9)
     con.close()
 
 
@@ -231,7 +231,7 @@ def test_populate_inputs_fundamental_percentile_none_under_30_points(tmp_path):
     con = duckdb.connect(str(tmp_path / "iv2.duckdb"))
     ensure_schema(con)
     _seed_csi300_instrument_with_prices(con)
-    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 10)  # < 30 points
+    _seed_index_valuation_history(con, "csi300", [(12.0, 1.3)] * 10)  # 10 pts — below both the 30-pt self-history floor and MIN_PE_POINTS (120)
     skeleton = OpportunityInput(
         instrument_id="510300", asset_class="cn_etf",
         market="cn_on_exchange", tracked_index="csi300",
@@ -520,4 +520,130 @@ def test_consensus_upside_notch_fires_on_genuinely_cheap_percentile(tmp_path):
         dataclasses_replace_self_pct(base, 0.10), 0.25
     )
     assert classify_valuation(deeply_cheap)[0] == "cheap"
+    con.close()
+
+
+# ---------------------------------------------------------------------------
+# §2.1 slug normalization + §3 min-history gate (sector PE accumulate)
+# ---------------------------------------------------------------------------
+
+def _seed_sector_instrument_with_prices(con, instrument_id="165520") -> None:
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        f"('{instrument_id}','{instrument_id}','cn_on_exchange','中证800有色ETF',NULL,"
+        " 'metals','cny', DATE '2020-01-01', 0.005, 5.0e10, NULL, 6.0, "
+        f" TIMESTAMP '2026-05-15', 'test', 'test:{instrument_id}')"
+    )
+    base = date(2025, 1, 1)
+    rows = [
+        (instrument_id, date.fromordinal(base.toordinal() + i),
+         100.0, 100.0, 100.0, 100.0, 1.0)
+        for i in range(300)
+    ]
+    con.executemany(
+        "INSERT INTO prices VALUES (?,?,?,?,?,?,?, "
+        f"TIMESTAMP '2026-05-15', 'test', 'test:{instrument_id}')",
+        rows,
+    )
+
+
+def test_min_pe_gate_constants_are_120_and_180():
+    assert MIN_PE_POINTS == 120
+    assert MIN_PE_DAYS == 180
+
+
+def test_sector_display_name_resolves_and_grounds_pe_when_mature(tmp_path):
+    # A display-name tracked_index ("中证有色金属") resolves to slug csi_nonferrous;
+    # 200 daily non-null PE points (>120, span >180d) ground a PE percentile.
+    con = duckdb.connect(str(tmp_path / "sector_mature.duckdb"))
+    ensure_schema(con)
+    _seed_sector_instrument_with_prices(con)
+    pairs = [(10.0 + i * 0.05, None) for i in range(200)]  # pb None like csindex
+    _seed_index_valuation_history(con, "csi_nonferrous", pairs)
+    skeleton = OpportunityInput(
+        instrument_id="165520", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="中证有色金属", name_cn="中证800有色ETF",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm == pytest.approx(10.0 + 199 * 0.05)
+    assert inp.valuation_percentile_fundamental is not None
+    # csindex carries no PB → pb percentile stays None.
+    assert inp.valuation_percentile_fundamental_pb is None
+    con.close()
+
+
+def test_sector_thin_series_below_min_points_yields_none(tmp_path):
+    # 50 non-null PE points (<120) — percentile withheld even though span could pass.
+    con = duckdb.connect(str(tmp_path / "sector_thin.duckdb"))
+    ensure_schema(con)
+    _seed_sector_instrument_with_prices(con)
+    pairs = [(20.0 + i * 0.1, None) for i in range(50)]
+    _seed_index_valuation_history(con, "csi_nonferrous", pairs)
+    skeleton = OpportunityInput(
+        instrument_id="165520", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="中证有色金属",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm == pytest.approx(20.0 + 49 * 0.1)  # latest pe still surfaced
+    assert inp.valuation_percentile_fundamental is None
+    con.close()
+
+
+def test_sector_short_span_below_min_days_yields_none(tmp_path):
+    # 130 DISTINCT daily points (>= MIN_PE_POINTS=120) spanning only 129 days
+    # (< MIN_PE_DAYS=180) → the SPAN gate withholds the percentile. Distinct
+    # dates are required: (index_key, date) is the dedup key, so same-date rows
+    # would collapse to 1 and exercise the point-count gate instead of the span
+    # gate this test is meant to isolate.
+    con = duckdb.connect(str(tmp_path / "sector_shortspan.duckdb"))
+    ensure_schema(con)
+    _seed_sector_instrument_with_prices(con)
+    base = date(2026, 1, 1)
+    rows = [("csi_nonferrous", date.fromordinal(base.toordinal() + i),
+             10.0 + i * 0.01, None, None)
+            for i in range(130)]
+    con.executemany(
+        "INSERT OR REPLACE INTO index_valuation_history VALUES "
+        "(?,?,?,?,?, TIMESTAMP '2026-05-15', 'test', 'test:iv')",
+        rows,
+    )
+    skeleton = OpportunityInput(
+        instrument_id="165520", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="中证有色金属",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.valuation_percentile_fundamental is None
+    con.close()
+
+
+def test_sector_latest_null_pe_yields_none_percentile(tmp_path):
+    # 130 valid points + final null PE row → latest-null guard wins, percentile None.
+    con = duckdb.connect(str(tmp_path / "sector_nulllatest.duckdb"))
+    ensure_schema(con)
+    _seed_sector_instrument_with_prices(con)
+    valid = [(10.0 + i * 0.05, None) for i in range(130)]
+    _seed_index_valuation_history(con, "csi_nonferrous", [*valid, (None, None)])
+    skeleton = OpportunityInput(
+        instrument_id="165520", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="中证有色金属",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.pe_ttm is None
+    assert inp.valuation_percentile_fundamental is None
+    con.close()
+
+
+def test_csi300_scale_unaffected_by_min_history_gate(tmp_path):
+    # csi300 with 300 rising daily points still grounds a percentile (gate no-op).
+    con = duckdb.connect(str(tmp_path / "csi300_scale.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    pairs = [(10.0 + i * 0.02, 1.0 + i * 0.001) for i in range(300)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="csi300",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.valuation_percentile_fundamental == pytest.approx(1.0)
     con.close()

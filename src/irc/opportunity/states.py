@@ -142,6 +142,13 @@ _BOND_ASSET_CLASSES: frozenset[str] = frozenset({"cn_bond_fund"})
 _EQUITY_ASSET_CLASSES: frozenset[str] = frozenset({
     "cn_equity_fund", "cn_etf", "us_etf", "hk_etf", "qdii_global",
 })
+# NAV self-history percentile is price momentum, not valuation, for these
+# themes. When no fundamental anchor exists the verdict is withheld
+# SYMMETRICALLY (cheap AND expensive alike) — see CONTEXT.md
+# "Commodity-cyclical NAV-anchor exclusion". Extensible without touching
+# call sites.
+COMMODITY_CYCLICAL_THEMES: frozenset[str] = frozenset({"metals"})
+
 _EXPENSIVE_VALUATION_STATES: frozenset[str] = frozenset({"expensive", "very_expensive"})
 _NOTCHABLE_VALUATION_STATES: frozenset[str] = frozenset({"cheap", "reasonable_low"})
 
@@ -238,6 +245,22 @@ def classify_valuation(inp: OpportunityInput) -> tuple[ValuationState, str]:
     """
     if inp.asset_class in _BOND_ASSET_CLASSES:
         return classify_bond_valuation(inp)
+    # §1 commodity-cyclical NAV-anchor exclusion. For a commodity-cyclical
+    # theme with NO fundamental anchor, the NAV self-history percentile is
+    # price momentum, not valuation. Withhold EVERY directional verdict —
+    # cheap AND expensive alike (symmetric, see CONTEXT.md). A metals fund that
+    # later gains a PE anchor (fund_pct is not None) skips this and uses the PE
+    # rule below.
+    if (
+        inp.asset_class in _EQUITY_ASSET_CLASSES
+        and inp.theme in COMMODITY_CYCLICAL_THEMES
+        and inp.valuation_percentile_fundamental is None
+    ):
+        return (
+            "evidence_insufficient",
+            "NAV 价格百分位是动量而非估值；该周期性主题无基本面锚（PE 历史），"
+            "方向性估值判断暂缺。",
+        )
     # Phase 1 (item 001): the FUNDAMENTAL index PE-TTM percentile decides the
     # band when present; otherwise fall back to the NAV self-history percentile
     # (AC2 — byte-for-byte unchanged for vehicles with no fundamental data).
