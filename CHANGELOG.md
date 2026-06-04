@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — opportunity fetch-budget over-estimate (spurious halt); SystemExit halts are resumable (2026-06-04)
+
+A stale weekly `irc run` halted at the **opportunity** stage with
+`FetchBudgetExceeded` (e.g. `active_fund_stale=73 fund_level_stale=23 cost=2647
+budget=2000`) — the memo (which runs *after* opportunity) was never produced, and
+`irc run --resume` started over from scratch.
+
+- **Root cause: the preflight budget over-estimated stale active funds ~35×.** It
+  counted every date-stale `cn_equity_fund` at the full top-N re-fetch cost
+  (`1 + top_n*3 + 4 = 35` calls), but a date-stale fund whose cached data leg is
+  still complete is resolved by `_maybe_freshness_probe` with a **single cheap
+  holdings probe (1 call)** — a full re-fetch only fires on a data-leg gap or an
+  actual quarter roll. On a routine June run (active-fund quarterly data still on
+  the latest disclosed quarter), the real cost was ~756 calls, not 2647 — the halt
+  was a **false alarm**. `_classify_active_fund_scores` now returns
+  `(misses, stale_full, stale_probe_only)`; `FetchPlan.total_calls` charges
+  `stale_probe_only` at 1 call each. The gate now passes and opportunity builds the
+  memo from probe-validated current data. A genuinely expensive refresh (data-leg
+  gaps, quarter roll, cold misses) still trips the gate → run `irc fundamentals
+  snapshot` (the designed quarterly job) or raise `IRC_FETCH_BUDGET`.
+- **`--resume` now works after a `SystemExit` halt.** `run_opportunity` raises
+  `SystemExit(3)`/`SystemExit(4)` on its budget/lock gates; these `BaseException`s
+  previously bypassed `run_pipeline`'s halt handler, so `.pipeline_state.json` was
+  never written and `--resume` found nothing to resume. `run_pipeline` now catches
+  `SystemExit`/`Exception` from any stage, writes the halt state + a `stage_exception`
+  `PIPELINE_HALTED.md`, and `--resume` picks up from the failed stage instead of
+  restarting from `ingest`.
+
 ### Added — fundamental-grounded equity valuation (Phase 1, 2026-06-03)
 
 The equity `valuation_state` for **broad-index CN vehicles** is now decided by a

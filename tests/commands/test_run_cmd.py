@@ -443,3 +443,88 @@ def test_end_to_end_halt_then_resume_recovers_pipeline(tmp_path: Path):
     assert not (out_dir / "PIPELINE_HALTED.md").exists()
     assert (out_dir / "opportunity_report.json").exists()
     assert (out_dir / "memo.md").exists()
+
+
+def test_halt_writes_state_when_stage_raises_systemexit(tmp_path: Path):
+    """A stage that raises SystemExit (opportunity's budget/lock gates do this)
+    must still write resume state + PIPELINE_HALTED.md — not propagate out of
+    run_pipeline and leave nothing to resume from."""
+    today = _china_today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    from irc.pipeline_outputs import STAGE_REQUIRED_OUTPUTS
+    from irc.pipeline_state import read_state
+
+    called: list[str] = []
+
+    def runner(stage: str):
+        def _run(_repo_root: str) -> int:
+            called.append(stage)
+            if stage == "opportunity":
+                raise SystemExit(3)  # FetchBudgetExceeded -> SystemExit(3)
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            return 0
+        return _run
+
+    runners = {s: runner(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners):
+        rc = run_pipeline(str(tmp_path))
+
+    assert rc == 3
+    # opportunity ran and halted; memo (the next stage) must NOT have run.
+    assert "opportunity" in called
+    assert "memo" not in called
+    state = read_state(out_dir)
+    assert state is not None
+    assert state.status == "halted"
+    assert state.failed_stage == "opportunity"
+    assert (out_dir / "PIPELINE_HALTED.md").exists()
+
+
+def test_resume_after_systemexit_halt_recovers_pipeline(tmp_path: Path):
+    """End-to-end: a SystemExit halt at opportunity is resumable — `--resume`
+    picks up from opportunity once it succeeds, instead of starting over."""
+    today = _china_today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    from irc.pipeline_outputs import STAGE_REQUIRED_OUTPUTS
+    from irc.pipeline_state import STATE_FILENAME
+
+    def runner_broken(stage: str):
+        def _run(_repo_root: str) -> int:
+            if stage == "opportunity":
+                raise SystemExit(3)
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            return 0
+        return _run
+
+    runners_broken = {s: runner_broken(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners_broken):
+        rc1 = run_pipeline(str(tmp_path))
+    assert rc1 == 3
+
+    resumed: list[str] = []
+
+    def runner_fixed(stage: str):
+        def _run(_repo_root: str) -> int:
+            resumed.append(stage)
+            for name in STAGE_REQUIRED_OUTPUTS.get(stage, ()):
+                (out_dir / name).write_text("stub", encoding="utf-8")
+            if stage == "memo":
+                (out_dir / "memo.md").write_text("memo body", encoding="utf-8")
+            return 0
+        return _run
+
+    runners_fixed = {s: runner_fixed(s) for s in STAGE_NAMES}
+    with patch("irc.commands.run_cmd._runners_map", return_value=runners_fixed):
+        rc2 = run_pipeline(str(tmp_path), resume=True)
+    assert rc2 == 0
+    # Resume started at opportunity, NOT from scratch (ingest).
+    assert resumed[0] == "opportunity"
+    assert "ingest" not in resumed
+    assert not (out_dir / STATE_FILENAME).exists()
+    assert (out_dir / "memo.md").exists()

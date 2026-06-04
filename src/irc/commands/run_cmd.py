@@ -98,6 +98,7 @@ def run_pipeline(
 
     for index, stage in enumerate(stages, start=1):
         rc = 0
+        stage_error: BaseException | None = None
         try:
             with stage_banner(stage, index, total):
                 fn = _runners_map()[stage]
@@ -106,6 +107,19 @@ def run_pipeline(
                     raise _StageFailed(stage, rc)
         except _StageFailed:
             pass  # stage_banner already printed FAILED; rc is set correctly
+        except KeyboardInterrupt:
+            raise
+        except SystemExit as exc:
+            # A stage that raises SystemExit (opportunity's budget/lock gates
+            # do this) must halt like any other failure so resume state gets
+            # written — not propagate out of run_pipeline and leave nothing to
+            # resume from.
+            code = exc.code
+            rc = code if isinstance(code, int) else 1
+            stage_error = exc if rc != 0 else None
+        except Exception as exc:
+            rc = 1
+            stage_error = exc
         if rc == 0:
             missing = missing_outputs(out_dir, stage)
             if missing:
@@ -133,6 +147,16 @@ def run_pipeline(
                                         reason=structured)
                 sidecar.unlink(missing_ok=True)
                 reason_kind = structured.kind
+            elif stage_error is not None:
+                reason = HaltReason(
+                    kind="stage_exception",
+                    stage=stage,
+                    detail=f"{type(stage_error).__name__}: {stage_error}",
+                    first_error=str(stage_error),
+                )
+                write_halted_structured(repo_root=Path(repo_root), date=today,
+                                        reason=reason)
+                reason_kind = "stage_exception"
             else:
                 write_halted(
                     repo_root=Path(repo_root), date=today, stage=stage,

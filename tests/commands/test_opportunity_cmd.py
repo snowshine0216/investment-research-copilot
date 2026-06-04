@@ -672,7 +672,7 @@ def test_classify_active_fund_scores_counts_missing_data_leg_cache_as_stale(tmp_
     )
     write_active_fund_cache(cached, tmp_path)
 
-    misses, stale = _classify_active_fund_scores(
+    misses, stale_full, stale_probe = _classify_active_fund_scores(
         [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}],
         tmp_path,
         today=date(2026, 5, 22),
@@ -680,7 +680,58 @@ def test_classify_active_fund_scores_counts_missing_data_leg_cache_as_stale(tmp_
         rebuild_fundamentals=False,
     )
 
-    assert (misses, stale) == (0, 1)
+    # Missing data leg → full re-fetch bucket (not the cheap-probe bucket).
+    assert (misses, stale_full, stale_probe) == (0, 1, 0)
+
+
+def test_date_stale_but_complete_cache_counts_as_probe_only(tmp_path) -> None:
+    """A date-stale but data-leg-complete active fund needs only a 1-call freshness
+    probe, so it lands in the probe-only bucket — not the full-refetch bucket. This
+    is the fix for the spurious FetchBudgetExceeded on routine weekly runs."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_active_fund_scores, FetchPlan
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import (
+        ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence,
+    )
+
+    data_leg = ThesisEvidence(
+        type="filing", source="600519", url="https://example.com/600519",
+        date="2026-04-15", summary="600519 26Q1 财报", scope="constituent",
+        citation_kind="data", owner_instrument_id="005827",
+        parent_fund_id="005827", constituent_key="600519",
+    )
+    cached = ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2026-03-31",
+        source_report_quarter="2026Q1",
+        cache_probed_at="2026-05-22",  # 13 days before today → date-stale
+        constituent_analyses=(
+            ConstituentAnalysis(
+                symbol="600519", name_cn="贵州茅台", weight_pct=8.2,
+                evidence=(data_leg,), failure_reasons=(),
+                one_line_view="核心持仓",
+            ),
+        ),
+        failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(cached, tmp_path)
+
+    misses, stale_full, stale_probe = _classify_active_fund_scores(
+        [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}],
+        tmp_path,
+        today=date(2026, 6, 4),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert (misses, stale_full, stale_probe) == (0, 0, 1)
+
+    # A probe-only fund costs 1 call, NOT the full top-N re-fetch (35).
+    plan = FetchPlan(
+        active_fund_misses=0, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+        active_fund_stale_probe_only=1,
+    )
+    assert plan.total_calls() == 1
 
 
 # ── Item 003: validate_cli_args (--limit canonical rejection) ─────────────────
@@ -877,7 +928,7 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
         return_value=None,
     ), patch(
         "irc.commands.opportunity_cmd._classify_active_fund_scores",
-        return_value=(0, 0),
+        return_value=(0, 0, 0),
     ), patch(
         "irc.commands.opportunity_cmd._classify_fund_level_scores",
         return_value=(0, 0),
