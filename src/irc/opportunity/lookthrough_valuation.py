@@ -71,6 +71,21 @@ def _covered_codes_for_metric(
     )
 
 
+def _coverage_ratio(
+    holdings: tuple[HoldingWeight, ...], covered_codes: tuple[str, ...]
+) -> float:
+    """Ratio of NAV covered: Σ weight_pct / 100.0 over covered codes (§3.2).
+    The /100 is load-bearing — weight_pct is stored in percent units 0..100."""
+    covered = set(covered_codes)
+    return sum(h.weight_pct for h in holdings if h.code in covered) / 100.0
+
+
+def _meets_floor(coverage_ratio: float, *, coverage_floor: float) -> bool:
+    """Floor is compared on the RATIO (§3.2). >= so a fund exactly at the floor
+    is accepted (mirrors the FOREIGN_HEAVY_THRESHOLD >= convention)."""
+    return coverage_ratio >= coverage_floor
+
+
 def fund_valuation_percentile(
     holdings: tuple[HoldingWeight, ...],
     series_by_code: dict[str, MetricSeries],
