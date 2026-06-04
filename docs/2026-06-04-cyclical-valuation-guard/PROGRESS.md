@@ -7,7 +7,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+
+> PR: `items/001-ship.md` → https://github.com/snowshine0216/investment-research-copilot/pull/105 (base `autodev/cyclical-valuation-guard-feature`, Mode A).
+> review (inline /ship 8+9): `items/001-review.md` `Verdict: PASS-WITH-NITS` — no P0/blockers/latent bugs; nits + follow-ups documented.
 
 > drift: `items/001-drift.md` `Verdict: PASS` (commit `9506eda`); 0 unimplemented/divergent/scope-creep; 1 internally-inconsistent plan literal corrected (130→200 rows) + plan amended inline; all 5 load-bearing invariants confirmed in diff.
 
