@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/phase-b-sector-b1-001` | ✅ `8590eed` | ✅ | ✅ #114 | ✅ | ✅ | ✅ | ✅ 0 rounds | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/phase-b-sector-b1-001` | ✅ `8590eed` | ✅ | ✅ #114 | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `b57e693` |
 
 (non-web → `verify` column used; no `QA` column.)
 
@@ -26,3 +26,4 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-verify** ✅ — [`items/001-verify.md`](items/001-verify.md) PASS `5f5f5d7`. 4 acceptance criteria exercised on the real CLI/read-path: byte-identity OFF→`(None,None,None,None,None)` / ON→`(29.9,None,None,1.0,None)`; audit 17 slugs/0 mature; validator fail-loud; CLI loads. Full `irc run` deferred (no secrets) → unit-level byte-identity proof (spec §8).
 - **001-pr-review** ✅ — [`items/001-pr-review.md`](items/001-pr-review.md) PASS-WITH-NITS `088d6e5`. [/code-review comment](https://github.com/snowshine0216/investment-research-copilot/pull/114#issuecomment-4630464798): 3 nits, 0 bugs, 0 blockers; all 679 tests pass per the run.
 - **001-fix** ✅ 0 rounds — all 3 post-ship verdicts PASS/PASS-WITH-NITS; zero blockers, zero unresolved latent bugs (the one latent bug fixed pre-push). 3 pr-review nits + review nits are non-blocking and documented.
+- **001-merge** ✅ `b57e693` — [#114](https://github.com/snowshine0216/investment-research-copilot/pull/114) squash-merged into `claude/relaxed-jemison-629597` (Mode A, `--delete-branch`). Pre-merge gate: protected-base OK (non-protected), ship+drift+verify(XOR)+review+pr-review all green, PR comments = the triaged /code-review nits.
