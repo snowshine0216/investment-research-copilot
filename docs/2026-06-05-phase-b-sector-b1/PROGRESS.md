@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/phase-b-sector-b1-001` | ✅ `8590eed` | ✅ | ✅ #114 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/phase-b-sector-b1-001` | ✅ `8590eed` | ✅ | ✅ #114 | ✅ | ✅ | ✅ | ✅ 0 rounds | 🔄 |
 
 (non-web → `verify` column used; no `QA` column.)
 
@@ -23,3 +23,6 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-drift** ✅ — [`items/001-drift.md`](items/001-drift.md) `7722c0d` — all 10 Tasks verified vs diff, zero findings.
 - **001-PR (ship)** ✅ — [#114](https://github.com/snowshine0216/investment-research-copilot/pull/114) base `claude/relaxed-jemison-629597` (non-protected). Ship artifact [`items/001-ship.md`](items/001-ship.md). VERSION not bumped (convention).
 - **001-review** ✅ — [`items/001-review.md`](items/001-review.md) PASS-WITH-NITS (captured inline from /ship steps 8+9). One latent silent-failure (config validation) fixed pre-push `241ffee`; adversarial CLEAN for B1.
+- **001-verify** ✅ — [`items/001-verify.md`](items/001-verify.md) PASS `5f5f5d7`. 4 acceptance criteria exercised on the real CLI/read-path: byte-identity OFF→`(None,None,None,None,None)` / ON→`(29.9,None,None,1.0,None)`; audit 17 slugs/0 mature; validator fail-loud; CLI loads. Full `irc run` deferred (no secrets) → unit-level byte-identity proof (spec §8).
+- **001-pr-review** ✅ — [`items/001-pr-review.md`](items/001-pr-review.md) PASS-WITH-NITS `088d6e5`. [/code-review comment](https://github.com/snowshine0216/investment-research-copilot/pull/114#issuecomment-4630464798): 3 nits, 0 bugs, 0 blockers; all 679 tests pass per the run.
+- **001-fix** ✅ 0 rounds — all 3 post-ship verdicts PASS/PASS-WITH-NITS; zero blockers, zero unresolved latent bugs (the one latent bug fixed pre-push). 3 pr-review nits + review nits are non-blocking and documented.
