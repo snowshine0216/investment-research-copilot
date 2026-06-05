@@ -11,6 +11,41 @@ numbers + broker sentiment, and votes a `thesis_state`. That is a genuine streng
 cited, multi-source) but it answers "is the long-term logic still alive?" — **not "is this cheap?"**
 The highest-ROI improvements all close the valuation/quality gap using data IRC *already fetches*.
 
+## Progress update (2026-06-05)
+
+Since this review, the **valuation axis** (recommendations 1–3 below) has largely been built. The
+review's headline gap — "no valuation at all" — is now closed for index-tracking vehicles and, in
+shadow mode, for active funds:
+
+- **ADR 0012 — fundamental-led equity valuation (landed, live).** Index/ETF funds now get a
+  `valuation_percentile_fundamental` from the index PE-TTM history (`self_history_percentile`, a
+  120-point/180-day maturity gate, PB corroborate-only, a price-vs-fundamental divergence advisory).
+  This feeds the existing `classify_valuation → valuation_state` axis, so `core_dca` already gates on
+  cheap-AND-intact for indexable vehicles. ADR 0009 added the degrade-to-None discipline for the
+  consensus-upside input (the `target_price` wiring of recommendation 1).
+- **Phase D PR1 — active-fund holdings look-through (landed, shadow mode, flag OFF).** Active CN
+  equity funds (no `tracked_index`) reconstruct a **current-basket harmonic PE/PB series** from their
+  top-N A-share holdings' per-stock valuation history and percentile it into the *same*
+  `valuation_percentile_fundamental` slot. New pieces: `fundamentals/akshare_stock_valuation.py` +
+  `tushare_stock_valuation.py`, the `stock_valuation_history` table + ingestor, the dedicated
+  `irc fundamentals stock-valuation` command, the pure `opportunity/lookthrough_valuation.py`
+  aggregation core, a flag-gated `inputs_loader` branch, and the `irc lookthrough-diff` review
+  report. Behind `active_fund_lookthrough.enabled` (default `false`) — production is byte-identical
+  until the flag flips. **Remaining (human/PR2):** gate #4 (live-symbol column confirmation), gate #5
+  (review the diff report + choose the final `coverage_floor`), then PR2 flips the flag and writes the
+  ADR 0012 addendum + CONTEXT.md "Valuation inputs".
+
+Endpoint correction worth recording: recommendation 1 suggested AkShare `stock_a_indicator_lg` for
+per-stock PE/PB — that endpoint is **not present in the locked AkShare 1.18.60**. The implementation
+uses EastMoney `stock_value_em` (one call returns the full daily PE(TTM)/市净率 history), with Tushare
+`daily_basic` as a per-stock fallback (recommendation 3 — the CN data layer is no longer
+single-sourced for the valuation leg, and the `tushare_token` plumbing is now real for this path).
+
+**Still open** (unchanged by the above): balance-sheet quality (weakness 2), earnings quality /
+accruals (3), backtest / validation (6), LLM-synthesis claim-checking (7), the `key_ratios` surface
+(recommendation 4), and the bull/bear debate (recommendation 5). PE/PB only — no EV/EBITDA, PEG, DCF,
+or FCF yet.
+
 ## What the code actually does
 
 The fundamental reasoning lives in two places:
@@ -49,6 +84,8 @@ citation (`fundamentals/types.py:54-135`). The LLM (`thesis_falsify`, deepseek-r
 
 1. **No valuation at all** — no PE / PB / EV-EBITDA / PEG / DCF / FCF. Measures *growth direction*,
    never *what you pay*. A stock can be `intact` (revenue up) and a terrible buy at 80× earnings.
+   — 🟡 **Largely addressed** (PE/PB only): ADR 0012 (index funds, live) + Phase D PR1 (active funds,
+   shadow→PR2). See "Progress update". EV/EBITDA, PEG, DCF, FCF still absent.
 2. **No balance-sheet quality** — no debt/equity, current ratio, ROE/ROIC, interest coverage.
 3. **No earnings quality / accruals** — a +50% revenue from an acquisition looks identical to organic.
 4. **`target_price` fetched but never used** (`fundamentals/types.py:182`) — free consensus
@@ -61,6 +98,9 @@ citation (`fundamentals/types.py:54-135`). The LLM (`thesis_falsify`, deepseek-r
    whether claims actually appear in the cited sources.
 8. **CN data single-sourced on AkShare→EastMoney** with no fallback (US/HK have OpenBB fallback;
    CN does not). `tushare_token` is a stub in `settings.py`.
+   — 🟡 **Partially addressed**: the per-stock **valuation** leg (Phase D) now has a Tushare
+   `daily_basic` fallback behind EastMoney, with real token plumbing. The **filings** leg
+   (`akshare_filing.py`) is still single-sourced.
 
 ## Enhancements — mapped to ideas already in the knowledge base
 
@@ -75,15 +115,15 @@ citation (`fundamentals/types.py:54-135`). The LLM (`thesis_falsify`, deepseek-r
 
 ## Recommended changes (priority order)
 
-1. **Use the data you already fetch.** Wire `target_price` into a consensus upside metric; add
-   `pe`/`pb` from AkShare (`stock_a_indicator_lg` / `stock_individual_info_em`). Few hours; adds the
-   missing valuation axis immediately.
-2. **Add a fundamental `valuation_state`.** Today `intact` ignores price. Gate `core_dca` on
-   cheap-AND-intact. `opportunity/states.py` already supports a 4-dimension classification — it just
-   needs a fundamental valuation input.
-3. **Make the CN data layer pluggable** (OpenBB/Hermes lesson). Add Tushare as fallback/primary; the
-   `tushare_token` stub already exists. Bonus: Tushare/RiceQuant give **point-in-time** financials
-   that AkShare lacks — important if scoring is ever validated against forward returns.
+1. **Use the data you already fetch.** ✅ **Done.** `target_price`→consensus upside wired (item 002 /
+   ADR 0009 degrade-to-None); per-stock PE/PB added via ADR 0012 + Phase D. *Endpoint correction:*
+   `stock_a_indicator_lg` is not in AkShare 1.18.60 — the build uses EastMoney `stock_value_em`.
+2. **Add a fundamental `valuation_state`.** ✅ **Done** (index path live; active-fund path shadow
+   pending PR2). The fundamental percentile now flows through `classify_valuation → valuation_state`,
+   and `core_dca` gates on cheap-AND-intact via the existing 4-dimension compose.
+3. **Make the CN data layer pluggable** (OpenBB/Hermes lesson). 🟡 **In progress** — Tushare
+   `daily_basic` is now the per-stock-valuation fallback (Phase D). Extending the fallback to the
+   filings leg and point-in-time financials remains. The `tushare_token` plumbing is now real.
 4. **Borrow Dexter's `key_ratios` surface.** A deterministic `compute_ratios(financials) ->
    {roe, debt_equity, gross_margin, fcf_yield}` closes the balance-sheet/earnings-quality gap with no LLM.
 5. **Add bull/bear debate** behind an optional `--adversarial` flag on the opportunity stage. The
