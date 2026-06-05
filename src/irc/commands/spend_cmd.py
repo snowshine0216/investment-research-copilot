@@ -45,3 +45,22 @@ def preflight_gate(
         repo_root, command, stages=stages,
         api_keys=collect_api_keys(), today=today or _china_today(),
     )
+
+
+def run_spend_status(repo_root: str, *, today: date | None = None) -> int:
+    """Read-only: print effective ledger balances for every configured provider.
+    Triggers no paid calls and writes nothing."""
+    from irc.spend.config import load_balances, load_consumption
+    from irc.spend.ledger import effective_balance
+    root = Path(repo_root)
+    balances = load_balances(root)
+    consumption = load_consumption(root)
+    when = today or _china_today()
+    print("── spend status (ledger; read-only) ──")
+    for provider, entry in balances.entries.items():
+        r = effective_balance(provider, entry, consumption, today=when)
+        kind = "quota" if entry.quota is not None else "wallet"
+        flag = "" if r.available else "  ⚠ insufficient"
+        print(f"  {provider:11} [{kind}] effective={r.amount:.4g}{flag}")
+    print("  (DeepSeek/OpenRouter balances are read live by the gate, not shown here.)")
+    return 0

@@ -43,6 +43,18 @@ def config_validate(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.group(help="Paid-API spend / balance gate.")
+def spend() -> None:
+    pass
+
+
+@spend.command("status", help="Show effective ledger balances (read-only).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def spend_status(repo_root: str) -> None:
+    from irc.commands.spend_cmd import run_spend_status
+    raise SystemExit(run_spend_status(repo_root=repo_root))
+
+
 @main.command(help="Score every candidate from discovered_watchlist.csv via 5 factors.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 def score(repo_root: str) -> None:
