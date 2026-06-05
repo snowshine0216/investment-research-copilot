@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | 🔄 | ⏳ | ✅ `001-review.md` | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | ✅ [#116](https://github.com/snowshine0216/investment-research-copilot/pull/116) | 🔄 | ✅ `001-review.md` | 🔄 | ⏳ | ⏳ |
 
 > **QA column omitted by design** — project is non-web (XOR resolves to `verify`). `items/001-qa.md` must NOT exist.
 
