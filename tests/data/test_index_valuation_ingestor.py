@@ -62,3 +62,79 @@ def test_ingest_is_idempotent_upsert(tmp_path):
     )
     assert con.execute("SELECT COUNT(*) FROM index_valuation_history").fetchone()[0] == 1
     con.close()
+
+
+def test_replace_keys_deletes_prior_rows_on_nonempty_fetch(tmp_path):
+    con = _con(tmp_path)
+    stale = IndexValuationHistory(
+        index_key="csi300",
+        rows=(
+            IndexValuationPoint("2026-05-01", 99.0, 9.9, None),  # stale static-PE row
+            IndexValuationPoint("2026-05-02", 98.0, 9.8, None),
+        ),
+    )
+    fresh = IndexValuationHistory(
+        index_key="csi300",
+        rows=(IndexValuationPoint("2026-05-30", 12.1, 1.31, None),),
+    )
+    # First write the stale rows (default append).
+    ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: stale, now_iso="2026-05-31T00:00:00+08:00"
+    )
+    # Now a replace_keys=True run with a non-empty fresh fetch purges the stale rows.
+    written = ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: fresh,
+        now_iso="2026-06-01T00:00:00+08:00", replace_keys=True,
+    )
+    assert written == 1
+    rows = con.execute(
+        "SELECT CAST(date AS VARCHAR), pe_ttm FROM index_valuation_history "
+        "WHERE index_key='csi300' ORDER BY date"
+    ).fetchall()
+    assert rows == [("2026-05-30", 12.1)]  # ONLY the fresh row survives
+    con.close()
+
+
+def test_replace_keys_preserves_rows_on_none_fetch(tmp_path):
+    con = _con(tmp_path)
+    existing = IndexValuationHistory(
+        index_key="csi300",
+        rows=(IndexValuationPoint("2026-05-30", 12.1, 1.31, None),),
+    )
+    ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: existing, now_iso="2026-05-31T00:00:00+08:00"
+    )
+    # A None fetch under replace_keys=True must NOT wipe good cache (transient failure).
+    written = ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: None,
+        now_iso="2026-06-01T00:00:00+08:00", replace_keys=True,
+    )
+    assert written == 0
+    assert con.execute(
+        "SELECT COUNT(*) FROM index_valuation_history WHERE index_key='csi300'"
+    ).fetchone()[0] == 1
+    con.close()
+
+
+def test_default_append_mode_accumulates_across_calls(tmp_path):
+    # The sector leg (replace_keys=False) keeps accumulating forward.
+    con = _con(tmp_path)
+    first = IndexValuationHistory(
+        index_key="csi_nonferrous",
+        rows=(IndexValuationPoint("2026-05-01", 20.0, None, None),),
+    )
+    second = IndexValuationHistory(
+        index_key="csi_nonferrous",
+        rows=(IndexValuationPoint("2026-05-02", 21.0, None, None),),
+    )
+    ingest_index_valuation_history(
+        con, ("csi_nonferrous",), fetch=lambda k: first, now_iso="2026-05-31T00:00:00+08:00"
+    )
+    ingest_index_valuation_history(
+        con, ("csi_nonferrous",), fetch=lambda k: second, now_iso="2026-06-01T00:00:00+08:00"
+    )
+    # Both dates persist — the first run's row was NOT deleted.
+    assert con.execute(
+        "SELECT COUNT(*) FROM index_valuation_history WHERE index_key='csi_nonferrous'"
+    ).fetchone()[0] == 2
+    con.close()
