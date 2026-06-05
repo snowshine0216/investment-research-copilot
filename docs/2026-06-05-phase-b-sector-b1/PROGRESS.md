@@ -27,3 +27,15 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-pr-review** ✅ — [`items/001-pr-review.md`](items/001-pr-review.md) PASS-WITH-NITS `088d6e5`. [/code-review comment](https://github.com/snowshine0216/investment-research-copilot/pull/114#issuecomment-4630464798): 3 nits, 0 bugs, 0 blockers; all 679 tests pass per the run.
 - **001-fix** ✅ 0 rounds — all 3 post-ship verdicts PASS/PASS-WITH-NITS; zero blockers, zero unresolved latent bugs (the one latent bug fixed pre-push). 3 pr-review nits + review nits are non-blocking and documented.
 - **001-merge** ✅ `b57e693` — [#114](https://github.com/snowshine0216/investment-research-copilot/pull/114) squash-merged into `claude/relaxed-jemison-629597` (Mode A, `--delete-branch`). Pre-merge gate: protected-base OK (non-protected), ship+drift+verify(XOR)+review+pr-review all green, PR comments = the triaged /code-review nits.
+
+## Final status — RUN COMPLETE ✅
+
+- **Mode:** spec · **N=1** · **Project type:** non-web · **PR shape:** A
+- **Items merged:** 1 / 1 IN-scope (001 — B1 sector-index PE onboarding, activation OFF) via [#114](https://github.com/snowshine0216/investment-research-copilot/pull/114) (`b57e693`).
+- **Items SKIPPED / OUT:** B2 activation, `中证机床ZZ` universe rename, sector PB spike, gate-#4 live execution — see [SKIPPED.md](SKIPPED.md) (each with unblock path).
+- **Phase 3:** workflow-completeness audit PASS (all 7 verdict artifacts present, XOR correct, grill ⏭️) · build/test sanity PASS (imports + 44 B1 tests + ruff clean on merged branch) · [doc-sync](doc-sync.md) PASS (0 human-review findings) · [final-verify](final-verify.md) PASS.
+- **Feature branch:** `claude/relaxed-jemison-629597`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/115 (OPEN — roll-up `feature → main`, for user review)
+- **Merged into protected branch:** no (PR #115 left open for user review; the protected-base guardrail held — autodev never auto-merges `main` without explicit opt-in).
+- **Quality:** zero blocker/latent bugs at close (one latent silent-failure found in review and fixed pre-push, `241ffee`). Remaining nits are non-blocking and documented.
+- **Follow-up:** B2 activation after ~6-month maturation + gate #5 (resolve flags `sse_star_chip` 000685 / `csi_resource` 000819 first); `中证机床ZZ` rename; sector PB source spike.
