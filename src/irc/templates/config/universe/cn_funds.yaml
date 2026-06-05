@@ -310,6 +310,17 @@ instruments:
   - { instrument_id: "161005", ticker: "161005", market: cn_off_exchange,
       name_cn: "富国天惠成长LOF", asset_class: cn_equity_fund, currency: cny,
       venue_required: [cmb_fund] }
+  # === Phase A seed overrides (2026-06-05) — strip a greedily mis-tagged broad
+  # tracked_index so these route to their honest NAV/Phase-D path instead of
+  # mis-grounding on a broad allowlist PE (csi300/csi500). The seed file is
+  # PRIMARY in the universe merge, so these win by instrument_id over the
+  # generated entries. NO tracked_index by design (D5/D6).
+  - { instrument_id: "161721", ticker: "161721", market: cn_off_exchange,
+      name_cn: "招商沪深300地产等权重指数A", asset_class: cn_equity_fund, currency: cny,
+      theme: real_estate, venue_required: [cmb_fund] }
+  - { instrument_id: "003318", ticker: "003318", market: cn_off_exchange,
+      name_cn: "景顺长城中证500行业中性低波动指数A", asset_class: cn_equity_fund, currency: cny,
+      theme: dividend, venue_required: [cmb_fund] }
   - { instrument_id: "260108", ticker: "260108", market: cn_off_exchange,
       name_cn: "景顺长城新兴成长", asset_class: cn_equity_fund, currency: cny,
       venue_required: [cmb_fund] }
