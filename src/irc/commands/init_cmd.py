@@ -4,6 +4,15 @@ from pathlib import Path
 import sys
 from irc.config_loader import TEMPLATE_FILES
 
+# Spend gate configs are committed defaults the user edits; `irc config validate`
+# requires them, so a fresh `irc init` must scaffold them too. They are NOT part
+# of TEMPLATE_FILES / load_repo_configs (they load via irc.spend.config), so they
+# are written alongside but tracked separately.
+_SPEND_TEMPLATE_FILES: tuple[str, ...] = (
+    "config/spend_pricing.yaml",
+    "config/spend_balances.yaml",
+)
+
 
 def _read_template(rel_path: str) -> str:
     """Read a packaged template by its relative path under irc/templates/."""
@@ -19,7 +28,7 @@ def run_init(repo_root: str, force: bool) -> int:
     root.mkdir(parents=True, exist_ok=True)
     written: list[str] = []
     skipped: list[str] = []
-    for rel in TEMPLATE_FILES:
+    for rel in (*TEMPLATE_FILES, *_SPEND_TEMPLATE_FILES):
         dest = root / rel
         if dest.exists() and not force:
             skipped.append(rel)
