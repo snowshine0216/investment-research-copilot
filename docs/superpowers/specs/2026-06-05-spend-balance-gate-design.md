@@ -481,8 +481,8 @@ missing uses the conservative placeholder and is flagged in the final report.
 | 2 | **Search prices** — Tavily credits/search (note: `search_depth: advanced` may cost 2), Bocha CNY/query, Jina tokens/page | Ledger-provider estimates | `config/spend_pricing.yaml` |
 | 3 | **Current balances + `as_of`** — Tavily credits, Bocha CNY, Jina tokens (with the date you read them); Brave monthly **quota** + **reset day** | Seeds the ledger anchors so the gate is real on day 1 | `config/spend_balances.yaml` |
 | 4 | **Funded keys + live-run permission** — confirm `.env` has valid DeepSeek (and OpenRouter, if used) keys, and OK to run the **free** live balance probes | Verifies the real endpoints/JSON shapes | live probe tests |
-| 5 | **One real `irc run` for Phase 2 calibration?** — yes (spends real LLM money, gives true actuals) **or** verify convergence with simulated actuals (no spend) and you do the real run later | Calibrates seeds → real cost | recorder / convergence demo |
-| 6 | **Is OpenRouter actually used?** (no task routes to it today) — keep it in scope, or drop until you route a task there | Avoids probing an unused key | `scope.py`, pricing |
+| 5 | ~~One real `irc run` for Phase 2 calibration?~~ **DECIDED: simulated actuals (no spend)** — convergence is proven deterministically with injected/recorded actuals; the user triggers the first real run later | Calibrates seeds → real cost | recorder / convergence demo |
+| 6 | ~~Is OpenRouter actually used?~~ **DECIDED: keep it (inert, free)** — probe + pricing stay; with no task routed, its estimate is 0 and it never blocks | Future-proof, zero cost | `scope.py`, pricing |
 
 **What I can determine myself (no input needed):** exact `STAGE_TASKS` rows (grep `call(...)`
 sites), whether OpenBB FMP/Tiingo are actually called in `ingest`, the recorder hookpoint
