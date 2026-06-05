@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — Phase D active-fund look-through valuation (PR2 flag flip, 2026-06-05)
+
+- Flipped `active_fund_lookthrough.enabled` to **`true`** (`coverage_floor: 0.50`,
+  the gate-#5 decision). Active CN equity funds with no `tracked_index` now derive
+  `valuation_state` from the holdings PE/PB look-through (NAV fallback retained when
+  ungrounded). Production output is **no longer byte-identical** to the NAV-only path:
+  the divergence advisory begins firing for these funds (intended).
+- Gates cleared: **#4** (live `stock_value_em` column confirmation — PASS) and **#5**
+  (human review of `irc lookthrough-diff` on real cached data; floor chosen = 0.50).
+- Recorded impact (real cached data, 2026-06-05): 40 active funds grounded at floor 0.50;
+  flips are one-directional (NAV-expensive → PE-cheaper). On an `irc opportunity`
+  before/after, 3 funds changed `valuation_state` and 1 (`110022 易方达消费行业`) moved
+  `small_watch → core_dca`; row/card/rejection counts unchanged (H3/SAME-3 intact).
+- Docs: ADR 0012 addendum (2026-06-05), CONTEXT.md "Valuation inputs", and
+  `docs/2026-06-04-phase-d-lookthrough-pr1/gate5-review-note.md`.
+
 ### Added — Phase D active-fund look-through valuation (PR1 shadow compute, 2026-06-04)
 
 - Per-stock PE/PB valuation fetch path: `fundamentals/akshare_stock_valuation.py`
