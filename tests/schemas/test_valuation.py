@@ -1,7 +1,29 @@
 from __future__ import annotations
 import pytest
 from pydantic import ValidationError
-from irc.schemas.valuation import ValuationBucketsConfig
+from irc.schemas.valuation import ActiveFundLookthroughConfig, ValuationBucketsConfig
+
+
+def test_active_fund_lookthrough_defaults_disabled() -> None:
+    cfg = ActiveFundLookthroughConfig()
+    assert cfg.enabled is False
+    assert cfg.coverage_floor == 0.50
+    assert cfg.pb_uses_pe_gate is False
+
+
+def test_valuation_buckets_config_has_default_lookthrough_block() -> None:
+    cfg = ValuationBucketsConfig(
+        buckets=[{"max_percentile": 1.0, "buy_method": "suspend", "granularity": "n/a"}]
+    )
+    # Default-disabled when YAML omits the block (back-compat for existing tests).
+    assert cfg.active_fund_lookthrough.enabled is False
+
+
+def test_coverage_floor_must_be_a_ratio() -> None:
+    with pytest.raises(ValueError):
+        ActiveFundLookthroughConfig(coverage_floor=1.5)
+    with pytest.raises(ValueError):
+        ActiveFundLookthroughConfig(coverage_floor=0.0)
 
 
 def test_buckets_must_be_ordered():

@@ -170,6 +170,20 @@ def narrative(
     raise SystemExit(rc)
 
 
+@main.command("lookthrough-diff", help="Write the Phase D look-through diff report (gate-#5 artifact). Cached-only; computes regardless of the flag.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--output-dir", type=click.Path(file_okay=False), default=None)
+@click.option("--coverage-floor", type=click.FloatRange(min=0.0, max=1.0, min_open=True), default=0.50, show_default=True)
+@click.option("--pb-uses-pe-gate", is_flag=True, default=False)
+def lookthrough_diff(repo_root: str, output_dir: str | None, coverage_floor: float, pb_uses_pe_gate: bool) -> None:
+    from irc.commands.lookthrough_diff_cmd import run_lookthrough_diff
+    rc = run_lookthrough_diff(
+        repo_root=repo_root, output_dir=output_dir,
+        coverage_floor=coverage_floor, pb_uses_pe_gate=pb_uses_pe_gate,
+    )
+    raise SystemExit(rc)
+
+
 @main.command("eval-funds", help="Evaluate an explicit fund-id list; report opportunity_state + core_dca.")
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option("--ids", type=str, default=None, help="Comma-separated fund ids.")
@@ -240,6 +254,24 @@ def fundamentals() -> None:
 def fundamentals_snapshot(repo_root: str, targets: tuple[str, ...], top_n: int) -> None:
     from irc.commands.fundamentals_cmd import run_snapshot_rebuild
     rc = run_snapshot_rebuild(repo_root=repo_root, targets=targets, top_n=top_n)
+    raise SystemExit(rc)
+
+
+@fundamentals.command(
+    "stock-valuation",
+    help="Refresh cached per-stock PE/PB history for A-share holdings (heavy; own cadence).",
+)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--force", is_flag=True, default=False, help="Refetch every A-share, ignoring staleness.")
+@click.option(
+    "--threshold-days", type=int, default=30, show_default=True,
+    help="Skip stocks fresh within this many days.",
+)
+def fundamentals_stock_valuation(repo_root: str, force: bool, threshold_days: int) -> None:
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+    rc = run_stock_valuation_refresh(
+        repo_root=repo_root, force=force, threshold_days=threshold_days
+    )
     raise SystemExit(rc)
 
 

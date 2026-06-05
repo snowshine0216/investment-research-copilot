@@ -358,6 +358,7 @@ The system does not scan every fund deeply on every run. Universe generation run
 2. `uv run irc research` — refresh macro, policy, gold-driver, geopolitics, and holdings-sector citations under `data/research/`.
 3. `uv run irc fundamentals snapshot --target all --top-n 10` — refresh constituent filings and broker reports for every registered snapshot target under `data/fundamentals/`.
 4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, opportunity, memo, and decision from the refreshed inputs.
+5. (Phase D, own cadence) `uv run irc run` populates `fund_holdings`, then **`uv run irc fundamentals stock-valuation`** populates `stock_valuation_history` (heavy, ~1000+ A-shares; NOT part of `irc run`), then `uv run irc opportunity` reads both cached. The active-fund look-through is shadow-mode (`active_fund_lookthrough.enabled: false`) until the gate-#5 floor decision (PR2). Inspect the diff with `uv run irc lookthrough-diff`.
 
 `--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 

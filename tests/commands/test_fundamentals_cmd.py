@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from unittest.mock import patch
 
+import duckdb
+
 from irc.commands.fundamentals_cmd import run_snapshot_rebuild
+from irc.data.duckdb_helper import ensure_schema
 from irc.fundamentals.types import ConstituentSnapshot
 
 
@@ -118,3 +122,139 @@ def test_snapshot_rebuild_warns_but_completes_when_snapshot_has_failures(tmp_pat
         )
 
     assert rc == 0
+
+
+# ── Task 15: stock-valuation command tests ────────────────────────────────────
+
+
+def _seed_holdings(db_path):
+    con = duckdb.connect(str(db_path))
+    ensure_schema(con)
+    rows = [
+        ("F1", "2026-03-31", "600519", "贵州茅台", 30.0),
+        ("F1", "2026-03-31", "000001", "平安银行", 20.0),
+        ("F1", "2026-03-31", "00700", "腾讯", 10.0),
+        ("F1", "2026-03-31", "AAPL", "Apple", 5.0),
+        ("F2", "2026-03-31", "600519", "贵州茅台", 25.0),
+    ]
+    con.executemany(
+        "INSERT INTO fund_holdings VALUES (?,?,?,?,?, TIMESTAMP '2026-05-15', 'test', 'r')",
+        rows,
+    )
+    con.close()
+
+
+def test_discover_ashare_codes_filters_to_six_digit_and_dedupes(tmp_path) -> None:
+    from irc.commands.fundamentals_cmd import _discover_ashare_codes
+
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+    con = duckdb.connect(str(db))
+    codes = _discover_ashare_codes(con)
+    con.close()
+    assert codes == ("000001", "600519")
+    assert all(re.fullmatch(r"\d{6}", c) for c in codes)
+
+
+def test_run_returns_zero_on_completed_run_even_with_per_stock_misses(
+    tmp_path, monkeypatch
+) -> None:
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd._fetch_stock_valuation",
+        lambda code, token: None,
+    )
+    rc = run_stock_valuation_refresh(str(tmp_path), force=True)
+    assert rc == 0
+
+
+def test_run_writes_rows_for_discovered_ashares(tmp_path, monkeypatch) -> None:
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+    from irc.fundamentals.stock_valuation_types import (
+        StockValuationHistory, StockValuationPoint,
+    )
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+
+    def _fake(code, token):
+        return (
+            StockValuationHistory(code, (StockValuationPoint("2026-05-30", 18.0, 2.0, None),)),
+            "eastmoney",
+        )
+
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd._fetch_stock_valuation", _fake
+    )
+    rc = run_stock_valuation_refresh(str(tmp_path), force=True)
+    assert rc == 0
+    con = duckdb.connect(str(db))
+    codes = {
+        r[0] for r in con.execute(
+            "SELECT DISTINCT stock_code FROM stock_valuation_history"
+        ).fetchall()
+    }
+    con.close()
+    assert codes == {"000001", "600519"}
+
+
+def test_eastmoney_miss_falls_back_to_tushare(tmp_path, monkeypatch) -> None:
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+    from irc.fundamentals.stock_valuation_types import (
+        StockValuationHistory, StockValuationPoint,
+    )
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+
+    calls = {"em": 0, "ts": 0}
+
+    def _fake_em(code):
+        calls["em"] += 1
+        return None
+
+    def _fake_ts(code, *, token):
+        calls["ts"] += 1
+        return StockValuationHistory(code, (StockValuationPoint("2026-05-30", 18.0, 2.0, None),))
+
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd.fetch_stock_valuation_history", _fake_em
+    )
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd.fetch_stock_valuation_history_tushare", _fake_ts
+    )
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd._read_tushare_token", lambda: "tok"
+    )
+    rc = run_stock_valuation_refresh(str(tmp_path), force=True)
+    assert rc == 0
+    assert calls["em"] >= 1 and calls["ts"] >= 1
+    con = duckdb.connect(str(db))
+    src = con.execute(
+        "SELECT DISTINCT _source FROM stock_valuation_history"
+    ).fetchall()
+    con.close()
+    assert ("tushare",) in src
+
+
+def test_run_returns_one_on_discover_error(tmp_path, monkeypatch, capsys) -> None:
+    """Finding 4: structural DuckDB error during code enumeration returns 1 with
+    an ERROR-prefixed message instead of raising a raw traceback."""
+    from irc.commands.fundamentals_cmd import run_stock_valuation_refresh
+
+    db = tmp_path / "data" / "local.duckdb"
+    db.parent.mkdir(parents=True)
+    _seed_holdings(db)
+    monkeypatch.setattr(
+        "irc.commands.fundamentals_cmd._discover_ashare_codes",
+        lambda con: (_ for _ in ()).throw(RuntimeError("schema missing")),
+    )
+    rc = run_stock_valuation_refresh(str(tmp_path))
+    assert rc == 1
+    out = capsys.readouterr().out
+    assert "ERROR" in out and "A-share" in out

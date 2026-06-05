@@ -9,6 +9,7 @@ from irc.opportunity.inputs_loader import populate_inputs
 from irc.opportunity.types import OpportunityInput
 from irc.schemas.inputs import Holding
 from irc.schemas.universe import Instrument
+from irc.schemas.valuation import ActiveFundLookthroughConfig
 
 
 def _build_input(
@@ -21,6 +22,7 @@ def _build_input(
     con: duckdb.DuckDBPyConnection,
     *,
     provider: CnFundamentalsProvider,
+    lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -60,4 +62,9 @@ def _build_input(
             entry_date = date_cls.fromisoformat(holding.hold_since)
         except ValueError:
             pass  # Malformed date string; drawdown_since_entry will remain None
-    return populate_inputs(con, skeleton, holding_entry_date=entry_date, provider=provider)
+    return populate_inputs(
+        con, skeleton,
+        holding_entry_date=entry_date,
+        provider=provider,
+        lookthrough_cfg=lookthrough_cfg,
+    )

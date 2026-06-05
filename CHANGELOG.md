@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase D active-fund look-through valuation (PR1 shadow compute, 2026-06-04)
+
+- Per-stock PE/PB valuation fetch path: `fundamentals/akshare_stock_valuation.py`
+  (EastMoney `stock_value_em`, primary) + `fundamentals/tushare_stock_valuation.py`
+  (`daily_basic`, token-gated fallback), `data/stock_valuation_history` DuckDB table,
+  and `data/stock_valuation_ingestor.py` (atomic upsert, per-row `_source`).
+- `irc fundamentals stock-valuation` command: refreshes per-stock history for every
+  distinct A-share (`^\d{6}$`) in `fund_holdings`. Heavy, own cadence — NOT part of
+  `irc run`. Per-stock failure-isolating.
+- Pure aggregation core `opportunity/lookthrough_valuation.py`: rolls a fund's current
+  top-N A-share basket into a per-date-renormalized harmonic earnings-yield PE series
+  (PB in parallel), with per-metric coverage (PE/PB covered sets computed independently),
+  the `/100` coverage-floor ratio, non-positive exclusion, and the PE 120/180 maturity
+  gate vs PB `<30` floor.
+- `inputs_loader` active-fund branch + `active_fund_lookthrough` config block
+  (`config/valuation_buckets.yaml`, default `enabled: false`). **Shadow mode: the flag
+  gates slot population, so production is byte-identical to today** (NAV fallback;
+  all-`None` dormancy lock). The flag is threaded explicitly through
+  `run_opportunity → _build_rows → _build_input → populate_inputs`.
+- `irc lookthrough-diff`: gate-#5 diff report (per-fund would-flip band, Δpercentile,
+  per-metric coverage + source mix, current-basket caveat, coverage-floor sensitivity at
+  0.40/0.50/0.60). Computes regardless of the flag.
+- Live-gated EastMoney + Tushare column-confirmation tests authored (double/triple-gated;
+  gate #4 — human-run, NOT executed by CI/autodev).
+
 ### Fixed — memo citation gate false-positive on the execution-summary pacing line (2026-06-04)
 
 The **memo** stage was BLOCKED by the item-009 citation gate
