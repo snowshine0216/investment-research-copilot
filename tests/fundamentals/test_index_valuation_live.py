@@ -18,7 +18,11 @@ import pytest
 
 from irc.fundamentals.akshare_index_valuation import (  # noqa: E402
     _LEGULEGU_INDEX_SYMBOL,
+    _LEGULEGU_PB_COL,
+    _LEGULEGU_PE_TTM_COL,
     _SPECULATIVE_LEGULEGU_SYMBOL,
+    _extract_latest_value,
+    _fetch_frame,
     fetch_cn_index_valuation,
 )
 from irc.fundamentals.index_valuation_types import IndexValuation
@@ -54,14 +58,19 @@ def test_production_symbol_returns_rolling_pe_and_pb_live(slug) -> None:
 
 
 def test_speculative_symbol_landing_sweep_informational() -> None:
-    """INFORMATIONAL only — never fails. Probes each speculative symbol and prints
-    a landing table. When a symbol lands (numeric pe AND pb), graduate it into
-    _LEGULEGU_INDEX_SYMBOL + the hard-assert set in a follow-up PR (D2 graduation).
+    """INFORMATIONAL only — never fails. Probes each speculative symbol DIRECTLY
+    via legulegu (bypassing the production allowlist gate) and prints a landing
+    table. When both pe and pb are numeric the symbol has landed and is ready to
+    graduate into _LEGULEGU_INDEX_SYMBOL + the hard-assert set (D2 graduation).
+
+    Uses _fetch_frame / _extract_latest_value directly so the allowlist gate in
+    fetch_cn_index_valuation cannot mask a real landing.
     """
     print("\n  speculative legulegu sweep (informational):")
     for slug, symbol in sorted(_SPECULATIVE_LEGULEGU_SYMBOL.items()):
-        out = fetch_cn_index_valuation(slug)
-        pe = out.pe_ttm if out is not None else None
-        pb = out.pb if out is not None else None
-        landed = "LANDED" if (pe is not None and pb is not None) else "—"
-        print(f"    {slug:14s} {symbol:10s} pe={pe} pb={pb}  [{landed}]")
+        pe_df = _fetch_frame("stock_index_pe_lg", symbol)
+        pb_df = _fetch_frame("stock_index_pb_lg", symbol)
+        pe = _extract_latest_value(pe_df, (_LEGULEGU_PE_TTM_COL,)) if pe_df is not None else None
+        pb = _extract_latest_value(pb_df, (_LEGULEGU_PB_COL,)) if pb_df is not None else None
+        landed = "[LANDED]" if (pe is not None and pb is not None) else "—"
+        print(f"    {slug:14s} {symbol:10s} pe={pe} pb={pb}  {landed}")

@@ -41,6 +41,13 @@ def ingest_index_valuation_history(
         hist = fetch(key)
         if hist is None or not hist.rows:
             continue
+        # D8: a non-empty fetch is required before delete, AND the fetch must carry
+        # at least one usable PE-TTM row. A PB-only (pe_ttm=None for every row)
+        # legulegu frame is a partial failure — skip the key entirely so that the
+        # DELETE and the INSERT OR REPLACE (which resolves on PRIMARY KEY
+        # (index_key, date)) cannot wipe or overwrite good cached PE rows.
+        if replace_keys and not any(p.pe_ttm is not None for p in hist.rows):
+            continue
         if replace_keys:
             keys_to_replace.append(key)
         for pt in hist.rows:

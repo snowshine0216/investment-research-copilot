@@ -13,6 +13,7 @@ fund-profile indicator is never used here (see test_static_profile_invariant).
 """
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
@@ -23,6 +24,8 @@ from irc.fundamentals.index_valuation_types import (
     IndexValuationHistory,
     IndexValuationPoint,
 )
+
+_log = logging.getLogger(__name__)
 
 # Production allowlist — live-confirmed exact legulegu symbols ONLY (D2). The
 # display/symbol coupling to _BROAD_INDEX_DISPLAY is removed: production fetch
@@ -116,6 +119,7 @@ def _fetch_frame(fn_name: str, cn_name: str) -> pd.DataFrame | None:
     try:
         df = _ak_call(fn_name, symbol=cn_name)
     except Exception:
+        _log.warning("_fetch_frame %s(%r) failed", fn_name, cn_name, exc_info=True)
         return None
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
 

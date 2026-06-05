@@ -116,6 +116,46 @@ def test_replace_keys_preserves_rows_on_none_fetch(tmp_path):
     con.close()
 
 
+def test_replace_keys_skips_key_when_fetch_lacks_pe_ttm(tmp_path):
+    """D8: a replace-mode fetch whose rows ALL have pe_ttm=None must NOT wipe or
+    overwrite good cached PE rows — skip the key entirely so the cache survives
+    a partial-column provider failure (e.g. legulegu returns PB but not 滚动市盈率).
+    Both the DELETE and the INSERT OR REPLACE paths must be blocked."""
+    con = _con(tmp_path)
+    stale = IndexValuationHistory(
+        index_key="csi300",
+        rows=(
+            IndexValuationPoint("2026-05-01", 13.8, 1.28, None),  # good cached PE
+            IndexValuationPoint("2026-05-02", 13.9, 1.29, None),
+        ),
+    )
+    # Seed the stale rows via normal append.
+    ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: stale, now_iso="2026-05-31T00:00:00+08:00"
+    )
+    # A PB-only fetch (all pe_ttm=None) under replace_keys=True must NOT touch cache.
+    pb_only = IndexValuationHistory(
+        index_key="csi300",
+        rows=(
+            IndexValuationPoint("2026-05-01", None, 1.31, None),  # pe_ttm=None
+            IndexValuationPoint("2026-05-02", None, 1.32, None),  # pe_ttm=None
+        ),
+    )
+    written = ingest_index_valuation_history(
+        con, ("csi300",), fetch=lambda k: pb_only,
+        now_iso="2026-06-01T00:00:00+08:00", replace_keys=True,
+    )
+    assert written == 0, "PE-less replace must write 0 rows"
+    rows = con.execute(
+        "SELECT CAST(date AS VARCHAR), pe_ttm, pb FROM index_valuation_history "
+        "WHERE index_key='csi300' ORDER BY date"
+    ).fetchall()
+    assert len(rows) == 2, "original stale rows must still be present"
+    assert rows[0] == ("2026-05-01", 13.8, 1.28), "good pe_ttm must not be overwritten"
+    assert rows[1] == ("2026-05-02", 13.9, 1.29), "good pe_ttm must not be overwritten"
+    con.close()
+
+
 def test_default_append_mode_accumulates_across_calls(tmp_path):
     # The sector leg (replace_keys=False) keeps accumulating forward.
     con = _con(tmp_path)
