@@ -1,6 +1,6 @@
 # Valuation-anchor coverage roadmap — NAV → PE/PB
 
-**Status:** In progress — **Phase D shipped & live (2026-06-05)**; Phases A/B/C + Phase 0 open.
+**Status:** In progress — **Phase D shipped & live (2026-06-05)**; **Phase B B1 onboarded (activation OFF, 2026-06-05)**; Phases A/C + Phase 0 open, **Phase B B2 deferred** (pending ~6-month maturation + gate #5).
 **Goal:** Move fund `valuation_state` off the NAV self-history percentile (a price-momentum
 proxy) and onto a **fundamental anchor (PE/PB historical percentile)** for as many funds as
 the data honestly allows.
@@ -33,10 +33,11 @@ fires when NAV and PE disagree; on the real before/after, 3 funds changed `valua
 40 grounded ≠ the theoretical +383 below — the 120/180 maturity gate (not just coverage) binds, so the
 honest reach is far smaller. See §3 Phase D and `docs/2026-06-04-phase-d-lookthrough-pr1/gate5-review-note.md`.
 
-**Move forward from here:** the remaining index-path phases are A → B → C (each additive into the same
+**Move forward from here:** the remaining index-path work is **A**, **B2** (B1 is onboarded; activation
+is deferred pending maturation + gate #5 — see §3 Phase B), and **C** (each additive into the same
 slot), plus the independent Phase 0 correctness fixes, plus one Phase-D follow-up (add `tracked_index`
-mappings for index products currently routed through the look-through). See §7 for the now-narrowed
-open decisions.
+mappings for index products currently routed through the look-through). The cheapest near-term wins are
+**Phase A** and **Phase 0** (§7 → "Recommended next move"). See §7 for the now-narrowed open decisions.
 
 ---
 
@@ -102,18 +103,48 @@ there, so phases are additive and independently shippable.
   advisory on real output.
 - **Risk:** changes real recommendations (NAV→PE on broad ETFs).
 
-### Phase B — Sector expansion
-- **Status (2026-06-05):** **B1 done** — SoT catalog `opportunity/sector_indices.py` (17 slugs), config-gated activation (`sector_index_grounding.activated_slugs`, default empty), per-slug ingest audit, strengthened live identity guard. Output byte-identical (allowlist empty); grounded = 0 by design. Run record: `docs/2026-06-05-phase-b-sector-b1/`. **B2 (activation)** pending ~6-month maturation + the real NAV-vs-PE diff + gate #5 sign-off (resolve flags `sse_star_chip` 000685 / `csi_resource` 000819 first). Committed scope is **17 sector slugs / 14 new** (the "21 funds" estimate also counted generated-catalog ETFs that never resolve).
-- **Scope:** the 21 CN sector ETFs (机器人, 通信设备, 半导体, 算力, …).
-- **Work:** map ~18 more CSI index codes into `_SECTOR_INDEX_CODE`
-  (`src/irc/fundamentals/akshare_index_valuation.py:47`) + corresponding slugs in
-  `_SECTOR_INDEX_DISPLAY`/`_INDEX_NAME_TO_SLUG`. Investigate whether
-  `stock_zh_index_value_csindex` returns **full history in one call** — if yes, backfill and
-  skip the `MIN_PE_DAYS=180` accumulate-forward wait; if no, accept the ~6-month ramp.
-- **Data source:** csindex (`市盈率1`) — **PE-TTM only, no PB**. (So sector funds are
-  "PE-only" unless a PB source is added — flag against the user's "PE/PB" wording.)
-- **Coverage delta:** +21 funds (3%).
-- **Risk:** ~18 CSI codes are empirical — each needs a live confirmation (degrade-to-None on miss).
+### Phase B — Sector expansion  (B1 ✅ done · B2 ◑ deferred)
+
+- **B1 — data onboarding (activation OFF) ✅ DONE (2026-06-05).** Run record
+  `docs/2026-06-05-phase-b-sector-b1/`; PRs [#114](https://github.com/snowshine0216/investment-research-copilot/pull/114)
+  (merged) → [#115](https://github.com/snowshine0216/investment-research-copilot/pull/115) (roll-up, open).
+  New single-source-of-truth catalog `src/irc/opportunity/sector_indices.py` (`SectorIndex` +
+  `SECTOR_INDICES`, **17 slugs = 14 new + 3 folded-in metals**) **replaces** the old inline
+  `_SECTOR_INDEX_CODE` / `_SECTOR_INDEX_DISPLAY` dicts (`lookthrough.py` /
+  `akshare_index_valuation.py` import the derived maps). Config-gated activation
+  (`sector_index_grounding.activated_slugs`, default empty, with a fail-loud validator that rejects
+  unknown slugs), threaded explicitly `run_opportunity → _build_rows → _build_input →
+  populate_inputs → _index_valuation_metrics` (keyword-only, no global read). Per-slug
+  `audit_sector_ingest` (replaces the silent aggregate count); strengthened double-gated live
+  identity guard. **Output byte-identical** with the allowlist empty; **grounded = 0 by design**
+  (Gate #3 not claimed). Accumulation runs on every weekly `irc run` (the ingest leg auto-iterates
+  `_SECTOR_INDEX_KEYS`; no further code change needed).
+- **Data source:** csindex `stock_zh_index_value_csindex` (`市盈率1`) — **PE-TTM only, no PB**
+  (sector `valuation_percentile_fundamental_pb` stays `None`; see §7 decision 2). Confirmed live
+  2026-06-05: every code returns ~20 trailing rows/call; **no full-history backfill endpoint exists**.
+- **Scope (honest):** 17 sector/thematic ETFs tracking **14 distinct CSI index names** + the 3 metals
+  codes = **17 slugs / 14 new**. The earlier "21 funds / ~18 codes" estimate also counted
+  generated-catalog sector ETFs (fund-name-as-index) that never resolve — out of scope.
+- **B2 — activation ◑ DEFERRED (post-maturation + gate #5).** Because csindex accumulates forward
+  ~20 days/call, a newly-wired index takes **~6 months** to clear `MIN_PE_POINTS=120 ∧
+  MIN_PE_DAYS=180`. When series mature (track via `audit_sector_ingest`): produce the real NAV-vs-PE
+  before/after diff, obtain gate-#5 human sign-off, then add the reviewed mature slugs to
+  `activated_slugs`. **Not planned now** — a small config-edit + recorded-diff + docs change governed
+  by B1 spec §8 (gets its own short plan once the maturation/review outcome is known). Coverage delta
+  on activation: up to +17 sector slugs (3%), floor-bound by the maturity gate (same caveat as Phase D).
+
+#### Phase B blockers / follow-ups — with disposition
+
+| Item | Detail | Suggestion | Disposition |
+|---|---|---|---|
+| **Flag #7 — `sse_star_chip` (000685)** | SSE-listed; **absent from `index_csindex_all`**, so the CSI-catalog identity guard cannot validate it (the value endpoint still returns PE — i.e. "PE present" ≠ "right index"). | Confirm the code↔index identity via the SSE source (`index_stock_info` / EastMoney) or a recorded manual source **before** adding it to `activated_slugs`. | **Defer to B2** (gate #4). Inert in B1 (never grounded; live test skipped). |
+| **Flag #16 — `csi_resource` (000819)** | Committed `official_cn` `中证申万有色金属指数` ≠ display `中证资源`; the strengthened live identity guard surfaces this mismatch. The /code-review flagged that `000819` may actually be `中证资源指数`. | Resolve **live** (`IRC_RUN_LIVE_AKSHARE=1`): confirm whether any curated fund tracks this and which index `000819` truly is, then correct the catalog `official_cn` once verified. Do **not** guess offline. | **Defer to B2** (gate #4). Inert in B1. |
+| **Sector PB gap** | csindex carries no PB for sectors → sector PB percentile stays `None`. | Accept PE-only (PB is corroborate-only, ADR 0012 §5), **or** run a separate sector-PB source spike. | **Defer** — separate spike; user decision in §7 decision 2. |
+| **`中证机床ZZ` universe value** | The malformed `tracked_index` `中证机床ZZ`; B1 resolves it via an **alias** in `SECTOR_INDICES` (no universe edit — a rename re-keys `map_lookthrough` / report grouping / allocation dedup → **not** byte-identical). | Optionally clean `中证机床ZZ → 中证机床` in `config/universe/*.yaml` in a separate, separately-reviewed PR (re-baselining the affected grouping outputs). | **Defer / optional** — the alias works indefinitely; rename only if desired. |
+| **B2 maturation wait** | ~6 months of forward accumulation before any series matures (metals codes started 2026-05-08 → mature ~Nov 2026; the 14 new codes start from B1 merge). | No code change — let weekly `irc run` accumulate; watch `audit_sector_ingest` for `mature=True`. (Already investigated: no full-history csindex/alt endpoint to skip the wait, 2026-06-05.) | **Defer** — inherent wait, not a bug. |
+
+- **Risk (on B2 activation):** changes real recommendations (NAV→PE) for matured sector funds — gated by
+  the mandatory human output-diff review (gate #5). B1 carries **no** recommendation risk (allowlist empty).
 
 ### Phase C — Foreign index valuation source (US/HK)
 - **Scope:** 87 US/global + 54 HK equity ETFs.
@@ -230,9 +261,12 @@ recommended pattern works; apply it to A/B/C.
    coverage phases — can be done anytime.)
 
 ### Recommended next move
-Now that Phase D validated the look-through and the slot is exercised end-to-end on real output, the
-cheapest wins are **Phase A** (broad-index grounding, +19, data+fetcher already exist — just needs the
-live-symbol fix + slug map) and **Phase 0** (gold/bond correctness, independent). Both are single-spec
-`autodev`-able with the live-symbol + output-review steps as hard human gates (§6). Phase A also
-absorbs the Phase-D follow-up (the index products miscoded as active). Phases B (sector) and C
-(foreign) follow, with C still needing the source-selection decision (#3) before it can be planned.
+Now that Phase D validated the look-through and **Phase B B1 onboarded the sector data layer**, the
+cheapest remaining wins are **Phase A** (broad-index grounding, +19, data+fetcher already exist — just
+needs the live-symbol fix + slug map) and **Phase 0** (gold/bond correctness, independent). Both are
+single-spec `autodev`-able with the live-symbol + output-review steps as hard human gates (§6). Phase A
+also absorbs the Phase-D follow-up (the index products miscoded as active). **Phase B B2 (activation)**
+needs no work now — it unlocks itself after ~6 months of forward accumulation, then a small config-edit
++ gate-#5 diff review (track `audit_sector_ingest` for maturity; resolve flags #7/#16 first — see §3
+Phase B blockers). **Phase C (foreign)** still needs the source-selection decision (#3) before it can be
+planned.
