@@ -1,0 +1,9 @@
+# CALIBRATED 2026-06-05 (see spec §16.1). Edit when you top up — the machine only
+# READS this file, so your comments/formatting survive.
+#   Wallet: set `balance` + `as_of`.  Quota: set `quota` + `reset` once (auto-resets).
+# Tavily is modeled as a QUOTA because of free-1000/mo + pay-as-you-go (overage bills,
+# shouldn't hard-stop). Bocha/Jina are prepaid wallets.
+tavily: { quota: 1000, reset: monthly, reset_day: 1 }   # free credits/mo; PAYG enabled
+bocha:  { balance: 2870, as_of: 2026-06-05 }            # CNY prepaid — confirm unit
+jina:   { balance: 988000000, as_of: 2026-06-05 }       # 988M tokens
+brave:  { quota: 2000, reset: monthly, reset_day: 1 }   # placeholder monthly limit — confirm
