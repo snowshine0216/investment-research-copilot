@@ -23,6 +23,7 @@ def _build_input(
     *,
     provider: CnFundamentalsProvider,
     lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
+    activated_sector_slugs: frozenset[str] = frozenset(),
 ) -> OpportunityInput:
     asset_class = score_row.get("asset_class") or (instr.asset_class if instr else "unknown")
     market = instr.market if instr else "cn_off_exchange"
@@ -67,4 +68,5 @@ def _build_input(
         holding_entry_date=entry_date,
         provider=provider,
         lookthrough_cfg=lookthrough_cfg,
+        activated_sector_slugs=activated_sector_slugs,
     )

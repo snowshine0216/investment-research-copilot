@@ -22,7 +22,7 @@ its **own** fetch/ingest path (independent of the index-path phases A/B/C), and 
 |---|---|---|
 | **D — active-fund look-through** | ✅ **live** (PR #109/#110/#111, flag `enabled: true`, floor `0.50`) | **40 funds grounded** at floor 0.50 (sensitivity 0.40→71 · 0.60→17). Gate #4 (live columns) PASS; gate #5 (human floor decision) signed off. |
 | A — broad-index grounding | ☐ open | +19 funds (3%) — data+fetcher exist; needs the live-symbol fix + slug map |
-| B — sector ETFs | ☐ open | +21 funds (3%) — PE-only (csindex) |
+| B — sector ETFs | ◑ B1 done (onboarding; activation OFF) | +17 sector slugs onboarded, PE-only (csindex); B2 activation pending maturation + gate #5 |
 | C — foreign (US/HK) | ☐ open (needs source decision) | +141 funds (21%) |
 | Phase 0 — correctness (gold, bond-misclass) | ☐ open | independent |
 
@@ -103,6 +103,7 @@ there, so phases are additive and independently shippable.
 - **Risk:** changes real recommendations (NAV→PE on broad ETFs).
 
 ### Phase B — Sector expansion
+- **Status (2026-06-05):** **B1 done** — SoT catalog `opportunity/sector_indices.py` (17 slugs), config-gated activation (`sector_index_grounding.activated_slugs`, default empty), per-slug ingest audit, strengthened live identity guard. Output byte-identical (allowlist empty); grounded = 0 by design. Run record: `docs/2026-06-05-phase-b-sector-b1/`. **B2 (activation)** pending ~6-month maturation + the real NAV-vs-PE diff + gate #5 sign-off (resolve flags `sse_star_chip` 000685 / `csi_resource` 000819 first). Committed scope is **17 sector slugs / 14 new** (the "21 funds" estimate also counted generated-catalog ETFs that never resolve).
 - **Scope:** the 21 CN sector ETFs (机器人, 通信设备, 半导体, 算力, …).
 - **Work:** map ~18 more CSI index codes into `_SECTOR_INDEX_CODE`
   (`src/irc/fundamentals/akshare_index_valuation.py:47`) + corresponding slugs in

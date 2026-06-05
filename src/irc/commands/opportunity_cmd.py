@@ -713,6 +713,7 @@ def _build_rows(
     rebuild_fundamentals: bool = False,
     provider: CnFundamentalsProvider,
     lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
+    activated_sector_slugs: frozenset[str] = frozenset(),
 ) -> tuple[list[OpportunityRow], dict, dict, dict, dict, str, dict]:
     """Build opportunity rows for each score entry.
 
@@ -837,6 +838,7 @@ def _build_rows(
                 con,
                 provider=provider,
                 lookthrough_cfg=lookthrough_cfg,
+                activated_sector_slugs=activated_sector_slugs,
             )
             target = map_lookthrough(inp)
             snap_obj: object | None = None
@@ -1504,6 +1506,9 @@ def run_opportunity(
             rebuild_fundamentals=rebuild_fundamentals,
             provider=cn_provider,
             lookthrough_cfg=bundle.valuation_buckets.active_fund_lookthrough,
+            activated_sector_slugs=frozenset(
+                bundle.valuation_buckets.sector_index_grounding.activated_slugs
+            ),
         )
         if rows:
             _print_quality_warnings(rows)
