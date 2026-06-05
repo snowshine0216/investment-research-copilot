@@ -435,4 +435,56 @@ the README in sync, mirroring the repo's existing acceptance-grep tests.
   absurd).
 - Decide whether `config/spend_balances.yaml` ships a committed `.example` and is
   gitignored (it holds user-specific operational state, not secrets).
-```
+
+## 15. Exit gates (Definition of Done per phase)
+
+Each phase is **not done** until every checkbox below passes. The implementer runs these
+commands and pastes the evidence into the final report (§15.3). A phase that fails any gate
+is fixed and re-verified before the next phase starts.
+
+### 15.1 Phase 1 exit gate
+
+- [ ] **Unit + integration green:** `uv run pytest tests/spend tests/commands -k "spend or gate or run" -q` → all pass.
+- [ ] **Config validates:** `uv run irc config validate` → exit 0, output mentions `spend`.
+- [ ] **Lint clean:** `uv run ruff check src/irc/spend src/irc/commands/spend_cmd.py src/irc/schemas/spend.py tests/spend` → no errors.
+- [ ] **Block path proven:** an injected/zero-balance scenario makes `irc run` (and one other gated command) print a `BLOCKED` table and exit **5** *before any stage runs* — shown by `tests/commands/test_run_gate.py` AND a manual demo (`IRC_*` injection or a temporary 0-balance ledger).
+- [ ] **Proceed path proven:** a sufficient-balance scenario prints an `ok` table and returns 0; a probe failure prints `unreadable … proceeding` and returns 0.
+- [ ] **Live probes (needs your funded keys + `IRC_RUN_LIVE_BALANCE=1`):** `uv run pytest -m live_balance` → DeepSeek (and OpenRouter if used) return a real `amount` with `source="api"`. These endpoints are **read-only and free** (no token spend).
+- [ ] **`irc spend status`** prints effective balances for every ledger provider.
+- [ ] **No regression:** full `uv run pytest -q` shows no *new* failures vs. the documented baseline (~8 known pre-existing).
+- [ ] **Committed** on `feat/spend-balance-gate`; every plan task committed atomically.
+
+### 15.2 Phase 2 exit gate
+
+- [ ] **Recorder round-trip green:** `uv run pytest tests/spend -k "recorder or convergence or ledger" -q` → all pass.
+- [ ] **Convergence proven numerically:** a test (and a real-or-simulated run) shows a task's `samples` go `0 → ≥1` and its estimate move **toward the observed actual** (not the seed). The before/after estimate for at least one provider is captured in the report.
+- [ ] **Artifacts written:** a gated run produces `outputs/<date>/spend_estimate.json` (at start) and `outputs/<date>/spend_actuals.json` (at end); `data/spend/usage_profile.json` and `data/spend/consumption.json` are updated.
+- [ ] **Ledger auto-decrement proven:** after a run that used a ledger provider, `irc spend status` shows the effective balance reduced by the counted usage (wallet) or the period counter advanced (quota).
+- [ ] **README shipped:** the "Spend / balance gate" section exists and the docs grep test passes; it documents where to find estimated vs. actual usage, the auto-convergence behaviour, and the trigger-command list.
+- [ ] **No regression + lint clean** (same commands as Phase 1).
+
+### 15.3 Final acceptance (after BOTH phases)
+
+- [ ] **End-to-end convergence demo:** two consecutive gated runs — run 1's estimate is the seed; run 2's estimate reflects run 1's recorded actuals (show the two numbers and the delta).
+- [ ] **Every gated command** (§12.3) stops on insufficient and proceeds on sufficient.
+- [ ] **Final report** delivered, containing: files added/changed, total test count + pass summary, a sample `BLOCKED` preflight table, a sample `ok` table, the live-probe readings, and the convergence before/after numbers.
+
+## 16. Inputs required from you (calibration)
+
+The gate's *mechanism* needs none of these to be built and tested (seeds + fakes cover
+that). But its *accuracy* depends on the real values below. Provide what you can; anything
+missing uses the conservative placeholder and is flagged in the final report.
+
+| # | Input | Why | Used in |
+|---|---|---|---|
+| 1 | **DeepSeek prices** — `deepseek-chat` & `deepseek-reasoner` input/output per-1M-token (CNY), and whether cache-hit pricing matters to you | The dominant cost; drives every estimate | `config/spend_pricing.yaml` |
+| 2 | **Search prices** — Tavily credits/search (note: `search_depth: advanced` may cost 2), Bocha CNY/query, Jina tokens/page | Ledger-provider estimates | `config/spend_pricing.yaml` |
+| 3 | **Current balances + `as_of`** — Tavily credits, Bocha CNY, Jina tokens (with the date you read them); Brave monthly **quota** + **reset day** | Seeds the ledger anchors so the gate is real on day 1 | `config/spend_balances.yaml` |
+| 4 | **Funded keys + live-run permission** — confirm `.env` has valid DeepSeek (and OpenRouter, if used) keys, and OK to run the **free** live balance probes | Verifies the real endpoints/JSON shapes | live probe tests |
+| 5 | **One real `irc run` for Phase 2 calibration?** — yes (spends real LLM money, gives true actuals) **or** verify convergence with simulated actuals (no spend) and you do the real run later | Calibrates seeds → real cost | recorder / convergence demo |
+| 6 | **Is OpenRouter actually used?** (no task routes to it today) — keep it in scope, or drop until you route a task there | Avoids probing an unused key | `scope.py`, pricing |
+
+**What I can determine myself (no input needed):** exact `STAGE_TASKS` rows (grep `call(...)`
+sites), whether OpenBB FMP/Tiingo are actually called in `ingest`, the recorder hookpoint
+mechanism, and all seed *token* magnitudes (placeholder-high for Phase 1, then replaced by
+recorded actuals in Phase 2).
