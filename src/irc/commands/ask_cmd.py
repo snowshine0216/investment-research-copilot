@@ -46,6 +46,10 @@ def _load_context(out_dir: Path) -> dict[str, str]:
 
 
 def run_ask(repo_root: str, question: str) -> int:
+    from irc.commands.spend_cmd import preflight_gate
+    gate_rc = preflight_gate(repo_root, "ask")
+    if gate_rc != 0:
+        return gate_rc
     if len(question) > MAX_QUESTION_LEN:
         print(f"ERROR: question exceeds max length ({len(question)} > {MAX_QUESTION_LEN})")
         return 2
