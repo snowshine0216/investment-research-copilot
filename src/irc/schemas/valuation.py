@@ -39,6 +39,19 @@ class SectorIndexGroundingConfig(FrozenModel):
     byte-identical). B2 adds reviewed mature slugs after gate #5."""
     activated_slugs: list[str] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _validate_slugs(self) -> "SectorIndexGroundingConfig":
+        if not self.activated_slugs:
+            return self
+        from irc.opportunity.sector_indices import SECTOR_INDEX_KEYS  # local to avoid cycle
+        unknown = [s for s in self.activated_slugs if s not in SECTOR_INDEX_KEYS]
+        if unknown:
+            raise ValueError(
+                f"sector_index_grounding.activated_slugs has unrecognized slug(s): "
+                f"{unknown}; valid slugs: {sorted(SECTOR_INDEX_KEYS)}"
+            )
+        return self
+
 
 class ValuationBucketsConfig(FrozenModel):
     buckets: list[Bucket] = Field(min_length=1)
