@@ -34,3 +34,30 @@ The source spec's exit gates #3/#4/#5 require real network + cache + LLM and are
 - **Gate #4 (live confirmation):** `IRC_RUN_LIVE_AKSHARE=1 uv run pytest -m live_akshare tests/fundamentals/test_index_valuation_live.py` (hard-asserts the 4 production symbols return rolling PE+PB).
 - **Gate #3 (measured coverage ≥9):** `irc run --from ingest` (network) + count grounded broad funds.
 - **Gate #5 (before/after artifact):** `docs/2026-06-05-phase-a-broad-grounding/build_diff.py` is committed; generating `before-after.md` needs a baseline-vs-after ingest (network). Artifact noted PENDING-LIVE in the PR body.
+
+---
+
+## RUN COMPLETE — close-out (2026-06-05)
+
+**Mode:** spec (N=1) · **Project type:** non-web · **PR shape:** A
+
+- **Items merged:** 1 / 1 — item 001 (Phase A broad-index PE-TTM grounding) → PR [#116](https://github.com/snowshine0216/investment-research-copilot/pull/116) squash-merged as `27c2a42`.
+- **Items SKIPPED:** 0 · **Items BLOCKED:** 0
+- **Feature branch:** `claude/stupefied-banach-f1f037`
+- **Feature-branch PR:** [#117](https://github.com/snowshine0216/investment-research-copilot/pull/117) (feature → `main`)
+- **Merged into protected branch:** no — PR #117 left **open** for user review (no merge opt-in given; guardrail held).
+
+### Phase 3 findings (all green)
+- Workflow-completeness audit: COMPLETE (5 verdict files present, qa absent/XOR, grill absent-OK/spec).
+- ruff: Phase-A touched files clean; repo-wide 122 errors **identical to `main`** → 0 introduced.
+- Tests (merged branch, touched surface incl. live collection): **148 passed, 5 skipped** (live double-gated). Invariants 145/145.
+- Doc-sync gate #6: PASS — CONTEXT "Valuation inputs" + CHANGELOG `[Unreleased]` + ROADMAP Phase A synced; VERSION held `0.9.3`; **no ADR 0012 addendum**.
+
+### Review history (in-flow)
+- 1 **latent bug** found at ship review (`replace_keys` PE-less cache-wipe, D8 hole — worsened by the `(index_key, date)` PK) → **fixed pre-push** (`39dbf7f`, TDD regression) + 2 should-fixes (silent `_fetch_frame` swallow; dead speculative sweep).
+
+### Follow-up work (not blocking this run)
+- **Operator live gates #3/#4/#5** (above) — run with network/cache to confirm measured coverage ≥9, live symbols, and generate the before/after artifact.
+- **Graduation** of speculative symbols (star50, chinext, chinext50, csi_dividend, csi_dividend_lc, csi_a500) as each is live-confirmed (source spec §8).
+- **Phase B** exact csindex `930782` path for `003318`; Phases B/C/0 per ROADMAP.
+- **Cosmetic, non-blocking:** the `_LEGULEGU_INDEX_SYMBOL` underscore-name import nit; the 2 P2 notes (nested-`BEGIN` guard with no current trigger; sector-leg count not reset on exception). Repo-wide 122 pre-existing ruff errors are a known baseline (out of scope).
