@@ -23,9 +23,10 @@ from irc.data.duckdb_helper import connect, ensure_schema
 from irc.data.fund_holdings_ingestor import ingest_many as ingest_fund_holdings
 from irc.data.index_valuation_ingestor import ingest_index_valuation_history
 from irc.fundamentals.akshare_index_valuation import (
+    _LEGULEGU_INDEX_SYMBOL,
     fetch_cn_sector_index_valuation_history,
 )
-from irc.opportunity.lookthrough import _BROAD_INDEX_KEYS, _SECTOR_INDEX_KEYS
+from irc.opportunity.lookthrough import _SECTOR_INDEX_KEYS
 from irc.data.manifest import ManifestEntry, write_manifest
 from irc.data.openbb_client import fetch_etf_price_history, fetch_macro_series
 from irc.data.raw_ref import build_ref_id
@@ -565,13 +566,18 @@ def run_ingest(repo_root: str) -> int:
                     series.source_id, exc,
                 )
 
-        # Item 001 Phase 1a — index PE/PB history (best-effort, non-fatal).
-        # Cached source for the opportunity-stage fundamental valuation anchor;
-        # the opportunity stage never fetches live (R3). Mirrors fund_holdings:
-        # a fetch miss degrades the verdict to NAV-fallback, not a halt.
+        # Item 001 Phase 1a / Phase A — broad index PE/PB history (best-effort,
+        # non-fatal). Iterates the PRODUCTION ALLOWLIST only (D2) and does a
+        # per-key FULL REPLACE (D8): the first post-merge run purges stale
+        # static-PE rows and writes fresh rolling-PE rows. A None/empty fetch
+        # leaves cache untouched. Mirrors fund_holdings: a miss degrades the
+        # verdict to NAV-fallback, not a halt.
         try:
             iv_rows = ingest_index_valuation_history(
-                con, tuple(sorted(_BROAD_INDEX_KEYS)), now_iso=_now_iso(),
+                con,
+                tuple(sorted(_LEGULEGU_INDEX_SYMBOL)),
+                now_iso=_now_iso(),
+                replace_keys=True,
             )
             ak_counts["index_valuation_history"] = iv_rows
         except Exception as exc:  # noqa: BLE001 — best-effort enrichment

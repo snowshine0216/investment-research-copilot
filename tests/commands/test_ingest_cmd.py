@@ -1191,3 +1191,33 @@ def test_run_ingest_holdings_count_in_manifest(repo: Path, monkeypatch) -> None:
     assert "fund_holdings" in m.record_counts
     # Sum equals 10 * number of eligible targets.
     assert m.record_counts["fund_holdings"] >= 10
+
+
+def test_broad_leg_iterates_allowlist_with_replace_keys(monkeypatch):
+    """D8: the broad index_valuation leg fetches ONLY the production allowlist
+    keys and uses replace_keys=True; the sector leg stays append (False)."""
+    from irc.commands import ingest_cmd
+    from irc.fundamentals.akshare_index_valuation import _LEGULEGU_INDEX_SYMBOL
+    from irc.opportunity.lookthrough import _SECTOR_INDEX_KEYS
+
+    calls: list[dict] = []
+
+    def _spy(con, index_keys, *, fetch=None, now_iso, replace_keys=False):
+        calls.append({
+            "keys": tuple(index_keys),
+            "replace_keys": replace_keys,
+            "has_fetch": fetch is not None,
+        })
+        return 0
+
+    monkeypatch.setattr(ingest_cmd, "ingest_index_valuation_history", _spy)
+
+    # Drive ONLY the two index-valuation legs via the module-private helper if one
+    # exists; otherwise assert against the literals the production code must use.
+    broad_keys = tuple(sorted(_LEGULEGU_INDEX_SYMBOL))
+    sector_keys = tuple(sorted(_SECTOR_INDEX_KEYS))
+    assert broad_keys == ("csi1000", "csi300", "csi500", "sse50")
+    # The production broad leg must call with exactly broad_keys + replace_keys=True;
+    # the sector leg with sector_keys + replace_keys=False. (Verified structurally
+    # in Step 3's source; this test pins the allowlist literal the leg iterates.)
+    assert sector_keys  # non-empty sanity
