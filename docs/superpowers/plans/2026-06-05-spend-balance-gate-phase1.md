@@ -72,9 +72,9 @@ def test_load_pricing_has_margin_and_deepseek_models():
 
 def test_load_balances_accepts_wallet_and_quota_entries():
     balances = load_balances(REPO)
-    assert "tavily" in balances.entries          # wallet
-    assert balances.entries["tavily"].balance is not None
-    assert balances.entries["brave"].quota is not None   # quota
+    assert balances.entries["bocha"].balance is not None    # wallet
+    assert balances.entries["brave"].quota is not None      # quota
+    assert balances.entries["tavily"].quota is not None      # quota (PAYG)
 
 def test_load_balances_rejects_entry_that_is_neither_wallet_nor_quota(tmp_path):
     bad = tmp_path / "spend_balances.yaml"
@@ -168,25 +168,26 @@ class SpendBalancesConfig(FrozenModel):
 
 ```yaml
 # config/spend_pricing.yaml
-# Prices are config, never inlined in code. VERIFY against each provider's
-# pricing page before relying on the gate. Seeds are deliberately HIGH so a
-# cold install over-estimates (the safe direction for a "do I have enough?" gate).
+# CALIBRATED 2026-06-05 from user-supplied provider_pricing.csv (see spec §16.1).
+# DeepSeek prices are CACHE-MISS CNY (conservative over-estimate). Model keys match
+# config/llm.yaml routes. Seeds are deliberately HIGH so a cold install over-estimates.
 margin: 1.2
 llm:
   deepseek:
     currency: CNY
     models:
-      deepseek-chat:     { input_per_mtok: 2.0, output_per_mtok: 8.0 }
-      deepseek-reasoner: { input_per_mtok: 4.0, output_per_mtok: 16.0 }
-  openrouter:
+      deepseek-chat:     { input_per_mtok: 0.9515, output_per_mtok: 1.9029 }
+      deepseek-reasoner: { input_per_mtok: 2.9563, output_per_mtok: 5.9126 }
+  openrouter:    # INERT — no task routes here; placeholder prices, real credits read live by probe
     currency: USD
     models:
       deepseek/deepseek-chat:     { input_per_mtok: 0.28, output_per_mtok: 0.88 }
       deepseek/deepseek-reasoner: { input_per_mtok: 0.55, output_per_mtok: 2.19 }
 search:
-  tavily: { currency: credits, per_query: 1.0 }
-  bocha:  { currency: CNY,     per_query: 0.03 }
-  jina:   { currency: tokens,  per_page: 1000.0 }
+  tavily: { currency: credits, per_query: 2.0 }    # advanced search = 2 credits/request
+  bocha:  { currency: CNY,     per_query: 0.036 }  # Web Search API ¥0.036/call
+  jina:   { currency: tokens,  per_page: 10000.0 } # token-based; conservative placeholder — VERIFY
+  brave:  { currency: queries, per_query: 1.0 }    # 1 query per search
 seeds:
   news_summary:      { calls: 20, prompt_tokens: 1500,  completion_tokens: 800 }
   news_dedup:        { calls: 10, prompt_tokens: 2000,  completion_tokens: 500 }
@@ -203,21 +204,20 @@ search_seeds:
   tavily: { units: 40 }
   bocha:  { units: 40 }
   jina:   { units: 30 }
+  brave:  { units: 40 }
 ```
 
 ```yaml
 # config/spend_balances.yaml
-# Edit this when you top up. The machine only READS this file (it never rewrites
-# it), so your comments and formatting always survive.
-#   Wallet providers: set `balance` + `as_of` (the date you observed it).
-#     Effective balance = balance − usage counted since `as_of`.
-#   Quota providers:  set `quota` + `reset` once. The machine auto-resets each period.
-# Until you fill these in, the gate treats them as 0 → it will warn/stop, which is
-# the safe default.
-tavily: { balance: 0, as_of: 2026-06-05 }    # credits
-bocha:  { balance: 0, as_of: 2026-06-05 }    # CNY
-jina:   { balance: 0, as_of: 2026-06-05 }    # tokens
-brave:  { quota: 0, reset: monthly, reset_day: 1 }   # monthly query allowance
+# CALIBRATED 2026-06-05 (see spec §16.1). Edit when you top up — the machine only
+# READS this file, so your comments/formatting survive.
+#   Wallet: set `balance` + `as_of`.  Quota: set `quota` + `reset` once (auto-resets).
+# Tavily is modeled as a QUOTA because of free-1000/mo + pay-as-you-go (overage bills,
+# shouldn't hard-stop). Bocha/Jina are prepaid wallets.
+tavily: { quota: 1000, reset: monthly, reset_day: 1 }   # free credits/mo; PAYG enabled
+bocha:  { balance: 2870, as_of: 2026-06-05 }            # CNY prepaid — confirm unit
+jina:   { balance: 988000000, as_of: 2026-06-05 }       # 988M tokens
+brave:  { quota: 2000, reset: monthly, reset_day: 1 }   # placeholder monthly limit — confirm
 ```
 
 - [ ] **Step 5: Write the loader**
@@ -626,17 +626,21 @@ def _fixtures():
 def test_llm_estimate_matches_seed_times_price_for_one_task():
     llm, pricing, profile = _fixtures()
     out = estimate(frozenset({"memo_synthesis"}), frozenset(), llm, profile, pricing)
-    # memo_synthesis → deepseek/deepseek-reasoner: 1 call, 12000 in, 6000 out
-    # cost = 1 * (12000*4.0 + 6000*16.0)/1e6 = (48000 + 96000)/1e6 = 0.144 CNY
-    assert out["deepseek"].currency == "CNY"
-    assert abs(out["deepseek"].amount - 0.144) < 1e-9
-    assert out["deepseek"].breakdown["memo_synthesis"] > 0
+    # Derive expected from config so the test survives price recalibration.
+    route = llm.tasks["memo_synthesis"]
+    price = pricing.llm[route.provider].models[route.model]
+    seed = pricing.seeds["memo_synthesis"]
+    expected = seed.calls * (seed.prompt_tokens * price.input_per_mtok
+                             + seed.completion_tokens * price.output_per_mtok) / 1e6
+    assert out[route.provider].currency == pricing.llm[route.provider].currency
+    assert abs(out[route.provider].amount - expected) < 1e-9
+    assert out[route.provider].breakdown["memo_synthesis"] > 0
 
 def test_search_estimate_uses_query_count_times_per_query():
     llm, pricing, profile = _fixtures()
     out = estimate(frozenset(), frozenset({"bocha"}), llm, profile, pricing)
-    # bocha: 40 units * 0.03 CNY = 1.2
-    assert abs(out["bocha"].amount - 1.2) < 1e-9
+    expected = pricing.search_seeds["bocha"].units * pricing.search["bocha"].per_query
+    assert abs(out["bocha"].amount - expected) < 1e-9
     assert out["bocha"].currency == "CNY"
 
 def test_currency_is_never_crossed_each_provider_has_one_currency():

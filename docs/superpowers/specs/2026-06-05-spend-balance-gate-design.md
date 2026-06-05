@@ -488,3 +488,24 @@ missing uses the conservative placeholder and is flagged in the final report.
 sites), whether OpenBB FMP/Tiingo are actually called in `ingest`, the recorder hookpoint
 mechanism, and all seed *token* magnitudes (placeholder-high for Phase 1, then replaced by
 recorded actuals in Phase 2).
+
+### 16.1 Provided values (2026-06-05) — already baked into the Phase 1 plan's Task 1
+
+Source for DeepSeek/Tavily/Bocha/Jina prices: user-supplied `provider_pricing.csv`. These
+are the **authoritative** Phase 1 values; the plan's Task 1 config files use them verbatim.
+
+**Prices → `config/spend_pricing.yaml`:**
+- DeepSeek (CNY, **cache-miss** = conservative): `deepseek-chat` input `0.9515` / output `1.9029`; `deepseek-reasoner` input `2.9563` / output `5.9126` (per 1M tok). Model keys stay `deepseek-chat` / `deepseek-reasoner` to match `config/llm.yaml` routes (current API aliases, billed at v4 rates).
+- Tavily advanced search = **2 credits/request** → `per_query: 2.0`.
+- Bocha Web Search API = **¥0.036/call** → `per_query: 0.036`.
+- Jina token-based; exact per-page unit not public → conservative placeholder `per_page: 10000` tokens. **FLAGGED — verify.**
+- Brave → `per_query: 1.0` (1 query/search). OpenRouter prices are placeholders (inert; real credits read live by the probe). **FLAGGED.**
+
+**Balances → `config/spend_balances.yaml`:**
+- **Tavily** — user has 200/1000 free credits used **+ pay-as-you-go enabled**. Modeled as a **quota** (`quota: 1000, reset: monthly`), NOT a wallet, because PAYG means overage just bills and shouldn't hard-stop. **DEVIATION from §6 (Tavily listed as wallet) — flagged.**
+- **Bocha** — `balance: 2870` treated as **CNY** prepaid wallet, `as_of: 2026-06-05`. **FLAGGED — confirm the unit is ¥ (vs. a call-count package).**
+- **Jina** — `balance: 988000000` tokens, `as_of: 2026-06-05`.
+- **Brave** — key present but no quota given → placeholder `quota: 2000, reset_day: 1`. **FLAGGED — confirm your plan's monthly limit.**
+
+**Keys:** all six paid keys (DeepSeek, OpenRouter, Tavily, Brave, Bocha, Jina) are present in
+`.env`; live balance probes are free/read-only and authorized.
