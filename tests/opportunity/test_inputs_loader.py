@@ -553,8 +553,9 @@ def test_min_pe_gate_constants_are_120_and_180():
 
 
 def test_sector_display_name_resolves_and_grounds_pe_when_mature(tmp_path):
-    # A display-name tracked_index ("中证有色金属") resolves to slug csi_nonferrous;
-    # 200 daily non-null PE points (>120, span >180d) ground a PE percentile.
+    # Phase B: sector slug with empty allowlist (default) -> full all-None short-circuit.
+    # Activated path (allowlist non-empty) is tested in test_index_valuation_gate.py
+    # and test_sector_allowlist_threading.py.
     con = duckdb.connect(str(tmp_path / "sector_mature.duckdb"))
     ensure_schema(con)
     _seed_sector_instrument_with_prices(con)
@@ -565,15 +566,16 @@ def test_sector_display_name_resolves_and_grounds_pe_when_mature(tmp_path):
         market="cn_on_exchange", tracked_index="中证有色金属", name_cn="中证800有色ETF",
     )
     inp = populate_inputs(con, skeleton, holding_entry_date=None)
-    assert inp.pe_ttm == pytest.approx(10.0 + 199 * 0.05)
-    assert inp.valuation_percentile_fundamental is not None
-    # csindex carries no PB → pb percentile stays None.
+    # B1 default (empty allowlist): sector slug short-circuits -> all None.
+    assert inp.pe_ttm is None
+    assert inp.valuation_percentile_fundamental is None
     assert inp.valuation_percentile_fundamental_pb is None
     con.close()
 
 
 def test_sector_thin_series_below_min_points_yields_none(tmp_path):
-    # 50 non-null PE points (<120) — percentile withheld even though span could pass.
+    # Phase B: sector slug with empty allowlist (default) -> full all-None short-circuit
+    # regardless of series length.
     con = duckdb.connect(str(tmp_path / "sector_thin.duckdb"))
     ensure_schema(con)
     _seed_sector_instrument_with_prices(con)
@@ -584,7 +586,8 @@ def test_sector_thin_series_below_min_points_yields_none(tmp_path):
         market="cn_on_exchange", tracked_index="中证有色金属",
     )
     inp = populate_inputs(con, skeleton, holding_entry_date=None)
-    assert inp.pe_ttm == pytest.approx(20.0 + 49 * 0.1)  # latest pe still surfaced
+    # B1 default (empty allowlist): sector slug short-circuits -> all None.
+    assert inp.pe_ttm is None
     assert inp.valuation_percentile_fundamental is None
     con.close()
 
