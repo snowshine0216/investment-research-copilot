@@ -10,9 +10,10 @@ _BROAD_INDEX_DISPLAY: dict[str, str] = {
     "csi_a500": "中证A500",
     "sse50": "上证50",
     "star50": "科创50",
-    "chinext": "创业板",
+    "chinext": "创业板指",
+    "chinext50": "创业板50",
     "csi_dividend": "中证红利",
-    "csi_dividend_lc": "红利低波",
+    "csi_dividend_lc": "中证红利低波",
 }
 
 _SECTOR_THEME_DISPLAY: dict[str, str] = {
@@ -72,9 +73,13 @@ _SECTOR_INDEX_DISPLAY: dict[str, str] = {
 
 _SECTOR_INDEX_KEYS: frozenset[str] = frozenset(_SECTOR_INDEX_DISPLAY.keys())
 
-# Inversion (中文/lowercased → slug). Includes a colloquial short-form alias so
-# a generator-emitted "中证有色" resolves to the canonical slug.
+# Inversion (中文/lowercased → slug). Broad display names are now inverted too
+# (Phase A): a broad ETF's tracked_index ("沪深300") resolves to its slug so the
+# cached index_valuation_history is read. Inverting non-production slugs (star50,
+# chinext, …) is harmless — the table is empty for them → NAV fallback — and
+# future-proofs graduation. Sector entries + the colloquial 中证有色 alias stay.
 _INDEX_NAME_TO_SLUG: dict[str, str] = {
+    **{name.lower(): slug for slug, name in _BROAD_INDEX_DISPLAY.items()},
     **{name.lower(): slug for slug, name in _SECTOR_INDEX_DISPLAY.items()},
     "中证有色": "csi_nonferrous",
 }
