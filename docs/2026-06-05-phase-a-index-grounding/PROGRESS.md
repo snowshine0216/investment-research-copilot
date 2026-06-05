@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | ✅ [#116](https://github.com/snowshine0216/investment-research-copilot/pull/116) | ✅ `001-verify.md` | ✅ `001-review.md` | ✅ `001-pr-review.md` | ✅ 0 rounds | 🔄 |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | ✅ [#116](https://github.com/snowshine0216/investment-research-copilot/pull/116) | ✅ `001-verify.md` | ✅ `001-review.md` | ✅ `001-pr-review.md` | ✅ 0 rounds | ✅ `27c2a42` |
 
 > **QA column omitted by design** — project is non-web (XOR resolves to `verify`). `items/001-qa.md` must NOT exist.
 
@@ -26,6 +26,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 verify** ✅ → [`items/001-verify.md`](items/001-verify.md) `Verdict: PASS` (non-web XOR; `/verify`). `irc --help`/`irc run --help` boot exit 0; end-to-end seeded-DuckDB grounding (`populate_inputs`: 沪深300→csi300→cached read→non-None fundamental pct; 标普红利低波50→None; 科创50 empty-table→None) green; D8 cache-safety regression green; live tests skipped offline. Gates #3/#4/#5 deferred as operator/live gates (not failures). 0 failures. `001-qa.md` absent (XOR ✓).
 - **001 pr-review** ✅ → [`items/001-pr-review.md`](items/001-pr-review.md) `Verdict: PASS-WITH-NITS` (`/code-review` on PR #116, [comment](https://github.com/snowshine0216/investment-research-copilot/pull/116#issuecomment-4630626741)). 1 style nit (`_LEGULEGU_INDEX_SYMBOL` imported by underscore name — matches existing `_BROAD_INDEX_KEYS`/`_SECTOR_INDEX_KEYS` convention; no runtime impact). D8 fix confirmed holds; 0 correctness/latent bugs.
 - **001 fix** ✅ 0 rounds — all 3 post-ship verdicts PASS/PASS-WITH-NITS; the only latent bug was already fixed pre-ship (`39dbf7f`); the lone remaining nit is a cosmetic non-blocker consistent with existing project convention. No fix round required.
+- **001 merge** ✅ `27c2a42` — PR #116 squash-merged into feature branch `claude/stupefied-banach-f1f037` (`gh pr merge --squash --delete-branch`; `gh pr view 116` state=MERGED). Sub-branch deleted. All 5 pre-merge gates passed (protected-base=non-protected, PR open, drift PASS, verify PASS + qa absent, review + pr-review PASS-WITH-NITS); PR comments = 1 cosmetic nit only.
 
 ## Environmental boundaries (operator follow-ups, not loop failures)
 
