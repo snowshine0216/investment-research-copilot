@@ -348,6 +348,9 @@ silently escape the gate.
 - `recorder.py`: during a run, capture LLM token actuals per task **and** non-LLM
   query/page counts per provider; at run end fold into `usage_profile.json` (EWMA) and
   update `consumption.json` (wallet decrement / quota period-counter with auto-reset).
+  This runs **automatically at the end of every gated command that made paid calls** —
+  no flag, no separate step — so the estimate **re-calculates and converges on every
+  run** (see §12). The run's actuals are also written to `outputs/<date>/spend_actuals.json`.
 - Recorder hooks at the `commands/<stage>_cmd.py` edges (stages return usage; the command
   writes it — I/O at the edge, no globals).
 - `estimator.py` switches from seed-only to **learned profile with seed fallback**
@@ -364,10 +367,64 @@ silently escape the gate.
   live double-gated tests (`IRC_RUN_LIVE_BALANCE=1` + a `pytest.mark` marker) hitting real
   DeepSeek/OpenRouter endpoints.
 - **Integration:** `run_pipeline` refuses to start (exit 5) on injected-insufficient
-  balance, and proceeds-with-warning on probe failure; recorder round-trip updates both
-  profile and ledger.
+  balance, and proceeds-with-warning on probe failure; the recorder is invoked at the
+  **end of every gated run** (convergence-every-run) and writes `spend_actuals.json` /
+  `spend_estimate.json`; recorder round-trip updates both profile and ledger.
+- **Docs:** a grep test asserts `README.md` contains the "Spend / balance gate" section
+  and the artifact paths (§13).
 
-## 12. Open items for implementation
+## 12. Where usage is surfaced & commands that trigger the workflow
+
+### 12.1 Artifacts (estimated vs. actual usage)
+
+| What | Where to find it | Written by |
+|---|---|---|
+| Next-run **estimate** (per provider, per-task breakdown) | printed preflight table at command start **+** `outputs/<date>/spend_estimate.json` | gate / `preflight.py` |
+| This-run **actual usage** (per-task tokens/calls, per-provider query counts, computed cost) | `outputs/<date>/spend_actuals.json` | recorder (Phase 2), at run end |
+| **Learned profile** (rolling EWMA of actuals — the basis of every estimate) | `data/spend/usage_profile.json` | recorder (Phase 2), at run end |
+| **Effective balances** (anchors − consumption) | `irc spend status` (read-only) | on demand |
+| Balance **anchors** (human-edited) | `config/spend_balances.yaml` | human |
+| Machine **consumption** since anchor | `data/spend/consumption.json` | recorder |
+
+### 12.2 Auto-convergence (every run, hands-off)
+
+The recorder runs **automatically at the end of every gated command that made paid
+calls** — no flag, no manual recalculation. Each run folds that run's actuals into
+`usage_profile.json` via EWMA (§5.4), so the **next** run's estimate is re-computed from
+fresher data. Convergence is continuous: `estimate → actual` with no user action.
+
+### 12.3 Commands that trigger this workflow
+
+These commands **gate before** (estimate vs. balance, exit `5` if insufficient) and
+**record + converge after** (fold actuals → profile, decrement ledger):
+
+- `irc run` — the full pipeline
+- `irc opportunity`
+- `irc memo`
+- `irc decision`
+- `irc eval-funds`
+- `irc narrative --analyze`
+- `irc ask`
+
+`irc spend status` is **read-only**: it triggers neither paid calls nor recording, only
+prints effective balances / estimate / last actuals.
+
+## 13. Documentation deliverable (README)
+
+Add a **"Spend / balance gate"** subsection to `README.md` (and a pointer from the
+"Evidence refresh order" / operations area) covering:
+
+- the artifact locations in §12.1 — **where to find estimated vs. actual usage** and the
+  learned profile;
+- that the estimate **auto-converges on every run** (§12.2) with no manual step;
+- the **explicit command list** in §12.3 that triggers the gate + convergence;
+- how to top up a no-API provider (edit `config/spend_balances.yaml`, §6.1);
+- the `margin` / `IRC_SPEND_MARGIN` knob and **exit code `5`** = insufficient-balance.
+
+A docs test (greps `README.md` for the section heading + the three artifact paths) keeps
+the README in sync, mirroring the repo's existing acceptance-grep tests.
+
+## 14. Open items for implementation
 
 - Verify the live balance/usage endpoints + JSON shapes for Jina, Tavily, Bocha; any that
   lack a usable preflight endpoint fall back to **ledger-only**.
