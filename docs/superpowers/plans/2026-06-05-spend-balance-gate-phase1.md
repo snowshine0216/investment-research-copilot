@@ -1,5 +1,7 @@
 # Preflight Spend / Balance Gate — Phase 1 Implementation Plan
 
+> **READ FIRST, before Task 1:** open the spec `docs/superpowers/specs/2026-06-05-spend-balance-gate-design.md` and read **§15 (per-phase exit gates — the Definition of Done you must verify)** and **§16.1 (calibrated prices/balances already baked into this plan's Task 1, plus FLAGGED placeholders: Jina per-page tokens, Brave monthly quota, Bocha unit, and Tavily-modeled-as-quota)**. The config values in Task 1 are real (user-calibrated 2026-06-05) — do **not** replace them with placeholders. After Phase 1, verify every box in spec §15.1 before stopping.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a preflight gate that, before any gated command does paid work, estimates the run's spend per provider (from a deliberately-high seed) and stops the run with exit code `5` when a provider's balance can't cover it.
