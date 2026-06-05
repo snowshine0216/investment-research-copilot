@@ -1,6 +1,6 @@
 # Valuation-anchor coverage roadmap — NAV → PE/PB
 
-**Status:** In progress — **Phase D shipped & live (2026-06-05)**; Phases A/B/C + Phase 0 open.
+**Status:** In progress — **Phase D shipped & live (2026-06-05)**; **Phase A shipped & live (2026-06-05)**; Phases B/C + Phase 0 open.
 **Goal:** Move fund `valuation_state` off the NAV self-history percentile (a price-momentum
 proxy) and onto a **fundamental anchor (PE/PB historical percentile)** for as many funds as
 the data honestly allows.
@@ -21,7 +21,7 @@ its **own** fetch/ingest path (independent of the index-path phases A/B/C), and 
 | Phase | Status | Reach (measured) |
 |---|---|---|
 | **D — active-fund look-through** | ✅ **live** (PR #109/#110/#111, flag `enabled: true`, floor `0.50`) | **40 funds grounded** at floor 0.50 (sensitivity 0.40→71 · 0.60→17). Gate #4 (live columns) PASS; gate #5 (human floor decision) signed off. |
-| A — broad-index grounding | ☐ open | +19 funds (3%) — data+fetcher exist; needs the live-symbol fix + slug map |
+| A — broad-index grounding | ✅ done (2026-06-05) | +9 funds (measured; csi300×4/csi500×2/csi1000×2/sse50×1 after D5/D6 overrides) |
 | B — sector ETFs | ☐ open | +21 funds (3%) — PE-only (csindex) |
 | C — foreign (US/HK) | ☐ open (needs source decision) | +141 funds (21%) |
 | Phase 0 — correctness (gold, bond-misclass) | ☐ open | independent |
@@ -88,7 +88,7 @@ There is no shortcut: the bulk *and* the hardest piece are the same block.
 Each phase populates the **same** `valuation_percentile_fundamental` slot — the seam is already
 there, so phases are additive and independently shippable.
 
-### Phase A — Activate broad grounding (near-free)
+### Phase A — Activate broad grounding ✅ DONE (2026-06-05)
 - **Scope:** the 19 broad-index CN funds (15 ETFs + 4 miscoded index funds).
 - **Work:**
   1. Add broad display names → slugs in `_INDEX_NAME_TO_SLUG`, with an alias map for the
