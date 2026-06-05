@@ -344,8 +344,47 @@ After `irc init` you will have:
   `config/valuation_buckets.yaml`, `config/triggers.yaml` — tunable parameters.
 - `config/overrides.yaml`, `config/macro_view.yaml` — your sovereignty layer.
 - `config/universe/*.yaml` — candidate pools.
+- `config/spend_pricing.yaml`, `config/spend_balances.yaml` — paid-API spend gate
+  (see [Spend / balance gate](#spend--balance-gate)).
 
 Edit any of these and re-run `irc config validate`.
+
+## Spend / balance gate
+
+A preflight gate estimates each run's paid-API spend per provider and **stops the run
+with exit code `5`** before any paid work if a provider's balance can't cover the
+estimate (× a safety margin). It runs automatically at the start of every paid command.
+
+> **Phase 1 (current):** a working gate driven by a deliberately-high **seeded** usage
+> profile and a **read-only** balance ledger. It does not learn yet and does not
+> decrement the ledger — those arrive in Phase 2 (recorder + EWMA convergence +
+> auto-decrement + estimated-vs-actual artifacts).
+
+**Configuration (committed defaults you edit):**
+
+- `config/spend_pricing.yaml` — margin, per-model LLM prices, per-query/page search
+  prices, and per-task / per-provider usage seeds.
+- `config/spend_balances.yaml` — your balance anchors. A **wallet** (`balance` + `as_of`)
+  or a **quota** (`quota` + `reset: monthly`). The machine only *reads* this file, so
+  edit it freely when you top up. DeepSeek/OpenRouter balances are read **live** by a
+  free, read-only probe, not from this file.
+
+**Commands:**
+
+```bash
+uv run irc spend status                 # read-only effective ledger balances
+uv run irc config validate              # also validates the two spend configs
+IRC_SKIP_SPEND_GATE=1 uv run irc run    # bypass the gate (offline dev)
+IRC_RUN_LIVE_BALANCE=1 uv run pytest -m live_balance   # verify live balance probes (free, read-only)
+```
+
+**Gated commands** (gate runs at entry; `run` gates before the stage loop):
+`run`, `opportunity`, `memo`, `decision`, `ask`, `eval-funds`, `narrative`.
+
+When a run is blocked, the gate prints a per-provider table showing the estimate, the
+balance, and what's needed — top up, edit `config/spend_balances.yaml`, or set
+`IRC_SKIP_SPEND_GATE=1`. Raising headroom for a genuinely heavy run is a config edit,
+not a code change.
 
 ## Opportunity and discipline layer
 

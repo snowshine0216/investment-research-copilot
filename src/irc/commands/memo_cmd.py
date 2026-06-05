@@ -787,6 +787,10 @@ def _build_pick_rows(
 
 
 def run_memo(repo_root: str) -> int:
+    from irc.commands.spend_cmd import preflight_gate
+    gate_rc = preflight_gate(repo_root, "memo")
+    if gate_rc != 0:
+        return gate_rc
     root = Path(repo_root)
     if not require_fresh_ingest(root, stage="memo"):
         print("ERROR: memo stage halted — ingest is stale. "

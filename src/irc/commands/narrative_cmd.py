@@ -152,6 +152,12 @@ def run_narrative(
     # spec §3.1: --min-overlap overrides the config's min_basket_weight_pct (immutably).
     if min_overlap is not None:
         basket = replace(basket, min_basket_weight_pct=min_overlap)
+    # Gate unconditionally (after arg parsing): the scope is the eval tasks, a safe
+    # upper bound even on a --screen-only run. Spec §8.2 / Phase 1 plan Task 13.
+    from irc.commands.spend_cmd import preflight_gate
+    gate_rc = preflight_gate(repo_root, "narrative")
+    if gate_rc != 0:
+        return gate_rc
     out = Path(out_dir) if out_dir else (root / "outputs" / _today() / "narrative")
     out.mkdir(parents=True, exist_ok=True)
     label = basket.display_name_cn or basket.narrative_id

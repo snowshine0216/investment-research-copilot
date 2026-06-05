@@ -1,0 +1,37 @@
+# CALIBRATED 2026-06-05 from user-supplied provider_pricing.csv (see spec §16.1).
+# DeepSeek prices are CACHE-MISS CNY (conservative over-estimate). Model keys match
+# config/llm.yaml routes. Seeds are deliberately HIGH so a cold install over-estimates.
+margin: 1.2
+llm:
+  deepseek:
+    currency: CNY
+    models:
+      deepseek-chat:     { input_per_mtok: 0.9515, output_per_mtok: 1.9029 }
+      deepseek-reasoner: { input_per_mtok: 2.9563, output_per_mtok: 5.9126 }
+  openrouter:    # INERT — no task routes here; placeholder prices, real credits read live by probe
+    currency: USD
+    models:
+      deepseek/deepseek-chat:     { input_per_mtok: 0.28, output_per_mtok: 0.88 }
+      deepseek/deepseek-reasoner: { input_per_mtok: 0.55, output_per_mtok: 2.19 }
+search:
+  tavily: { currency: credits, per_query: 2.0 }    # advanced search = 2 credits/request
+  bocha:  { currency: CNY,     per_query: 0.036 }  # Web Search API ¥0.036/call
+  jina:   { currency: tokens,  per_page: 10000.0 } # token-based; conservative placeholder — VERIFY
+  brave:  { currency: queries, per_query: 1.0 }    # 1 query per search
+seeds:
+  news_summary:      { calls: 20, prompt_tokens: 1500,  completion_tokens: 800 }
+  news_dedup:        { calls: 10, prompt_tokens: 2000,  completion_tokens: 500 }
+  factor_screening:  { calls: 8,  prompt_tokens: 3000,  completion_tokens: 1000 }
+  watchlist_reason:  { calls: 30, prompt_tokens: 1500,  completion_tokens: 800 }
+  scoring_rationale: { calls: 40, prompt_tokens: 2000,  completion_tokens: 1500 }
+  thesis_falsify:    { calls: 30, prompt_tokens: 3000,  completion_tokens: 2000 }
+  thesis_defend:     { calls: 30, prompt_tokens: 3000,  completion_tokens: 2000 }
+  interactive_query: { calls: 1,  prompt_tokens: 8000,  completion_tokens: 3000 }
+  research_synth:    { calls: 12, prompt_tokens: 4000,  completion_tokens: 1500 }
+  memo_synthesis:    { calls: 1,  prompt_tokens: 12000, completion_tokens: 6000 }
+  memo_audit:        { calls: 1,  prompt_tokens: 12000, completion_tokens: 6000 }
+search_seeds:
+  tavily: { units: 40 }
+  bocha:  { units: 40 }
+  jina:   { units: 30 }
+  brave:  { units: 40 }

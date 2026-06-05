@@ -128,6 +128,10 @@ def _read_opportunity_state_by_id(path: Path) -> dict[str, dict[str, Any]]:
 
 
 def run_decision(repo_root: str) -> int:
+    from irc.commands.spend_cmd import preflight_gate
+    gate_rc = preflight_gate(repo_root, "decision")
+    if gate_rc != 0:
+        return gate_rc
     root = Path(repo_root)
     out_dir = _resolve_output_dir(root)
     missing = [name for name in _REQUIRED_ARTIFACTS if not (out_dir / name).exists()]

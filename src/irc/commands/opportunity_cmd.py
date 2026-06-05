@@ -1439,6 +1439,10 @@ def run_opportunity(
     rebuild_fundamentals: bool = False,
     adversarial: bool = False,
 ) -> int:
+    from irc.commands.spend_cmd import preflight_gate
+    gate_rc = preflight_gate(repo_root, "opportunity")
+    if gate_rc != 0:
+        return gate_rc
     root = Path(repo_root)
     today = _today()
     # Validate CLI args before touching any I/O (exits with code 2 if invalid).
