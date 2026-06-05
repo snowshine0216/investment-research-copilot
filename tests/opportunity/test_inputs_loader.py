@@ -9,7 +9,6 @@ import pytest
 from irc.data.duckdb_helper import ensure_schema
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport
-from irc.opportunity import inputs_loader
 from irc.opportunity.inputs_loader import MIN_PE_DAYS, MIN_PE_POINTS, populate_inputs
 from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
@@ -646,4 +645,64 @@ def test_csi300_scale_unaffected_by_min_history_gate(tmp_path):
     )
     inp = populate_inputs(con, skeleton, holding_entry_date=None)
     assert inp.valuation_percentile_fundamental == pytest.approx(1.0)
+    con.close()
+
+
+def test_broad_display_name_tracked_index_grounds_pe_percentile(tmp_path):
+    # Phase A: a display-name tracked_index ("沪深300") inverts to slug csi300 and
+    # reads the cached index_valuation_history → non-None fundamental percentile.
+    con = duckdb.connect(str(tmp_path / "broad_display.duckdb"))
+    ensure_schema(con)
+    _seed_csi300_instrument_with_prices(con)
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]  # mature series
+    _seed_index_valuation_history(con, "csi300", pairs)
+    skeleton = OpportunityInput(
+        instrument_id="510300", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="沪深300", name_cn="沪深300ETF",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.valuation_percentile_fundamental is not None
+    assert inp.pe_ttm == pytest.approx(10.0 + 199 * 0.1)
+    con.close()
+
+
+def test_sp_dividend_low_vol_tracked_index_stays_none(tmp_path):
+    # D3: 标普红利低波50 is unmapped → NAV path, no fundamental percentile.
+    con = duckdb.connect(str(tmp_path / "sp_div.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('515450','515450','cn_on_exchange','红利低波50ETF南方',NULL,'cn_etf','cny',"
+        " DATE '2020-01-01', 0.005, 1.0e9, '标普红利低波50', 3.0, "
+        " TIMESTAMP '2026-05-15', 'test', 'test:515450')"
+    )
+    skeleton = OpportunityInput(
+        instrument_id="515450", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="标普红利低波50",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    assert inp.valuation_percentile_fundamental is None
+    assert inp.pe_ttm is None
+    con.close()
+
+
+def test_speculative_slug_with_empty_table_stays_none(tmp_path):
+    # star50 is now invertible (display 科创50 → star50 ∈ _BROAD_INDEX_KEYS) but the
+    # cached table is empty for it (production fetch never writes it) → None.
+    con = duckdb.connect(str(tmp_path / "star50.duckdb"))
+    ensure_schema(con)
+    con.execute(
+        "INSERT INTO instruments VALUES "
+        "('588000','588000','cn_on_exchange','科创50ETF华夏',NULL,'cn_etf','cny',"
+        " DATE '2020-01-01', 0.005, 1.0e9, '科创50', 3.0, "
+        " TIMESTAMP '2026-05-15', 'test', 'test:588000')"
+    )
+    skeleton = OpportunityInput(
+        instrument_id="588000", asset_class="cn_etf",
+        market="cn_on_exchange", tracked_index="科创50",
+    )
+    inp = populate_inputs(con, skeleton, holding_entry_date=None)
+    # Slug resolves (star50 ∈ _INDEX_VALUATION_KEYS) but no cached rows → None.
+    assert inp.valuation_percentile_fundamental is None
+    assert inp.pe_ttm is None
     con.close()
