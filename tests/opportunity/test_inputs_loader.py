@@ -9,7 +9,6 @@ import pytest
 from irc.data.duckdb_helper import ensure_schema
 from irc.fundamentals.index_valuation_types import IndexValuation
 from irc.fundamentals.types import BrokerReport
-from irc.opportunity import inputs_loader
 from irc.opportunity.inputs_loader import MIN_PE_DAYS, MIN_PE_POINTS, populate_inputs
 from irc.opportunity.states import classify_valuation
 from irc.opportunity.types import OpportunityInput
