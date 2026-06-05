@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from irc.opportunity.sector_indices import (
+    SECTOR_INDEX_DISPLAY,
+    SECTOR_INDEX_KEYS,
+    SECTOR_NAME_TO_SLUG,
+)
 from irc.opportunity.types import LookthroughTarget, OpportunityInput
 
 
@@ -60,27 +65,19 @@ _QDII_HK_ALIASES: dict[str, str] = {
 
 _BROAD_INDEX_KEYS: frozenset[str] = frozenset(_BROAD_INDEX_DISPLAY.keys())
 
-# Sector-index slugs that gain a PE anchor via the csindex accumulate-forward
-# path (§2). Populated with SECTOR indices only for this PR — broad display
-# names are deliberately NOT inverted here so broad-fund behaviour is unchanged
-# (broad #102 re-activation is a separate opt-in).
-_SECTOR_INDEX_DISPLAY: dict[str, str] = {
-    "csi_nonferrous": "中证有色金属",
-    "csi_resource": "中证资源",
-    "csi_nonferrous_mining": "中证有色金属矿业主题",
-}
+# Sector-index maps come from the single source-of-truth catalog
+# (opportunity/sector_indices.py) — 17 slugs (14 new + 3 folded-in metals).
+# Re-bound here under the legacy private names so existing importers
+# (inputs_loader, akshare_index_valuation, ingest_cmd, tests) stay valid.
+_SECTOR_INDEX_DISPLAY: dict[str, str] = SECTOR_INDEX_DISPLAY
+_SECTOR_INDEX_KEYS: frozenset[str] = SECTOR_INDEX_KEYS
 
-_SECTOR_INDEX_KEYS: frozenset[str] = frozenset(_SECTOR_INDEX_DISPLAY.keys())
-
-# Inversion (中文/lowercased → slug). Includes a colloquial short-form alias so
-# a generator-emitted "中证有色" resolves to the canonical slug.
-_INDEX_NAME_TO_SLUG: dict[str, str] = {
-    **{name.lower(): slug for slug, name in _SECTOR_INDEX_DISPLAY.items()},
-    "中证有色": "csi_nonferrous",
-}
+# Inversion (中文/lowercased name or alias -> slug). Broad display names are
+# deliberately NOT inverted here (broad re-activation is a separate opt-in).
+_INDEX_NAME_TO_SLUG: dict[str, str] = dict(SECTOR_NAME_TO_SLUG)
 
 # The full valuation key-set the inputs loader tests membership against — the
-# union of broad (#102) and sector (this PR). Overloading "broad" is avoided.
+# union of broad (#102) and sector. Overloading "broad" is avoided.
 _INDEX_VALUATION_KEYS: frozenset[str] = _BROAD_INDEX_KEYS | _SECTOR_INDEX_KEYS
 
 _QDII_US_KEYS: frozenset[str] = frozenset(_QDII_US_DISPLAY.keys())
