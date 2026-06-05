@@ -21,6 +21,23 @@ def test_parses_balance_and_available_flag():
     assert r.source == "api"
 
 
+def test_selects_cny_entry_regardless_of_order():
+    # Real /user/balance returns BOTH a CNY and a USD balance_info, and the order
+    # is not stable. Pricing is CNY, so the probe must read the CNY entry — not [0].
+    def handler(request):
+        return httpx.Response(200, json={
+            "is_available": True,
+            "balance_infos": [
+                {"currency": "USD", "total_balance": "0.00"},
+                {"currency": "CNY", "total_balance": "99.61"},
+            ],
+        })
+    r = DeepSeekProbe().probe("sk-test", client=_client(handler))
+    assert r.currency == "CNY"
+    assert r.amount == 99.61
+    assert r.available is True
+
+
 def test_probe_failure_degrades_to_unreadable_reading():
     def handler(request):
         return httpx.Response(500, text="boom")

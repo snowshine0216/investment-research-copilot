@@ -4,6 +4,7 @@ from irc.spend.probes.base import ProbeError, get_json_with_retry
 from irc.spend.types import BalanceReading
 
 _URL = "https://api.deepseek.com/user/balance"
+_PREFERRED_CURRENCY = "CNY"   # task pricing (config/spend_pricing.yaml) is CNY
 
 
 class DeepSeekProbe:
@@ -14,11 +15,13 @@ class DeepSeekProbe:
         try:
             body = get_json_with_retry(_URL, headers=headers, client=client)
         except ProbeError:
-            return BalanceReading(self.provider, currency="CNY", amount=None,
+            return BalanceReading(self.provider, currency=_PREFERRED_CURRENCY, amount=None,
                                   available=False, source="probe_failed")
+        # /user/balance returns one entry per currency (CNY + USD), in unstable
+        # order. Pricing is CNY, so read the CNY entry — never blindly take [0].
         infos = body.get("balance_infos") or [{}]
-        info = infos[0]
-        currency = info.get("currency", "CNY")
+        info = next((i for i in infos if i.get("currency") == _PREFERRED_CURRENCY), infos[0])
+        currency = info.get("currency", _PREFERRED_CURRENCY)
         try:
             amount = float(info.get("total_balance"))
         except (TypeError, ValueError):
