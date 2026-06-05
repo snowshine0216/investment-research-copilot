@@ -1,8 +1,6 @@
 import dataclasses
 import pytest
-from irc.spend.types import (
-    TaskUsage, UsageProfile, CostEstimate, BalanceReading, ProviderVerdict, GateDecision,
-)
+from irc.spend.types import TaskUsage, BalanceReading, GateDecision
 
 
 def test_types_are_frozen():

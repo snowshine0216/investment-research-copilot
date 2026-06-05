@@ -87,11 +87,6 @@ def run_eval_funds(
               "data/fundamentals/*/active_fund/; pass --quarter.", file=sys.stderr)
         return 2
 
-    from irc.commands.spend_cmd import preflight_gate
-    gate_rc = preflight_gate(repo_root, "eval-funds")
-    if gate_rc != 0:
-        return gate_rc
-
     instr_index = _instr_by_id(root)
     provider = default_cn_provider()
     try:
