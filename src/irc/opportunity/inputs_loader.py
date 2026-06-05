@@ -270,6 +270,7 @@ def populate_inputs(
     broker_reports: tuple[BrokerReport, ...] = (),
     provider: CnFundamentalsProvider | None = None,
     lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
+    activated_sector_slugs: frozenset[str] = frozenset(),
 ) -> OpportunityInput:
     """Return a copy of skeleton with evidence fields filled from DuckDB.
 
@@ -312,7 +313,8 @@ def populate_inputs(
     latest_close = float(series.iloc[-1]) if not series.empty else None
     upside = consensus_upside_pct(broker_reports, latest_close)
     pe_ttm, pb, dividend_yield, fund_pct, fund_pct_pb = _index_valuation_metrics(
-        con, skeleton.tracked_index
+        con, skeleton.tracked_index,
+        activated_sector_slugs=activated_sector_slugs,
     )
     # Phase D: active CN equity funds (no tracked_index) get their fundamental
     # percentile from holdings look-through — flag-gated so flag-off is
