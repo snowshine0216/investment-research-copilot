@@ -19,7 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `SectorIndexGroundingConfig`, template `valuation_buckets.yaml`), threaded
   explicitly to a new gate in `_index_valuation_metrics`: a sector slug not on
   the allowlist short-circuits to the full all-`None` tuple. **B1 default =
-  empty → production output byte-identical** (accumulate-only). The csindex
+  empty → production output byte-identical** (accumulate-only). The schema
+  validates `activated_slugs` against `SECTOR_INDEX_KEYS` and rejects unknown
+  slugs (fail-loud — an allowlist typo can no longer silently no-op). The csindex
   series take ~6 months to clear the 120/180 maturity gate; **grounded count =
   0 by design at B1** (gate #3 not claimed). Activation (B2) is a separate,
   post-maturation, gate-#5-reviewed change.
