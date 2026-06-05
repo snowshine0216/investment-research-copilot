@@ -31,10 +31,11 @@ def test_index_name_to_slug_inverts_display_names_lowercased():
     assert _INDEX_NAME_TO_SLUG["中证有色"] == "csi_nonferrous"
 
 
-def test_index_name_to_slug_excludes_broad_names():
-    # Broad display names are NOT added here — broad re-activation is a separate opt-in.
-    assert "沪深300" not in _INDEX_NAME_TO_SLUG
-    assert "中证1000" not in _INDEX_NAME_TO_SLUG
+def test_index_name_to_slug_includes_broad_names():
+    # Phase A: broad display names are now inverted so a tracked_index="沪深300"
+    # resolves to its slug and grounds on the cached PE-TTM history.
+    assert _INDEX_NAME_TO_SLUG["沪深300"] == "csi300"
+    assert _INDEX_NAME_TO_SLUG["中证1000"] == "csi1000"
 
 
 def test_index_valuation_keys_is_broad_union_sector():

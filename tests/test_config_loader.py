@@ -207,3 +207,18 @@ def test_load_yaml_accepts_generated_cn_funds_when_file_exists(tmp_repo: Path):
     cfg = load_yaml(tmp_repo / "config/universe/cn_funds.generated.yaml", tmp_repo)
 
     assert cfg.instruments[0].instrument_id == "003095"
+
+
+def test_phase_a_seed_overrides_strip_broad_tracked_index():
+    """D5/D6: 161721 + 003318 get seed overrides WITHOUT tracked_index so they
+    route to their honest NAV/Phase-D path instead of mis-grounding on a broad
+    allowlist symbol. 023153 (pure 中证A500) needs no override."""
+    repo_root = Path(__file__).resolve().parents[1]
+    bundle = load_repo_configs(repo_root)
+    by_id = {i.instrument_id: i for i in bundle.universe_cn_funds.instruments}
+
+    assert by_id["161721"].tracked_index is None, "161721 must have tracked_index stripped"
+    assert by_id["003318"].tracked_index is None, "003318 must have tracked_index stripped"
+    # 023153 is intentionally NOT overridden — stays mapped to 中证A500 (csi_a500
+    # is not in the production allowlist, so it stays NAV + maps for graduation).
+    assert by_id["023153"].tracked_index == "中证A500"

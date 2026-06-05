@@ -1,9 +1,8 @@
 """Index-level PE/PB valuation fetcher (item 001) via legulegu AkShare endpoints.
 
-`stock_index_pe_lg` (PE) and `stock_index_pb_lg` (PB) are addressed by Chinese
-broad-index name (e.g. 沪深300). The instrument-level pe/pb/dividend population
-this feeds is INERT today (no classifier reads it — see item 002). Network I/O
-is confined to the `_ak_call` indirection; extraction is a pure helper.
+`stock_index_pe_lg` (PE) and `stock_index_pb_lg` (PB) are addressed by a
+live-confirmed Chinese broad-index symbol from `_LEGULEGU_INDEX_SYMBOL`. Network
+I/O is confined to the `_ak_call` indirection; extraction is a pure helper.
 
 Degrade-to-None contract: unknown index_key → None; any adapter failure or
 empty frame → metrics None (never raises). Matches `fetch_cn_filing_digest`.
@@ -14,6 +13,7 @@ fund-profile indicator is never used here (see test_static_profile_invariant).
 """
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Any
 
@@ -24,14 +24,36 @@ from irc.fundamentals.index_valuation_types import (
     IndexValuationHistory,
     IndexValuationPoint,
 )
-from irc.opportunity.lookthrough import _BROAD_INDEX_DISPLAY
 
-# Subset of broad-index keys we map to a Chinese name for the legulegu endpoint.
-# Unknown names degrade to None inside the helper, so reusing the full map is safe.
-_INDEX_PE_PB_NAME: dict[str, str] = dict(_BROAD_INDEX_DISPLAY)
+_log = logging.getLogger(__name__)
 
-_PE_COLS: tuple[str, ...] = ("平均市盈率", "市盈率", "静态市盈率", "pe", "pe_ttm")
-_PB_COLS: tuple[str, ...] = ("市净率", "平均市净率", "pb")
+# Production allowlist — live-confirmed exact legulegu symbols ONLY (D2). The
+# display/symbol coupling to _BROAD_INDEX_DISPLAY is removed: production fetch
+# resolves symbols HERE, never from the display map.
+_LEGULEGU_INDEX_SYMBOL: dict[str, str] = {
+    "csi300": "沪深300",
+    "csi500": "中证500",
+    "csi1000": "中证1000",
+    "sse50": "上证50",
+}
+
+# Speculative symbols — clearly marked, NOT consulted by production fetch/ingest.
+# Only the gated live sweep probes these (D2). Graduating one moves it UP into
+# _LEGULEGU_INDEX_SYMBOL (and the live hard-assert set) in a follow-up PR.
+_SPECULATIVE_LEGULEGU_SYMBOL: dict[str, str] = {
+    "star50": "科创50",
+    "chinext": "创业板指",
+    "chinext50": "创业板50",
+    "csi_dividend": "中证红利",
+    "csi_dividend_lc": "中证红利低波",
+    "csi_a500": "中证A500",
+}
+
+# Dedicated legulegu columns (D1). PE reads 滚动市盈率 (rolling/TTM) ONLY — never
+# falls back to 静态市盈率 (ADR 0012 requires PE-TTM). PB reads the cap-weighted
+# 市净率, NOT the 等权市净率 equal-weight variant.
+_LEGULEGU_PE_TTM_COL: str = "滚动市盈率"
+_LEGULEGU_PB_COL: str = "市净率"
 _DIV_COLS: tuple[str, ...] = ("股息率", "股息率%", "dividend_yield")
 _DATE_COLS: tuple[str, ...] = ("日期", "date", "trade_date")
 
@@ -97,6 +119,7 @@ def _fetch_frame(fn_name: str, cn_name: str) -> pd.DataFrame | None:
     try:
         df = _ak_call(fn_name, symbol=cn_name)
     except Exception:
+        _log.warning("_fetch_frame %s(%r) failed", fn_name, cn_name, exc_info=True)
         return None
     return df if isinstance(df, pd.DataFrame) else pd.DataFrame()
 
@@ -130,16 +153,20 @@ def _series_map(df: pd.DataFrame, candidate_cols: tuple[str, ...]) -> dict[str, 
 
 def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | None:
     """Full PE/PB series for a recognised broad index; None for unknown keys or
-    adapter failure. AkShare-only ingest infra (R4) — NOT a provider method."""
-    cn_name = _INDEX_PE_PB_NAME.get(index_key)
+    adapter failure. AkShare-only ingest infra (R4) — NOT a provider method.
+
+    Symbols resolve from the production allowlist ONLY (D2); a speculative slug
+    is treated as unknown → None.
+    """
+    cn_name = _LEGULEGU_INDEX_SYMBOL.get(index_key)
     if cn_name is None:
         return None
     pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
     pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
     if pe_df is None and pb_df is None:
         return None
-    pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS)
-    pb_map = _series_map(pb_df if pb_df is not None else pd.DataFrame(), _PB_COLS)
+    pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), (_LEGULEGU_PE_TTM_COL,))
+    pb_map = _series_map(pb_df if pb_df is not None else pd.DataFrame(), (_LEGULEGU_PB_COL,))
     div_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), _DIV_COLS)
     dates = sorted(set(pe_map) | set(pb_map))
     if not dates:
@@ -210,8 +237,9 @@ def fetch_cn_sector_index_valuation_history(
 
 
 def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:
-    """PE/PB for a recognised broad index; None for unknown keys or adapter failure."""
-    cn_name = _INDEX_PE_PB_NAME.get(index_key)
+    """PE/PB for a recognised broad index; None for unknown keys or adapter failure.
+    Symbols resolve from the production allowlist ONLY (D2)."""
+    cn_name = _LEGULEGU_INDEX_SYMBOL.get(index_key)
     if cn_name is None:
         return None
     pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
@@ -220,8 +248,12 @@ def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:
         return None
     return IndexValuation(
         index_key=index_key,
-        pe_ttm=_extract_latest_value(pe_df if pe_df is not None else pd.DataFrame(), _PE_COLS),
-        pb=_extract_latest_value(pb_df if pb_df is not None else pd.DataFrame(), _PB_COLS),
+        pe_ttm=_extract_latest_value(
+            pe_df if pe_df is not None else pd.DataFrame(), (_LEGULEGU_PE_TTM_COL,)
+        ),
+        pb=_extract_latest_value(
+            pb_df if pb_df is not None else pd.DataFrame(), (_LEGULEGU_PB_COL,)
+        ),
         dividend_yield=_extract_latest_value(
             pe_df if pe_df is not None else pd.DataFrame(), _DIV_COLS
         ),
