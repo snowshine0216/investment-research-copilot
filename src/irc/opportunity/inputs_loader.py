@@ -15,6 +15,7 @@ from irc.fundamentals.provider import CnFundamentalsProvider
 from irc.fundamentals.consensus import consensus_upside_pct
 from irc.fundamentals.types import BrokerReport
 from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG, _INDEX_VALUATION_KEYS
+from irc.opportunity.sector_indices import SECTOR_INDEX_KEYS
 from irc.opportunity.lookthrough_valuation import (
     HoldingWeight,
     MIN_PE_DAYS,  # noqa: F401 — re-exported for backward-compat (tests import from here)
@@ -152,7 +153,10 @@ def _index_valuation_series(
 
 
 def _index_valuation_metrics(
-    con: duckdb.DuckDBPyConnection, tracked_index: str | None,
+    con: duckdb.DuckDBPyConnection,
+    tracked_index: str | None,
+    *,
+    activated_sector_slugs: frozenset[str] = frozenset(),
 ) -> tuple[float | None, float | None, float | None, float | None, float | None]:
     """Return (pe_ttm, pb, dividend_yield, pe_percentile, pb_percentile) from the
     CACHED index_valuation_history table (R3 — no live fetch). (None,)*5 when the
@@ -160,14 +164,22 @@ def _index_valuation_metrics(
 
     The `tracked_index` value may be a display name (e.g. "中证有色金属"); it is
     normalised to a canonical slug via `_INDEX_NAME_TO_SLUG` before membership
-    in `_INDEX_VALUATION_KEYS` is tested (§2.1). The PE percentile honours the
-    §3 min-history gate AND the latest-null guard.
+    in `_INDEX_VALUATION_KEYS` is tested. The PE percentile honours the §3
+    min-history gate AND the latest-null guard.
+
+    Phase B activation gate: a SECTOR slug (`slug in SECTOR_INDEX_KEYS`) that is
+    NOT on the reviewed `activated_sector_slugs` allowlist short-circuits to the
+    FULL all-None tuple — withholding raw pe/pb/div AND the percentile (the raw
+    metrics also feed OpportunityInput), so B1 output is byte-identical. Broad
+    slugs are unaffected.
     """
     norm = (tracked_index or "").strip().lower() or None
     if norm is None:
         return None, None, None, None, None
     slug = _INDEX_NAME_TO_SLUG.get(norm) or norm
     if slug not in _INDEX_VALUATION_KEYS:
+        return None, None, None, None, None
+    if slug in SECTOR_INDEX_KEYS and slug not in activated_sector_slugs:
         return None, None, None, None, None
     df = _index_valuation_series(con, slug)
     if df.empty:
@@ -258,6 +270,7 @@ def populate_inputs(
     broker_reports: tuple[BrokerReport, ...] = (),
     provider: CnFundamentalsProvider | None = None,
     lookthrough_cfg: ActiveFundLookthroughConfig = ActiveFundLookthroughConfig(),
+    activated_sector_slugs: frozenset[str] = frozenset(),
 ) -> OpportunityInput:
     """Return a copy of skeleton with evidence fields filled from DuckDB.
 
@@ -300,7 +313,8 @@ def populate_inputs(
     latest_close = float(series.iloc[-1]) if not series.empty else None
     upside = consensus_upside_pct(broker_reports, latest_close)
     pe_ttm, pb, dividend_yield, fund_pct, fund_pct_pb = _index_valuation_metrics(
-        con, skeleton.tracked_index
+        con, skeleton.tracked_index,
+        activated_sector_slugs=activated_sector_slugs,
     )
     # Phase D: active CN equity funds (no tracked_index) get their fundamental
     # percentile from holdings look-through — flag-gated so flag-off is

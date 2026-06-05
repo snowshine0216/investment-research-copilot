@@ -30,10 +30,36 @@ class ActiveFundLookthroughConfig(FrozenModel):
     pb_uses_pe_gate: bool = False
 
 
+class SectorIndexGroundingConfig(FrozenModel):
+    """Phase B sector-index PE grounding allowlist (B1).
+
+    `activated_slugs` is the reviewed set of sector slugs (from
+    opportunity/sector_indices.py) permitted to ground a fund's valuation off
+    the csindex PE percentile. B1 default = empty (accumulate only; output
+    byte-identical). B2 adds reviewed mature slugs after gate #5."""
+    activated_slugs: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _validate_slugs(self) -> "SectorIndexGroundingConfig":
+        if not self.activated_slugs:
+            return self
+        from irc.opportunity.sector_indices import SECTOR_INDEX_KEYS  # local to avoid cycle
+        unknown = [s for s in self.activated_slugs if s not in SECTOR_INDEX_KEYS]
+        if unknown:
+            raise ValueError(
+                f"sector_index_grounding.activated_slugs has unrecognized slug(s): "
+                f"{unknown}; valid slugs: {sorted(SECTOR_INDEX_KEYS)}"
+            )
+        return self
+
+
 class ValuationBucketsConfig(FrozenModel):
     buckets: list[Bucket] = Field(min_length=1)
     active_fund_lookthrough: ActiveFundLookthroughConfig = Field(
         default_factory=ActiveFundLookthroughConfig
+    )
+    sector_index_grounding: SectorIndexGroundingConfig = Field(
+        default_factory=SectorIndexGroundingConfig
     )
 
     @model_validator(mode="after")

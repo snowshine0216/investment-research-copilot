@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase B sector-index PE onboarding (B1, activation OFF, 2026-06-05)
+
+- New single-source-of-truth catalog `src/irc/opportunity/sector_indices.py`:
+  `SectorIndex` frozen dataclass + `SECTOR_INDICES` (17 slugs = 14 new sector
+  indices + the 3 folded-in metals slugs) and derived maps `SECTOR_INDEX_CODE`
+  / `SECTOR_INDEX_DISPLAY` / `SECTOR_INDEX_KEYS` / `SECTOR_NAME_TO_SLUG`.
+  `lookthrough.py` and `fundamentals/akshare_index_valuation.py` now import the
+  derived maps (inline 3-entry sector dicts removed).
+- Config allowlist `sector_index_grounding.activated_slugs` (schema
+  `SectorIndexGroundingConfig`, template `valuation_buckets.yaml`), threaded
+  explicitly to a new gate in `_index_valuation_metrics`: a sector slug not on
+  the allowlist short-circuits to the full all-`None` tuple. **B1 default =
+  empty → production output byte-identical** (accumulate-only). The schema
+  validates `activated_slugs` against `SECTOR_INDEX_KEYS` and rejects unknown
+  slugs (fail-loud — an allowlist typo can no longer silently no-op). The csindex
+  series take ~6 months to clear the 120/180 maturity gate; **grounded count =
+  0 by design at B1** (gate #3 not claimed). Activation (B2) is a separate,
+  post-maturation, gate-#5-reviewed change.
+- The malformed universe value `中证机床ZZ` is resolved via an alias in
+  `SECTOR_INDICES` — **no `config/universe/*.yaml` edit** (preserves byte-identity).
+- Per-slug ingest audit `data/index_valuation_ingestor.py::audit_sector_ingest`
+  (row count / has-numeric-PE / latest date / freshness / maturity per slug)
+  replaces the ingestor's silent aggregate count.
+- Strengthened live identity guard `test_sector_index_valuation_live.py`
+  (double-gated `IRC_RUN_LIVE_AKSHARE=1`): asserts numeric `市盈率1` AND
+  code↔official-name identity in `index_csindex_all` over all codes. Flags
+  `sse_star_chip` (000685, absent from `index_csindex_all`) and `csi_resource`
+  (000819, display≠official) for human confirmation before B2 activation.
+
 ### Changed — Phase D active-fund look-through valuation (PR2 flag flip, 2026-06-05)
 
 - Flipped `active_fund_lookthrough.enabled` to **`true`** (`coverage_floor: 0.50`,
