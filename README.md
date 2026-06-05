@@ -187,6 +187,18 @@ uv run irc run --from discover
 
 `fundamentals snapshot --target all --top-n 10` is intentionally not part of `irc run`; it can take several minutes because it fetches filings and reports target by target.
 
+### Per-stock valuation refresh (active-fund look-through)
+
+Keeps the PE/PB anchor for active CN equity funds current. Like `fundamentals snapshot`, this is a heavy, own-cadence job — not part of `irc run`.
+
+```bash
+uv run irc fundamentals stock-valuation          # skips A-shares fresh within 30 days
+uv run irc fundamentals stock-valuation --force  # full refetch of every A-share holding
+uv run irc lookthrough-diff                       # audit per-fund flip / coverage / floor sensitivity
+```
+
+It fetches per-stock PE/PB history (EastMoney `stock_value_em`, Tushare `daily_basic` fallback) for every distinct A-share in `fund_holdings` (~393 on the current universe; several minutes on a cold cache, near-instant when warm), writing the cached `stock_valuation_history` table. `irc opportunity` then reads it (cached-only, no live fetch) to value active funds (`active_fund_lookthrough.enabled: true`, floor `0.50`). Run it when holdings roll (a new quarter changes the basket) or every few weeks to keep PE points fresh; the 30-day staleness skip makes routine re-runs cheap. Tune the precision/coverage trade with `lookthrough-diff --coverage-floor 0.40|0.60`.
+
 ### Thematic fund mining (`irc narrative`)
 
 Mine the funds tied to an investment *narrative* — e.g. `compute_metals` (算力金属: AI-datacenter demand for copper / aluminium / tin industrial metals + PCB-gold) — and decide, per fund, **whether to invest and at what risk level**. A narrative is a curated, frozen **reference basket** of stocks + SW industries at `config/narratives/<name>.yaml`; the command resolves it to a ranked fund shortlist by **holdings look-through** (a fund qualifies when its disclosed top-10 overlaps the basket), then — opt-in — runs the deepest per-fund analysis on the shortlist. It reuses the opportunity-grade cores and never touches the main pipeline's outputs.
@@ -283,6 +295,7 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 | `uv run irc ingest` | `data/local.duckdb`, provider manifests under `data/_manifest/` |
 | `uv run irc research` | `data/research/*.md`, `data/research/research_status.json` |
 | `uv run irc fundamentals snapshot` | `data/fundamentals/<quarter>/*.json` |
+| `uv run irc fundamentals stock-valuation` | `stock_valuation_history` table in `data/local.duckdb` (per-stock PE/PB for active-fund look-through) |
 | `uv run irc discover` | `outputs/<date>/discovered_watchlist.csv`, `outputs/<date>/discovery_diagnostics.csv` |
 | `uv run irc score` | `outputs/<date>/scoring.json` |
 | `uv run irc gold` | Gold regime and band outputs under `outputs/<date>/` |
@@ -290,6 +303,7 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 | `uv run irc plan` | `outputs/<date>/trade_plan.yaml` |
 | `uv run irc memo` | `outputs/<date>/memo.md`, `memo_audit.txt`, `memo_traceability.json` |
 | `uv run irc opportunity` | `outputs/<date>/opportunity_report.json`, `thesis_cards.yaml`, `discipline_report.md` |
+| `uv run irc lookthrough-diff` | `outputs/<date>/lookthrough_diff_report.md` (active-fund NAV-vs-PE flip, coverage, floor sensitivity) |
 | `uv run irc eval-funds --ids "<id1>,<id2>"` | targeted per-fund opportunity_state / core_dca evaluation from cache + DuckDB (sidesteps discovery + the active-fund cap). Writes `outputs/<today>/fund_eval.{md,json}`. |
 | `uv run irc decision` | `outputs/<date>/decision_report.json`, `decision_report.md` |
 
@@ -358,7 +372,7 @@ The system does not scan every fund deeply on every run. Universe generation run
 2. `uv run irc research` — refresh macro, policy, gold-driver, geopolitics, and holdings-sector citations under `data/research/`.
 3. `uv run irc fundamentals snapshot --target all --top-n 10` — refresh constituent filings and broker reports for every registered snapshot target under `data/fundamentals/`.
 4. `uv run irc run --from discover` — rebuild discovered watchlist, scores, allocation, trade plan, opportunity, memo, and decision from the refreshed inputs.
-5. (Phase D, own cadence) `uv run irc run` populates `fund_holdings`, then **`uv run irc fundamentals stock-valuation`** populates `stock_valuation_history` (heavy, ~1000+ A-shares; NOT part of `irc run`), then `uv run irc opportunity` reads both cached. The active-fund look-through is shadow-mode (`active_fund_lookthrough.enabled: false`) until the gate-#5 floor decision (PR2). Inspect the diff with `uv run irc lookthrough-diff`.
+5. (Phase D, own cadence) `uv run irc run` populates `fund_holdings`, then **`uv run irc fundamentals stock-valuation`** populates `stock_valuation_history` (heavy, ~393 distinct A-shares on the current universe; NOT part of `irc run` — skips stocks fresh within `--threshold-days`, default 30; `--force` refetches all), then `uv run irc opportunity` reads both cached. **The active-fund holdings look-through is LIVE** (`active_fund_lookthrough.enabled: true`, `coverage_floor: 0.50` — PR2, 2026-06-05): active CN equity funds with **no `tracked_index`** derive `valuation_state` from their disclosed top-N A-share holdings' PE/PB (a current-basket harmonic series) instead of the NAV momentum proxy, with NAV fallback when ungrounded (below the floor or short of the 120/180 maturity gate). The price-vs-fundamental divergence advisory (`价格与基本面估值背离`) fires when NAV and PE disagree. Preview/audit the per-fund effect — would-flip bands, Δpercentile, coverage, floor-sensitivity — with `uv run irc lookthrough-diff`.
 
 `--target all` currently expands to the registered broad-CN targets: 沪深300, 中证500, 中证1000, 中证A500, 上证50, 科创50, 创业板, 中证红利, 红利低波. Sector themes and QDII targets still degrade to `missing_constituent_snapshot` until their `_TargetSpec` entries are added.
 
