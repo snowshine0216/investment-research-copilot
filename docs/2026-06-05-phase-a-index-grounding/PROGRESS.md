@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `claude/phase-a-index-grounding-001` | ✅ `6a9339d..c2789ef` | ✅ `001-drift.md` | 🔄 | ⏳ | ✅ `001-review.md` | ⏳ | ⏳ | ⏳ |
 
 > **QA column omitted by design** — project is non-web (XOR resolves to `verify`). `items/001-qa.md` must NOT exist.
 
@@ -22,6 +22,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 plan** ✅ → [`items/001-plan.md`](items/001-plan.md) (10 tasks / ~60 steps, 29 verification commands; commit `c96025a`). TDD-ordered; approved by orchestrator.
 - **001 impl** ✅ `6a9339d..c2789ef` (10 per-task commits on `claude/phase-a-index-grounding-001`). Touched-file tests green (28+6+27+5+26+9); invariants 145/145; live tests skipped (no network). 2 deviations carried to drift: (a) `test_lookthrough_sector_keys.py` pre-existing test that asserted broad names NOT inverted was updated (it encoded BREAK 1, exactly what Phase A fixes); (b) `snapshot.py` `_TARGET_REGISTRY` +3 entries (plan-pre-approved Task 4 Step 6 conditional).
 - **001 drift** ✅ → [`items/001-drift.md`](items/001-drift.md) `^Verdict: PASS` (commit `6a74580`). 10/10 tasks verified against actual diff lines; 0 failures. Deviation (a) = legitimate test update (old test encoded BREAK 1); deviation (b) = accepted (registry additions plausible csindex codes, no unrelated targets altered).
+- **001 review** ✅ → [`items/001-review.md`](items/001-review.md) `Verdict: PASS-WITH-NITS` (captured from `/ship` steps 8+9; 3 parallel reviewers). Found 1 **latent bug** (`replace_keys` cache-wipe / D8 hole — worse than first scoped because table has `PRIMARY KEY (index_key, date)`) → **fixed pre-push** in `39dbf7f` with a TDD regression test + 2 should-fixes (silent `_fetch_frame` swallow; dead speculative sweep). 0 remaining latent bugs; 2 P2 notes only. Post-fix touched suite green (exit 0).
 
 ## Environmental boundaries (operator follow-ups, not loop failures)
 
