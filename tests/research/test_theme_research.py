@@ -280,3 +280,74 @@ def test_build_theme_reports_passes_freshness_per_theme(monkeypatch):
     assert by_query.get(gold_query) == FRESHNESS_DAYS_BY_THEME["gold_drivers"], (
         f"gold_drivers freshness wrong, got: {by_query}"
     )
+
+
+# --- FIX 3: failed pages must not be billed as extractor units ---------------
+
+from irc.research.theme_research import _count_search_units  # noqa: E402
+
+
+def _ok_page(url: str) -> ExtractedPage:
+    return ExtractedPage(url=url, title=f"T-{url}", markdown="content",
+                         fetched_at_iso="2026-06-06T00:00:00Z")
+
+
+def _failed_page(url: str) -> ExtractedPage:
+    return ExtractedPage(url=url, title=f"T-{url}", markdown="",
+                         fetched_at_iso="2026-06-06T00:00:00Z",
+                         failure_reason="extractor raised: timeout")
+
+
+def _ok_result(provider: str) -> SearchResult:
+    return SearchResult(query="q", locale=Locale.EN, provider=provider)
+
+
+def _failed_result(provider: str) -> SearchResult:
+    return SearchResult(query="q", locale=Locale.EN, provider=provider,
+                        failure_reason="timeout")
+
+
+@dataclass
+class _NamedExtractor:
+    name: str = "jina"
+
+    def extract(self, url: str, *, timeout_s: int = 20) -> ExtractedPage:
+        return _ok_page(url)
+
+
+def test_count_search_units_excludes_failed_pages():
+    """Pages with failure_reason must not be billed as extractor units (FIX 3)."""
+    extractor = _NamedExtractor(name="jina")
+    pages = (
+        _ok_page("https://a.com"),
+        _failed_page("https://b.com"),
+        _failed_page("https://c.com"),
+        _ok_page("https://d.com"),
+    )
+    raw_results = (_ok_result("tavily"),)
+    counts = _count_search_units(raw_results, pages, extractor)
+    # only 2 of 4 pages succeeded → extractor billed 2, not 4
+    assert counts.get("jina") == 2
+    assert counts.get("tavily") == 1
+
+
+def test_count_search_units_all_pages_failed_no_extractor_entry():
+    """When all pages fail, extractor name must be absent from counts."""
+    extractor = _NamedExtractor(name="jina")
+    pages = (_failed_page("https://a.com"), _failed_page("https://b.com"))
+    raw_results = (_ok_result("tavily"),)
+    counts = _count_search_units(raw_results, pages, extractor)
+    assert "jina" not in counts
+
+
+def test_count_search_units_excludes_failed_provider_results():
+    """Failed provider results (failure_reason set) must not count as query units."""
+    extractor = _NamedExtractor(name="jina")
+    pages = ()
+    raw_results = (
+        _ok_result("tavily"),
+        _failed_result("brave"),
+    )
+    counts = _count_search_units(raw_results, pages, extractor)
+    assert counts.get("tavily") == 1
+    assert "brave" not in counts

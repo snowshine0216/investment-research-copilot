@@ -102,13 +102,16 @@ def _count_search_units(
     extractor: ContentExtractor,
 ) -> dict[str, int]:
     """Return per-name unit counts: 1 query unit per successful provider call,
-    1 page unit per extracted page, keyed by provider.name / extractor.name."""
+    1 page unit per successfully extracted page (failure_reason == ""),
+    keyed by provider.name / extractor.name."""
     counts: dict[str, int] = {}
     for r in raw_results:
         if not r.failure_reason:
             counts[r.provider] = counts.get(r.provider, 0) + 1
-    if pages and extractor is not None:
-        counts[extractor.name] = counts.get(extractor.name, 0) + len(pages)
+    if extractor is not None:
+        successful = sum(1 for p in pages if not p.failure_reason)
+        if successful:
+            counts[extractor.name] = counts.get(extractor.name, 0) + successful
     return counts
 
 
