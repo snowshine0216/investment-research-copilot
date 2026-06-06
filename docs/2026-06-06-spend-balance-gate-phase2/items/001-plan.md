@@ -946,15 +946,19 @@ Expected: FAIL — no `spend_actuals.json` / `usage_profile.json` produced.
 
 - [ ] **Step 4: Implement the edge hook in `memo_cmd.py`:**
   - Build a local `history: list[CostEntry] = []` at the start of the command function (local — no module global).
-  - At each LLM leg, **immediately** after `call_chat` returns the `ChatResponse resp` (before any downstream processing, so a later failure can't lose an already-billed call — Q4), append via the pure helper:
+  - **Architectural note (accepted adaptation):** `run_memo` calls `run_memo_pipeline()` which internally calls `synthesize_memo`/`audit_memo`. The command edge cannot intercept individual `call_chat` returns directly. The correct approach is to expose both `ChatResponse` objects via `MemoOutput.synth_response` / `MemoOutput.audit_response` fields (added to `memo/pipeline.py`), then build `CostEntry` records from those after `run_memo_pipeline()` returns — before any further I/O. This preserves purity (no mutable sink threaded down) and satisfies the Q4 "both legs captured" intent on the success path. The original "immediately after call_chat" wording assumed the command called `synthesize_memo` directly; that assumption was stale.
+  - After `output = run_memo_pipeline(...)` succeeds, append from `output.synth_response` / `output.audit_response` (each may be `None` on partial failure):
     ```python
     from irc.llm.cost_tracker import CostEntry, append_cost
-    from datetime import datetime, timezone, timedelta
     _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
-    history = append_cost(history, CostEntry(
-        task=route.task, provider=route.provider, model=route.model,
-        prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,
-        latency_ms=resp.latency_ms, ts=_ts))
+    if output.synth_response is not None:
+        history = append_cost(history, CostEntry(
+            task=synth_route.task, provider=synth_route.provider, model=synth_route.model,
+            prompt_tokens=output.synth_response.prompt_tokens,
+            completion_tokens=output.synth_response.completion_tokens,
+            latency_ms=getattr(output.synth_response, "latency_ms", 0), ts=_ts))
+    if output.audit_response is not None:
+        history = append_cost(history, CostEntry(...audit leg...))
     ```
   - Wrap the command body so recording fires on **both** success and failure (Q4) — `record_command_run` itself early-returns when nothing was spent, so the `finally` is safe even on an early error:
     ```python
