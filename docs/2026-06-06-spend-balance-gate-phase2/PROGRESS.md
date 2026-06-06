@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ 561a981 | ✅ f9a36e4 | ✅ #119 | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 5 rounds | ⏳ |
+| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ 561a981 | ✅ f9a36e4 | ✅ #119 | ✅ PASS | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 5 rounds | ✅ 33df8d3 |
 
 ## Notes
 
