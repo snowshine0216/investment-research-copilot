@@ -163,7 +163,7 @@ def run_narrative(
     from irc.spend.record_run import record_command_run
 
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
-    out = Path(out_dir) if out_dir else (root / "outputs" / _today() / "narrative")
+    out = Path(out_dir) if out_dir else (root / "outputs" / _today_date.isoformat() / "narrative")
     out.mkdir(parents=True, exist_ok=True)
     label = basket.display_name_cn or basket.narrative_id
     try:

@@ -803,7 +803,7 @@ def _run_memo_body(root: Path) -> int:
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     rc = 1
     try:
-        rc, history = _run_memo_body_inner(root)
+        rc, history = _run_memo_body_inner(root, _today_date)
         return rc
     finally:
         try:
@@ -814,16 +814,15 @@ def _run_memo_body(root: Path) -> int:
             _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
 
 
-def _run_memo_body_inner(root: Path) -> tuple[int, list]:
+def _run_memo_body_inner(root: Path, _today_date) -> tuple[int, list]:
     from irc.llm.cost_tracker import CostEntry, append_cost
-    from datetime import datetime, timezone, timedelta
     history: list[CostEntry] = []
     if not require_fresh_ingest(root, stage="memo"):
         print("ERROR: memo stage halted — ingest is stale. "
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
         return 1, history
     bundle = load_repo_configs(root)
-    today = _today()
+    today = _today_date.isoformat()
 
     scoring_path = root / "outputs" / today / "scoring.json"
     if not scoring_path.exists():

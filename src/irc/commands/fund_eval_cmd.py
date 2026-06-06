@@ -127,7 +127,7 @@ def run_eval_funds(
     try:
         evals = evaluate_funds(items)
         base_out = Path(out_path) if out_path else (
-            root / "outputs" / _today() / "fund_eval.md"
+            root / "outputs" / _today_date.isoformat() / "fund_eval.md"
         )
         md_path = base_out.with_suffix(".md")
         json_path = base_out.with_suffix(".json")

@@ -37,7 +37,8 @@ def run_score(repo_root: str) -> int:  # noqa: PLR0912 (complexity driven by DB 
     from irc.spend.record_run import record_command_run
     root = Path(repo_root)
     bundle = load_repo_configs(root)
-    today = _today()
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
+    today = _today_date.isoformat()
 
     watchlist_path = root / "outputs" / today / "discovered_watchlist.csv"
     if not watchlist_path.exists():
@@ -76,7 +77,6 @@ def run_score(repo_root: str) -> int:  # noqa: PLR0912 (complexity driven by DB 
     populated = sum(1 for v in news_summaries.values() if v)
     print(f"news coverage: {populated}/{len(news_summaries)} instruments")
 
-    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     history: list[CostEntry] = []
     try:
         out, llm_responses = run_scoring(

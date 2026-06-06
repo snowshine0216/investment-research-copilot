@@ -60,7 +60,7 @@ def run_ask(repo_root: str, question: str) -> int:
     root = Path(repo_root)
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     bundle = load_repo_configs(root)
-    out_dir = root / "outputs" / _today()
+    out_dir = root / "outputs" / _today_date.isoformat()
     context = _load_context(out_dir)
     route = resolve_route("interactive_query", bundle.llm)
     parsed = parse_query(question)

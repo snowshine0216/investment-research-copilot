@@ -1454,7 +1454,7 @@ def run_opportunity(
         return gate_rc
     root = Path(repo_root)
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
-    today = _today()
+    today = _today_date.isoformat()
     # Validate CLI args before touching any I/O (exits with code 2 if invalid).
     validate_cli_args(
         output_dir=output_dir,
