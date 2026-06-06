@@ -158,36 +158,48 @@ def run_narrative(
     gate_rc = preflight_gate(repo_root, "narrative")
     if gate_rc != 0:
         return gate_rc
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.spend.record_run import record_command_run
+
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     out = Path(out_dir) if out_dir else (root / "outputs" / _today() / "narrative")
     out.mkdir(parents=True, exist_ok=True)
     label = basket.display_name_cn or basket.narrative_id
-    shortlist, excluded = _screen(
-        basket, _enumerate_cn_funds(root), root / "data" / "narrative_holdings",
-    )
-    _write_screen(out, name, label, shortlist, excluded)
-    if analyze:
+    try:
+        shortlist, excluded = _screen(
+            basket, _enumerate_cn_funds(root), root / "data" / "narrative_holdings",
+        )
+        _write_screen(out, name, label, shortlist, excluded)
+        if analyze:
+            try:
+                reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
+            except FetchBudgetExceeded as exc:
+                print(
+                    f"ERROR: fetch budget exceeded ({exc}). "
+                    f"Raise IRC_FETCH_BUDGET or set IRC_NARRATIVE_AUTOBUILD=0 to skip the "
+                    f"snapshot autobuild (active + passive funds). Shortlist written to {out}.",
+                    file=sys.stderr,
+                )
+                return 3
+            if reports is None:
+                print(
+                    f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "
+                    f"snapshot quarter under data/fundamentals/. Active-fund snapshots are "
+                    f"auto-built during a successful --analyze (set IRC_NARRATIVE_AUTOBUILD=0 "
+                    f"to disable); if none exist yet, run `irc opportunity` once or re-run "
+                    f"--analyze online. Shortlist written to {out}.",
+                    file=sys.stderr,
+                )
+                return 2
+            atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports, name=name))
+            atomic_write_text(out / f"{name}_report.json", render_report_json(label, reports))
+        print(f"narrative {name} OK: {len(shortlist)} shortlisted, "
+              f"{len(excluded)} excluded -> {out}")
+        return 0
+    finally:
         try:
-            reports = _run_analyze(root, shortlist, db_path=db_path, quarter=quarter, role=role)
-        except FetchBudgetExceeded as exc:
-            print(
-                f"ERROR: fetch budget exceeded ({exc}). "
-                f"Raise IRC_FETCH_BUDGET or set IRC_NARRATIVE_AUTOBUILD=0 to skip the "
-                f"snapshot autobuild (active + passive funds). Shortlist written to {out}.",
-                file=sys.stderr,
-            )
-            return 3
-        if reports is None:
-            print(
-                f"ERROR: --analyze needs data/local.duckdb (run `irc ingest`) and a "
-                f"snapshot quarter under data/fundamentals/. Active-fund snapshots are "
-                f"auto-built during a successful --analyze (set IRC_NARRATIVE_AUTOBUILD=0 "
-                f"to disable); if none exist yet, run `irc opportunity` once or re-run "
-                f"--analyze online. Shortlist written to {out}.",
-                file=sys.stderr,
-            )
-            return 2
-        atomic_write_text(out / f"{name}_report.md", render_report_md(label, reports, name=name))
-        atomic_write_text(out / f"{name}_report.json", render_report_json(label, reports))
-    print(f"narrative {name} OK: {len(shortlist)} shortlisted, "
-          f"{len(excluded)} excluded -> {out}")
-    return 0
+            # narrative makes no paid LLM calls; record with empty history (no-op guard in record_command_run)
+            record_command_run(repo_root=root, history=[], search_units={}, today=_today_date)
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
