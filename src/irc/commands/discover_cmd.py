@@ -111,14 +111,9 @@ def run_discover(repo_root: str) -> int:
     import logging as _logging
     from datetime import datetime, timezone, timedelta
     from irc.spend.record_run import record_command_run
-    from irc.commands.spend_cmd import preflight_gate
 
     root = Path(repo_root)
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
-
-    gate_rc = preflight_gate(str(root), "run", stages=("discover",))
-    if gate_rc != 0:
-        return gate_rc
 
     bundle = load_repo_configs(root)
     db_path = root / "data" / "local.duckdb"

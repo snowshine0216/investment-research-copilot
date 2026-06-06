@@ -57,14 +57,9 @@ def run_research(repo_root: str, themes: tuple[str, ...] | None = None) -> int:
     import logging as _logging
     from datetime import datetime, timezone, timedelta
     from irc.spend.record_run import record_command_run
-    from irc.commands.spend_cmd import preflight_gate
 
     root = Path(repo_root)
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
-
-    gate_rc = preflight_gate(str(root), "run", stages=("research",))
-    if gate_rc != 0:
-        return gate_rc
 
     load_dotenv(root / ".env")
     settings = Settings()
@@ -80,8 +75,9 @@ def run_research(repo_root: str, themes: tuple[str, ...] | None = None) -> int:
     route = resolve_route("research_synth", bundle.llm)
     holdings_keywords = _derive_holdings_keywords(bundle)
     cost_entries: list = []
+    search_units: dict = {}
     try:
-        rc, cost_entries = run_research_pipeline(
+        rc, cost_entries, search_units = run_research_pipeline(
             repo_root=root,
             themes=themes if themes is not None else _DEFAULT_THEMES,
             providers=providers,
@@ -93,7 +89,8 @@ def run_research(repo_root: str, themes: tuple[str, ...] | None = None) -> int:
     finally:
         try:
             record_command_run(
-                repo_root=root, history=cost_entries, search_units={}, today=_today_date,
+                repo_root=root, history=cost_entries, search_units=search_units,
+                today=_today_date,
             )
         except Exception:
             _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
