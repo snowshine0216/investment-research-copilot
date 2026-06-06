@@ -1,6 +1,6 @@
 from pathlib import Path
 from irc.spend.config import load_pricing
-from irc.spend.profile import fold_actuals, seed_profile
+from irc.spend.profile import effective_profile, fold_actuals, seed_profile
 from irc.spend.types import TaskActual, TaskUsage, UsageProfile
 
 REPO = Path(__file__).resolve().parents[2]
@@ -42,3 +42,20 @@ def test_fold_leaves_untouched_tasks_unchanged():
     folded = fold_actuals(profile, {
         "memo_synthesis": TaskActual("memo_synthesis", 1.0, 1000.0, 500.0)})
     assert folded.tasks["memo_audit"] == profile.tasks["memo_audit"]  # disjoint task untouched
+
+
+def test_effective_profile_uses_learned_where_samples_positive_else_seed():
+    seed = UsageProfile(tasks={
+        "memo_synthesis": TaskUsage("memo_synthesis", 4.0, 4000.0, 2000.0, samples=0),
+        "memo_audit": TaskUsage("memo_audit", 2.0, 1000.0, 300.0, samples=0),
+    }, alpha=0.3)
+    learned_raw = {  # what usage_profile.json deserialises to
+        "memo_synthesis": {"avg_calls_per_run": 1.0, "avg_prompt_tokens": 1100.0,
+                           "avg_completion_tokens": 520.0, "samples": 3},
+        "memo_audit": {"avg_calls_per_run": 0.0, "avg_prompt_tokens": 0.0,
+                       "avg_completion_tokens": 0.0, "samples": 0},  # zeroed → ignore
+    }
+    blended = effective_profile(seed, learned_raw)
+    assert blended.tasks["memo_synthesis"].avg_prompt_tokens == 1100.0     # learned
+    assert blended.tasks["memo_synthesis"].samples == 3
+    assert blended.tasks["memo_audit"] == seed.tasks["memo_audit"]          # seed fallback

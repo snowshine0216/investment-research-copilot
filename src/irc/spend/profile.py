@@ -30,6 +30,25 @@ def fold_actuals(
     return UsageProfile(tasks=tasks, alpha=a)
 
 
+def effective_profile(
+    seed: UsageProfile, learned_raw: Mapping[str, Mapping[str, float]],
+) -> UsageProfile:
+    """Pure: overlay learned entries (samples>0) onto the seed profile; seed
+    fallback where a task is absent or has samples==0 (§5.3/§5.4)."""
+    tasks = dict(seed.tasks)
+    for task, row in learned_raw.items():
+        if task not in tasks or int(row.get("samples", 0)) <= 0:
+            continue
+        tasks[task] = TaskUsage(
+            task=task,
+            avg_calls_per_run=float(row["avg_calls_per_run"]),
+            avg_prompt_tokens=float(row["avg_prompt_tokens"]),
+            avg_completion_tokens=float(row["avg_completion_tokens"]),
+            samples=int(row["samples"]),
+        )
+    return UsageProfile(tasks=tasks, alpha=seed.alpha)
+
+
 def seed_profile(pricing: SpendPricingConfig, *, alpha: float = 0.3) -> UsageProfile:
     """Build a cold (unlearned) profile from the seed table. Phase 1 uses this
     directly; Phase 2 will overlay learned EWMA values where samples > 0."""
