@@ -1,5 +1,62 @@
 # Handoff Document
-*Last updated: 2026-05-19 CST (post-autodev-loop, memo-audit cleanup)*
+*Last updated: 2026-06-06 CST (Phase A broad-index grounding shipped via autodev + merged to main alongside Phase B)*
+
+---
+
+## Session: Jun 5–6 — Phase A broad-index PE-TTM valuation grounding (autodev) → merged to main
+
+### Goal
+Execute `docs/superpowers/specs/2026-06-05-phase-a-broad-index-grounding-design.md` end-to-end via `/autodev` (spec mode, N=1): move the curated broad-index ETFs (+ legit generated index funds) off the NAV self-history percentile and onto the legulegu **PE-TTM** (`滚动市盈率`) historical percentile, populating the already-wired `valuation_percentile_fundamental` slot. Then resolve conflicts against `main` (which had gained **Phase B B1**) and land on `main`.
+
+### What landed (now on `main`)
+- **PR #116** (squash `27c2a42`) — Phase A item 001 into the feature branch. Decisions D1–D8: PE reads `滚动市盈率` only (never `静态市盈率`); production fetch resolves symbols from a live-confirmed **4-symbol allowlist** `{csi300,csi500,csi1000,sse50}` with a probe-only `_SPECULATIVE_LEGULEGU_SYMBOL` map; distinct `chinext`/`chinext50` slugs; `161721`/`003318` seed overrides strip a mis-tagged broad `tracked_index`; per-key `replace_keys=True` full-replace that self-migrates stale static-PE rows.
+- **PR #117** (squash **`991d1e6`**) — roll-up feature branch → **`main`**, merged with `--admin` (user-authorized). Main now carries **Phase A + Phase B B1 (activation OFF) + Phase D (live)**.
+- Files: `src/irc/fundamentals/akshare_index_valuation.py`, `src/irc/data/index_valuation_ingestor.py`, `src/irc/commands/ingest_cmd.py`, `src/irc/opportunity/lookthrough.py`, `config/universe/cn_funds.yaml` (+ template), `src/irc/fundamentals/snapshot.py` (`_TARGET_REGISTRY` +创业板指/创业板50/中证红利低波), docs (CONTEXT/CHANGELOG/ROADMAP), and the gate-#5 diff helper `docs/2026-06-05-phase-a-broad-grounding/build_diff.py`.
+
+### Conflict resolution against `main` (Phase B B1, `a5e0c16`) — preserved BOTH feature sets
+Phase B B1 refactored the sector maps into a single source-of-truth catalog `src/irc/opportunity/sector_indices.py` (17 slugs) and touched the same modules/docs/tests. Resolution (merge commit `820b86f`, squashed into `991d1e6`):
+- **`lookthrough._INDEX_NAME_TO_SLUG`** now inverts **broad** (Phase A) **and** the catalog `SECTOR_NAME_TO_SLUG` incl. aliases (Phase B) — this was the load-bearing merge point. `_SECTOR_INDEX_*` bind from the catalog (Phase B); broad/sector names do not collide.
+- **`akshare_index_valuation.py`** — dropped the now-unused `_BROAD_INDEX_DISPLAY` import (Phase A removed `_INDEX_PE_PB_NAME`), kept the `SECTOR_INDEX_CODE` import (Phase B). No circular import.
+- **`test_lookthrough_sector_keys.py`** — kept Phase A's `test_index_name_to_slug_includes_broad_names` (broad ARE inverted); dropped Phase B's `excludes_broad_names` (it encoded the pre-Phase-A state Phase A intentionally changes).
+- **CHANGELOG/ROADMAP** — both phases' entries kept; ROADMAP status reconciled (A ✅ done, B B1 onboarded), and stale "do Phase A next" guidance updated to point at Phase 0 / Phase B B2.
+
+### Current state
+- **Merge resolution verified:** `ruff` clean on all merged files; an import+inversion smoke confirms broad inversion (`沪深300→csi300`, `chinext50`) AND sector inversion (`中证机器人→csi_robotics`, `中证有色`/`中证机床zz` aliases), 17 sector codes, no circular import; **78 fast pure-logic unit tests green (0.95s)** across the 3 merged source files + Phase B sector gate/audit.
+- Phase A item-001 was independently green pre-merge: touched-surface suite **148 passed / 5 skipped** (live double-gated), invariants 145/145.
+- `VERSION` held at **0.9.3** (no bump — accumulate under CHANGELOG `[Unreleased]`); **no ADR 0012 addendum**.
+- Repo-wide `ruff check src tests` reports **122 pre-existing errors** (identical on `main` before this work — a known baseline, NOT introduced here). The full `uv run pytest` is ~18–27 min and not green on `main` (known pre-existing failures + a flaky e2e research gate) — diff-check scope before treating any failure as a regression.
+
+### Operator follow-ups (Phase A live gates — need network/cache/LLM; NOT run in the autonomous loop)
+1. **Gate #4 (live confirmation):** `IRC_RUN_LIVE_AKSHARE=1 uv run pytest -m live_akshare tests/fundamentals/test_index_valuation_live.py -v -s` — hard-asserts csi300/csi500/csi1000/sse50 return numeric rolling PE+PB; the informational sweep now probes legulegu *directly* and prints a speculative-symbol landing table (graduation candidates).
+2. **Gate #3 (measured coverage ≥9):** `uv run irc run --from ingest` (network) then count grounded broad funds (expect csi300×4/csi500×2/csi1000×2/sse50×1; verify `161721`/`003318` are NOT in the grounded set).
+3. **Gate #5 (before/after artifact):** generate `docs/2026-06-05-phase-a-broad-grounding/before-after.md` via the committed `build_diff.py` (two `irc opportunity` runs, baseline vs Phase A; see the PENDING-LIVE placeholder for exact commands). Eyeball state flips + the newly-firing divergence advisory.
+
+### What Worked
+- **Ship-time review caught a real latent bug.** `/ship` steps 8+9 (3 parallel reviewers) found that a PE-less legulegu frame (PB present, `滚动市盈率` absent) would wipe/overwrite good cached PE rows under `replace_keys=True` — worse than first scoped because `index_valuation_history` has `PRIMARY KEY (index_key, date)`, so `INSERT OR REPLACE` alone corrupts overlapping dates. Fixed pre-push (`39dbf7f`) with a TDD regression test, scoped strictly to replace mode (guard: `if replace_keys and not any(p.pe_ttm is not None for p in hist.rows): continue`).
+- **An import+inversion smoke as the merge's correctness gate** — proved both feature sets' maps survived the `_INDEX_NAME_TO_SLUG` merge in <1s, far faster than waiting on the 18-min suite.
+
+### What Didn't Work
+- **The full touched-surface suite is slow (~27 min)** and was killed mid-run when landing on main; the fast pure-logic subset (0.95s) + ruff + smoke gave the same confidence for the merged logic. Use targeted runs during development; the slow files are the DuckDB-seeding / real-config-load ones (`test_inputs_loader`, `test_config_loader`, `test_ingest_cmd`).
+- **Phase B merged to `main` mid-flight**, so the roll-up PR needed a real conflict resolution. The phases are complementary (broad vs sector) and the single-source-of-truth catalog made the sector side clean to rebind.
+
+### Next Steps (continuing on `main`)
+1. Run the **Phase A operator gates #3/#4/#5** above (network/cache/LLM) to confirm measured coverage and produce the sign-off diff artifact.
+2. **Phase 0** (gold/bond-misclass correctness) is the cheapest remaining independent win — single-spec `autodev`-able with the output-review step as a hard human gate (ROADMAP §6).
+3. **Phase B B2 (activation)** unlocks after ~6 months of csindex forward accumulation — track maturity via `data/index_valuation_ingestor.py::audit_sector_ingest`; resolve the flagged sector codes first (`sse_star_chip` 000685 absent from `index_csindex_all`; `csi_resource` 000819 display≠official). Then a small `valuation_buckets.yaml` `activated_slugs` edit + gate-#5 diff review.
+4. **Phase C (foreign US/HK)** still needs the source-selection decision (Tushare `index_global` vs other; HK TBD) before it can be planned.
+5. **Phase-D follow-up:** several index/`指数增强`/`LOF` products without a `tracked_index` still route through the look-through — add their mappings so they ride the cleaner index path.
+
+### Key Files & Locations
+| File | What it is |
+| :--- | :--- |
+| `docs/2026-06-05-phase-a-index-grounding/` | Autodev run audit trail: MASTER-SPEC/PLAN/PROGRESS + `items/001-{spec,plan,drift,review,ship,verify,pr-review}.md` |
+| `docs/superpowers/specs/2026-06-05-phase-a-broad-index-grounding-design.md` | The Phase A design spec (decisions D1–D8) |
+| `src/irc/fundamentals/akshare_index_valuation.py` | `_LEGULEGU_INDEX_SYMBOL` allowlist + `_SPECULATIVE_LEGULEGU_SYMBOL`; rolling-PE/PB columns; `_fetch_frame` now logs failures |
+| `src/irc/data/index_valuation_ingestor.py` | `replace_keys` per-key full-replace + the PE-less-frame guard; Phase B's `audit_sector_ingest` |
+| `src/irc/opportunity/lookthrough.py` | `_INDEX_NAME_TO_SLUG` (broad + sector-catalog inversion); `_BROAD_INDEX_DISPLAY` incl. `chinext50` |
+| `src/irc/opportunity/sector_indices.py` | (Phase B) single-source-of-truth sector catalog (17 slugs) |
+| `docs/2026-06-05-phase-a-broad-grounding/build_diff.py` | Gate-#5 before/after diff helper (run to produce `before-after.md`) |
+| `docs/ROADMAP.md` | Valuation-anchor coverage roadmap — status: D live, A done, B B1 onboarded |
 
 ---
 
