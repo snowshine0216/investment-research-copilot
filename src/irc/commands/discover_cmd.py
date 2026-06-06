@@ -108,7 +108,18 @@ def _fetch_metadata_metrics(con) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def run_discover(repo_root: str) -> int:
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.spend.record_run import record_command_run
+    from irc.commands.spend_cmd import preflight_gate
+
     root = Path(repo_root)
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
+
+    gate_rc = preflight_gate(str(root), "run", stages=("discover",))
+    if gate_rc != 0:
+        return gate_rc
+
     bundle = load_repo_configs(root)
     db_path = root / "data" / "local.duckdb"
 
@@ -127,28 +138,38 @@ def run_discover(repo_root: str) -> int:
         bundle.universe_gold,
     )
     route = resolve_route("watchlist_reason", bundle.llm)
-    result = run_discovery_with_diagnostics(
-        universe=universe,
-        metadata=metadata,
-        metrics=metrics,
-        risk_band_max_dd_upper=bundle.preferences.risk_band.max_drawdown[1],
-        cfg_overrides=bundle.overrides,
-        cfg_discovery=bundle.discovery,
-        route=route,
-        peer_summary="See universe peers in same role bucket.",
-        macro_snapshot="See macro_series in DuckDB.",
-        raw_ref_pool=ref_pool,
-        excluded_themes=tuple(bundle.preferences.constraints.exclude_themes),
-    )
-    out_dir = root / "outputs" / _now_iso_date()
-    out_dir.mkdir(parents=True, exist_ok=True)
-    watchlist_path = out_dir / "discovered_watchlist.csv"
-    diagnostics_path = out_dir / "discovery_diagnostics.csv"
-    rejections_path = out_dir / "discovery_rejections.csv"
-    atomic_write_text(watchlist_path, result.watchlist.to_csv(index=False))
-    atomic_write_text(diagnostics_path, result.diagnostics.to_csv(index=False))
-    atomic_write_text(rejections_path, result.rejections.to_csv(index=False))
-    print(f"discover OK: {len(result.watchlist)} candidates → {watchlist_path}")
-    print(f"diagnostics OK: {len(result.diagnostics)} rows → {diagnostics_path}")
-    print(f"rejections OK: {len(result.rejections)} rows → {rejections_path}")
-    return 0
+    cost_entries: list = []
+    try:
+        result = run_discovery_with_diagnostics(
+            universe=universe,
+            metadata=metadata,
+            metrics=metrics,
+            risk_band_max_dd_upper=bundle.preferences.risk_band.max_drawdown[1],
+            cfg_overrides=bundle.overrides,
+            cfg_discovery=bundle.discovery,
+            route=route,
+            peer_summary="See universe peers in same role bucket.",
+            macro_snapshot="See macro_series in DuckDB.",
+            raw_ref_pool=ref_pool,
+            excluded_themes=tuple(bundle.preferences.constraints.exclude_themes),
+        )
+        cost_entries = result.cost_entries
+        out_dir = root / "outputs" / _now_iso_date()
+        out_dir.mkdir(parents=True, exist_ok=True)
+        watchlist_path = out_dir / "discovered_watchlist.csv"
+        diagnostics_path = out_dir / "discovery_diagnostics.csv"
+        rejections_path = out_dir / "discovery_rejections.csv"
+        atomic_write_text(watchlist_path, result.watchlist.to_csv(index=False))
+        atomic_write_text(diagnostics_path, result.diagnostics.to_csv(index=False))
+        atomic_write_text(rejections_path, result.rejections.to_csv(index=False))
+        print(f"discover OK: {len(result.watchlist)} candidates → {watchlist_path}")
+        print(f"diagnostics OK: {len(result.diagnostics)} rows → {diagnostics_path}")
+        print(f"rejections OK: {len(result.rejections)} rows → {rejections_path}")
+        return 0
+    finally:
+        try:
+            record_command_run(
+                repo_root=root, history=cost_entries, search_units={}, today=_today_date,
+            )
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
