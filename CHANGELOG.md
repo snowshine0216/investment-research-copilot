@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Spend / balance gate Phase 2: usage-as-data convergence (2026-06-06)
+
+- **The spend gate now learns.** Each gated command records its actual paid-API usage
+  (LLM tokens per `llm.yaml` task + search units per provider) and folds it into a rolling
+  EWMA usage profile (`data/spend/usage_profile.json`, α = 0.3), so the next estimate
+  converges on reality; it also auto-decrements the local ledger (`data/spend/consumption.json`)
+  and writes estimated-vs-actual artifacts (`outputs/<date>/spend_estimate.json` at `irc run`
+  preflight, `outputs/<date>/spend_actuals.json` accumulating across commands in a day).
+  Honours ADR 0013 (usage rides home **as data**): pure cores (`spend/recorder.py`,
+  `spend/estimate_io.py`, `fold_actuals`/`effective_profile`, `ledger.apply_usage`) take no
+  recorder param and mutate nothing; the `record_command_run` edge does all I/O. Wallet-vs-quota
+  is derived from `spend_balances.yaml` (writer/reader can't drift). Recording is hands-off,
+  fires on success and failure (`finally`), is non-fatal (WARNING-logged), and no-ops when a
+  command made no paid calls. Wired into every paid runner: `memo`, `ask`, `score`, `discover`,
+  `research` (the search-unit ledger leg), `opportunity`, plus standalone `eval-funds` /
+  `narrative --analyze`. `irc run` needs no change — it records each sub-runner's slice.
+  README "Spend / balance gate" §13 expanded. Convergence is proven deterministically with
+  injected actuals (no real spend). Known limitation: the JSON state read-modify-write assumes
+  sequential invocation (`irc run` is sequential); concurrent same-day commands can lose an
+  update, which self-heals on the next run.
+
 ### Added — Phase A broad-index PE-TTM grounding (2026-06-05)
 
 - **Phase A — broad-index PE-TTM grounding.** The curated broad-index ETFs (+ legit

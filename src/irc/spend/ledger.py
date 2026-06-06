@@ -44,6 +44,24 @@ def _quota_reading(
     return BalanceReading(provider, currency="", amount=amount, available=amount > 0, source="ledger")
 
 
+def apply_usage(
+    consumption: dict[str, Any], provider: str, *, units: float, kind: str, today: date,
+) -> dict[str, Any]:
+    """Pure: add `units` to a provider's machine-counted consumption, returning a
+    NEW dict (input untouched). kind='wallet' → consumed_since (+ since stamp on
+    first write); kind='quota' → consumed_this_period (+ period_start stamp)."""
+    out = {p: dict(row) for p, row in consumption.items()}
+    row = dict(out.get(provider, {}))
+    if kind == "quota":
+        row["consumed_this_period"] = float(row.get("consumed_this_period", 0.0)) + float(units)
+        row.setdefault("period_start", today.isoformat())
+    else:
+        row["consumed_since"] = float(row.get("consumed_since", 0.0)) + float(units)
+        row.setdefault("since", today.isoformat())
+    out[provider] = row
+    return out
+
+
 def effective_balance(
     provider: str,
     entry: SpendBalanceEntry,

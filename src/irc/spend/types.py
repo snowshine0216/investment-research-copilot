@@ -1,6 +1,6 @@
 from __future__ import annotations
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Mapping
 
 
 @dataclass(frozen=True)
@@ -49,3 +49,19 @@ class GateDecision:
     blocked: tuple[ProviderVerdict, ...]
     warnings: tuple[ProviderVerdict, ...]
     ok: tuple[ProviderVerdict, ...]
+
+
+@dataclass(frozen=True)
+class TaskActual:
+    """One run's observed usage for a single llm.yaml task (means per call)."""
+    task: str
+    calls: float
+    avg_prompt_tokens: float
+    avg_completion_tokens: float
+
+
+@dataclass(frozen=True)
+class RunActuals:
+    """A gated command's measured paid usage: LLM per task + search units per provider."""
+    tasks: Mapping[str, TaskActual]
+    search_units: Mapping[str, int]

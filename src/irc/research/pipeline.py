@@ -1,8 +1,10 @@
 from __future__ import annotations
 import logging
 from pathlib import Path
+from typing import Any
 
 from irc.llm._types import ResolvedRoute
+from irc.llm.cost_tracker import CostEntry, append_cost
 from irc.research.quality_gate import evaluate_research_quality
 from irc.research.search.types import ContentExtractor, SearchProvider
 from irc.research.persistence import write_research_outputs
@@ -19,9 +21,30 @@ def _print_summary(reports: list[ThemeReport]) -> None:
         f"(total {len(reports)})"
     )
     for r in failed:
-        print(f"  \u2717 {r.theme} [{r.locale}] \u2014 {r.failure_reason}")
+        print(f"  ✗ {r.theme} [{r.locale}] — {r.failure_reason}")
     for r in ok:
-        print(f"  \u2713 {r.theme} [{r.locale}] \u2014 {len(r.citations)} citations")
+        print(f"  ✓ {r.theme} [{r.locale}] — {len(r.citations)} citations")
+
+
+def _cost_entries_from_responses(
+    responses: list[Any],
+    route: ResolvedRoute,
+) -> list[CostEntry]:
+    """Build CostEntry list from LLM responses collected during research (Shape B)."""
+    from datetime import datetime, timezone, timedelta
+    history: list[CostEntry] = []
+    _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
+    for resp in responses:
+        history = append_cost(history, CostEntry(
+            task=route.task,
+            provider=route.provider,
+            model=route.model,
+            prompt_tokens=resp.prompt_tokens,
+            completion_tokens=resp.completion_tokens,
+            latency_ms=getattr(resp, "latency_ms", 0),
+            ts=_ts,
+        ))
+    return history
 
 
 def run_research_pipeline(
@@ -32,13 +55,16 @@ def run_research_pipeline(
     extractor: ContentExtractor,
     route: ResolvedRoute,
     holdings_keywords: tuple[str, ...] = (),
-) -> int:
-    """Run all theme research; persist outputs; return rc per the quality gate.
+) -> tuple[int, list[CostEntry], dict[str, int]]:
+    """Run all theme research; persist outputs; return (rc, cost_entries, search_units).
 
-    0 = pass (or warn, run continues); 2 = fail (caller should halt).
+    rc: 0 = pass (or warn, run continues); 2 = fail (caller should halt).
+    cost_entries: one CostEntry per successful LLM synthesize call (Shape B).
+    search_units: dict[str, int] keyed by provider/extractor name — 1 unit per
+        provider.search() call + 1 unit per extractor.extract() call (ADR 0013).
     """
     out_dir = repo_root / "data" / "research"
-    reports = build_theme_reports(
+    reports, llm_responses, search_units = build_theme_reports(
         themes=themes, providers=providers, extractor=extractor, route=route,
         holdings_keywords=holdings_keywords,
     )
@@ -53,4 +79,5 @@ def run_research_pipeline(
             _log.error("research quality FAIL: %s", reason)
     if not verdict.passed:
         print("ERROR: research quality gate failed — see errors above for details")
-    return verdict.exit_code
+    cost_entries = _cost_entries_from_responses(llm_responses, route)
+    return verdict.exit_code, cost_entries, search_units

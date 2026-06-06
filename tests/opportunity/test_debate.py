@@ -51,36 +51,41 @@ def _debate(iid, name, state, args, conds):
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_parses_arguments(mock_chat):
     mock_chat.return_value = MagicMock(text='{"arguments": ["盈利持续", "估值合理"]}')
-    out = run_defend(_row(), route=MagicMock())
+    out, resp = run_defend(_row(), route=MagicMock())
     assert isinstance(out, DefenseResult)
     assert out.arguments == ("盈利持续", "估值合理")
+    assert resp is not None
 
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_invalid_json_returns_empty(mock_chat):
     mock_chat.return_value = MagicMock(text="not json")
-    assert run_defend(_row(), route=MagicMock()).arguments == ()
+    result, resp = run_defend(_row(), route=MagicMock())
+    assert result.arguments == ()
 
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_raises_returns_empty(mock_chat):
     mock_chat.side_effect = RuntimeError("boom")
-    assert run_defend(_row(), route=MagicMock()).arguments == ()
+    result, resp = run_defend(_row(), route=MagicMock())
+    assert result.arguments == ()
+    assert resp is None
 
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_falsify_parses_conditions(mock_chat):
     mock_chat.return_value = MagicMock(text='{"conditions": ["盈利转负"]}')
-    out = run_falsify(_row(), route=MagicMock())
+    out, resp = run_falsify(_row(), route=MagicMock())
     assert isinstance(out, FalsificationResult)
     assert out.conditions == ("盈利转负",)
+    assert resp is not None
 
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_sanitizes_newlines_and_caps(mock_chat):
     long = "a" * 400
     mock_chat.return_value = MagicMock(text='{"arguments": ["line1\\nline2", "%s"]}' % long)
-    out = run_defend(_row(), route=MagicMock())
+    out, _ = run_defend(_row(), route=MagicMock())
     assert "\n" not in out.arguments[0]
     assert len(out.arguments[1]) == 300
 
@@ -89,7 +94,8 @@ def test_run_defend_sanitizes_newlines_and_caps(mock_chat):
 def test_run_defend_caps_item_count(mock_chat):
     items = ", ".join(['"x"'] * 20)
     mock_chat.return_value = MagicMock(text='{"arguments": [%s]}' % items)
-    assert len(run_defend(_row(), route=MagicMock()).arguments) <= 10
+    result, _ = run_defend(_row(), route=MagicMock())
+    assert len(result.arguments) <= 10
 
 
 # ── Task 3: pair_debate + run_debates orchestrator ───────────────────────────
@@ -108,13 +114,16 @@ def test_pair_debate_is_pure():
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_debates_calls_both_halves_per_row(mock_chat):
-    mock_chat.return_value = MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}')
+    mock_chat.return_value = MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}',
+                                        prompt_tokens=10, completion_tokens=5, latency_ms=0)
     rows = [_row(iid="R1"), _row(iid="R2")]
-    debates = run_debates(rows, routes=(MagicMock(), MagicMock()))
+    debates, cost_entries = run_debates(rows, routes=(MagicMock(), MagicMock()))
     # 2 rows × (defend + falsify) = 4 calls.
     assert mock_chat.call_count == 4
     assert len(debates) == 2
     assert {d.instrument_id for d in debates} == {"R1", "R2"}
+    # 4 successful calls → 4 cost entries
+    assert len(cost_entries) == 4
 
 
 @patch("irc.opportunity.debate.call_chat")
@@ -126,10 +135,11 @@ def test_run_debates_isolates_per_row_failure(mock_chat):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("row1 defend down")
-        return MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}')
+        return MagicMock(text='{"arguments": ["a"], "conditions": ["c"]}',
+                         prompt_tokens=10, completion_tokens=5, latency_ms=0)
 
     mock_chat.side_effect = _side
-    debates = run_debates([_row(iid="R1"), _row(iid="R2")], routes=(MagicMock(), MagicMock()))
+    debates, cost_entries = run_debates([_row(iid="R1"), _row(iid="R2")], routes=(MagicMock(), MagicMock()))
     assert len(debates) == 2
     # R1's defense degraded to empty, falsify still ran.
     r1 = next(d for d in debates if d.instrument_id == "R1")
@@ -178,8 +188,9 @@ def test_run_defend_logs_warning_on_exception(mock_chat, caplog):
     import logging
     mock_chat.side_effect = RuntimeError("auth 401")
     with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
-        result = run_defend(_row(iid="W1"), route=MagicMock())
+        result, resp = run_defend(_row(iid="W1"), route=MagicMock())
     assert result.arguments == ()
+    assert resp is None
     assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
@@ -188,8 +199,9 @@ def test_run_falsify_logs_warning_on_exception(mock_chat, caplog):
     import logging
     mock_chat.side_effect = ConnectionError("timeout")
     with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
-        result = run_falsify(_row(iid="W2"), route=MagicMock())
+        result, resp = run_falsify(_row(iid="W2"), route=MagicMock())
     assert result.conditions == ()
+    assert resp is None
     assert any(r.levelno == logging.WARNING for r in caplog.records)
 
 
@@ -199,10 +211,11 @@ def test_run_debates_logs_warning_when_all_empty(mock_chat, caplog):
     mock_chat.side_effect = RuntimeError("bad token")
     rows = [_row(iid="E1"), _row(iid="E2")]
     with caplog.at_level(logging.WARNING, logger="irc.opportunity.debate"):
-        debates = run_debates(rows, routes=(MagicMock(), MagicMock()))
+        debates, cost_entries = run_debates(rows, routes=(MagicMock(), MagicMock()))
     assert len(debates) == 2
     assert all(not d.defense.arguments and not d.falsification.conditions for d in debates)
     assert any(r.levelno == logging.WARNING for r in caplog.records)
+    assert cost_entries == []
 
 
 # ── FIX C: non-list arguments/conditions guarded ────────────────────────────
@@ -210,12 +223,12 @@ def test_run_debates_logs_warning_when_all_empty(mock_chat, caplog):
 @patch("irc.opportunity.debate.call_chat")
 def test_run_defend_string_arguments_returns_empty(mock_chat):
     mock_chat.return_value = MagicMock(text='{"arguments": "a string value"}')
-    result = run_defend(_row(), route=MagicMock())
+    result, _ = run_defend(_row(), route=MagicMock())
     assert result.arguments == ()
 
 
 @patch("irc.opportunity.debate.call_chat")
 def test_run_falsify_string_conditions_returns_empty(mock_chat):
     mock_chat.return_value = MagicMock(text='{"conditions": "should not iterate chars"}')
-    result = run_falsify(_row(), route=MagicMock())
+    result, _ = run_falsify(_row(), route=MagicMock())
     assert result.conditions == ()

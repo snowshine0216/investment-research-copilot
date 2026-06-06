@@ -354,20 +354,40 @@ Edit any of these and re-run `irc config validate`.
 A preflight gate estimates each run's paid-API spend per provider and **stops the run
 with exit code `5`** before any paid work if a provider's balance can't cover the
 estimate (× a safety margin). It runs automatically at the start of every paid command.
-
-> **Phase 1 (current):** a working gate driven by a deliberately-high **seeded** usage
-> profile and a **read-only** balance ledger. It does not learn yet and does not
-> decrement the ledger — those arrive in Phase 2 (recorder + EWMA convergence +
-> auto-decrement + estimated-vs-actual artifacts).
+After each run completes, the gate records actual usage, folds it into a rolling EWMA
+profile (`data/spend/usage_profile.json`), and decrements the local ledger — so
+estimates converge on reality run-by-run without any manual tuning.
 
 **Configuration (committed defaults you edit):**
 
 - `config/spend_pricing.yaml` — margin, per-model LLM prices, per-query/page search
-  prices, and per-task / per-provider usage seeds.
+  prices, and per-task / per-provider usage seeds. The `margin` multiplier (default 1.2)
+  adds a 20 % safety buffer; override with `IRC_SPEND_MARGIN=1.5 uv run irc run`.
 - `config/spend_balances.yaml` — your balance anchors. A **wallet** (`balance` + `as_of`)
-  or a **quota** (`quota` + `reset: monthly`). The machine only *reads* this file, so
-  edit it freely when you top up. DeepSeek/OpenRouter balances are read **live** by a
-  free, read-only probe, not from this file.
+  or a **quota** (`quota` + `reset: monthly`). The machine only *reads* this file to
+  anchor the starting balance; edit it freely when you top up a no-API provider.
+  DeepSeek/OpenRouter balances are read **live** by a free, read-only probe.
+
+**Artifacts written per run (§12.1):**
+
+| Artifact | Written by | Purpose |
+|---|---|---|
+| `outputs/<date>/spend_estimate.json` | `irc run` preflight | Per-provider estimated cost before the stage loop |
+| `outputs/<date>/spend_actuals.json` | each gated command | Actual tokens + search units used; accumulates across commands in a day |
+| `data/spend/usage_profile.json` | each gated command | Rolling EWMA profile; feeds the next estimate |
+| `data/spend/consumption.json` | each gated command | Auto-decremented search ledger (wallet / quota) |
+
+**Auto-convergence (§12.2):** After each gated command finishes (whether it succeeds or
+fails), the recorder appends actual LLM token counts to `spend_actuals.json`, folds them
+into `usage_profile.json` via EWMA (α = 0.3), and decrements the provider's balance in
+`consumption.json`. The next estimate is driven by the learned profile where samples > 0,
+falling back to the seed where samples = 0. No manual tuning needed — estimates converge
+automatically after a handful of runs.
+
+**Convergence scope:** Only LLM call estimates converge automatically. Search estimates
+(Tavily / Bocha / Jina / Brave) remain **seed-based** — retune `search_seeds` in
+`config/spend_pricing.yaml` by eye against `outputs/<date>/spend_actuals.json` if they
+drift. The search *balance* stays exact, decremented via the ledger after every run.
 
 **Commands:**
 
@@ -375,16 +395,18 @@ estimate (× a safety margin). It runs automatically at the start of every paid 
 uv run irc spend status                 # read-only effective ledger balances
 uv run irc config validate              # also validates the two spend configs
 IRC_SKIP_SPEND_GATE=1 uv run irc run    # bypass the gate (offline dev)
+IRC_SPEND_MARGIN=1.5 uv run irc run     # override the safety margin for this run
 IRC_RUN_LIVE_BALANCE=1 uv run pytest -m live_balance   # verify live balance probes (free, read-only)
 ```
 
-**Gated commands** (gate runs at entry; `run` gates before the stage loop):
-`run`, `opportunity`, `memo`, `decision`, `ask`, `eval-funds`, `narrative`.
+**Gated commands** (gate runs at entry; each records its slice of actuals on exit):
+`run`, `opportunity`, `memo`, `decision`, `ask`, `eval-funds`, `narrative --analyze`.
+`irc spend status` is read-only and never bills.
 
 When a run is blocked, the gate prints a per-provider table showing the estimate, the
 balance, and what's needed — top up, edit `config/spend_balances.yaml`, or set
 `IRC_SKIP_SPEND_GATE=1`. Raising headroom for a genuinely heavy run is a config edit,
-not a code change.
+not a code change. exit code 5 means insufficient balance.
 
 ## Opportunity and discipline layer
 

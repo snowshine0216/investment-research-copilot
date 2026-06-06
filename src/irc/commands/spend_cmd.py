@@ -36,6 +36,8 @@ def preflight_gate(
     *,
     stages: tuple[str, ...] | None = None,
     today: date | None = None,
+    out_dir: Path | None = None,
+    write_estimate: bool = False,
 ) -> int:
     """Run the spend gate for a command. Returns 0 to proceed, 5 to stop. Set
     IRC_SKIP_SPEND_GATE=1 to bypass (e.g. offline dev)."""
@@ -44,6 +46,7 @@ def preflight_gate(
     return run_preflight(
         repo_root, command, stages=stages,
         api_keys=collect_api_keys(), today=today or _china_today(),
+        out_dir=out_dir, write_estimate=write_estimate,
     )
 
 

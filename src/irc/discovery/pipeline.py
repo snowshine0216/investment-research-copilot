@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
@@ -13,6 +13,7 @@ from irc.discovery.reason_writer import WriteReasonContext, write_reason
 from irc.discovery.rejections import build_discovery_rejections
 from irc.discovery.role_bucket import bucket_by_role
 from irc.discovery.universe import UniverseRow
+from irc.llm.cost_tracker import CostEntry
 from irc.schemas.discovery import DiscoveryConfig
 from irc.schemas.inputs import RiskBand
 from irc.schemas.overrides import OverridesConfig
@@ -32,6 +33,7 @@ class DiscoveryRunResult:
     watchlist: pd.DataFrame
     diagnostics: pd.DataFrame
     rejections: pd.DataFrame
+    cost_entries: list[CostEntry] = field(default_factory=list)
 
 
 def _index_refs_by_instrument(
@@ -126,6 +128,7 @@ def run_discovery_with_diagnostics(
     raw_ref_pool: tuple[str, ...],
     excluded_themes: tuple[str, ...] = (),
 ) -> DiscoveryRunResult:
+    from datetime import datetime, timezone, timedelta
     cfg_d = cfg_discovery or _default_cfg()
     cfg_o = cfg_overrides or OverridesConfig()
     risk = RiskBand.model_validate({
@@ -141,6 +144,7 @@ def run_discovery_with_diagnostics(
     )
     refs_by_instrument = _index_refs_by_instrument(raw_ref_pool)
     rows: list[dict[str, Any]] = []
+    cost_entries: list[CostEntry] = []
     for role, items in bucketed.buckets.items():
         for r in items:
             ctx = WriteReasonContext(
@@ -152,6 +156,18 @@ def run_discovery_with_diagnostics(
             res = write_reason(r, ctx, route=route)
             if res is None:
                 continue
+            # Collect cost data from token counts carried in ReasonResult (Shape B)
+            if route is not None and hasattr(route, "task"):
+                _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
+                cost_entries.append(CostEntry(
+                    task=route.task,
+                    provider=route.provider,
+                    model=route.model,
+                    prompt_tokens=res.prompt_tokens,
+                    completion_tokens=res.completion_tokens,
+                    latency_ms=0,
+                    ts=_ts,
+                ))
             rows.append({
                 "instrument_id": r.instrument_id,
                 "ticker": r.ticker,
@@ -172,6 +188,7 @@ def run_discovery_with_diagnostics(
         watchlist=pd.DataFrame(rows, columns=list(_WATCHLIST_COLUMNS)),
         diagnostics=diagnostics,
         rejections=rejections,
+        cost_entries=cost_entries,
     )
 
 

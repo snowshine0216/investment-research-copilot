@@ -94,7 +94,7 @@ def test_build_one_theme_produces_one_report_with_citations():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="body [1]", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        out = build_theme_reports(
+        out, responses, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(en_provider,),
             extractor=extractor,
@@ -114,6 +114,8 @@ def test_build_one_theme_produces_one_report_with_citations():
         url="https://reuters.com/1",
         published_iso="2026-05-12",
     )
+    assert len(responses) == 1
+    assert responses[0].prompt_tokens == 1
 
 
 def test_build_routes_zh_theme_to_zh_provider():
@@ -127,7 +129,7 @@ def test_build_routes_zh_theme_to_zh_provider():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="zh body", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        out = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("cn_monetary",),
             providers=(en_provider, zh_provider),
             extractor=extractor,
@@ -141,7 +143,7 @@ def test_build_returns_failure_when_no_provider_for_locale():
     en_only = _FakeProvider(name="tavily", locale=Locale.EN, hits=())
     extractor = _FakeExtractor()
     with patch("irc.research.synthesize.call_chat") as m:
-        out = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("cn_monetary",),
             providers=(en_only,),
             extractor=extractor,
@@ -159,12 +161,12 @@ def test_build_records_synth_failure_per_theme_without_aborting_others():
     )
     extractor = _FakeExtractor(md_by_url={"https://reuters.com/1": "x"})
     # First theme: LLM raises. Second theme: succeeds. Both should appear in output.
-    responses = [
+    llm_responses = [
         RuntimeError("LLM down"),
         ChatResponse(text="ok", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ]
-    with patch("irc.research.synthesize.call_chat", side_effect=responses):
-        out = build_theme_reports(
+    with patch("irc.research.synthesize.call_chat", side_effect=llm_responses):
+        out, collected_responses, _units = build_theme_reports(
             themes=("us_monetary", "us_fiscal_politics"),
             providers=(en,),
             extractor=extractor,
@@ -174,13 +176,15 @@ def test_build_records_synth_failure_per_theme_without_aborting_others():
     assert "LLM down" in out[0].failure_reason
     assert out[1].failure_reason == ""
     assert out[1].report_md == "ok"
+    # Only the successful theme produced a ChatResponse
+    assert len(collected_responses) == 1
 
 
 def test_build_records_failure_when_search_returns_no_hits():
     en = _FakeProvider(name="tavily", locale=Locale.EN, hits=())
     extractor = _FakeExtractor()
     with patch("irc.research.synthesize.call_chat") as m:
-        out = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(en,),
             extractor=extractor,
@@ -200,7 +204,7 @@ def test_build_theme_reports_captures_provider_failures():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="body", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        reports = build_theme_reports(
+        reports, _, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(failing_provider, ok_provider),
             extractor=extractor,
@@ -255,7 +259,7 @@ def test_build_theme_reports_passes_freshness_per_theme(monkeypatch):
 
     monkeypatch.setattr(
         theme_research, "synthesize_report",
-        lambda **kw: type("R", (), {"report_md": "", "citations": [], "failure_reason": ""})(),
+        lambda **kw: (type("R", (), {"report_md": "", "citations": [], "failure_reason": ""})(), None),
     )
 
     provider = _RecordingProvider()
@@ -276,3 +280,74 @@ def test_build_theme_reports_passes_freshness_per_theme(monkeypatch):
     assert by_query.get(gold_query) == FRESHNESS_DAYS_BY_THEME["gold_drivers"], (
         f"gold_drivers freshness wrong, got: {by_query}"
     )
+
+
+# --- FIX 3: failed pages must not be billed as extractor units ---------------
+
+from irc.research.theme_research import _count_search_units  # noqa: E402
+
+
+def _ok_page(url: str) -> ExtractedPage:
+    return ExtractedPage(url=url, title=f"T-{url}", markdown="content",
+                         fetched_at_iso="2026-06-06T00:00:00Z")
+
+
+def _failed_page(url: str) -> ExtractedPage:
+    return ExtractedPage(url=url, title=f"T-{url}", markdown="",
+                         fetched_at_iso="2026-06-06T00:00:00Z",
+                         failure_reason="extractor raised: timeout")
+
+
+def _ok_result(provider: str) -> SearchResult:
+    return SearchResult(query="q", locale=Locale.EN, provider=provider)
+
+
+def _failed_result(provider: str) -> SearchResult:
+    return SearchResult(query="q", locale=Locale.EN, provider=provider,
+                        failure_reason="timeout")
+
+
+@dataclass
+class _NamedExtractor:
+    name: str = "jina"
+
+    def extract(self, url: str, *, timeout_s: int = 20) -> ExtractedPage:
+        return _ok_page(url)
+
+
+def test_count_search_units_excludes_failed_pages():
+    """Pages with failure_reason must not be billed as extractor units (FIX 3)."""
+    extractor = _NamedExtractor(name="jina")
+    pages = (
+        _ok_page("https://a.com"),
+        _failed_page("https://b.com"),
+        _failed_page("https://c.com"),
+        _ok_page("https://d.com"),
+    )
+    raw_results = (_ok_result("tavily"),)
+    counts = _count_search_units(raw_results, pages, extractor)
+    # only 2 of 4 pages succeeded → extractor billed 2, not 4
+    assert counts.get("jina") == 2
+    assert counts.get("tavily") == 1
+
+
+def test_count_search_units_all_pages_failed_no_extractor_entry():
+    """When all pages fail, extractor name must be absent from counts."""
+    extractor = _NamedExtractor(name="jina")
+    pages = (_failed_page("https://a.com"), _failed_page("https://b.com"))
+    raw_results = (_ok_result("tavily"),)
+    counts = _count_search_units(raw_results, pages, extractor)
+    assert "jina" not in counts
+
+
+def test_count_search_units_excludes_failed_provider_results():
+    """Failed provider results (failure_reason set) must not count as query units."""
+    extractor = _NamedExtractor(name="jina")
+    pages = ()
+    raw_results = (
+        _ok_result("tavily"),
+        _failed_result("brave"),
+    )
+    counts = _count_search_units(raw_results, pages, extractor)
+    assert counts.get("tavily") == 1
+    assert "brave" not in counts
