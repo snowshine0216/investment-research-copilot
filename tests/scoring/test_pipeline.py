@@ -26,7 +26,7 @@ def _scoring_cfg() -> ScoringConfig:
 
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_pipeline_produces_one_score_per_instrument(mock_macro) -> None:
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "VTI", "name_cn": "VTI", "asset_class": "us_etf",
         "role": "core_us_equity", "cited_refs": "r1", "tracked_index": "S&P 500",
@@ -38,7 +38,7 @@ def test_pipeline_produces_one_score_per_instrument(mock_macro) -> None:
         "aum_stability_pct": 0.05, "manager_tenure_years": 8,
         "holdings_concentration_top10": 0.25,
     }])
-    out = run_scoring(
+    out, responses = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -48,11 +48,12 @@ def test_pipeline_produces_one_score_per_instrument(mock_macro) -> None:
     assert out["scores"][0]["instrument_id"] == "VTI"
     assert "composite_score" in out["scores"][0]
     assert out["scores"][0]["missing_data"] == []
+    assert isinstance(responses, list)
 
 
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "VTI", "name_cn": "VTI", "asset_class": "us_etf",
         "role": "core_us_equity", "cited_refs": "r1", "tracked_index": "S&P 500",
@@ -64,7 +65,7 @@ def test_pipeline_treats_nan_metrics_as_missing(mock_macro) -> None:
         "aum_stability_pct": float("nan"), "manager_tenure_years": float("nan"),
         "holdings_concentration_top10": float("nan"),
     }])
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -89,7 +90,7 @@ def test_pipeline_gold_instrument_completeness_excludes_inapplicable_metrics(moc
     """A gold instrument with only the 4 core metrics present should score 1.0 completeness,
     because aum_stability_pct, holdings_concentration_top10, and downside_capture are
     not required for gold."""
-    mock_macro.return_value = MagicMock(score=60, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=60, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "518880", "name_cn": "黄金ETF", "asset_class": "gold",
         "role": "hedge", "cited_refs": "r1", "tracked_index": "gold_spot",
@@ -106,7 +107,7 @@ def test_pipeline_gold_instrument_completeness_excludes_inapplicable_metrics(moc
         "holdings_concentration_top10": float("nan"),
         "downside_capture": float("nan"),
     }])
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -120,26 +121,27 @@ def test_pipeline_gold_instrument_completeness_excludes_inapplicable_metrics(moc
 
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_pipeline_empty_watchlist_returns_empty_scores(mock_macro) -> None:
-    mock_macro.return_value = MagicMock(score=50, raw_refs=(), components={})
+    mock_macro.return_value = (MagicMock(score=50, raw_refs=(), components={}), None)
     watchlist = pd.DataFrame(columns=[
         "instrument_id", "name_cn", "asset_class", "role", "cited_refs", "tracked_index",
     ])
-    out = run_scoring(
+    out, responses = run_scoring(
         watchlist=watchlist, metrics=pd.DataFrame(), news_summaries={},
         regime_summary="neutral", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
     )
     assert out == {"scores": []}
+    assert responses == []
 
 
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_pipeline_instrument_missing_from_metrics_uses_defaults(mock_macro) -> None:
-    mock_macro.return_value = MagicMock(score=50, raw_refs=(), components={})
+    mock_macro.return_value = (MagicMock(score=50, raw_refs=(), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "GHOST", "name_cn": "Ghost ETF", "asset_class": "us_etf",
         "role": "core_us_equity", "cited_refs": None, "tracked_index": "S&P 500",
     }])
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=pd.DataFrame(), news_summaries={},
         regime_summary="neutral", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -206,7 +208,7 @@ def test_run_scoring_with_non_empty_news_summaries_differentiates_thesis_news():
     repo_root = Path(__file__).resolve().parents[2]
     bundle = load_repo_configs(repo_root)
 
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist,
         metrics=metrics,
         news_summaries=news_summaries,

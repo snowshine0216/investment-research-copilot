@@ -7,6 +7,7 @@ from typing import Any
 
 import pandas as pd
 
+from irc.llm._types import ChatResponse
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
 from irc.decision.completeness import (
@@ -50,8 +51,13 @@ def run_scoring(
     route: Any,
     cfg_scoring: ScoringConfig,
     qdii_premium_resolver: Callable[[str, str, str], float | None] | None = None,
-) -> dict[str, list[dict[str, Any]]]:
-    """End-to-end scoring for each instrument in the watchlist."""
+) -> tuple[dict[str, list[dict[str, Any]]], list[ChatResponse]]:
+    """End-to-end scoring for each instrument in the watchlist.
+
+    Returns (result_dict, llm_responses) where llm_responses holds the ChatResponse
+    from each macro_fit call (None responses excluded). The caller is responsible for
+    recording usage.
+    """
     by_id = metrics.set_index("instrument_id").to_dict("index") if not metrics.empty else {}
 
     # Pre-batch all macro_fit LLM calls in parallel (avoid N×30s sequential wait)
@@ -68,7 +74,11 @@ def run_scoring(
             raw_refs=refs,
         )
 
+    _neutral_result = score_macro_fit(
+        MacroFitContext(regime_summary="", instrument_profile="", raw_refs=()), route=None,
+    )
     macro_results: dict[str, Any] = {}
+    llm_responses: list[ChatResponse] = []
     if rows:
         with ThreadPoolExecutor(max_workers=min(len(rows), 8)) as pool:
             futures = {
@@ -78,12 +88,13 @@ def run_scoring(
             for future in as_completed(futures):
                 iid = futures[future]
                 try:
-                    macro_results[iid] = future.result()
+                    factor, resp = future.result()
+                    macro_results[iid] = factor
+                    if resp is not None:
+                        llm_responses.append(resp)
                 except Exception:
                     _log.warning("macro_fit failed for %s — using neutral 50", iid)
-                    macro_results[iid] = score_macro_fit(
-                        MacroFitContext(regime_summary="", instrument_profile="", raw_refs=()), route=None  # type: ignore
-                    )
+                    macro_results[iid] = _neutral_result[0]
 
     out: list[dict[str, Any]] = []
     for r in rows:
@@ -110,9 +121,7 @@ def run_scoring(
             holdings_concentration_top10=_get(m, "holdings_concentration_top10", 0.30),
             raw_refs=refs,
         )
-        mf = macro_results.get(r.instrument_id, score_macro_fit(
-            MacroFitContext(regime_summary="", instrument_profile="", raw_refs=()), route=None  # type: ignore
-        ))
+        mf = macro_results.get(r.instrument_id, _neutral_result[0])
         tn = score_thesis_news(
             news_summaries=news_summaries.get(r.instrument_id, ()),
             raw_refs=refs,
@@ -149,4 +158,4 @@ def run_scoring(
             if premium is not None:
                 score_row["qdii_premium_pct"] = premium
         out.append(score_row)
-    return {"scores": out}
+    return {"scores": out}, llm_responses

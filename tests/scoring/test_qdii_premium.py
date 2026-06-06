@@ -135,7 +135,7 @@ def test_run_scoring_stamps_qdii_premium_pct_when_resolver_provided(
 ) -> None:
     """AC6: run_scoring invokes the resolver per QDII row and stamps the result."""
     from irc.scoring.pipeline import run_scoring
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([
         {"instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
          "market": "cn_on_exchange", "role": "core_us_equity",
@@ -164,7 +164,7 @@ def test_run_scoring_stamps_qdii_premium_pct_when_resolver_provided(
             return 0.0292
         return None
 
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -180,7 +180,7 @@ def test_run_scoring_stamps_qdii_premium_pct_when_resolver_provided(
 def test_run_scoring_omits_qdii_premium_pct_when_no_resolver(mock_macro) -> None:
     """No resolver → no qdii_premium_pct key (back-compat)."""
     from irc.scoring.pipeline import run_scoring
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
         "market": "cn_on_exchange", "role": "core_us_equity",
@@ -193,7 +193,7 @@ def test_run_scoring_omits_qdii_premium_pct_when_no_resolver(mock_macro) -> None
         "aum_stability_pct": 0.05, "manager_tenure_years": 8,
         "holdings_concentration_top10": 0.25,
     }])
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -207,7 +207,7 @@ def test_run_scoring_omits_qdii_premium_pct_when_resolver_returns_none(
 ) -> None:
     """Resolver returning None → key absent (existing serialiser convention)."""
     from irc.scoring.pipeline import run_scoring
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([{
         "instrument_id": "513650", "name_cn": "全球医药", "asset_class": "us_etf",
         "market": "cn_on_exchange", "role": "core_us_equity",
@@ -220,7 +220,7 @@ def test_run_scoring_omits_qdii_premium_pct_when_resolver_returns_none(
         "aum_stability_pct": 0.05, "manager_tenure_years": 8,
         "holdings_concentration_top10": 0.25,
     }])
-    out = run_scoring(
+    out, _ = run_scoring(
         watchlist=watchlist, metrics=metrics, news_summaries={},
         regime_summary="x", route=MagicMock(),
         cfg_scoring=_scoring_cfg(),
@@ -291,7 +291,7 @@ def test_smoke_eight_master_spec_instruments_route_correctly() -> None:
 def test_run_scoring_continues_when_resolver_raises(mock_macro, caplog) -> None:
     """P0-2 fix: a raising resolver must not silently drop remaining rows."""
     from irc.scoring.pipeline import run_scoring
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     watchlist = pd.DataFrame([
         {"instrument_id": "513650", "name_cn": "ETF A", "asset_class": "us_etf",
          "market": "cn_on_exchange", "role": "core_us_equity",
@@ -318,7 +318,7 @@ def test_run_scoring_continues_when_resolver_raises(mock_macro, caplog) -> None:
         return 0.02
 
     with caplog.at_level("WARNING"):
-        out = run_scoring(
+        out, _ = run_scoring(
             watchlist=watchlist, metrics=metrics, news_summaries={},
             regime_summary="x", route=MagicMock(),
             cfg_scoring=_scoring_cfg(),
