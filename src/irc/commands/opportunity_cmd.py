@@ -1176,7 +1176,7 @@ def _write_opportunity_outputs(
     snapshot_cache_by_instrument: dict[str, object] | None = None,
     plan_hash: str = "",
     debate_route: tuple[ResolvedRoute, ResolvedRoute] | None = None,
-) -> None:
+) -> list:
     """Compose the per-run opportunity outputs.
 
     Item 006 H3 invariant: gapped rows (rows with non-empty `evidence_gaps`)
