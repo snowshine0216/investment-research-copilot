@@ -24,6 +24,7 @@ from irc.fundamentals.index_valuation_types import (
     IndexValuationHistory,
     IndexValuationPoint,
 )
+from irc.opportunity.sector_indices import SECTOR_INDEX_CODE
 
 _log = logging.getLogger(__name__)
 
@@ -63,14 +64,10 @@ _DATE_COLS: tuple[str, ...] = ("日期", "date", "trade_date")
 # so this fetcher must not reuse _series_map(..., _PE_COLS).
 _CSINDEX_PE_TTM_COL: str = "市盈率1"
 
-# Sector slug -> CSI index code (csindex `stock_zh_index_value_csindex` symbol).
-# 930708 confirmed live for 中证有色金属; the other two are best-effort,
-# confirmed by the gated live test (degrade-to-None on miss).
-_SECTOR_INDEX_CODE: dict[str, str] = {
-    "csi_nonferrous": "930708",
-    "csi_resource": "000819",
-    "csi_nonferrous_mining": "931892",
-}
+# Sector slug -> CSI index code, from the single source-of-truth catalog
+# (opportunity/sector_indices.py). Aliased to the legacy private name so the
+# live test and fetcher keep their existing references.
+_SECTOR_INDEX_CODE: dict[str, str] = SECTOR_INDEX_CODE
 
 
 def _ak_call(fn_name: str, **kwargs: Any) -> Any:

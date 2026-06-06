@@ -234,6 +234,31 @@ def test_sector_fetch_degrades_to_none_on_adapter_exception():
         assert fetch_cn_sector_index_valuation_history("csi_nonferrous") is None
 
 
+def test_sector_code_map_is_sot_backed():
+    from irc.fundamentals.akshare_index_valuation import _SECTOR_INDEX_CODE
+    from irc.opportunity.sector_indices import SECTOR_INDEX_CODE
+
+    assert _SECTOR_INDEX_CODE is SECTOR_INDEX_CODE
+    assert _SECTOR_INDEX_CODE["csi_robotics"] == "H30590"  # new slug resolvable
+
+
+def test_sector_fetch_resolves_new_slug_code(monkeypatch):
+    import pandas as pd
+
+    from irc.fundamentals import akshare_index_valuation as m
+
+    captured = {}
+
+    def fake_ak(fn_name, **kwargs):
+        captured["symbol"] = kwargs.get("symbol")
+        return pd.DataFrame({"日期": ["2026-06-04"], "市盈率1": [28.5]})
+
+    monkeypatch.setattr(m, "_ak_call", fake_ak)
+    out = m.fetch_cn_sector_index_valuation_history("csi_robotics")
+    assert out is not None
+    assert captured["symbol"] == "H30590"
+
+
 def test_sector_fetch_returns_none_on_empty_frame():
     with patch(
         "irc.fundamentals.akshare_index_valuation._ak_call",

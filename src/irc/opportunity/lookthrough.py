@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from irc.opportunity.sector_indices import (
+    SECTOR_INDEX_DISPLAY,
+    SECTOR_INDEX_KEYS,
+    SECTOR_NAME_TO_SLUG,
+)
 from irc.opportunity.types import LookthroughTarget, OpportunityInput
 
 
@@ -61,31 +66,27 @@ _QDII_HK_ALIASES: dict[str, str] = {
 
 _BROAD_INDEX_KEYS: frozenset[str] = frozenset(_BROAD_INDEX_DISPLAY.keys())
 
-# Sector-index slugs that gain a PE anchor via the csindex accumulate-forward
-# path (§2). Populated with SECTOR indices only for this PR — broad display
-# names are deliberately NOT inverted here so broad-fund behaviour is unchanged
-# (broad #102 re-activation is a separate opt-in).
-_SECTOR_INDEX_DISPLAY: dict[str, str] = {
-    "csi_nonferrous": "中证有色金属",
-    "csi_resource": "中证资源",
-    "csi_nonferrous_mining": "中证有色金属矿业主题",
-}
+# Sector-index maps come from the single source-of-truth catalog
+# (opportunity/sector_indices.py) — 17 slugs (14 new + 3 folded-in metals).
+# Re-bound here under the legacy private names so existing importers
+# (inputs_loader, akshare_index_valuation, ingest_cmd, tests) stay valid.
+_SECTOR_INDEX_DISPLAY: dict[str, str] = SECTOR_INDEX_DISPLAY
+_SECTOR_INDEX_KEYS: frozenset[str] = SECTOR_INDEX_KEYS
 
-_SECTOR_INDEX_KEYS: frozenset[str] = frozenset(_SECTOR_INDEX_DISPLAY.keys())
-
-# Inversion (中文/lowercased → slug). Broad display names are now inverted too
-# (Phase A): a broad ETF's tracked_index ("沪深300") resolves to its slug so the
-# cached index_valuation_history is read. Inverting non-production slugs (star50,
-# chinext, …) is harmless — the table is empty for them → NAV fallback — and
-# future-proofs graduation. Sector entries + the colloquial 中证有色 alias stay.
+# Inversion (中文/lowercased name or alias → slug). Broad display names ARE
+# inverted (Phase A): a broad ETF's tracked_index ("沪深300") resolves to its slug
+# so the cached index_valuation_history is read. Inverting non-production broad
+# slugs (star50, chinext, …) is harmless — the table is empty for them → NAV
+# fallback — and future-proofs graduation. Sector names + aliases (incl. the
+# colloquial 中证有色) come from the source-of-truth catalog (Phase B,
+# SECTOR_NAME_TO_SLUG). Broad and sector names do not collide.
 _INDEX_NAME_TO_SLUG: dict[str, str] = {
     **{name.lower(): slug for slug, name in _BROAD_INDEX_DISPLAY.items()},
-    **{name.lower(): slug for slug, name in _SECTOR_INDEX_DISPLAY.items()},
-    "中证有色": "csi_nonferrous",
+    **SECTOR_NAME_TO_SLUG,
 }
 
 # The full valuation key-set the inputs loader tests membership against — the
-# union of broad (#102) and sector (this PR). Overloading "broad" is avoided.
+# union of broad (#102) and sector. Overloading "broad" is avoided.
 _INDEX_VALUATION_KEYS: frozenset[str] = _BROAD_INDEX_KEYS | _SECTOR_INDEX_KEYS
 
 _QDII_US_KEYS: frozenset[str] = frozenset(_QDII_US_DISPLAY.keys())
