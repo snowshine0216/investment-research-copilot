@@ -119,16 +119,28 @@ def run_eval_funds(
     finally:
         con.close()
 
-    evals = evaluate_funds(items)
-    base_out = Path(out_path) if out_path else (
-        root / "outputs" / _today() / "fund_eval.md"
-    )
-    md_path = base_out.with_suffix(".md")
-    json_path = base_out.with_suffix(".json")
-    md_path.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(md_path, render_fund_eval_md(evals))
-    atomic_write_text(json_path, render_fund_eval_json(evals))
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.spend.record_run import record_command_run
 
-    n_core = sum(1 for e in evals if e.core_dca)
-    print(f"eval-funds OK: {n_core} core_dca / {len(evals)} evaluated -> {md_path}")
-    return 0
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
+    try:
+        evals = evaluate_funds(items)
+        base_out = Path(out_path) if out_path else (
+            root / "outputs" / _today_date.isoformat() / "fund_eval.md"
+        )
+        md_path = base_out.with_suffix(".md")
+        json_path = base_out.with_suffix(".json")
+        md_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(md_path, render_fund_eval_md(evals))
+        atomic_write_text(json_path, render_fund_eval_json(evals))
+
+        n_core = sum(1 for e in evals if e.core_dca)
+        print(f"eval-funds OK: {n_core} core_dca / {len(evals)} evaluated -> {md_path}")
+        return 0
+    finally:
+        try:
+            # eval-funds makes no paid LLM calls; record with empty history (no-op guard in record_command_run)
+            record_command_run(repo_root=root, history=[], search_units={}, today=_today_date)
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from irc.llm._types import ResolvedRoute
+from irc.llm._types import ChatResponse, ResolvedRoute
 from irc.llm.http_client import call_chat
 from irc.research.search.types import ExtractedPage, SearchHit
 
@@ -97,12 +97,12 @@ def synthesize_report(
     *,
     route: ResolvedRoute,
     max_tokens: int = 2000,
-) -> ResearchReport:
-    """One LLM call: (query + hits + pages) -> markdown report with [n] citation markers.
+) -> tuple[ResearchReport, ChatResponse | None]:
+    """One LLM call: (query + hits + pages) -> (markdown report, ChatResponse | None).
 
     Citations are derived from the input source pool (pages preferred, then hits),
     not from LLM output, so they cannot be hallucinated. The LLM only chooses which
-    [n] to reference inline.
+    [n] to reference inline. Returns (report, None) when no LLM call was made.
     """
     citations = _build_sources(hits, pages)
     if not citations:
@@ -110,7 +110,7 @@ def synthesize_report(
             report_md="",
             citations=[],
             failure_reason="no sources to synthesize from",
-        )
+        ), None
     prompt = _format_prompt(query, hits, pages, citations)
     try:
         resp = call_chat(
@@ -123,5 +123,5 @@ def synthesize_report(
             max_tokens=max_tokens,
         )
     except Exception as exc:
-        return ResearchReport(report_md="", citations=[], failure_reason=str(exc))
-    return ResearchReport(report_md=resp.text, citations=citations)
+        return ResearchReport(report_md="", citations=[], failure_reason=str(exc)), None
+    return ResearchReport(report_md=resp.text, citations=citations), resp

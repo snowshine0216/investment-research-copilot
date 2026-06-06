@@ -19,8 +19,10 @@ def test_macro_fit_parses_score(mock_chat) -> None:
         text='{"score": 72, "rationale": "rates stable, USD steady"}',
         prompt_tokens=20, completion_tokens=10,
     )
-    s = score_macro_fit(_ctx(), route=MagicMock())
+    s, resp = score_macro_fit(_ctx(), route=MagicMock())
     assert s.score == 72
+    assert resp is not None  # ChatResponse returned for usage tracking
+    assert resp.prompt_tokens == 20
 
 
 @patch("irc.scoring.factors.macro_fit.call_chat")
@@ -28,6 +30,14 @@ def test_macro_fit_invalid_json_returns_neutral(mock_chat) -> None:
     mock_chat.return_value = MagicMock(
         text="not json", prompt_tokens=5, completion_tokens=2,
     )
-    s = score_macro_fit(_ctx(), route=MagicMock())
+    s, resp = score_macro_fit(_ctx(), route=MagicMock())
     assert s.score == 50  # neutral fallback
     assert "fallback" in s.components
+    # resp still returned (billed call even though JSON was bad)
+    assert resp is not None
+
+
+def test_macro_fit_no_route_returns_neutral_no_response() -> None:
+    s, resp = score_macro_fit(_ctx(), route=None)
+    assert s.score == 50
+    assert resp is None

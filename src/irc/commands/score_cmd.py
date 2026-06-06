@@ -30,10 +30,15 @@ def _macro_summary(con) -> str:
     return "; ".join(f"{r[0]}={r[1]:.3f}" for r in rows[:6]) or "macro snapshot unavailable"
 
 
-def run_score(repo_root: str) -> int:
+def run_score(repo_root: str) -> int:  # noqa: PLR0912 (complexity driven by DB + enrichment)
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.llm.cost_tracker import CostEntry, append_cost
+    from irc.spend.record_run import record_command_run
     root = Path(repo_root)
     bundle = load_repo_configs(root)
-    today = _today()
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
+    today = _today_date.isoformat()
 
     watchlist_path = root / "outputs" / today / "discovered_watchlist.csv"
     if not watchlist_path.exists():
@@ -72,34 +77,50 @@ def run_score(repo_root: str) -> int:
     populated = sum(1 for v in news_summaries.values() if v)
     print(f"news coverage: {populated}/{len(news_summaries)} instruments")
 
-    out = run_scoring(
-        watchlist=watchlist,
-        metrics=metrics,
-        news_summaries=news_summaries,
-        regime_summary=regime,
-        route=route,
-        cfg_scoring=bundle.scoring,
-        qdii_premium_resolver=_resolve_qdii_premium,
-    )
+    history: list[CostEntry] = []
+    try:
+        out, llm_responses = run_scoring(
+            watchlist=watchlist,
+            metrics=metrics,
+            news_summaries=news_summaries,
+            regime_summary=regime,
+            route=route,
+            cfg_scoring=bundle.scoring,
+            qdii_premium_resolver=_resolve_qdii_premium,
+        )
+        _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
+        for resp in llm_responses:
+            history = append_cost(history, CostEntry(
+                task=route.task, provider=route.provider, model=route.model,
+                prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,
+                latency_ms=getattr(resp, "latency_ms", 0), ts=_ts,
+            ))
 
-    # Enrich each score entry with asset_class, role, and tracked_index
-    # from the watchlist (allocation needs them for per-class grouping
-    # and intra-index dedupe — see 2026-05-19-adversarial-fixes item 008).
-    _meta_cols = ["instrument_id", "asset_class", "role", "tracked_index"]
-    _have_meta = {"asset_class", "role"}.issubset(watchlist.columns)
-    watchlist_meta = (
-        watchlist[[c for c in _meta_cols if c in watchlist.columns]].drop_duplicates("instrument_id")
-        if _have_meta
-        else pd.DataFrame(columns=_meta_cols)
-    )
-    meta_by_id = watchlist_meta.set_index("instrument_id").to_dict("index")
-    for entry in out["scores"]:
-        m = meta_by_id.get(entry["instrument_id"], {})
-        entry.setdefault("asset_class", m.get("asset_class", "unknown"))
-        entry.setdefault("role", m.get("role", ""))
-        entry.setdefault("tracked_index", m.get("tracked_index") or "")
+        # Enrich each score entry with asset_class, role, and tracked_index
+        # from the watchlist (allocation needs them for per-class grouping
+        # and intra-index dedupe — see 2026-05-19-adversarial-fixes item 008).
+        _meta_cols = ["instrument_id", "asset_class", "role", "tracked_index"]
+        _have_meta = {"asset_class", "role"}.issubset(watchlist.columns)
+        watchlist_meta = (
+            watchlist[[c for c in _meta_cols if c in watchlist.columns]].drop_duplicates("instrument_id")
+            if _have_meta
+            else pd.DataFrame(columns=_meta_cols)
+        )
+        meta_by_id = watchlist_meta.set_index("instrument_id").to_dict("index")
+        for entry in out["scores"]:
+            m = meta_by_id.get(entry["instrument_id"], {})
+            entry.setdefault("asset_class", m.get("asset_class", "unknown"))
+            entry.setdefault("role", m.get("role", ""))
+            entry.setdefault("tracked_index", m.get("tracked_index") or "")
 
-    out_path = root / "outputs" / today / "scoring.json"
-    atomic_write_text(out_path, json.dumps(out, ensure_ascii=False, indent=2))
-    print(f"score OK: {len(out['scores'])} instruments → {out_path}")
-    return 0
+        out_path = root / "outputs" / today / "scoring.json"
+        atomic_write_text(out_path, json.dumps(out, ensure_ascii=False, indent=2))
+        print(f"score OK: {len(out['scores'])} instruments → {out_path}")
+        return 0
+    finally:
+        try:
+            record_command_run(
+                repo_root=root, history=history, search_units={}, today=_today_date,
+            )
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)

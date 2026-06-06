@@ -61,12 +61,12 @@ def _pages() -> tuple[ExtractedPage, ...]:
 
 def test_synthesize_happy_path_returns_report_and_citations():
     """LLM markdown + the source pool we passed in produce a ResearchReport
-    whose citations are indexed by source order."""
+    whose citations are indexed by source order. Returns (report, ChatResponse)."""
     with patch(
         "irc.research.synthesize.call_chat",
         return_value=_chat("The Fed held rates [1]. CPI cooled to 2.9% [2]."),
     ) as m:
-        report = synthesize_report(
+        report, resp = synthesize_report(
             query="What did the Fed do this week?",
             hits=_hits(),
             pages=_pages(),
@@ -84,11 +84,13 @@ def test_synthesize_happy_path_returns_report_and_citations():
         published_iso="2026-05-08",
     )
     assert report.citations[1].url == "https://wsj.com/cpi-1"
+    assert resp is not None
+    assert resp.prompt_tokens == 100
 
 
 def test_synthesize_empty_sources_returns_failure_reason_without_calling_llm():
     with patch("irc.research.synthesize.call_chat") as m:
-        report = synthesize_report(
+        report, resp = synthesize_report(
             query="any",
             hits=(),
             pages=(),
@@ -98,6 +100,7 @@ def test_synthesize_empty_sources_returns_failure_reason_without_calling_llm():
     assert report.report_md == ""
     assert report.citations == []
     assert "no sources" in report.failure_reason.lower()
+    assert resp is None
 
 
 def test_synthesize_llm_failure_returns_failure_reason():
@@ -105,7 +108,7 @@ def test_synthesize_llm_failure_returns_failure_reason():
         "irc.research.synthesize.call_chat",
         side_effect=RuntimeError("connection reset"),
     ):
-        report = synthesize_report(
+        report, resp = synthesize_report(
             query="anything",
             hits=_hits(),
             pages=(),
@@ -113,3 +116,4 @@ def test_synthesize_llm_failure_returns_failure_reason():
         )
     assert report.report_md == ""
     assert "connection reset" in report.failure_reason
+    assert resp is None

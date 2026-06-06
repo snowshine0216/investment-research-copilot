@@ -1,13 +1,16 @@
 from __future__ import annotations
+import json
 from datetime import date as _date
 from pathlib import Path
 from irc.config_loader import load_yaml
-from irc.spend.config import load_pricing, load_balances, load_consumption
+from irc.spend.config import (
+    load_balances, load_consumption, load_pricing, load_usage_profile_raw,
+)
 from irc.spend.estimator import estimate
 from irc.spend.gate import decide
 from irc.spend.ledger import effective_balance
 from irc.spend.probes import PROBES
-from irc.spend.profile import seed_profile
+from irc.spend.profile import effective_profile, seed_profile
 from irc.spend.scope import resolve_scope
 from irc.spend.types import BalanceReading, CostEstimate, GateDecision
 
@@ -44,16 +47,19 @@ def run_preflight(
     api_keys: dict[str, str],
     probes: dict | None = None,
     today: _date,
+    out_dir: Path | None = None,
+    write_estimate: bool = False,
 ) -> int:
     """Edge: estimate scoped spend, read balances (probe or ledger), decide. Returns
-    0 to proceed (possibly with warnings) or 5 to stop. Never raises on probe failure."""
+    0 to proceed (possibly with warnings) or 5 to stop. Never raises on probe failure.
+    When write_estimate=True, writes outputs/<today>/spend_estimate.json (irc run only)."""
     root = Path(repo_root)
     probes = PROBES if probes is None else probes
     pricing = load_pricing(root)
     balances = load_balances(root)
     consumption = load_consumption(root)
     llm = load_yaml(root / "config/llm.yaml", root)
-    profile = seed_profile(pricing)
+    profile = effective_profile(seed_profile(pricing), load_usage_profile_raw(root))
 
     scope = resolve_scope(command, stages=stages)
     estimates = estimate(scope.tasks, scope.search_providers, llm, profile, pricing)
@@ -66,4 +72,15 @@ def run_preflight(
 
     decision = decide(estimates, readings, margin=pricing.margin)
     _print_table(command, decision, estimates)
+
+    if write_estimate:
+        from irc.spend.estimate_io import estimate_to_dict
+        from irc.io_utils import atomic_write_text
+        dest = out_dir or root / "outputs" / today.isoformat()
+        Path(dest).mkdir(parents=True, exist_ok=True)
+        atomic_write_text(
+            Path(dest) / "spend_estimate.json",
+            json.dumps(estimate_to_dict(estimates), indent=2, sort_keys=True),
+        )
+
     return 5 if decision.blocked else 0

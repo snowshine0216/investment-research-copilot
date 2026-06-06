@@ -35,7 +35,7 @@ def test_score_returns_2_when_no_watchlist(tmp_path: Path) -> None:
 
 @patch("irc.scoring.pipeline.score_macro_fit")
 def test_score_writes_scoring_json(mock_macro, repo_with_watchlist: Path) -> None:
-    mock_macro.return_value = MagicMock(score=70, raw_refs=("r",), components={})
+    mock_macro.return_value = (MagicMock(score=70, raw_refs=("r",), components={}), None)
     rc = run_score(repo_root=str(repo_with_watchlist))
     assert rc == 0
     scoring_files = list((repo_with_watchlist / "outputs").rglob("scoring.json"))
@@ -61,7 +61,7 @@ def test_score_preserves_leading_zero_fund_ids(
     ensure_schema(con)
     con.close()
     mock_resolve_route.return_value = object()
-    mock_run_scoring.return_value = {"scores": [{"instrument_id": "005827"}]}
+    mock_run_scoring.return_value = ({"scores": [{"instrument_id": "005827"}]}, [])
 
     rc = run_score(repo_root=str(tmp_path))
 

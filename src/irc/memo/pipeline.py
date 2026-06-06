@@ -179,6 +179,11 @@ class MemoOutput:
     traceability: dict[str, int]
     prompt_tokens_total: int
     completion_tokens_total: int
+    # Individual ChatResponse objects for the two LLM legs; used by the
+    # command edge to build CostEntry records without threading mutable
+    # state down into pure cores.
+    synth_response: object = None
+    audit_response: object = None
 
 
 _MAX_REFS = 40  # must match synthesizer truncation
@@ -285,4 +290,6 @@ def run_memo_pipeline(
         traceability=trace,
         prompt_tokens_total=synth_resp.prompt_tokens + audit_resp.prompt_tokens,
         completion_tokens_total=synth_resp.completion_tokens + audit_resp.completion_tokens,
+        synth_response=synth_resp,
+        audit_response=audit_resp,
     )

@@ -1,6 +1,6 @@
 from datetime import date
 from irc.schemas.spend import SpendBalanceEntry
-from irc.spend.ledger import effective_balance
+from irc.spend.ledger import apply_usage, effective_balance
 
 
 def _wallet(balance, as_of):
@@ -51,3 +51,24 @@ def test_quota_auto_resets_when_month_rolls_over():
     # today is in July → period_start is stale → consumed resets to 0
     r = effective_balance("brave", _quota(2000.0), consumption, today=date(2026, 7, 2))
     assert r.amount == 2000.0
+
+
+def test_wallet_accumulates_consumed_since_and_sets_since_when_absent():
+    out = apply_usage({}, "tavily", units=4, kind="wallet", today=date(2026, 6, 6))
+    assert out["tavily"]["consumed_since"] == 4.0
+    assert out["tavily"]["since"] == "2026-06-06"
+    out2 = apply_usage(out, "tavily", units=3, kind="wallet", today=date(2026, 6, 7))
+    assert out2["tavily"]["consumed_since"] == 7.0          # accumulates
+    assert out2["tavily"]["since"] == "2026-06-06"          # anchor date preserved
+
+
+def test_quota_accumulates_consumed_this_period_and_stamps_period_start():
+    out = apply_usage({}, "brave", units=10, kind="quota", today=date(2026, 6, 6))
+    assert out["brave"]["consumed_this_period"] == 10.0
+    assert out["brave"]["period_start"] == "2026-06-06"
+
+
+def test_apply_usage_does_not_mutate_input():
+    src = {"tavily": {"consumed_since": 1.0, "since": "2026-06-01"}}
+    apply_usage(src, "tavily", units=2, kind="wallet", today=date(2026, 6, 6))
+    assert src["tavily"]["consumed_since"] == 1.0           # original untouched

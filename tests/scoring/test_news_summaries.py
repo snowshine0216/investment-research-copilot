@@ -283,7 +283,7 @@ def test_score_cmd_run_score_passes_non_empty_news_summaries_when_research_exist
             "data_completeness": 0.0,
             "missing_data": [],
             "weights_version": "v1",
-        }]}
+        }]}, []
 
     monkeypatch.setattr(score_cmd, "run_scoring", _fake_run_scoring)
 
@@ -384,7 +384,7 @@ def test_score_cmd_run_score_logs_news_coverage(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(score_cmd, "resolve_route", lambda task, llm_cfg: None)
     monkeypatch.setattr(
         score_cmd, "run_scoring",
-        lambda **kw: {"scores": [{
+        lambda **kw: ({"scores": [{
             "instrument_id": "518880",
             "composite_score": 50.0,
             "action": "hold",
@@ -393,7 +393,7 @@ def test_score_cmd_run_score_logs_news_coverage(tmp_path, monkeypatch, capsys):
             "data_completeness": 0.0,
             "missing_data": [],
             "weights_version": "v1",
-        }]},
+        }]}, []),
     )
 
     import shutil
