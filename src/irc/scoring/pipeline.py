@@ -74,12 +74,13 @@ def run_scoring(
             raw_refs=refs,
         )
 
-    _neutral_result = score_macro_fit(
-        MacroFitContext(regime_summary="", instrument_profile="", raw_refs=()), route=None,
-    )
     macro_results: dict[str, Any] = {}
     llm_responses: list[ChatResponse] = []
+    _neutral_result = None
     if rows:
+        _neutral_result = score_macro_fit(
+            MacroFitContext(regime_summary="", instrument_profile="", raw_refs=()), route=None,
+        )
         with ThreadPoolExecutor(max_workers=min(len(rows), 8)) as pool:
             futures = {
                 pool.submit(score_macro_fit, ctx, route): iid
