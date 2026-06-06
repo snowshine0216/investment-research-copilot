@@ -89,18 +89,19 @@ def run_pipeline(
     else:
         stages = list(STAGE_NAMES)
     stages = _without_disabled_optional_stages(stages, from_stage, only_stage)
-    gate_rc = _gate(repo_root, stages)
+    gate_rc = _gate(repo_root, stages, out_dir)
     if gate_rc != 0:
         return gate_rc
     return _run_stage_loop(repo_root, stages, out_dir, today)
 
 
-def _gate(repo_root: str, stages: list[str]) -> int:
+def _gate(repo_root: str, stages: list[str], out_dir: Path) -> int:
     """Preflight spend/balance gate seam. Returns 0 to proceed, 5 to stop the run
     before any stage does paid work. Kept as a module-level function so tests can
     monkeypatch it."""
     from irc.commands.spend_cmd import preflight_gate
-    return preflight_gate(repo_root, "run", stages=tuple(stages))
+    return preflight_gate(repo_root, "run", stages=tuple(stages),
+                          out_dir=out_dir, write_estimate=True)
 
 
 def _run_stage_loop(repo_root: str, stages: list[str], out_dir: Path, today: str) -> int:
