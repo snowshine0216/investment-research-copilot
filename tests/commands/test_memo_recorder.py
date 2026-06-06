@@ -1,6 +1,5 @@
 """memo command, with LLM calls faked, records actuals + folds the profile."""
 import json
-from pathlib import Path
 import yaml
 import pytest
 from irc.llm._types import ChatResponse

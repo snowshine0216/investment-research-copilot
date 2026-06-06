@@ -793,7 +793,7 @@ def run_memo(repo_root: str) -> int:
         return gate_rc
     import logging as _logging
     from datetime import datetime, timezone, timedelta
-    from irc.llm.cost_tracker import CostEntry, append_cost
+    from irc.llm.cost_tracker import CostEntry
     from irc.spend.record_run import record_command_run
     _history: list[CostEntry] = []
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
