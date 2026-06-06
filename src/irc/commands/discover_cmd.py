@@ -109,11 +109,13 @@ def _fetch_metadata_metrics(con) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 def run_discover(repo_root: str) -> int:
     import logging as _logging
-    from datetime import datetime, timezone, timedelta
+    from datetime import datetime
     from irc.spend.record_run import record_command_run
 
     root = Path(repo_root)
-    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
+    # Single instant for both the output path and the recorder date — derive
+    # _today_date from the same _now_iso_date() the output dir uses (midnight safety).
+    _today_date = datetime.fromisoformat(_now_iso_date()).date()
 
     bundle = load_repo_configs(root)
     db_path = root / "data" / "local.duckdb"
@@ -149,7 +151,7 @@ def run_discover(repo_root: str) -> int:
             excluded_themes=tuple(bundle.preferences.constraints.exclude_themes),
         )
         cost_entries = result.cost_entries
-        out_dir = root / "outputs" / _now_iso_date()
+        out_dir = root / "outputs" / _today_date.isoformat()
         out_dir.mkdir(parents=True, exist_ok=True)
         watchlist_path = out_dir / "discovered_watchlist.csv"
         diagnostics_path = out_dir / "discovery_diagnostics.csv"
