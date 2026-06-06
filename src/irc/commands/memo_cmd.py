@@ -791,7 +791,27 @@ def run_memo(repo_root: str) -> int:
     gate_rc = preflight_gate(repo_root, "memo")
     if gate_rc != 0:
         return gate_rc
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.llm.cost_tracker import CostEntry, append_cost
+    from irc.spend.record_run import record_command_run
+    _history: list[CostEntry] = []
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     root = Path(repo_root)
+    try:
+        return _run_memo_body(root, _history)
+    finally:
+        try:
+            record_command_run(
+                repo_root=root, history=_history, search_units={}, today=_today_date,
+            )
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
+
+
+def _run_memo_body(root: Path, _history: list) -> int:
+    from irc.llm.cost_tracker import CostEntry, append_cost
+    from datetime import datetime, timezone, timedelta
     if not require_fresh_ingest(root, stage="memo"):
         print("ERROR: memo stage halted — ingest is stale. "
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
@@ -994,6 +1014,24 @@ def run_memo(repo_root: str) -> int:
     synth_route = resolve_route("memo_synthesis", bundle.llm)
     audit_route = resolve_route("memo_audit", bundle.llm)
     output = run_memo_pipeline(inputs, raw_ref_pool, synth_route, audit_route)
+
+    # Build CostEntry records immediately after both LLM legs complete.
+    # output.synth_response / output.audit_response carry the per-leg tokens.
+    _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
+    if output.synth_response is not None:
+        _history[:] = append_cost(_history, CostEntry(
+            task=synth_route.task, provider=synth_route.provider, model=synth_route.model,
+            prompt_tokens=output.synth_response.prompt_tokens,
+            completion_tokens=output.synth_response.completion_tokens,
+            latency_ms=getattr(output.synth_response, "latency_ms", 0), ts=_ts,
+        ))
+    if output.audit_response is not None:
+        _history[:] = append_cost(_history, CostEntry(
+            task=audit_route.task, provider=audit_route.provider, model=audit_route.model,
+            prompt_tokens=output.audit_response.prompt_tokens,
+            completion_tokens=output.audit_response.completion_tokens,
+            latency_ms=getattr(output.audit_response, "latency_ms", 0), ts=_ts,
+        ))
 
     out_dir = root / "outputs" / today
     out_dir.mkdir(parents=True, exist_ok=True)
