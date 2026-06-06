@@ -287,3 +287,38 @@ def test_map_lookthrough_unknown_tracked_index_propagates_provider_symbol() -> N
     t = map_lookthrough(inp)
     assert t.kind == "broad_index"
     assert t.provider_symbol == "159999"
+
+
+# ── Phase A (D3/D4): broad slug inversion + distinct chinext50 ────────────────
+def test_broad_display_names_invert_to_slugs():
+    from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG
+    # Display name (lowercased) → slug. CJK .lower() is a no-op; Latin lowercases.
+    assert _INDEX_NAME_TO_SLUG["沪深300"] == "csi300"
+    assert _INDEX_NAME_TO_SLUG["中证500"] == "csi500"
+    assert _INDEX_NAME_TO_SLUG["中证1000"] == "csi1000"
+    assert _INDEX_NAME_TO_SLUG["中证a500"] == "csi_a500"  # 中证A500 → lowercased a
+    assert _INDEX_NAME_TO_SLUG["上证50"] == "sse50"
+    assert _INDEX_NAME_TO_SLUG["科创50"] == "star50"
+    assert _INDEX_NAME_TO_SLUG["中证红利"] == "csi_dividend"
+    assert _INDEX_NAME_TO_SLUG["中证红利低波"] == "csi_dividend_lc"
+
+
+def test_chinext_and_chinext50_are_distinct_slugs():
+    from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG
+    assert _INDEX_NAME_TO_SLUG["创业板指"] == "chinext"
+    assert _INDEX_NAME_TO_SLUG["创业板50"] == "chinext50"
+    assert _INDEX_NAME_TO_SLUG["创业板指"] != _INDEX_NAME_TO_SLUG["创业板50"]
+
+
+def test_sp_dividend_low_vol_50_is_unmapped():
+    from irc.opportunity.lookthrough import _INDEX_NAME_TO_SLUG
+    # D3: 标普红利低波50 stays on NAV (unmapped) — distinct S&P-licensed index.
+    assert "标普红利低波50" not in _INDEX_NAME_TO_SLUG
+
+
+def test_chinext50_in_broad_index_keys():
+    from irc.opportunity.lookthrough import _BROAD_INDEX_DISPLAY, _BROAD_INDEX_KEYS
+    assert "chinext50" in _BROAD_INDEX_KEYS
+    assert _BROAD_INDEX_DISPLAY["chinext50"] == "创业板50"
+    assert _BROAD_INDEX_DISPLAY["chinext"] == "创业板指"
+    assert _BROAD_INDEX_DISPLAY["csi_dividend_lc"] == "中证红利低波"

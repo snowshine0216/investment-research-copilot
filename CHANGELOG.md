@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase A broad-index PE-TTM grounding (2026-06-05)
+
+- **Phase A — broad-index PE-TTM grounding.** The curated broad-index ETFs (+ legit
+  generated index funds) now ground their equity `valuation_state` on the legulegu
+  **PE-TTM** (滚动市盈率) historical percentile instead of the NAV self-history
+  percentile. PE reads 滚动市盈率 only (never 静态市盈率); production fetch resolves
+  symbols from a live-confirmed 4-symbol allowlist (csi300/csi500/csi1000/sse50),
+  with a probe-only speculative map for the rest. The broad ingest leg does a per-key
+  full replace (`replace_keys=True`) that self-migrates stale static-PE rows.
+  `创业板指`/`创业板50` are now distinct slugs (chinext/chinext50). `161721`/`003318`
+  get seed overrides stripping their mis-tagged broad `tracked_index`. Measured reach:
+  ~9 broad funds grounded.
+
 ### Added — Phase B sector-index PE onboarding (B1, activation OFF, 2026-06-05)
 
 - New single-source-of-truth catalog `src/irc/opportunity/sector_indices.py`:

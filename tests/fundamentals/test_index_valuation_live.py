@@ -1,4 +1,4 @@
-"""Live verification of legulegu index PE/PB endpoints (item 001).
+"""Live verification of legulegu index PE/PB endpoints (item 001 / Phase A).
 
 Double-gated: requires BOTH the `live_akshare` marker AND
 `IRC_RUN_LIVE_AKSHARE=1`. Default `pytest` skips it. This is the single point
@@ -16,7 +16,15 @@ import os
 
 import pytest
 
-from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation
+from irc.fundamentals.akshare_index_valuation import (  # noqa: E402
+    _LEGULEGU_INDEX_SYMBOL,
+    _LEGULEGU_PB_COL,
+    _LEGULEGU_PE_TTM_COL,
+    _SPECULATIVE_LEGULEGU_SYMBOL,
+    _extract_latest_value,
+    _fetch_frame,
+    fetch_cn_index_valuation,
+)
 from irc.fundamentals.index_valuation_types import IndexValuation
 
 _RUN = os.environ.get("IRC_RUN_LIVE_AKSHARE") == "1"
@@ -29,22 +37,40 @@ pytestmark = [
 ]
 
 
-def test_fetch_cn_index_valuation_csi300_live() -> None:
-    """csi300 (沪深300) returns a real IndexValuation with a numeric PE and PB.
-
-    If this fails with pe_ttm/pb None, the legulegu column labels differ from
-    the candidate sets in akshare_index_valuation._PE_COLS / _PB_COLS — widen
-    them and re-run. This is the designed pin point (spec §Open Q4).
+@pytest.mark.parametrize("slug", sorted(_LEGULEGU_INDEX_SYMBOL))
+def test_production_symbol_returns_rolling_pe_and_pb_live(slug) -> None:
+    """HARD ASSERT: every production allowlist symbol returns numeric rolling PE
+    AND PB. If a slug returns None, the rolling-PE column (滚动市盈率) or PB column
+    (市净率) is not present under that legulegu symbol — inspect the live frame.
     """
-    out = fetch_cn_index_valuation("csi300")
+    out = fetch_cn_index_valuation(slug)
     assert isinstance(out, IndexValuation)
     assert out.pe_ttm is not None, (
-        "legulegu stock_index_pe_lg PE column not matched by _PE_COLS — "
-        "inspect the live frame and widen the candidate set."
+        f"{slug} ({_LEGULEGU_INDEX_SYMBOL[slug]}): rolling PE (滚动市盈率) not matched — "
+        "inspect the live stock_index_pe_lg frame."
     )
     assert out.pb is not None, (
-        "legulegu stock_index_pb_lg PB column not matched by _PB_COLS — "
-        "inspect the live frame and widen the candidate set."
+        f"{slug} ({_LEGULEGU_INDEX_SYMBOL[slug]}): PB (市净率) not matched — "
+        "inspect the live stock_index_pb_lg frame."
     )
     assert out.pe_ttm > 0 and out.pb > 0
-    print(f"\n  ✓ csi300 live: pe={out.pe_ttm} pb={out.pb} div={out.dividend_yield}")
+    print(f"\n  ✓ {slug} ({_LEGULEGU_INDEX_SYMBOL[slug]}) live: pe={out.pe_ttm} pb={out.pb}")
+
+
+def test_speculative_symbol_landing_sweep_informational() -> None:
+    """INFORMATIONAL only — never fails. Probes each speculative symbol DIRECTLY
+    via legulegu (bypassing the production allowlist gate) and prints a landing
+    table. When both pe and pb are numeric the symbol has landed and is ready to
+    graduate into _LEGULEGU_INDEX_SYMBOL + the hard-assert set (D2 graduation).
+
+    Uses _fetch_frame / _extract_latest_value directly so the allowlist gate in
+    fetch_cn_index_valuation cannot mask a real landing.
+    """
+    print("\n  speculative legulegu sweep (informational):")
+    for slug, symbol in sorted(_SPECULATIVE_LEGULEGU_SYMBOL.items()):
+        pe_df = _fetch_frame("stock_index_pe_lg", symbol)
+        pb_df = _fetch_frame("stock_index_pb_lg", symbol)
+        pe = _extract_latest_value(pe_df, (_LEGULEGU_PE_TTM_COL,)) if pe_df is not None else None
+        pb = _extract_latest_value(pb_df, (_LEGULEGU_PB_COL,)) if pb_df is not None else None
+        landed = "[LANDED]" if (pe is not None and pb is not None) else "—"
+        print(f"    {slug:14s} {symbol:10s} pe={pe} pb={pb}  {landed}")

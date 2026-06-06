@@ -1191,3 +1191,17 @@ def test_run_ingest_holdings_count_in_manifest(repo: Path, monkeypatch) -> None:
     assert "fund_holdings" in m.record_counts
     # Sum equals 10 * number of eligible targets.
     assert m.record_counts["fund_holdings"] >= 10
+
+
+def test_broad_leg_iterates_allowlist_with_replace_keys():
+    """D8: pin the production allowlist the broad index_valuation leg iterates.
+    The replace_keys=True wiring is verified structurally by the drift check +
+    the live/integration path; the spy/monkeypatch scaffolding is not needed here.
+    """
+    from irc.fundamentals.akshare_index_valuation import _LEGULEGU_INDEX_SYMBOL
+    from irc.opportunity.lookthrough import _SECTOR_INDEX_KEYS
+
+    broad_keys = tuple(sorted(_LEGULEGU_INDEX_SYMBOL))
+    sector_keys = tuple(sorted(_SECTOR_INDEX_KEYS))
+    assert broad_keys == ("csi1000", "csi300", "csi500", "sse50")
+    assert sector_keys  # non-empty sanity

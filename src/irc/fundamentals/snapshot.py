@@ -77,9 +77,10 @@ _TARGET_REGISTRY: dict[str, _TargetSpec] = {
     "中证A500":  _TargetSpec(kind="cn_index", code="000510"),  # TODO: verify AkShare code for CSI A500
     "上证50":    _TargetSpec(kind="cn_index", code="000016"),
     "科创50":    _TargetSpec(kind="cn_index", code="000688"),
-    "创业板":    _TargetSpec(kind="cn_index", code="399006"),
+    "创业板指":  _TargetSpec(kind="cn_index", code="399006"),
+    "创业板50":  _TargetSpec(kind="cn_index", code="399673"),  # 创业板50指数
     "中证红利":  _TargetSpec(kind="cn_index", code="000922"),
-    "红利低波":  _TargetSpec(kind="cn_index", code="930740"),
+    "中证红利低波": _TargetSpec(kind="cn_index", code="930740"),
     # Sector indices — verified codes via scripts/verify_sector_index_codes.py (2026-05-16)
     "半导体":   _TargetSpec(kind="cn_index", code="H30184"),
     "医药":     _TargetSpec(kind="cn_index", code="000933"),

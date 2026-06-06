@@ -29,35 +29,58 @@ def ingest_index_valuation_history(
     *,
     fetch: _FetchFn = fetch_cn_index_valuation_history,
     now_iso: str,
+    replace_keys: bool = False,
 ) -> int:
-    """Upsert PE/PB history for each index_key. Returns rows written."""
+    """Upsert PE/PB history for each index_key. Returns rows written.
+
+    `replace_keys=True` performs a per-key FULL REPLACE (D8): for any key whose
+    fetch returns a NON-EMPTY history, DELETE that key's prior rows then insert
+    the fresh full series. A None/empty fetch leaves existing rows untouched (no
+    wipe on transient failure). Default `replace_keys=False` keeps append/upsert
+    (the shared sector accumulate-forward leg).
+    """
     params: list[list] = []
+    keys_to_replace: list[str] = []
     for key in index_keys:
         hist = fetch(key)
-        if hist is None:
+        if hist is None or not hist.rows:
             continue
+        # D8: a non-empty fetch is required before delete, AND the fetch must carry
+        # at least one usable PE-TTM row. A PB-only (pe_ttm=None for every row)
+        # legulegu frame is a partial failure — skip the key entirely so that the
+        # DELETE and the INSERT OR REPLACE (which resolves on PRIMARY KEY
+        # (index_key, date)) cannot wipe or overwrite good cached PE rows.
+        if replace_keys and not any(p.pe_ttm is not None for p in hist.rows):
+            continue
+        if replace_keys:
+            keys_to_replace.append(key)
         for pt in hist.rows:
             params.append([
                 key, pt.date_iso, pt.pe_ttm, pt.pb, pt.dividend_yield,
                 now_iso, "akshare",
                 build_ref_id("akshare", "index_valuation_history", key, pt.date_iso),
             ])
-    if params:
-        con.execute("BEGIN")
-        try:
-            con.executemany(
-                """
-                INSERT OR REPLACE INTO index_valuation_history
-                    (index_key, date, pe_ttm, pb, dividend_yield,
-                     _ingested_at, _source, _raw_ref)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                params,
+    if not params:
+        return 0
+    con.execute("BEGIN")
+    try:
+        for key in keys_to_replace:
+            con.execute(
+                "DELETE FROM index_valuation_history WHERE index_key = ?", [key]
             )
-            con.execute("COMMIT")
-        except Exception:
-            con.execute("ROLLBACK")
-            raise
+        con.executemany(
+            """
+            INSERT OR REPLACE INTO index_valuation_history
+                (index_key, date, pe_ttm, pb, dividend_yield,
+                 _ingested_at, _source, _raw_ref)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            params,
+        )
+        con.execute("COMMIT")
+    except Exception:
+        con.execute("ROLLBACK")
+        raise
     return len(params)
 
 

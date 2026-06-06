@@ -15,9 +15,10 @@ _BROAD_INDEX_DISPLAY: dict[str, str] = {
     "csi_a500": "中证A500",
     "sse50": "上证50",
     "star50": "科创50",
-    "chinext": "创业板",
+    "chinext": "创业板指",
+    "chinext50": "创业板50",
     "csi_dividend": "中证红利",
-    "csi_dividend_lc": "红利低波",
+    "csi_dividend_lc": "中证红利低波",
 }
 
 _SECTOR_THEME_DISPLAY: dict[str, str] = {
@@ -72,9 +73,17 @@ _BROAD_INDEX_KEYS: frozenset[str] = frozenset(_BROAD_INDEX_DISPLAY.keys())
 _SECTOR_INDEX_DISPLAY: dict[str, str] = SECTOR_INDEX_DISPLAY
 _SECTOR_INDEX_KEYS: frozenset[str] = SECTOR_INDEX_KEYS
 
-# Inversion (中文/lowercased name or alias -> slug). Broad display names are
-# deliberately NOT inverted here (broad re-activation is a separate opt-in).
-_INDEX_NAME_TO_SLUG: dict[str, str] = dict(SECTOR_NAME_TO_SLUG)
+# Inversion (中文/lowercased name or alias → slug). Broad display names ARE
+# inverted (Phase A): a broad ETF's tracked_index ("沪深300") resolves to its slug
+# so the cached index_valuation_history is read. Inverting non-production broad
+# slugs (star50, chinext, …) is harmless — the table is empty for them → NAV
+# fallback — and future-proofs graduation. Sector names + aliases (incl. the
+# colloquial 中证有色) come from the source-of-truth catalog (Phase B,
+# SECTOR_NAME_TO_SLUG). Broad and sector names do not collide.
+_INDEX_NAME_TO_SLUG: dict[str, str] = {
+    **{name.lower(): slug for slug, name in _BROAD_INDEX_DISPLAY.items()},
+    **SECTOR_NAME_TO_SLUG,
+}
 
 # The full valuation key-set the inputs loader tests membership against — the
 # union of broad (#102) and sector. Overloading "broad" is avoided.

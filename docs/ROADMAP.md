@@ -1,6 +1,6 @@
 # Valuation-anchor coverage roadmap — NAV → PE/PB
 
-**Status:** In progress — **Phase D shipped & live (2026-06-05)**; **Phase B B1 onboarded (activation OFF, 2026-06-05)**; Phases A/C + Phase 0 open, **Phase B B2 deferred** (pending ~6-month maturation + gate #5).
+**Status:** In progress — **Phase D shipped & live (2026-06-05)**; **Phase A shipped & live (2026-06-05)**; **Phase B B1 onboarded (activation OFF, 2026-06-05)**; Phases C + Phase 0 open, **Phase B B2 deferred** (pending ~6-month maturation + gate #5).
 **Goal:** Move fund `valuation_state` off the NAV self-history percentile (a price-momentum
 proxy) and onto a **fundamental anchor (PE/PB historical percentile)** for as many funds as
 the data honestly allows.
@@ -21,7 +21,7 @@ its **own** fetch/ingest path (independent of the index-path phases A/B/C), and 
 | Phase | Status | Reach (measured) |
 |---|---|---|
 | **D — active-fund look-through** | ✅ **live** (PR #109/#110/#111, flag `enabled: true`, floor `0.50`) | **40 funds grounded** at floor 0.50 (sensitivity 0.40→71 · 0.60→17). Gate #4 (live columns) PASS; gate #5 (human floor decision) signed off. |
-| A — broad-index grounding | ☐ open | +19 funds (3%) — data+fetcher exist; needs the live-symbol fix + slug map |
+| A — broad-index grounding | ✅ done (2026-06-05) | +9 funds (measured; csi300×4/csi500×2/csi1000×2/sse50×1 after D5/D6 overrides) |
 | B — sector ETFs | ◑ B1 done (onboarding; activation OFF) | +17 sector slugs onboarded, PE-only (csindex); B2 activation pending maturation + gate #5 |
 | C — foreign (US/HK) | ☐ open (needs source decision) | +141 funds (21%) |
 | Phase 0 — correctness (gold, bond-misclass) | ☐ open | independent |
@@ -33,11 +33,13 @@ fires when NAV and PE disagree; on the real before/after, 3 funds changed `valua
 40 grounded ≠ the theoretical +383 below — the 120/180 maturity gate (not just coverage) binds, so the
 honest reach is far smaller. See §3 Phase D and `docs/2026-06-04-phase-d-lookthrough-pr1/gate5-review-note.md`.
 
-**Move forward from here:** the remaining index-path work is **A**, **B2** (B1 is onboarded; activation
-is deferred pending maturation + gate #5 — see §3 Phase B), and **C** (each additive into the same
-slot), plus the independent Phase 0 correctness fixes, plus one Phase-D follow-up (add `tracked_index`
-mappings for index products currently routed through the look-through). The cheapest near-term wins are
-**Phase A** and **Phase 0** (§7 → "Recommended next move"). See §7 for the now-narrowed open decisions.
+**Move forward from here:** with **Phase A now shipped & live**, the remaining index-path work is
+**B2** (B1 is onboarded; activation is deferred pending maturation + gate #5 — see §3 Phase B) and
+**C** (each additive into the same slot), plus the independent Phase 0 correctness fixes, plus one
+Phase-D follow-up (add `tracked_index` mappings for index products currently routed through the
+look-through). The cheapest near-term win is **Phase 0** (gold/bond correctness, independent);
+**Phase B B2** lights up once the csindex series clear the 120/180 maturity gate. See §7 for the
+now-narrowed open decisions.
 
 ---
 
@@ -89,7 +91,7 @@ There is no shortcut: the bulk *and* the hardest piece are the same block.
 Each phase populates the **same** `valuation_percentile_fundamental` slot — the seam is already
 there, so phases are additive and independently shippable.
 
-### Phase A — Activate broad grounding (near-free)
+### Phase A — Activate broad grounding ✅ DONE (2026-06-05)
 - **Scope:** the 19 broad-index CN funds (15 ETFs + 4 miscoded index funds).
 - **Work:**
   1. Add broad display names → slugs in `_INDEX_NAME_TO_SLUG`, with an alias map for the
@@ -261,12 +263,14 @@ recommended pattern works; apply it to A/B/C.
    coverage phases — can be done anytime.)
 
 ### Recommended next move
-Now that Phase D validated the look-through and **Phase B B1 onboarded the sector data layer**, the
-cheapest remaining wins are **Phase A** (broad-index grounding, +19, data+fetcher already exist — just
-needs the live-symbol fix + slug map) and **Phase 0** (gold/bond correctness, independent). Both are
-single-spec `autodev`-able with the live-symbol + output-review steps as hard human gates (§6). Phase A
-also absorbs the Phase-D follow-up (the index products miscoded as active). **Phase B B2 (activation)**
-needs no work now — it unlocks itself after ~6 months of forward accumulation, then a small config-edit
-+ gate-#5 diff review (track `audit_sector_ingest` for maturity; resolve flags #7/#16 first — see §3
-Phase B blockers). **Phase C (foreign)** still needs the source-selection decision (#3) before it can be
-planned.
+Now that Phase D validated the look-through, **Phase A shipped the broad-index PE-TTM grounding**
+(live; csi300/csi500/csi1000/sse50, +9 funds measured), and **Phase B B1 onboarded the sector data
+layer**, the cheapest remaining win is **Phase 0** (gold/bond correctness, independent —
+single-spec `autodev`-able with the output-review step as a hard human gate, §6). **Phase B B2
+(activation)** needs no work now — it unlocks itself after ~6 months of forward accumulation, then a
+small config-edit + gate-#5 diff review (track `audit_sector_ingest` for maturity; resolve flags
+#7/#16 first — see §3 Phase B blockers). **Phase C (foreign)** still needs the source-selection
+decision (#3) before it can be planned. One **Phase-D follow-up** persists: several
+index/`指数增强`/`LOF` products without a `tracked_index` still route through the look-through — add
+their mappings so they ride the cleaner index path. (Phase A handled the broad-index funds via the
+`161721`/`003318` seed overrides + broad slug inversion, plus the live-symbol fix + 4-symbol allowlist.)
