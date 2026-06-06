@@ -1,4 +1,4 @@
-Verdict: FAIL
+Verdict: PASS
 
 Subagent: sonnet
 Plan checklist items: 22 (Tasks 1–9 each with sub-steps; Task 10; Task 11; Tasks 12a–12f)
@@ -21,3 +21,39 @@ Drift findings:
         Evidence: src/irc/commands/research_cmd.py record_command_run(…, search_units={}, …) (line 96 in branch); no search_units collection in src/irc/research/theme_research.py or src/irc/research/pipeline.py diff.
         Fix: src/irc/research/theme_research.py — in build_theme_reports, count provider.search() calls per provider.name and extractor.extract() calls per extractor.name; propagate counts alongside llm_responses. src/irc/research/pipeline.py — return (exit_code, cost_entries, search_units_dict). src/irc/commands/research_cmd.py — pass the real search_units dict to record_command_run.
     Action: routed to triage.
+
+## Resolution (round 1)
+
+Fix commits: `914fec4` (remove preflight_gate calls) and `2bb6205` (search-unit counting ledger box).
+
+### Finding 12c (discover_cmd scope creep) — RESOLVED by commit 914fec4
+`git diff autodev/spend-balance-gate-phase2-feature...HEAD -- src/irc/commands/discover_cmd.py`
+confirms: no `preflight_gate` call or import in the final diff. The `record_command_run`
+recorder `finally` block is intact at discover_cmd.py lines added in the feature diff.
+Gate set verified: `grep -rn "preflight_gate(" src/irc/commands/*.py` returns exactly
+ask/decision/memo/fund_eval/opportunity/narrative + run_cmd — 6 command sites + 1 run site.
+discover_cmd and research_cmd are absent.
+
+### Finding 12d-a (research_cmd scope creep) — RESOLVED by commit 914fec4
+`git diff autodev/spend-balance-gate-phase2-feature...HEAD -- src/irc/commands/research_cmd.py`
+confirms: no `preflight_gate` import or `gate_rc` block in the final diff. The recorder
+`finally` block is intact and now passes real `search_units` (not `{}`).
+
+### Finding 12d-b (missing search-unit counting) — RESOLVED by commit 2bb6205
+- `src/irc/research/theme_research.py`: new `_count_search_units` helper counts 1 unit per
+  successful `provider.search()` call (keyed by `r.provider`) and 1 unit per extracted page
+  (keyed by `extractor.name`). `_build_one` returns `(ThemeReport, resp, units)` 3-tuple;
+  `build_theme_reports` accumulates across themes and returns `(reports, llm_responses, search_units)`.
+- `src/irc/research/pipeline.py`: `run_research_pipeline` unpacks the 3-tuple and returns
+  `(rc, cost_entries, search_units)`.
+- `src/irc/commands/research_cmd.py`: unpacks the 3-tuple; passes real `search_units` dict
+  (not `{}`) to `record_command_run`.
+- Test: `tests/commands/test_research_recorder.py` — 2 passed in 0.07s (run confirmed in
+  this dispatch: `uv run pytest tests/commands/test_research_recorder.py -q`).
+
+### Scope creep check — NONE
+Commits `914fec4` and `2bb6205` touch only: `src/irc/commands/discover_cmd.py`,
+`src/irc/commands/research_cmd.py`, `src/irc/research/pipeline.py`,
+`src/irc/research/theme_research.py`, `tests/commands/test_research_recorder.py`,
+`tests/research/test_pipeline.py`, `tests/research/test_theme_research.py`, and
+`docs/.../PROGRESS.md`. All within expected scope.
