@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ⏭️ | ✅ | ✅ 561a981 | ⚠️ | ⏳ | ⏳ | ⏳ | ⏳ | 🔄 | ⏳ |
 
 ## Notes
 
@@ -20,4 +20,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 - spec: `items/001-spec.md`
 - plan: `items/001-plan.md`
+- branch: `claude/spend-balance-gate-phase2-001` (off feature branch)
+- impl: 21 commits `08ef86f..561a981` (Tasks 1-12, TDD). tests/spend green (58 passed); 93 touched-unit tests green; no NEW failures vs baseline (2 pre-existing remain: opportunity_cmd_fund_level + test_architecture DAG cycle).
+- **impl finding (for drift/fix):** scope creep — `preflight_gate` added to `discover_cmd.py:119` + `research_cmd.py:65` (NOT in plan Task 12 scope; Q7 = recorder wiring, not gating). To be removed in fix loop.
 - (branch / impl / drift / ship / verify / review / pr-review / merge evidence appended here as they land)

@@ -96,6 +96,22 @@ def _query_for(theme: str) -> str:
     return _THEME_QUERIES.get(theme, f"Research summary for {theme}")
 
 
+def _count_search_units(
+    raw_results: tuple,
+    pages: tuple,
+    extractor: ContentExtractor,
+) -> dict[str, int]:
+    """Return per-name unit counts: 1 query unit per successful provider call,
+    1 page unit per extracted page, keyed by provider.name / extractor.name."""
+    counts: dict[str, int] = {}
+    for r in raw_results:
+        if not r.failure_reason:
+            counts[r.provider] = counts.get(r.provider, 0) + 1
+    if pages and extractor is not None:
+        counts[extractor.name] = counts.get(extractor.name, 0) + len(pages)
+    return counts
+
+
 def _build_one(
     theme: str,
     query: str,
@@ -106,7 +122,7 @@ def _build_one(
     max_hits: int,
     top_pages: int,
     freshness_days: int = _DEFAULT_FRESHNESS_DAYS,
-) -> tuple[ThemeReport, Any]:
+) -> tuple[ThemeReport, Any, dict[str, int]]:
     try:
         matched = providers_for_locale(locale, providers)
     except ValueError as exc:
@@ -114,7 +130,7 @@ def _build_one(
             theme=theme, query=query, locale=locale.value,
             report_md="", citations=[], failure_reason=str(exc),
             provider_failures=(),
-        ), None
+        ), None, {}
     raw_results = provider_results(query, locale, matched, max_results=max_hits, freshness_days=freshness_days)
     failures = tuple(
         f"{r.provider}: {r.failure_reason}"
@@ -123,6 +139,7 @@ def _build_one(
     )
     hits = hits_from_results(raw_results, max_hits)
     pages = extract_top_pages(hits, extractor, top_k=top_pages)
+    units = _count_search_units(raw_results, pages, extractor)
     result, resp = synthesize_report(
         query=query, hits=hits, pages=pages, route=route,
     )
@@ -131,7 +148,7 @@ def _build_one(
         report_md=result.report_md, citations=result.citations,
         failure_reason=result.failure_reason,
         provider_failures=failures,
-    ), resp
+    ), resp, units
 
 
 def _query_for_with_context(theme: str, holdings_keywords: tuple[str, ...]) -> str:
@@ -186,14 +203,18 @@ def build_theme_reports(
     max_hits: int = 8,
     top_pages: int = 5,
     holdings_keywords: tuple[str, ...] = (),
-) -> tuple[list[ThemeReport], list[Any]]:
+) -> tuple[list[ThemeReport], list[Any], dict[str, int]]:
     """For each theme: pick locale → fan-out search → extract top pages → LLM synth.
 
     Per-theme failures (no provider, no hits, LLM error) are recorded in the report's
     failure_reason; other themes still run. Wall-clock target ≤30 s per theme.
 
-    Returns ``(reports, llm_responses)`` where ``llm_responses`` collects the
-    ChatResponse from each successful LLM call (Shape B — usage rides up as data).
+    Returns ``(reports, llm_responses, search_units)`` where:
+    - ``llm_responses`` collects the ChatResponse from each successful LLM call
+      (Shape B — usage rides up as data).
+    - ``search_units`` is a ``dict[str, int]`` keyed by provider/extractor name,
+      counting 1 query unit per successful provider.search() call and 1 page unit
+      per extractor.extract() call (ADR 0013 — usage as data, not threaded mutable state).
 
     ``holdings_keywords`` (item 001) drives two behaviors:
 
@@ -211,8 +232,9 @@ def build_theme_reports(
     norm_keywords = normalize_keywords(holdings_keywords)
     out: list[ThemeReport] = []
     llm_responses: list[Any] = []
+    search_units: dict[str, int] = {}
     for theme in progress_iter(themes, "research", total=len(themes)):
-        report, resp = _build_one(
+        report, resp, units = _build_one(
             theme=theme,
             query=_query_for_with_context(theme, holdings_keywords),
             locale=theme_locale(theme),
@@ -232,4 +254,6 @@ def build_theme_reports(
         out.append(report)
         if resp is not None:
             llm_responses.append(resp)
-    return out, llm_responses
+        for name, count in units.items():
+            search_units[name] = search_units.get(name, 0) + count
+    return out, llm_responses, search_units

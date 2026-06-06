@@ -34,8 +34,8 @@ def _failed_report(theme: str, reason: str) -> ThemeReport:
 
 @patch("irc.research.pipeline.build_theme_reports")
 def test_research_pipeline_writes_markdown_per_theme(mock_build, tmp_path: Path):
-    mock_build.return_value = ([_ok_report("us_monetary"), _ok_report("gold_drivers")], [])
-    rc, _ = run_research_pipeline(
+    mock_build.return_value = ([_ok_report("us_monetary"), _ok_report("gold_drivers")], [], {})
+    rc, _, _units = run_research_pipeline(
         repo_root=tmp_path,
         themes=("us_monetary", "gold_drivers"),
         providers=(),
@@ -52,8 +52,9 @@ def test_research_pipeline_returns_zero_and_writes_warn_status_when_any_theme_fa
     mock_build.return_value = (
         [_ok_report("us_monetary"), _failed_report("gold_drivers", "timeout")],
         [],
+        {},
     )
-    rc, _ = run_research_pipeline(
+    rc, _, _units = run_research_pipeline(
         repo_root=tmp_path,
         themes=("us_monetary", "gold_drivers"),
         providers=(),
@@ -72,8 +73,9 @@ def test_research_pipeline_writes_status_json(mock_build, tmp_path: Path):
     mock_build.return_value = (
         [_ok_report("us_monetary"), _failed_report("gold_drivers", "timeout")],
         [],
+        {},
     )
-    rc, _ = run_research_pipeline(
+    rc, _, _units = run_research_pipeline(
         repo_root=tmp_path,
         themes=("us_monetary", "gold_drivers"),
         providers=(),
@@ -105,10 +107,11 @@ def test_run_research_pipeline_returns_2_when_quality_gate_fails(tmp_path, monke
                 for t in themes
             ],
             [],
+            {},
         )
     monkeypatch.setattr(p, "build_theme_reports", _all_failed)
 
-    rc, _ = p.run_research_pipeline(
+    rc, _, _units = p.run_research_pipeline(
         repo_root=tmp_path,
         themes=("cn_monetary", "cn_equity_property_policy"),
         providers=(),
@@ -137,6 +140,7 @@ def test_run_research_pipeline_prints_summary(tmp_path, monkeypatch, capsys):
                             citations=[], failure_reason="bocha 403"),
             ],
             [],
+            {},
         )
     monkeypatch.setattr(p, "build_theme_reports", _mixed)
 
@@ -150,3 +154,21 @@ def test_run_research_pipeline_prints_summary(tmp_path, monkeypatch, capsys):
     assert "us_monetary" in out, f"us_monetary not in output: {out!r}"
     assert "cn_monetary" in out, f"cn_monetary not in output: {out!r}"
     assert "bocha 403" in out, f"failure reason not in output: {out!r}"
+
+
+@patch("irc.research.pipeline.build_theme_reports")
+def test_research_pipeline_returns_search_units(mock_build, tmp_path: Path):
+    """pipeline threads search_units from build_theme_reports to caller (ADR 0013)."""
+    mock_build.return_value = (
+        [_ok_report("us_monetary")],
+        [],
+        {"tavily": 3, "jina": 2},
+    )
+    _rc, _costs, units = run_research_pipeline(
+        repo_root=tmp_path,
+        themes=("us_monetary",),
+        providers=(),
+        extractor=None,  # type: ignore[arg-type]
+        route=_route(),
+    )
+    assert units == {"tavily": 3, "jina": 2}

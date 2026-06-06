@@ -55,14 +55,16 @@ def run_research_pipeline(
     extractor: ContentExtractor,
     route: ResolvedRoute,
     holdings_keywords: tuple[str, ...] = (),
-) -> tuple[int, list[CostEntry]]:
-    """Run all theme research; persist outputs; return (rc, cost_entries).
+) -> tuple[int, list[CostEntry], dict[str, int]]:
+    """Run all theme research; persist outputs; return (rc, cost_entries, search_units).
 
     rc: 0 = pass (or warn, run continues); 2 = fail (caller should halt).
     cost_entries: one CostEntry per successful LLM synthesize call (Shape B).
+    search_units: dict[str, int] keyed by provider/extractor name — 1 unit per
+        provider.search() call + 1 unit per extractor.extract() call (ADR 0013).
     """
     out_dir = repo_root / "data" / "research"
-    reports, llm_responses = build_theme_reports(
+    reports, llm_responses, search_units = build_theme_reports(
         themes=themes, providers=providers, extractor=extractor, route=route,
         holdings_keywords=holdings_keywords,
     )
@@ -78,4 +80,4 @@ def run_research_pipeline(
     if not verdict.passed:
         print("ERROR: research quality gate failed — see errors above for details")
     cost_entries = _cost_entries_from_responses(llm_responses, route)
-    return verdict.exit_code, cost_entries
+    return verdict.exit_code, cost_entries, search_units

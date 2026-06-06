@@ -94,7 +94,7 @@ def test_build_one_theme_produces_one_report_with_citations():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="body [1]", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        out, responses = build_theme_reports(
+        out, responses, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(en_provider,),
             extractor=extractor,
@@ -129,7 +129,7 @@ def test_build_routes_zh_theme_to_zh_provider():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="zh body", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        out, _ = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("cn_monetary",),
             providers=(en_provider, zh_provider),
             extractor=extractor,
@@ -143,7 +143,7 @@ def test_build_returns_failure_when_no_provider_for_locale():
     en_only = _FakeProvider(name="tavily", locale=Locale.EN, hits=())
     extractor = _FakeExtractor()
     with patch("irc.research.synthesize.call_chat") as m:
-        out, _ = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("cn_monetary",),
             providers=(en_only,),
             extractor=extractor,
@@ -166,7 +166,7 @@ def test_build_records_synth_failure_per_theme_without_aborting_others():
         ChatResponse(text="ok", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ]
     with patch("irc.research.synthesize.call_chat", side_effect=llm_responses):
-        out, collected_responses = build_theme_reports(
+        out, collected_responses, _units = build_theme_reports(
             themes=("us_monetary", "us_fiscal_politics"),
             providers=(en,),
             extractor=extractor,
@@ -184,7 +184,7 @@ def test_build_records_failure_when_search_returns_no_hits():
     en = _FakeProvider(name="tavily", locale=Locale.EN, hits=())
     extractor = _FakeExtractor()
     with patch("irc.research.synthesize.call_chat") as m:
-        out, _ = build_theme_reports(
+        out, _, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(en,),
             extractor=extractor,
@@ -204,7 +204,7 @@ def test_build_theme_reports_captures_provider_failures():
         "irc.research.synthesize.call_chat",
         return_value=ChatResponse(text="body", prompt_tokens=1, completion_tokens=1, latency_ms=1, raw={}),
     ):
-        reports, _ = build_theme_reports(
+        reports, _, _units = build_theme_reports(
             themes=("us_monetary",),
             providers=(failing_provider, ok_provider),
             extractor=extractor,
