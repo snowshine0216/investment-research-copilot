@@ -40,8 +40,8 @@ def test_research_cmd_loads_env_and_calls_pipeline_when_providers_present(
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
-    # run_research_pipeline now returns (rc, cost_entries)
-    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [])) as mock_pipeline, \
+    # run_research_pipeline now returns (rc, cost_entries, search_units)
+    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [], {})) as mock_pipeline, \
          patch("irc.commands.research_cmd.load_repo_configs") as mock_cfg, \
          patch("irc.commands.research_cmd.resolve_route") as mock_route:
         mock_cfg.return_value.llm = object()
@@ -69,8 +69,8 @@ def test_research_cmd_accepts_selected_themes(tmp_path: Path, monkeypatch) -> No
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
     monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
-    # run_research_pipeline now returns (rc, cost_entries)
-    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [])) as mock_pipeline, \
+    # run_research_pipeline now returns (rc, cost_entries, search_units)
+    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [], {})) as mock_pipeline, \
          patch("irc.commands.research_cmd.load_repo_configs") as mock_cfg, \
          patch("irc.commands.research_cmd.resolve_route") as mock_route:
         mock_cfg.return_value.llm = object()
