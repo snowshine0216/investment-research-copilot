@@ -46,6 +46,10 @@ def _load_context(out_dir: Path) -> dict[str, str]:
 
 
 def run_ask(repo_root: str, question: str) -> int:
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.llm.cost_tracker import CostEntry, append_cost
+    from irc.spend.record_run import record_command_run
     from irc.commands.spend_cmd import preflight_gate
     gate_rc = preflight_gate(repo_root, "ask")
     if gate_rc != 0:
@@ -54,11 +58,27 @@ def run_ask(repo_root: str, question: str) -> int:
         print(f"ERROR: question exceeds max length ({len(question)} > {MAX_QUESTION_LEN})")
         return 2
     root = Path(repo_root)
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     bundle = load_repo_configs(root)
     out_dir = root / "outputs" / _today()
     context = _load_context(out_dir)
     route = resolve_route("interactive_query", bundle.llm)
     parsed = parse_query(question)
-    resp = respond_to_query(parsed, context, route)
-    print(resp.text)
-    return 0
+    history: list[CostEntry] = []
+    try:
+        resp = respond_to_query(parsed, context, route)
+        _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
+        history = append_cost(history, CostEntry(
+            task=route.task, provider=route.provider, model=route.model,
+            prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,
+            latency_ms=getattr(resp, "latency_ms", 0), ts=_ts,
+        ))
+        print(resp.text)
+        return 0
+    finally:
+        try:
+            record_command_run(
+                repo_root=root, history=history, search_units={}, today=_today_date,
+            )
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
