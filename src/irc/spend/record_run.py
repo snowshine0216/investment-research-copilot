@@ -30,7 +30,13 @@ def record_command_run(
     actuals = actuals_from_costs(history, search_units=search_units)
 
     actuals_path = Path(out_dir) / "spend_actuals.json"
-    existing = json.loads(actuals_path.read_text()) if actuals_path.exists() else {}
+    if actuals_path.exists():
+        try:
+            existing = json.loads(actuals_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"corrupt spend actuals at {actuals_path}: {exc}") from exc
+    else:
+        existing = {}
     atomic_write_text(actuals_path,
                       json.dumps(merge_actuals_dict(existing, actuals), indent=2, sort_keys=True))
 

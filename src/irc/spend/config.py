@@ -30,7 +30,10 @@ def load_consumption(repo_root: Path, *, filename: str = CONSUMPTION_FILE) -> di
     path = Path(repo_root) / filename
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"corrupt consumption at {path}: {exc}") from exc
 
 
 def load_usage_profile_raw(
@@ -39,7 +42,10 @@ def load_usage_profile_raw(
     path = Path(repo_root) / filename
     if not path.exists():
         return {}
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"corrupt usage profile at {path}: {exc}") from exc
 
 
 def write_usage_profile(

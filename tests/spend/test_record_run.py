@@ -1,4 +1,5 @@
 import json
+import pytest
 from datetime import date
 from pathlib import Path
 import yaml
@@ -72,3 +73,22 @@ def test_record_run_no_paid_calls_writes_nothing(tmp_path):
                        search_units={}, today=date(2026, 6, 6))
     assert not (out_dir / "spend_actuals.json").exists()
     assert not (tmp_path / "data/spend/usage_profile.json").exists()
+
+
+# --- FIX 2: corrupt spend_actuals.json must surface the path ------------------
+
+def test_record_run_corrupt_actuals_raises_runtime_error_with_path(tmp_path):
+    """A truncated spend_actuals.json must raise RuntimeError naming the file path,
+    NOT be silently swallowed by the command-level except Exception."""
+    _seed_configs(tmp_path)
+    out_dir = tmp_path / "outputs/2026-06-06"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    corrupt = out_dir / "spend_actuals.json"
+    corrupt.write_text("{bad json", encoding="utf-8")
+    history = [CostEntry("memo_synthesis", "deepseek", "deepseek-chat", 100, 50, 5,
+                         "2026-06-06T01:00:00+08:00")]
+    with pytest.raises(RuntimeError, match=str(corrupt)):
+        record_command_run(
+            repo_root=tmp_path, out_dir=out_dir,
+            history=history, search_units={}, today=date(2026, 6, 6),
+        )
