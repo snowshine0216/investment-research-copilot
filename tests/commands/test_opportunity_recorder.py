@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from irc.llm._types import ChatResponse, ResolvedRoute
+from irc.llm._types import ResolvedRoute
 from irc.llm.cost_tracker import CostEntry
 from datetime import datetime, timezone, timedelta
 
@@ -97,7 +97,7 @@ def test_opportunity_run_records_debate_tasks_samples_0_to_1(opp_repo, monkeypat
     ]
 
     # Stub _write_opportunity_outputs to return fake_cost_entries (the debate LLM call entries)
-    with patch("irc.commands.opportunity_cmd._write_opportunity_outputs", return_value=fake_cost_entries) as mock_write, \
+    with patch("irc.commands.opportunity_cmd._write_opportunity_outputs", return_value=fake_cost_entries), \
              patch("irc.commands.opportunity_cmd._build_rows", return_value=(
                  [], [], {}, {}, [], "hash0", {}
              )), \

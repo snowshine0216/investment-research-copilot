@@ -8,8 +8,7 @@ from unittest.mock import patch
 import pytest
 import yaml
 
-from irc.llm._types import ChatResponse, ResolvedRoute
-from irc.research.synthesize import Citation, ResearchReport
+from irc.llm._types import ResolvedRoute
 
 
 @pytest.fixture
@@ -52,7 +51,6 @@ def test_research_run_records_research_synth_samples_0_to_1(research_repo, monke
     monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
     import irc.commands.research_cmd as research_mod
-    from irc.research.pipeline import run_research_pipeline
 
     fake_route = ResolvedRoute(
         task="research_synth",
@@ -60,16 +58,6 @@ def test_research_run_records_research_synth_samples_0_to_1(research_repo, monke
         model="deepseek-chat",
         base_url="https://api.deepseek.com/v1",
         api_key_env="DEEPSEEK_API_KEY",
-    )
-
-    fake_report = ResearchReport(
-        report_md="Gold report [1].",
-        citations=[Citation(index=1, title="Reuters gold", url="https://reuters.com/gold")],
-        failure_reason="",
-    )
-    fake_resp = ChatResponse(
-        text="Gold report [1].", prompt_tokens=900, completion_tokens=200,
-        latency_ms=0, raw={},
     )
 
     # Stub the pipeline to return 1 cost entry from a single synth call

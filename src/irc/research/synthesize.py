@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 
-from irc.llm._types import ResolvedRoute
+from irc.llm._types import ChatResponse, ResolvedRoute
 from irc.llm.http_client import call_chat
 from irc.research.search.types import ExtractedPage, SearchHit
 
@@ -97,14 +97,13 @@ def synthesize_report(
     *,
     route: ResolvedRoute,
     max_tokens: int = 2000,
-) -> tuple[ResearchReport, "ChatResponse | None"]:
+) -> tuple[ResearchReport, ChatResponse | None]:
     """One LLM call: (query + hits + pages) -> (markdown report, ChatResponse | None).
 
     Citations are derived from the input source pool (pages preferred, then hits),
     not from LLM output, so they cannot be hallucinated. The LLM only chooses which
     [n] to reference inline. Returns (report, None) when no LLM call was made.
     """
-    from irc.llm._types import ChatResponse  # local import to avoid circular at module level
     citations = _build_sources(hits, pages)
     if not citations:
         return ResearchReport(

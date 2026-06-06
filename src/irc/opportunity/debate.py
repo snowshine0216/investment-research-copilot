@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 
 from irc.llm._types import ResolvedRoute
-from irc.llm.cost_tracker import CostEntry, append_cost
+from irc.llm.cost_tracker import CostEntry
 from irc.llm.http_client import call_chat
 from irc.opportunity.types import OpportunityRow
 
