@@ -22,7 +22,15 @@ def record_command_run(
     spend_balances.yaml (the same `entry.quota is not None` predicate the reader uses),
     so writer/reader can never drift. Hands-off; each call accumulates. Safe to call on
     both success and failure paths — `history` holds only completed, billed calls (Q4).
-    `out_dir` defaults to `repo_root/outputs/<today>` (override only in tests)."""
+    `out_dir` defaults to `repo_root/outputs/<today>` (override only in tests).
+
+    Concurrency: this read-modify-write of the three JSON state files is NOT locked.
+    The contract assumes SEQUENTIAL invocation (the only path that accumulates within a
+    day is `irc run`, which runs stages as sub-runners one at a time). `atomic_write_text`
+    keeps each individual write torn-free; a lost update from two `irc` commands run
+    concurrently (e.g. two terminals on the same day) is a tolerated, self-healing miss
+    — the next sequential run re-folds the EWMA and re-decrements the ledger. File-level
+    locking is intentionally out of scope for this single-user CLI."""
     if not history and not search_units:
         return                              # no paid calls → nothing to record (spec §12.2)
     root = Path(repo_root)
