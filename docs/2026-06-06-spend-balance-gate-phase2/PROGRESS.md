@@ -32,3 +32,25 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **Regression check:** 171 touched-scope tests pass; baseline failure set unchanged (2 pre-existing: opportunity_cmd_fund_level + test_architecture DAG cycle); no new failures. ruff clean on all touched paths.
 - **pre-ship fix round 1** (`914fec4`, `2bb6205`): removed unrequested `preflight_gate` from discover/research (Q7 = recorder wiring, not gating); **implemented missing Task 12d search-unit counting** (`theme_research._count_search_units` → pipeline 3-tuple → `record_command_run(search_units=…)`) so the Tavily/Bocha/Jina/Brave ledger decrement lands — the §15.2 ledger-box proof. New tests: `test_research_search_units_flow_to_actuals_and_ledger`, `test_research_pipeline_returns_search_units`.
 - (branch / impl / drift / ship / verify / review / pr-review / merge evidence appended here as they land)
+
+---
+
+## Final status — RUN COMPLETE (2026-06-06)
+
+- **Mode:** plan · **Project type:** non-web · **PR shape:** A
+- **Items merged:** 1 / 1 (001 → squash `33df8d3` into the feature branch)
+- **Items SKIPPED:** 0 · **Items BLOCKED:** 0
+- **Phase 3:** workflow-completeness audit PASS (all verdict artifacts present; grill/qa correctly absent); merged-branch build/test sanity PASS (`irc --help` boots, 75 core tests pass, ruff clean).
+- **Regression:** no NEW failures vs the documented ~8-failure baseline (2 pre-existing remain: `test_opportunity_cmd_fund_level`, `test_architecture` DAG cycle).
+- **Fix loop:** 5 rounds (2 pre-ship drift/review, 3 post-ship /code-review).
+
+### Branches & PRs
+- Feature branch: `autodev/spend-balance-gate-phase2-feature` (synthesized off `main`)
+- Item PR: #119 — MERGED (squash `33df8d3`)
+- **Feature-branch PR: #120** — OPEN into `main` (roll-up review surface)
+- **Merged into protected branch: no** (PR #120 left open for user review — protected-base guardrail held; no merge opt-in this turn)
+
+### Follow-ups (deferred, documented in items/001-review.md)
+- Concurrency: JSON state read-modify-write assumes sequential invocation (self-heals next run); file-locking out of scope.
+- Same-day-retry EWMA double-fold; Shape-B partial-billing on mid-pipeline crash — self-healing, low impact.
+- Possible 12f enhancement: eval-funds/narrative record `history=[]` (no-op) — confirm whether they make paid LLM calls that should converge standalone.
