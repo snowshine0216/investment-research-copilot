@@ -791,31 +791,37 @@ def run_memo(repo_root: str) -> int:
     gate_rc = preflight_gate(repo_root, "memo")
     if gate_rc != 0:
         return gate_rc
+    return _run_memo_body(Path(repo_root))
+
+
+def _run_memo_body(root: Path) -> int:
     import logging as _logging
     from datetime import datetime, timezone, timedelta
     from irc.llm.cost_tracker import CostEntry
     from irc.spend.record_run import record_command_run
-    _history: list[CostEntry] = []
+    history: list[CostEntry] = []
     _today_date = datetime.now(timezone(timedelta(hours=8))).date()
-    root = Path(repo_root)
+    rc = 1
     try:
-        return _run_memo_body(root, _history)
+        rc, history = _run_memo_body_inner(root)
+        return rc
     finally:
         try:
             record_command_run(
-                repo_root=root, history=_history, search_units={}, today=_today_date,
+                repo_root=root, history=history, search_units={}, today=_today_date,
             )
         except Exception:
             _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
 
 
-def _run_memo_body(root: Path, _history: list) -> int:
+def _run_memo_body_inner(root: Path) -> tuple[int, list]:
     from irc.llm.cost_tracker import CostEntry, append_cost
     from datetime import datetime, timezone, timedelta
+    history: list[CostEntry] = []
     if not require_fresh_ingest(root, stage="memo"):
         print("ERROR: memo stage halted — ingest is stale. "
               "See outputs/<today>/STALE_INGEST.md or set IRC_ALLOW_STALE=1.")
-        return 1
+        return 1, history
     bundle = load_repo_configs(root)
     today = _today()
 
@@ -824,7 +830,7 @@ def _run_memo_body(root: Path, _history: list) -> int:
         p = _latest_file(root, "outputs/*/scoring.json")
         if p is None:
             print("ERROR: no scoring.json; run `irc score` first.")
-            return 2
+            return 2, history
         scoring_path = p
 
     out_today = scoring_path.parent  # use same date dir as scoring
@@ -931,7 +937,7 @@ def _run_memo_body(root: Path, _history: list) -> int:
             "Investigate opportunity_report.json for duplicate `name_cn` "
             "or shared `lookthrough_target.key` across publishable rows."
         )
-        return 1
+        return 1, history
 
     tldr = _derive_tldr_lines(gold, alloc, opportunity, plan, pick_rows=pick_rows)
 
@@ -1019,14 +1025,14 @@ def _run_memo_body(root: Path, _history: list) -> int:
     # output.synth_response / output.audit_response carry the per-leg tokens.
     _ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
     if output.synth_response is not None:
-        _history[:] = append_cost(_history, CostEntry(
+        history = append_cost(history, CostEntry(
             task=synth_route.task, provider=synth_route.provider, model=synth_route.model,
             prompt_tokens=output.synth_response.prompt_tokens,
             completion_tokens=output.synth_response.completion_tokens,
             latency_ms=getattr(output.synth_response, "latency_ms", 0), ts=_ts,
         ))
     if output.audit_response is not None:
-        _history[:] = append_cost(_history, CostEntry(
+        history = append_cost(history, CostEntry(
             task=audit_route.task, provider=audit_route.provider, model=audit_route.model,
             prompt_tokens=output.audit_response.prompt_tokens,
             completion_tokens=output.audit_response.completion_tokens,
@@ -1069,7 +1075,7 @@ def _run_memo_body(root: Path, _history: list) -> int:
         )
         for reason in block_reasons:
             print(f"  - {reason}")
-        return 2
+        return 2, history
 
     # ── Item 009 — memo-stage citation gate ───────────────────────────────────
     # Q7 + F1 lock: use out_dir (write path), NOT out_today (read path).
@@ -1166,7 +1172,7 @@ def _run_memo_body(root: Path, _history: list) -> int:
         )
         for r in reasons:
             print(f"  - {r}")
-        return 2
+        return 2, history
     if memo_findings and enforce_mode == "warn":
         print(
             "WARN citation-audit (memo): "
@@ -1183,4 +1189,4 @@ def _run_memo_body(root: Path, _history: list) -> int:
         f"{output.traceability['n_refs_provided']} refs quoted verbatim "
         f"→ {out_dir/'memo.md'}"
     )
-    return 0
+    return 0, history
