@@ -50,20 +50,26 @@ This overwrites this file with the actual before/after Markdown table.
 
 ### Step 4 — Count grounded broad funds (exit gate #3, expect ≥ 9)
 
+Use the committed helper (do NOT key off `lookthrough_key in {slugs}` — the report
+stores Chinese display names there, e.g. `沪深300`, so a slug test always returns 0):
+
 ```bash
-uv run python -c "
-import json
-rows = json.load(open('outputs/_phase_a_after/opportunity_report.json'))['rows']
-grounded = [r['instrument_id'] for r in rows
-            if r.get('lookthrough_kind')=='broad_index'
-            and r.get('lookthrough_key') in ('csi300','csi500','csi1000','sse50')]
-print('grounded broad funds:', len(grounded), sorted(grounded))
-"
+uv run python docs/2026-06-05-phase-a-broad-grounding/count_grounded.py \
+    outputs/_phase_a_after/opportunity_report.json
 ```
 
-Expected: `len(grounded) >= 9`
+It maps each broad row's Chinese name → slug and checks ACTUAL PE-TTM grounding
+against the cached `index_valuation_history` (the same read the loader does), then
+prints `grounded (real PE-TTM)` plus a per-row table.
+
+Expected: `grounded >= 9`
 (csi300×4, csi500×2, csi1000×2, sse50×1 — after D5/D6 seed overrides for
 161721 and 003318 which must NOT appear in the grounded set.)
+
+Note the two distinct numbers it reports: `mapped to allowlist` (the row's index
+is one of the 4 production broad slugs) vs `grounded` (that slug actually has
+mature cached PE-TTM data this run). A gap between them means legulegu didn't land
+that index's series — re-run ingest when legulegu is healthy.
 
 ### Step 5 — Eyeball check (gate #5)
 
