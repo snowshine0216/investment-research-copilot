@@ -1419,8 +1419,9 @@ def _write_opportunity_outputs(
     # --adversarial set; 6th additive file, NOT a canonical artifact, NOT in
     # H3/SAME-3, EXEMPT from two-run byte-equality. Runs on the FINAL
     # post-citation-gate publishable_rows, AFTER all canonical artifacts.
+    debate_responses: list = []
     if debate_route is not None:
-        debates = run_debates(publishable_rows, debate_route)
+        debates, debate_responses = run_debates(publishable_rows, debate_route)
         atomic_write_text(
             out_dir / "thesis_debate.md",
             compose_thesis_debate_markdown(debates),
@@ -1431,6 +1432,7 @@ def _write_opportunity_outputs(
         f"{len(discipline_rows)} discipline entries, "
         f"{len(rejection_records)} rejections -> {out_dir}"
     )
+    return debate_responses
 
 
 def run_opportunity(
@@ -1441,11 +1443,17 @@ def run_opportunity(
     rebuild_fundamentals: bool = False,
     adversarial: bool = False,
 ) -> int:
+    import logging as _logging
+    from datetime import datetime, timezone, timedelta
+    from irc.llm.cost_tracker import CostEntry, append_cost
+    from irc.spend.record_run import record_command_run
     from irc.commands.spend_cmd import preflight_gate
+
     gate_rc = preflight_gate(repo_root, "opportunity")
     if gate_rc != 0:
         return gate_rc
     root = Path(repo_root)
+    _today_date = datetime.now(timezone(timedelta(hours=8))).date()
     today = _today()
     # Validate CLI args before touching any I/O (exits with code 2 if invalid).
     validate_cli_args(
@@ -1495,6 +1503,7 @@ def run_opportunity(
     ensure_schema(con)
     cn_provider = default_cn_provider()
     out_dir = Path(output_dir) if output_dir is not None else (root / "outputs" / today)
+    history: list[CostEntry] = []
     try:
         rows, positions, qualities, roles, pending_verdicts, plan_hash, snapshot_cache_by_instrument = _build_rows(
             scores, instr_index, holdings, portfolio_total_cny,
@@ -1513,13 +1522,16 @@ def run_opportunity(
         if rows:
             _print_quality_warnings(rows)
         kept_rows = _apply_reduction(rows, qualities, set(holdings.keys()))
-        _write_opportunity_outputs(
+        debate_entries = _write_opportunity_outputs(
             kept_rows, positions, qualities, roles, holdings, out_dir, today,
             pending_verdicts=pending_verdicts,
             plan_hash=plan_hash,
             snapshot_cache_by_instrument=snapshot_cache_by_instrument,
             debate_route=debate_route,
         )
+        # Accumulate cost entries from debate LLM calls (Shape B)
+        for entry in (debate_entries or []):
+            history = append_cost(history, entry)
     except FetchBudgetExceeded as exc:
         sys.stderr.write(str(exc) + "\n")
         con.close()
@@ -1533,4 +1545,10 @@ def run_opportunity(
             con.close()
         except Exception:
             pass
+        try:
+            record_command_run(
+                repo_root=root, history=history, search_units={}, today=_today_date,
+            )
+        except Exception:
+            _logging.getLogger(__name__).warning("spend recorder failed", exc_info=True)
     return 0

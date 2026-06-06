@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
+from datetime import datetime, timezone, timedelta
 
 from irc.llm._types import ResolvedRoute
+from irc.llm.cost_tracker import CostEntry, append_cost
 from irc.llm.http_client import call_chat
 from irc.opportunity.types import OpportunityRow
 
@@ -74,7 +76,10 @@ def _thesis_card(row: OpportunityRow) -> str:
     )
 
 
-def run_defend(row: OpportunityRow, route: ResolvedRoute) -> DefenseResult:
+def run_defend(
+    row: OpportunityRow, route: ResolvedRoute,
+) -> "tuple[DefenseResult, object | None]":
+    """Returns (DefenseResult, ChatResponse | None). None on failure (Shape B)."""
     try:
         resp = call_chat(route, messages=[
             {"role": "system", "content": _DEFEND_SYS},
@@ -82,16 +87,19 @@ def run_defend(row: OpportunityRow, route: ResolvedRoute) -> DefenseResult:
         ], timeout_s=30, temperature=0.2)
         raw = json.loads(resp.text).get("arguments", [])
         items = (raw if isinstance(raw, list) else [])[:_MAX_ITEMS]
-        return DefenseResult(arguments=tuple(_sanitize(i) for i in items))
+        return DefenseResult(arguments=tuple(_sanitize(i) for i in items)), resp
     except Exception as exc:
         _log.warning(
             "run_defend failed for %s (%s): %s",
             row.instrument_id, row.name_cn, type(exc).__name__,
         )
-        return DefenseResult(arguments=())
+        return DefenseResult(arguments=()), None
 
 
-def run_falsify(row: OpportunityRow, route: ResolvedRoute) -> FalsificationResult:
+def run_falsify(
+    row: OpportunityRow, route: ResolvedRoute,
+) -> "tuple[FalsificationResult, object | None]":
+    """Returns (FalsificationResult, ChatResponse | None). None on failure (Shape B)."""
     try:
         resp = call_chat(route, messages=[
             {"role": "system", "content": _FALSIFY_SYS},
@@ -99,13 +107,13 @@ def run_falsify(row: OpportunityRow, route: ResolvedRoute) -> FalsificationResul
         ], timeout_s=30, temperature=0.2)
         raw = json.loads(resp.text).get("conditions", [])
         items = (raw if isinstance(raw, list) else [])[:_MAX_ITEMS]
-        return FalsificationResult(conditions=tuple(_sanitize(i) for i in items))
+        return FalsificationResult(conditions=tuple(_sanitize(i) for i in items)), resp
     except Exception as exc:
         _log.warning(
             "run_falsify failed for %s (%s): %s",
             row.instrument_id, row.name_cn, type(exc).__name__,
         )
-        return FalsificationResult(conditions=())
+        return FalsificationResult(conditions=()), None
 
 
 def pair_debate(
@@ -120,27 +128,51 @@ def pair_debate(
     )
 
 
+def _resp_to_entry(resp: object, route: ResolvedRoute, ts: str) -> CostEntry:
+    return CostEntry(
+        task=route.task,
+        provider=route.provider,
+        model=route.model,
+        prompt_tokens=getattr(resp, "prompt_tokens", 0),
+        completion_tokens=getattr(resp, "completion_tokens", 0),
+        latency_ms=getattr(resp, "latency_ms", 0),
+        ts=ts,
+    )
+
+
 def _debate_one(
     row: OpportunityRow, defend_route: ResolvedRoute, falsify_route: ResolvedRoute,
-) -> ThesisDebate:
-    return pair_debate(
-        row, run_defend(row, defend_route), run_falsify(row, falsify_route),
-    )
+    ts: str,
+) -> "tuple[ThesisDebate, list[CostEntry]]":
+    defense, resp_d = run_defend(row, defend_route)
+    falsification, resp_f = run_falsify(row, falsify_route)
+    entries: list[CostEntry] = []
+    if resp_d is not None:
+        entries.append(_resp_to_entry(resp_d, defend_route, ts))
+    if resp_f is not None:
+        entries.append(_resp_to_entry(resp_f, falsify_route, ts))
+    return pair_debate(row, defense, falsification), entries
 
 
 def run_debates(
     rows: list[OpportunityRow],
     routes: tuple[ResolvedRoute, ResolvedRoute],
-) -> tuple[ThesisDebate, ...]:
+) -> "tuple[tuple[ThesisDebate, ...], list[CostEntry]]":
     """Effect orchestrator: one defend + one falsify per row, per-row isolated.
 
     `routes` = (defend_route, falsify_route).
+    Returns (debates, cost_entries) where cost_entries contains one CostEntry per
+    successful LLM call, tagged with the correct task name (Shape B).
     """
     defend_route, falsify_route = routes
     out: list[ThesisDebate] = []
+    all_entries: list[CostEntry] = []
+    ts = datetime.now(timezone(timedelta(hours=8))).isoformat()
     for row in rows:
         try:
-            out.append(_debate_one(row, defend_route, falsify_route))
+            debate, entries = _debate_one(row, defend_route, falsify_route, ts)
+            out.append(debate)
+            all_entries.extend(entries)
         except Exception:
             out.append(pair_debate(row, DefenseResult(()), FalsificationResult(())))
     debates = tuple(out)
@@ -152,7 +184,7 @@ def run_debates(
             "— check LLM route credentials and connectivity",
             len(rows),
         )
-    return debates
+    return debates, all_entries
 
 
 _PLACEHOLDER = "（本行未能生成辩论）"
