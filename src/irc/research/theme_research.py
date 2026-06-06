@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
+from typing import Any
 
 from irc.llm._types import ResolvedRoute
 from irc.research.search.dispatch import (
@@ -105,7 +106,7 @@ def _build_one(
     max_hits: int,
     top_pages: int,
     freshness_days: int = _DEFAULT_FRESHNESS_DAYS,
-) -> ThemeReport:
+) -> tuple[ThemeReport, Any]:
     try:
         matched = providers_for_locale(locale, providers)
     except ValueError as exc:
@@ -113,7 +114,7 @@ def _build_one(
             theme=theme, query=query, locale=locale.value,
             report_md="", citations=[], failure_reason=str(exc),
             provider_failures=(),
-        )
+        ), None
     raw_results = provider_results(query, locale, matched, max_results=max_hits, freshness_days=freshness_days)
     failures = tuple(
         f"{r.provider}: {r.failure_reason}"
@@ -122,7 +123,7 @@ def _build_one(
     )
     hits = hits_from_results(raw_results, max_hits)
     pages = extract_top_pages(hits, extractor, top_k=top_pages)
-    result = synthesize_report(
+    result, resp = synthesize_report(
         query=query, hits=hits, pages=pages, route=route,
     )
     return ThemeReport(
@@ -130,7 +131,7 @@ def _build_one(
         report_md=result.report_md, citations=result.citations,
         failure_reason=result.failure_reason,
         provider_failures=failures,
-    )
+    ), resp
 
 
 def _query_for_with_context(theme: str, holdings_keywords: tuple[str, ...]) -> str:
@@ -185,11 +186,14 @@ def build_theme_reports(
     max_hits: int = 8,
     top_pages: int = 5,
     holdings_keywords: tuple[str, ...] = (),
-) -> list[ThemeReport]:
+) -> tuple[list[ThemeReport], list[Any]]:
     """For each theme: pick locale → fan-out search → extract top pages → LLM synth.
 
     Per-theme failures (no provider, no hits, LLM error) are recorded in the report's
     failure_reason; other themes still run. Wall-clock target ≤30 s per theme.
+
+    Returns ``(reports, llm_responses)`` where ``llm_responses`` collects the
+    ChatResponse from each successful LLM call (Shape B — usage rides up as data).
 
     ``holdings_keywords`` (item 001) drives two behaviors:
 
@@ -206,8 +210,9 @@ def build_theme_reports(
 
     norm_keywords = normalize_keywords(holdings_keywords)
     out: list[ThemeReport] = []
+    llm_responses: list[Any] = []
     for theme in progress_iter(themes, "research", total=len(themes)):
-        report = _build_one(
+        report, resp = _build_one(
             theme=theme,
             query=_query_for_with_context(theme, holdings_keywords),
             locale=theme_locale(theme),
@@ -225,4 +230,6 @@ def build_theme_reports(
         if theme == "holdings_sector":
             report = _apply_relevance_filter(report, norm_keywords)
         out.append(report)
-    return out
+        if resp is not None:
+            llm_responses.append(resp)
+    return out, llm_responses

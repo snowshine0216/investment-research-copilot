@@ -15,6 +15,7 @@ def test_research_cmd_skips_when_no_providers_configured(tmp_path: Path, monkeyp
     monkeypatch.chdir(elsewhere)  # avoid picking up the project's real .env
     for key in ("TAVILY_API_KEY", "BRAVE_API_KEY", "BOCHA_API_KEY", "JINA_API_KEY"):
         monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
     with patch("irc.commands.research_cmd.run_research_pipeline") as mock_pipeline:
         rc = run_research(repo_root=str(repo_root))
@@ -37,11 +38,14 @@ def test_research_cmd_loads_env_and_calls_pipeline_when_providers_present(
     for key in ("TAVILY_API_KEY", "BRAVE_API_KEY", "BOCHA_API_KEY"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
-    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=0) as mock_pipeline, \
+    # run_research_pipeline now returns (rc, cost_entries)
+    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [])) as mock_pipeline, \
          patch("irc.commands.research_cmd.load_repo_configs") as mock_cfg, \
          patch("irc.commands.research_cmd.resolve_route") as mock_route:
         mock_cfg.return_value.llm = object()
+        mock_cfg.return_value.preferences = type("P", (), {"asset_class_targets": {}})()
         mock_route.return_value = object()
         rc = run_research(repo_root=str(repo_root))
 
@@ -63,11 +67,14 @@ def test_research_cmd_accepts_selected_themes(tmp_path: Path, monkeypatch) -> No
     )
     monkeypatch.chdir(other_cwd)
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-test")
+    monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
 
-    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=0) as mock_pipeline, \
+    # run_research_pipeline now returns (rc, cost_entries)
+    with patch("irc.commands.research_cmd.run_research_pipeline", return_value=(0, [])) as mock_pipeline, \
          patch("irc.commands.research_cmd.load_repo_configs") as mock_cfg, \
          patch("irc.commands.research_cmd.resolve_route") as mock_route:
         mock_cfg.return_value.llm = object()
+        mock_cfg.return_value.preferences = type("P", (), {"asset_class_targets": {}})()
         mock_route.return_value = object()
         rc = run_research(repo_root=str(repo_root), themes=("us_monetary", "cn_monetary"))
 
