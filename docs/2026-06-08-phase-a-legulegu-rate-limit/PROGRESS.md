@@ -34,3 +34,17 @@ These are **not** run in this autonomous session (limiter in deep cooldown; envi
 - 2026-06-08 — verify ✅ PASS (`9495414`, OFFLINE: CLI+module imports, 88/5 tests, behavioral contracts; no live network) ‖ pr-review ✅ **PASS-WITH-NITS** (`5012491`, [comment](https://github.com/snowshine0216/investment-research-copilot/pull/121#issuecomment-4645485528); 0 blockers; the 2 nits independently matched the inline review's P1-A/P1-B).
 - 2026-06-08 — fix ✅ **1 round** (`0c1f2dc`): applied P1-A (live-sweep `LeguleguCooldownExhausted` clean-stop guard) + P1-B (PB-axis caplog assertion — `"pb"` + `"cache preserved"`). Re-verified: only 2 test files changed, src/ untouched, **88 passed / 5 skipped**, ruff clean. All 3 post-ship verdicts PASS/PASS-WITH-NITS with nits now resolved.
 - 2026-06-08 — merge ✅ (`ef3bcfe`): PR [#121](https://github.com/snowshine0216/investment-research-copilot/pull/121) squash-merged into feature branch `phase-a/legulegu-rate-limit`; sub-branch deleted. Pre-merge gates all passed (base non-protected; ship+drift+verify+review+pr-review verdicts; PR comments = the already-fixed nits). Re-verified merged state: 32 offline tests green, VERSION 0.9.3, **`main` untouched** (`a14b267`). **Item 001 DONE.** → Phase 3 final validation.
+- 2026-06-08 — Phase 3 ✅: workflow-completeness audit passed (all artifacts present, markers valid); build/test sanity **557 passed / 39 skipped** + ruff clean on merged source; doc-sync ✅ PASS; final-verify ✅ PASS (offline); run-level CLI smoke green.
+
+## Final status — RUN COMPLETE
+
+- **Mode:** spec (N=1), non-web, PR shape A.
+- **Items merged:** 1 / 1 — item 001 → PR [#121](https://github.com/snowshine0216/investment-research-copilot/pull/121) squash-merged (`ef3bcfe`) into feature branch.
+- **Items SKIPPED:** 0. **Items BLOCKED:** 0.
+- **Phase 3 findings:** none (doc-sync PASS, final-verify PASS).
+- **Feature branch:** `phase-a/legulegu-rate-limit`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/122
+- **Merged into protected branch:** no (PR #122 left OPEN for operator review — `main` untouched at `a14b267`).
+- **Review outcome:** 0 production blockers; adversarial CLEAN; 2 test nits fixed in flow (`0c1f2dc`); 1 false-positive P0 documented.
+- **Follow-up — operator live gates #3/#4/#5 DEFERRED** (limiter in deep cooldown): run each alone in its own recovered cold window, never chained — commands above in "Live-network operator gates". These are the calibration/proof gates; the offline implementation is complete and green.
+- **Deferred PRs (out of scope):** PB date-aligned carry-forward; run-level ingest diagnostic artifact; legulegu HTTP-status adapter.
