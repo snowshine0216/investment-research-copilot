@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import duckdb
 
 from irc.data.duckdb_helper import ensure_schema
@@ -8,6 +10,7 @@ from irc.fundamentals.index_valuation_types import (
     IndexValuationHistory,
     IndexValuationPoint,
 )
+from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted
 
 
 def _con(tmp_path):
@@ -178,13 +181,6 @@ def test_default_append_mode_accumulates_across_calls(tmp_path):
         "SELECT COUNT(*) FROM index_valuation_history WHERE index_key='csi_nonferrous'"
     ).fetchone()[0] == 2
     con.close()
-
-
-import logging
-
-import pytest
-
-from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted
 
 
 def test_cooldown_exhausted_suspends_sweep_and_writes_what_landed(tmp_path):
