@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Phase A legulegu broad-leg rate-limit hardening (2026-06-08)
+
+- **The broad-index PE/PB ingest leg is now polite.** The 8 legulegu calls
+  (csi300/csi500/csi1000/sse50 × `stock_index_pe_lg`/`stock_index_pb_lg`) route
+  through a new `src/irc/fundamentals/legulegu_fetch.py` paced primitive: a 4s GAP
+  is slept before every attempt so the burst detector never trips; ordinary
+  network blips retry 3× with 3s·6s backoff (per-symbol → None on exhaustion);
+  the throttle signature (missing-CSRF AttributeError / JSON-decode of an HTML
+  error body) waits 30s and retries once, then **raises `LeguleguCooldownExhausted`**
+  to suspend the remaining broad-leg sweep. Suspension is **non-destructive** — a
+  skipped key keeps its cached `index_valuation_history` rows, so a mature key
+  still grounds on PE-TTM this run (only the refresh is deferred). The single-shot
+  provider seam (`fetch_cn_index_valuation`) catches the same signal → `None`
+  (never-raises contract preserved). A **both-axes guard** now blocks the
+  destructive DELETE+replace whenever either PE or PB is entirely absent from the
+  fresh frame (cache preserved). Skips and suspensions emit tested WARNINGs
+  (event · key · missing-axis/skipped-keys · "cache preserved"). Constants are
+  hardcoded judgment values (no env knob); gate #4 calibrates the GAP against the
+  live limiter. See [ADR 0014](docs/adr/0014-legulegu-rate-limit-handling.md).
+  Deferred: full PB date-aligned carry-forward; a run-level ingest diagnostic
+  artifact for chronicity; an HTTP adapter that preserves legulegu status codes.
+
 ### Added — Spend / balance gate Phase 2: usage-as-data convergence (2026-06-06)
 
 - **The spend gate now learns.** Each gated command records its actual paid-API usage
