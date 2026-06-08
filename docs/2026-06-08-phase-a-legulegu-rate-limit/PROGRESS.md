@@ -4,7 +4,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Project type:** non-web → post-ship verifier is `/verify` (no `/qa` column).
 
@@ -25,4 +25,7 @@ These are **not** run in this autonomous session (limiter in deep cooldown; envi
 
 ## Run log
 
-- 2026-06-08 — intake: spec mode, non-web, PR shape A. Run dir + design artifacts created. Feature branch `phase-a/legulegu-rate-limit`; sub-branch `phase-a/legulegu-rate-limit-impl` (to be cut at branch phase).
+- 2026-06-08 — intake: spec mode, non-web, PR shape A. Run dir + design artifacts created. Feature branch `phase-a/legulegu-rate-limit`; sub-branch `phase-a/legulegu-rate-limit-impl`.
+- 2026-06-08 — plan ✅ (Opus writing-plans, commit `acd468f`): 8 TDD tasks, dry-ran clean (88 offline tests). Flagged 3 judgment calls — notably `requests.JSONDecodeError ⊄ json.JSONDecodeError` in this env, so the throttle classifier checks both explicitly.
+- 2026-06-08 — branch ✅ `phase-a/legulegu-rate-limit-impl` cut. impl 🔄 dispatched (Sonnet).
+- 2026-06-08 — impl ✅ (7 task commits `3373b0b`..`47fd986` + lint fix `ff4e61d`). Orchestrator independently re-verified: **88 passed / 5 skipped (live-gated)** in 0.41s (no-sleep fixtures confirm no real network/sleep), ruff clean on changed files, VERSION still 0.9.3, raise/catch asymmetry intact. Caught + fixed 4 ruff E402/F401 the implementer missed (mid-file imports in `tests/data/test_index_valuation_ingestor.py`). drift 🔄 next.
