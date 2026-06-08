@@ -236,7 +236,7 @@ def test_cooldown_suspension_logs_trip_key_and_skipped_keys(tmp_path, caplog):
     con.close()
 
 
-def test_replace_keys_skips_key_when_fetch_lacks_pb(tmp_path):
+def test_replace_keys_skips_key_when_fetch_lacks_pb(tmp_path, caplog):
     """Inverted PB-only guard: a replace-mode fetch whose rows ALL have pb=None
     must NOT wipe good cached rows — skip the key (cache preserved)."""
     con = _con(tmp_path)
@@ -251,16 +251,22 @@ def test_replace_keys_skips_key_when_fetch_lacks_pb(tmp_path):
         index_key="csi300",
         rows=(IndexValuationPoint("2026-05-01", 14.0, None, None),),  # pb=None
     )
-    written = ingest_index_valuation_history(
-        con, ("csi300",), fetch=lambda k: pe_only,
-        now_iso="2026-06-01T00:00:00+08:00", replace_keys=True,
-    )
+    with caplog.at_level(logging.WARNING):
+        written = ingest_index_valuation_history(
+            con, ("csi300",), fetch=lambda k: pe_only,
+            now_iso="2026-06-01T00:00:00+08:00", replace_keys=True,
+        )
     assert written == 0
     rows = con.execute(
         "SELECT CAST(date AS VARCHAR), pe_ttm, pb FROM index_valuation_history "
         "WHERE index_key='csi300'"
     ).fetchall()
     assert rows == [("2026-05-01", 13.8, 1.28)]  # cache untouched
+    text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "replace skipped" in text
+    assert "csi300" in text
+    assert "pb" in text              # the missing axis
+    assert "cache preserved" in text
     con.close()
 
 

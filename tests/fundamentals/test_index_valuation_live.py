@@ -25,7 +25,7 @@ from irc.fundamentals.akshare_index_valuation import (  # noqa: E402
     _extract_latest_value,
     fetch_cn_index_valuation,
 )
-from irc.fundamentals.legulegu_fetch import fetch_legulegu_frame
+from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted, fetch_legulegu_frame
 from irc.fundamentals.index_valuation_types import IndexValuation
 
 _RUN = os.environ.get("IRC_RUN_LIVE_AKSHARE") == "1"
@@ -75,8 +75,12 @@ def test_speculative_symbol_landing_sweep_informational() -> None:
     """
     print("\n  speculative legulegu sweep (informational):")
     for slug, symbol in sorted(_SPECULATIVE_LEGULEGU_SYMBOL.items()):
-        pe_df = fetch_legulegu_frame(_ak_call, "stock_index_pe_lg", symbol)
-        pb_df = fetch_legulegu_frame(_ak_call, "stock_index_pb_lg", symbol)
+        try:
+            pe_df = fetch_legulegu_frame(_ak_call, "stock_index_pe_lg", symbol)
+            pb_df = fetch_legulegu_frame(_ak_call, "stock_index_pb_lg", symbol)
+        except LeguleguCooldownExhausted:
+            print(f"    cooldown — stopping speculative sweep at {slug}")
+            break
         pe = _extract_latest_value(pe_df, (_LEGULEGU_PE_TTM_COL,)) if pe_df is not None else None
         pb = _extract_latest_value(pb_df, (_LEGULEGU_PB_COL,)) if pb_df is not None else None
         landed = "[LANDED]" if (pe is not None and pb is not None) else "—"
