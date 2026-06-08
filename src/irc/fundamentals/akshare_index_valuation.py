@@ -1,11 +1,17 @@
 """Index-level PE/PB valuation fetcher (item 001) via legulegu AkShare endpoints.
 
 `stock_index_pe_lg` (PE) and `stock_index_pb_lg` (PB) are addressed by a
-live-confirmed Chinese broad-index symbol from `_LEGULEGU_INDEX_SYMBOL`. Network
-I/O is confined to the `_ak_call` indirection; extraction is a pure helper.
+live-confirmed Chinese broad-index symbol from `_LEGULEGU_INDEX_SYMBOL`. The four
+legulegu calls are paced via `legulegu_fetch.fetch_legulegu_frame`; the csindex
+sector call stays on the plain `_fetch_frame` (single static-Excel GET, no burst
+limiter). Network I/O is confined to indirections; extraction is a pure helper.
 
-Degrade-to-None contract: unknown index_key → None; any adapter failure or
-empty frame → metrics None (never raises). Matches `fetch_cn_filing_digest`.
+Degrade-to-None contract: unknown index_key → None; any adapter failure or empty
+frame → metrics None. **never-raises** holds for `fetch_cn_index_valuation` (the
+ADR 0010 provider seam) and `fetch_cn_sector_index_valuation_history`. CARVE-OUT
+(ADR 0014 D3): `fetch_cn_index_valuation_history` (ingest infra, single caller =
+the ingestor) PROPAGATES `LeguleguCooldownExhausted` to suspend the broad-leg
+sweep; the single-shot path catches the same signal → None to keep the seam.
 
 NOTE: legulegu PE/PB endpoints carry no dividend-yield column, so
 `dividend_yield` is None in practice (spec §Judgment call 3). The forbidden
@@ -23,6 +29,10 @@ from irc.fundamentals.index_valuation_types import (
     IndexValuation,
     IndexValuationHistory,
     IndexValuationPoint,
+)
+from irc.fundamentals.legulegu_fetch import (
+    LeguleguCooldownExhausted,
+    fetch_legulegu_frame,
 )
 from irc.opportunity.sector_indices import SECTOR_INDEX_CODE
 
@@ -158,8 +168,8 @@ def fetch_cn_index_valuation_history(index_key: str) -> IndexValuationHistory | 
     cn_name = _LEGULEGU_INDEX_SYMBOL.get(index_key)
     if cn_name is None:
         return None
-    pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
-    pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    pe_df = fetch_legulegu_frame(_ak_call, "stock_index_pe_lg", cn_name)
+    pb_df = fetch_legulegu_frame(_ak_call, "stock_index_pb_lg", cn_name)
     if pe_df is None and pb_df is None:
         return None
     pe_map = _series_map(pe_df if pe_df is not None else pd.DataFrame(), (_LEGULEGU_PE_TTM_COL,))
@@ -239,8 +249,11 @@ def fetch_cn_index_valuation(index_key: str) -> IndexValuation | None:
     cn_name = _LEGULEGU_INDEX_SYMBOL.get(index_key)
     if cn_name is None:
         return None
-    pe_df = _fetch_frame("stock_index_pe_lg", cn_name)
-    pb_df = _fetch_frame("stock_index_pb_lg", cn_name)
+    try:
+        pe_df = fetch_legulegu_frame(_ak_call, "stock_index_pe_lg", cn_name)
+        pb_df = fetch_legulegu_frame(_ak_call, "stock_index_pb_lg", cn_name)
+    except LeguleguCooldownExhausted:
+        return None
     if pe_df is None and pb_df is None:
         return None
     return IndexValuation(

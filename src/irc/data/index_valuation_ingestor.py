@@ -8,6 +8,7 @@ opportunity stage reads for index valuation (no live fetch there — R3).
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import date as _date
 from typing import Callable
@@ -17,8 +18,11 @@ import duckdb
 from irc.data.raw_ref import build_ref_id
 from irc.fundamentals.akshare_index_valuation import fetch_cn_index_valuation_history
 from irc.fundamentals.index_valuation_types import IndexValuationHistory
+from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted
 from irc.opportunity.lookthrough_valuation import MIN_PE_DAYS, MIN_PE_POINTS
 from irc.opportunity.sector_indices import SECTOR_INDEX_KEYS
+
+_log = logging.getLogger(__name__)
 
 _FetchFn = Callable[[str], IndexValuationHistory | None]
 
@@ -41,18 +45,37 @@ def ingest_index_valuation_history(
     """
     params: list[list] = []
     keys_to_replace: list[str] = []
-    for key in index_keys:
-        hist = fetch(key)
+    for i, key in enumerate(index_keys):
+        try:
+            hist = fetch(key)
+        except LeguleguCooldownExhausted:
+            # ADR 0014 D4: legulegu's limiter is provider-wide and escalating —
+            # poking later symbols only deepens it. Suspend the sweep, write what
+            # landed. Non-destructive: skipped keys keep their cached rows (never
+            # appended to keys_to_replace), so a mature skipped key still grounds.
+            skipped = index_keys[i + 1:]
+            _log.warning(
+                "legulegu cooldown exhausted at %s; suspending broad-leg sweep — "
+                "skipping %d remaining key(s): %s — cache preserved (skipped keys "
+                "still ground if mature).",
+                key, len(skipped), ", ".join(skipped) or "none",
+            )
+            break
         if hist is None or not hist.rows:
             continue
-        # D8: a non-empty fetch is required before delete, AND the fetch must carry
-        # at least one usable PE-TTM row. A PB-only (pe_ttm=None for every row)
-        # legulegu frame is a partial failure — skip the key entirely so that the
-        # DELETE and the INSERT OR REPLACE (which resolves on PRIMARY KEY
-        # (index_key, date)) cannot wipe or overwrite good cached PE rows.
-        if replace_keys and not any(p.pe_ttm is not None for p in hist.rows):
-            continue
+        # D2/D7: the destructive replace requires BOTH axes present. A frame
+        # missing an axis entirely (all pe_ttm=None OR all pb=None) is a partial
+        # failure — skip the key (cache preserved) and log the missing axis so
+        # chronic half-frames are operationally visible.
         if replace_keys:
+            has_pe = any(p.pe_ttm is not None for p in hist.rows)
+            has_pb = any(p.pb is not None for p in hist.rows)
+            if not (has_pe and has_pb):
+                _log.warning(
+                    "index_valuation replace skipped for %s: missing %s axis "
+                    "(cache preserved)", key, "pe" if not has_pe else "pb",
+                )
+                continue
             keys_to_replace.append(key)
         for pt in hist.rows:
             params.append([

@@ -21,10 +21,11 @@ from irc.fundamentals.akshare_index_valuation import (  # noqa: E402
     _LEGULEGU_PB_COL,
     _LEGULEGU_PE_TTM_COL,
     _SPECULATIVE_LEGULEGU_SYMBOL,
+    _ak_call,
     _extract_latest_value,
-    _fetch_frame,
     fetch_cn_index_valuation,
 )
+from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted, fetch_legulegu_frame
 from irc.fundamentals.index_valuation_types import IndexValuation
 
 _RUN = os.environ.get("IRC_RUN_LIVE_AKSHARE") == "1"
@@ -57,19 +58,29 @@ def test_production_symbol_returns_rolling_pe_and_pb_live(slug) -> None:
     print(f"\n  ✓ {slug} ({_LEGULEGU_INDEX_SYMBOL[slug]}) live: pe={out.pe_ttm} pb={out.pb}")
 
 
+@pytest.mark.skipif(
+    os.environ.get("IRC_RUN_LEGULEGU_SPECULATIVE") != "1",
+    reason="set IRC_RUN_LEGULEGU_SPECULATIVE=1 to run the 12-call speculative sweep "
+    "(separate cold window — never right before gate #3)",
+)
 def test_speculative_symbol_landing_sweep_informational() -> None:
     """INFORMATIONAL only — never fails. Probes each speculative symbol DIRECTLY
     via legulegu (bypassing the production allowlist gate) and prints a landing
     table. When both pe and pb are numeric the symbol has landed and is ready to
     graduate into _LEGULEGU_INDEX_SYMBOL + the hard-assert set (D2 graduation).
 
-    Uses _fetch_frame / _extract_latest_value directly so the allowlist gate in
-    fetch_cn_index_valuation cannot mask a real landing.
+    PACED via fetch_legulegu_frame so the 12-call sweep does not trip the burst
+    limiter. Additionally opt-in gated (IRC_RUN_LEGULEGU_SPECULATIVE=1) on top of
+    IRC_RUN_LIVE_AKSHARE so it is a deliberate separate cold-window job (D6).
     """
     print("\n  speculative legulegu sweep (informational):")
     for slug, symbol in sorted(_SPECULATIVE_LEGULEGU_SYMBOL.items()):
-        pe_df = _fetch_frame("stock_index_pe_lg", symbol)
-        pb_df = _fetch_frame("stock_index_pb_lg", symbol)
+        try:
+            pe_df = fetch_legulegu_frame(_ak_call, "stock_index_pe_lg", symbol)
+            pb_df = fetch_legulegu_frame(_ak_call, "stock_index_pb_lg", symbol)
+        except LeguleguCooldownExhausted:
+            print(f"    cooldown — stopping speculative sweep at {slug}")
+            break
         pe = _extract_latest_value(pe_df, (_LEGULEGU_PE_TTM_COL,)) if pe_df is not None else None
         pb = _extract_latest_value(pb_df, (_LEGULEGU_PB_COL,)) if pb_df is not None else None
         landed = "[LANDED]" if (pe is not None and pb is not None) else "—"

@@ -12,6 +12,13 @@ from irc.fundamentals.provider import (
     CnFundamentalsProvider,
 )
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def _no_legulegu_sleep(monkeypatch):
+    monkeypatch.setattr("irc.fundamentals.legulegu_fetch._sleep", lambda _s: None)
+
 
 # ── Fixture frames (mirror the live AkShare column labels) ────────────────────
 _FIN_FRAME = pd.DataFrame({

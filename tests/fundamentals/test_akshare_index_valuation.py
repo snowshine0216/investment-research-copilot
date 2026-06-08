@@ -15,6 +15,12 @@ from irc.fundamentals.akshare_index_valuation import (
 from irc.fundamentals.index_valuation_types import IndexValuation, IndexValuationHistory
 
 
+@pytest.fixture(autouse=True)
+def _no_legulegu_sleep(monkeypatch):
+    """Fast-forward legulegu pacing in every offline test in this module."""
+    monkeypatch.setattr("irc.fundamentals.legulegu_fetch._sleep", lambda _s: None)
+
+
 # ---------- pure extraction helper ----------
 
 _PE_FRAME = pd.DataFrame({
@@ -373,3 +379,58 @@ def test_production_fetch_passes_allowlist_chinese_name():
         fetch_cn_index_valuation("sse50")
     # sse50 -> 上证50 (from _LEGULEGU_INDEX_SYMBOL, NOT _BROAD_INDEX_DISPLAY).
     assert any(c.get("symbol") == "上证50" for c in calls)
+
+
+def test_broad_history_routes_through_fetch_legulegu_frame() -> None:
+    import inspect
+
+    from irc.fundamentals import akshare_index_valuation as m
+
+    src = inspect.getsource(m.fetch_cn_index_valuation_history)
+    assert "fetch_legulegu_frame" in src
+    assert '_fetch_frame("stock_index_pe_lg"' not in src
+    assert '_fetch_frame("stock_index_pb_lg"' not in src
+
+
+def test_broad_single_shot_routes_through_fetch_legulegu_frame() -> None:
+    import inspect
+
+    from irc.fundamentals import akshare_index_valuation as m
+
+    src = inspect.getsource(m.fetch_cn_index_valuation)
+    assert "fetch_legulegu_frame" in src
+
+
+def test_csindex_sector_stays_on_fetch_frame_unpaced() -> None:
+    import inspect
+
+    from irc.fundamentals import akshare_index_valuation as m
+
+    src = inspect.getsource(m.fetch_cn_sector_index_valuation_history)
+    assert '_fetch_frame("stock_zh_index_value_csindex"' in src
+    assert "fetch_legulegu_frame" not in src
+
+
+def test_single_shot_catches_cooldown_exhausted_returns_none(monkeypatch) -> None:
+    # Provider/single-shot seam (ADR 0010): must NEVER raise — catch -> None.
+    from irc.fundamentals import akshare_index_valuation as m
+    from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted
+
+    def _boom(ak_call, fn_name, cn_name):
+        raise LeguleguCooldownExhausted("throttled")
+
+    monkeypatch.setattr(m, "fetch_legulegu_frame", _boom)
+    assert m.fetch_cn_index_valuation("csi300") is None
+
+
+def test_history_propagates_cooldown_exhausted(monkeypatch) -> None:
+    # Ingest path (ADR 0014 D3): must PROPAGATE for sweep suspension.
+    from irc.fundamentals import akshare_index_valuation as m
+    from irc.fundamentals.legulegu_fetch import LeguleguCooldownExhausted
+
+    def _boom(ak_call, fn_name, cn_name):
+        raise LeguleguCooldownExhausted("throttled")
+
+    monkeypatch.setattr(m, "fetch_legulegu_frame", _boom)
+    with pytest.raises(LeguleguCooldownExhausted):
+        m.fetch_cn_index_valuation_history("csi300")
