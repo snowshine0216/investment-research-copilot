@@ -4,7 +4,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 
 **Project type:** non-web → post-ship verifier is `/verify` (no `/qa` column).
 
@@ -28,4 +28,7 @@ These are **not** run in this autonomous session (limiter in deep cooldown; envi
 - 2026-06-08 — intake: spec mode, non-web, PR shape A. Run dir + design artifacts created. Feature branch `phase-a/legulegu-rate-limit`; sub-branch `phase-a/legulegu-rate-limit-impl`.
 - 2026-06-08 — plan ✅ (Opus writing-plans, commit `acd468f`): 8 TDD tasks, dry-ran clean (88 offline tests). Flagged 3 judgment calls — notably `requests.JSONDecodeError ⊄ json.JSONDecodeError` in this env, so the throttle classifier checks both explicitly.
 - 2026-06-08 — branch ✅ `phase-a/legulegu-rate-limit-impl` cut. impl 🔄 dispatched (Sonnet).
-- 2026-06-08 — impl ✅ (7 task commits `3373b0b`..`47fd986` + lint fix `ff4e61d`). Orchestrator independently re-verified: **88 passed / 5 skipped (live-gated)** in 0.41s (no-sleep fixtures confirm no real network/sleep), ruff clean on changed files, VERSION still 0.9.3, raise/catch asymmetry intact. Caught + fixed 4 ruff E402/F401 the implementer missed (mid-file imports in `tests/data/test_index_valuation_ingestor.py`). drift 🔄 next.
+- 2026-06-08 — impl ✅ (7 task commits `3373b0b`..`47fd986` + lint fix `ff4e61d`). Orchestrator independently re-verified: **88 passed / 5 skipped (live-gated)** in 0.41s (no-sleep fixtures confirm no real network/sleep), ruff clean on changed files, VERSION still 0.9.3, raise/catch asymmetry intact. Caught + fixed 4 ruff E402/F401 the implementer missed (mid-file imports in `tests/data/test_index_valuation_ingestor.py`).
+- 2026-06-08 — drift ✅ (`7f319a1`): 8/8 tasks verified vs actual diff lines, 0 findings.
+- 2026-06-08 — ship ✅ PR [#121](https://github.com/snowshine0216/investment-research-copilot/pull/121) (impl → feature branch). VERSION bump skipped (convention); review captured inline. review ✅ **PASS-WITH-NITS** (adversarial CLEAN; 0 production blockers; hunter "P0" was a false positive — throttle logged at `legulegu_fetch.py:100` before raise; 2 test-quality nits P1-A/P1-B → fix phase).
+- 2026-06-08 — verify 🔄 (OFFLINE) ‖ pr-review 🔄 (/code-review on #121) dispatched.
