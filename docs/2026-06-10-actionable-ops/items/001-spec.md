@@ -68,15 +68,28 @@ proposed_allocation.yaml target_weight ──┐         │
 
 ### Component changes (each unit single-purpose, files < 200 lines)
 
-1. **`src/irc/opportunity/report.py` — `_row_to_dict`**: add four keys to the
+1. **`src/irc/opportunity/report.py` — `_row_to_dict` + `compose_opportunity_report`**: add four keys to the
    emitted row dict: `risk_action`, `dca_action`, `portfolio_weight`,
-   `is_holding`. Pure; the derived discipline values are passed in (see #2). No
+   `is_holding`. No
    change to thesis_cards / discipline markdown / SAME-3 citation set.
+   ~~Pure; the derived discipline values are passed in (see #2).~~ **CORRECTED
+   (R1):** `OpportunityRow` does NOT carry `risk_action`/`dca_action`
+   (those live on `DisciplineRow`/`ThesisCard`, `types.py:194/215`) nor
+   `portfolio_weight`/`is_holding` (those are on `OpportunityInput`/`PositionContext`,
+   `types.py:79-80` / `discipline.py:11-17`), so `_row_to_dict(row)` cannot reach
+   them as written. `compose_opportunity_report` therefore gains a keyword param
+   `discipline_by_id: dict[str, …] | None = None` (default `None` ⇒ keys emit as
+   `risk_action="none"`, `dca_action=None`, `portfolio_weight=None`,
+   `is_holding=False`, byte-identical to today for every legacy/test caller —
+   satisfies the public-API-stability constraint), and `_row_to_dict` looks the
+   row's values up by `instrument_id`.
 
-2. **`src/irc/commands/opportunity_cmd._write_opportunity_outputs`**: pass the
-   per-row `risk_action`/`dca_action` (from the discipline rows already built at
-   lines 1254/1280) and `portfolio_weight`/`is_holding` (from `positions[iid]`)
-   into `compose_opportunity_report`. Effects-at-edges: command layer only
+2. **`src/irc/commands/opportunity_cmd._write_opportunity_outputs`**: build the
+   `discipline_by_id` map from the per-row `risk_action`/`dca_action` (from the
+   discipline rows already built at lines 1254/1280) and `portfolio_weight`/`is_holding`
+   (from `positions[iid]`), keyed by `instrument_id`, and pass it into
+   `compose_opportunity_report(publishable_rows, today, discipline_by_id=…)`
+   (call site `opportunity_cmd.py:1373`). Effects-at-edges: command layer only
    threads data; the composition function stays pure.
 
 3. **`src/irc/decision/models.py`**: widen `PortfolioAction` to
@@ -309,3 +322,76 @@ All open questions were resolvable from MASTER-SPEC + code + CONTEXT.md. The one
 that required a judgement call (OQ4 key naming) is recorded with the rationale
 and the corrected AC; the implementer should treat `trim_count`/`exit_count`/
 `review_count` as canonical.
+
+## Resolved decisions
+
+*(Grill pass, 2026-06-10, subagent opus, autonomy override — auto-accepted
+recommendations. CONTEXT.md + ADR 0015 synced inline. Strike-throughs above mark
+corrections; nothing deleted.)*
+
+- **R1 — `compose_opportunity_report` signature must change (the spec implied it
+  could stay).** The four new fields are NOT on `OpportunityRow` — `risk_action`/
+  `dca_action` live on `DisciplineRow`/`ThesisCard`; `portfolio_weight`/`is_holding`
+  on `OpportunityInput`/`PositionContext`. `compose_opportunity_report(rows, date)`
+  receives only rows, so `_row_to_dict(row)` cannot reach them. **Resolution:** add a
+  keyword `discipline_by_id: dict[str, …] | None = None` (default `None` ⇒ today's
+  bytes). Built at the command edge from the already-existing `discipline_rows` +
+  `positions[iid]`. Rationale: keeps composition pure, preserves public-API
+  stability via a defaulted keyword, no new I/O. Doc impact: components #1/#2
+  corrected in place; CONTEXT.md `portfolio_action` entry.
+
+- **R2 — H3 / SAME-3 are structurally untouched (confirmed, not just asserted).**
+  The four keys are added to the SAME publishable-row dict that already passes the
+  `evidence_gaps == ()` partition; the partition predicate, the failure-section
+  4-field renderer signature, and the `select_citations(cap=3)` SAME-3 surfaces are
+  all unchanged. No new `[ref:...]` marker is emitted (the new fields are plain
+  scalars, never cited). `opportunity_report.json` IS one of the five canonical
+  byte-equality artifacts (ADR 0004), so the new keys must be deterministic — they
+  are (derived from cached scalars + a deterministic `discipline_by_id` map).
+  Doc impact: ADR 0015 §Consequences; AC retained.
+
+- **R3 — `portfolio_action` is a projection of `risk_action`, never a writer of
+  `thesis_state`.** The decision layer reads `risk_action` and maps it; it never
+  calls `derive_thesis_from_evidence` and never mutates `thesis_state` (ADR 0003
+  setter rule) or Policy B publishability. The `map_portfolio_action` precedence
+  is closed and pure. Doc impact: CONTEXT.md `map_portfolio_action`; ADR 0015 §2.
+
+- **R4 — the `is_holding` gate on the sell branches is load-bearing, NOT
+  belt-and-suspenders.** `derive_risk_action` (`discipline.py`) can return
+  `trim_review`/`exit_review` for a non-holding via its legacy `overweight` branch.
+  Without the `is_holding` gate in `map_portfolio_action`, an unheld overheated
+  instrument would render as a trim — violating AC7. The mapper, not the discipline
+  derivation, is the enforcement locus for the holdings-only contract. Doc impact:
+  CONTEXT.md `map_portfolio_action`; ADR 0015 §2.
+
+- **R5 — Δpp determinism holds (cost-basis, two cached scalars).** `current_weight`
+  (cost-basis `portfolio_weight`) and `target_weight` (`proposed_allocation.yaml`)
+  are both read network-free from cached artifacts; `weight_delta = current − target`
+  is a single subtraction, no float accumulation, stable across re-runs (ADR 0004).
+  Doc impact: CONTEXT.md `current_weight` / `weight_delta`; ADR 0015 §2.
+
+- **R6 — `review_sell_later` is the locked `DecisionStatus` name.** The
+  `models.py:12` Phase-3 TODO already named it `review_sell_later`; the spec adopts
+  it verbatim — no rename. Buy-side status precedence (`avoid > blocked >
+  actionable_buy`) is unchanged; the new status only fills the slot a held-with-sell-
+  signal row would otherwise occupy as `watch_only`. Doc impact: CONTEXT.md
+  `review_sell_later`.
+
+- **R7 — summary-count names locked for item 002: `trim_count` / `exit_count` /
+  `review_count`, NO `sell_count`.** Keyed off `portfolio_action`. The existing
+  four counts are preserved (additive-only). Item 002's notifier consumes these and
+  composes its own `trim_count + exit_count` rollup if it wants a combined "sell"
+  total. Doc impact: CONTEXT.md "Decision summary sell/review counts"; ADR 0015 §3.
+
+- **R8 — an ADR clears the three-of-three bar; recorded as ADR 0015.** The
+  `portfolio_action` emission contract is hard to reverse (machine-read
+  `decision_report.json` consumed by item 002), surprising without context (why
+  `review_required → review` not trim/exit; why the `is_holding` gate; why no
+  `sell_count`), and the product of a real trade-off (approaches A/B/C; the
+  sell-collapse vs three-action choice; the count-naming ambiguity). Doc impact:
+  ADR 0015 created.
+
+**Verdict: PASS.** No spec claim contradicts a load-bearing ADR (0003 setter rule,
+0004 determinism/SAME-3) or current code that the doc updates cannot resolve. The
+one code-vs-spec contradiction (R1, the `compose_opportunity_report` signature) is
+a refinable under-specification, corrected in place — not a blocking contradiction.
