@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from irc.decision.gates import decide_row, target_weights_are_valid, venue_status_for_trade
 
 
@@ -281,7 +283,7 @@ def test_complete_healthy_buy_candidate_can_be_actionable() -> None:
     )
 
     assert decision["decision_status"] == "actionable_buy"
-    assert decision["portfolio_action"] == "no_trade"
+    assert decision["portfolio_action"] == "buy"
 
 
 def test_zero_memo_traceability_marks_evidence_narrative_only() -> None:
@@ -617,3 +619,75 @@ def test_compute_blocking_reasons_pure_smoke() -> None:
         score_action="buy_candidate",
         qdii_premium_unknown=False,
     ) == []
+
+
+def _decide(score_overrides=None, **kw):
+    score = _score(**(score_overrides or {}))
+    base = dict(
+        allocation_selected=False,
+        target_weight_valid=True,
+        trade=None,
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        available_venues=["broker_a"],
+        venue_required=["broker_a"],
+    )
+    base.update(kw)
+    return decide_row(score, **base)
+
+
+def test_held_exit_review_maps_to_exit_review_and_review_sell_later() -> None:
+    row = _decide(
+        score_overrides={"action": "watch"},
+        risk_action="exit_review",
+        is_holding=True,
+        portfolio_weight=0.08,
+        target_weight=0.05,
+    )
+    assert row["portfolio_action"] == "exit_review"
+    assert row["decision_status"] == "review_sell_later"
+    assert row["current_weight"] == 0.08
+    assert row["weight_delta"] == pytest.approx(0.03)
+    assert row["target_weight"] == 0.05
+
+
+def test_non_held_overheated_does_not_get_sell_action() -> None:
+    # AC7: a non-holding never gets trim/exit/review even if risk_action says so.
+    row = _decide(
+        score_overrides={"action": "watch"},
+        risk_action="trim_review",
+        is_holding=False,
+        portfolio_weight=None,
+    )
+    assert row["portfolio_action"] == "no_trade"
+    assert row["decision_status"] != "review_sell_later"
+
+
+def test_buy_candidate_selected_maps_to_buy() -> None:
+    row = _decide(
+        score_overrides={"action": "buy_candidate"},
+        allocation_selected=True,
+    )
+    assert row["portfolio_action"] == "buy"
+    assert row["decision_status"] == "actionable_buy"
+
+
+def test_blocked_buy_is_not_review_sell_later() -> None:
+    # AC9 boundary: a blocked row keeps `blocked`, not review_sell_later,
+    # even if it carries a sell signal.
+    row = _decide(
+        score_overrides={"action": "watch"},
+        risk_action="exit_review",
+        is_holding=True,
+        pipeline_halted=True,
+    )
+    assert row["decision_status"] == "blocked"
+    assert row["portfolio_action"] == "no_trade"  # blocked short-circuits the mapper
+
+
+def test_legacy_call_without_sell_params_is_no_trade() -> None:
+    # AC8 back-compat: omitting the four params reproduces today's behavior.
+    row = _decide(score_overrides={"action": "watch"})
+    assert row["portfolio_action"] == "no_trade"
+    assert row["current_weight"] == 0.0
+    assert row["weight_delta"] == 0.0
