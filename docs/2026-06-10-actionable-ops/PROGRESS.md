@@ -3,7 +3,7 @@
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-001 | ✅ 4d2dcdf | ✅ | ✅ #124 | ⏭️ | ✅ | ✅ | ✅ | ✅ 2 rounds | ✅ f843669 |
-| 002 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-002 | ✅ 6d6c327 | ✅ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-002 | ✅ 6d6c327 | ✅ | ✅ #125 | ⏭️ | ✅ | ✅ | ✅ | ✅ 3 rounds | ✅ bae6236 |
 | 003 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-003 | ✅ 90a7050 | ✅ | ✅ #123 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ efd8010 |
 
 QA column pre-filled ⏭️ for all items: project type is **non-web** → post-ship verifier
@@ -64,3 +64,11 @@ otherwise the post-merge local feature diverges from the squash (add/add conflic
 - impl: 31ef841..6d6c327 — 46 notify+CLI tests; plutil/bash -n clean
 - drift: items/002-drift.md FAIL→PASS (3aae487→16f42fb) — F2 httpx token-leak to launchd logs
   found by drift, fixed 55ecd8a (RED→GREEN + counterfactual re-verification)
+
+### 002 evidence (post-ship)
+- PR: https://github.com/snowshine0216/investment-research-copilot/pull/125 (items/002-ship.md)
+- fix rounds: drift F2 token leak (55ecd8a); pre-landing 4P0+3P1 (dc8c468,e305f7e);
+  adversarial BREAKS set-e/wait (8b01906+6b8ec17); pr-review exit-code catch-all (dc731b9)
+- verify: items/002-verify.md PASS (12/12 AC); review: PASS-WITH-NITS; pr-review:
+  FAIL→PASS-WITH-NITS (e37bcb0; comment pull/125#issuecomment-4669479737)
+- merge: squash bae6236 (#125), fast-forward clean (process note 2 held)
