@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Sell surfacing + holdings-aware deltas (2026-06-10)
+
+- **The decision report now tells the operator what to TRIM / EXIT / REVIEW, not
+  just what to BUY.** The discipline layer's `risk_action` / `dca_action` /
+  `portfolio_weight` / `is_holding` are surfaced onto each publishable
+  `opportunity_report.json` row (via a defaulted `discipline_by_id` keyword on
+  the pure `compose_opportunity_report`, built at the command edge). The decision
+  layer maps them through a new pure `map_portfolio_action`
+  (`src/irc/decision/portfolio_action.py`) into a five-value `portfolio_action`
+  (`no_trade` / `buy` / `trim_review` / `exit_review` / `review`), gated on
+  `is_holding` so a non-held overheated instrument never renders as a trim
+  (ADR 0015). `decision_report.md` gains a `## 持仓行动 / Sell · Trim · Review`
+  section with current-vs-target cost-basis weight deltas (Δpp), and
+  `decision_report.json` `summary` gains additive `trim_count` / `exit_count` /
+  `review_count` counts for item 002's notifier (no `sell_count` — the notifier
+  composes its own rollup). A held row carrying a sell signal that is not also
+  blocked or an actionable buy gets `decision_status == "review_sell_later"`.
+  No existing JSON key changed; H3 / SAME-3 / Policy B / the `thesis_state`
+  setter rule are all untouched. See ADR 0015.
+
 ### Added — Valuation axis lock + memo-routing docs (2026-06-10)
 
 - **Regression-locked the shipped valuation-axis and memo-routing contracts.** Two new
