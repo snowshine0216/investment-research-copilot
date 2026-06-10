@@ -1,8 +1,11 @@
-Verdict: FAIL
+Verdict: PASS
 
 Subagent: sonnet
 Plan checklist items: 51 steps across 6 tasks
 Verified present in diff: 51/51 (all steps implemented)
+
+> **Re-verification (2026-06-10, fix commit `55ecd8a`):** F2 is FIXED — verdict
+> upgraded FAIL → PASS. Evidence in F2 below.
 
 ---
 
@@ -24,7 +27,7 @@ change required.
 
 ---
 
-### F2 — AC7 URL-not-logged test scoped to app logger only — REAL LEAK, FAIL
+### F2 — AC7 URL-not-logged test scoped to app logger only — REAL LEAK → FIXED (commit `55ecd8a`)
 
 **Type:** functional gap — test passes but the real leak path is unguarded  
 **Evidence:** The `test_feishu_post_does_not_log_full_url` test uses
@@ -52,16 +55,34 @@ This contradicts AC7 ("The URL never appears in logs") and the global CLAUDE.md 
 The accepted deviation noted in the impl summary ("test scoped to the app logger") is
 NOT acceptable: it papers over the actual leak rather than fixing it.
 
-**Required fix (not applied in this diff — must be resolved before shipping):**
-In `notify_cmd._send_feishu` (or at the top of `_dispatch`), add:
-```python
-logging.getLogger("httpx").setLevel(logging.WARNING)
-```
-This suppresses httpx's INFO-level URL log for the duration of the process (idempotent,
-low-blast-radius). Alternatively, pass `httpx.Client(...)` with a no-log transport, or
-use `respx` / monkey-patch in tests to assert the httpx logger emits nothing at INFO.
-The test must be extended to also assert no record from the `"httpx"` logger contains
-the token.
+**Fix applied (commit `55ecd8a`, RED-first):**
+
+- `src/irc/commands/notify_cmd.py`: module-level
+  `logging.getLogger("httpx").setLevel(logging.WARNING)` (with a comment explaining the
+  leak path). httpcore left alone — source inspection confirms it has zero
+  `logger.info`/`logger.warning` calls (DEBUG-only).
+- `tests/commands/test_notify_cmd.py::test_feishu_post_does_not_log_full_url` rewritten
+  to capture at **root scope** (`caplog.at_level(logging.INFO)`, no logger filter) and
+  assert the token is absent from **every** record from **any** logger, with a
+  leak-naming failure message. The previous app-logger allow-list filter is removed.
+
+**Re-verification evidence (drift reviewer, independent of the impl agent's claims):**
+
+1. `uv run pytest tests/notify/ tests/commands/test_notify_cmd.py -q` → **42 passed**.
+2. **Production-path simulation (fix present):** `setup_logging(debug=False)` (root at
+   INFO) + recording handler on root + `notify_cmd._send_feishu` against a respx-mocked
+   `https://open.feishu.cn/hook/SECRET-TOKEN-1234` → the ONLY record reaching the root
+   handler is `irc.commands.notify_cmd: "posting Feishu notification to
+   host=open.feishu.cn"`. No token, no full URL, from any logger.
+3. **Counterfactual (fix reverted in-process):** resetting the `httpx` logger to
+   `NOTSET` and repeating the same simulation reproduces the leak — the
+   `httpx` record `HTTP Request: POST https://open.feishu.cn/hook/SECRET-TOKEN-1234 …`
+   reaches the root handler. The fix is load-bearing; the rewritten test would be RED
+   without it (confirms the impl agent's RED-first claim).
+4. **httpcore claim verified:** walked every `httpcore` submodule's source; all
+   `.info(` matches are `connection.info()` methods, zero `logger.info`/`logger.warning`
+   calls — DEBUG-only logging confirmed, no suppression needed.
+5. `uv run ruff check` on both touched files → All checks passed.
 
 ---
 
@@ -100,9 +121,13 @@ violations introduced.
 
 ## Verdict rationale
 
-F2 is a **functional gap**: the spec requires the webhook URL to never appear in logs,
-the CLAUDE.md global rule forbids logging webhook URLs in full, and the real
-implementation leaks it to stderr → launchd `StandardErrorPath` log files whenever
-Feishu is enabled. The test was deliberately scoped to the app logger to avoid seeing
-the httpx leak, which means the AC7 acceptance criterion is not actually verified.
-This must be fixed before the branch ships. Verdict: FAIL.
+Initial verdict (2026-06-10) was **FAIL** on F2: the spec requires the webhook URL to
+never appear in logs, the CLAUDE.md global rule forbids logging webhook URLs in full,
+and the implementation leaked it to stderr → launchd `StandardErrorPath` log files
+whenever Feishu was enabled, with the AC7 test scoped to avoid seeing the leak.
+
+**Re-verification after fix commit `55ecd8a`:** the leak path is closed (production-path
+simulation shows only the host-only app log reaching the root handler; counterfactual
+reverting the fix reproduces the leak, proving the test is load-bearing). F1/F3/F4
+remain accepted; all gates re-run green (42 tests, plutil, bash -n, ruff). AC7 is now
+genuinely verified at root-logger scope. Verdict: **PASS**.
