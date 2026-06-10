@@ -672,9 +672,10 @@ def test_buy_candidate_selected_maps_to_buy() -> None:
     assert row["decision_status"] == "actionable_buy"
 
 
-def test_blocked_buy_is_not_review_sell_later() -> None:
-    # AC9 boundary: a blocked row keeps `blocked`, not review_sell_later,
-    # even if it carries a sell signal.
+def test_blocked_held_exit_review_decision_status_is_blocked_but_action_is_exit() -> None:
+    # P0-3: a held row with exit_review + blocking reasons → portfolio_action=exit_review
+    # (sell-side precedes buy-side blockers) but decision_status stays "blocked"
+    # because compute_decision_status checks blocking_reasons independently.
     row = _decide(
         score_overrides={"action": "watch"},
         risk_action="exit_review",
@@ -682,7 +683,7 @@ def test_blocked_buy_is_not_review_sell_later() -> None:
         pipeline_halted=True,
     )
     assert row["decision_status"] == "blocked"
-    assert row["portfolio_action"] == "no_trade"  # blocked short-circuits the mapper
+    assert row["portfolio_action"] == "exit_review"  # P0-3: sell-side wins over blockers
 
 
 def test_legacy_call_without_sell_params_is_no_trade() -> None:

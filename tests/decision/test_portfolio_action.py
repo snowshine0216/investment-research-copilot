@@ -17,12 +17,40 @@ def _map(**overrides):
     return map_portfolio_action(**base)
 
 
-def test_blocked_row_is_never_an_action() -> None:
-    # Precedence (a): any blocking reason short-circuits to no_trade,
-    # even when a sell signal + holding would otherwise fire.
+def test_blocked_held_exit_review_maps_to_exit_review() -> None:
+    # P0-3: for is_holding rows, sell-side mapping fires BEFORE the
+    # blocking_reasons short-circuit.  Buy-side blockers (venue_blocked,
+    # opportunity_excluded, etc.) block BUYING, not selling what you hold.
     assert _map(
         risk_action="exit_review",
         is_holding=True,
+        blocking_reasons=("data_incomplete",),
+    ) == "exit_review"
+
+
+def test_blocked_held_trim_review_maps_to_trim_review() -> None:
+    # P0-3: same precedence for trim_review.
+    assert _map(
+        risk_action="trim_review",
+        is_holding=True,
+        blocking_reasons=("venue_blocked",),
+    ) == "trim_review"
+
+
+def test_blocked_held_review_required_maps_to_review() -> None:
+    # P0-3: same precedence for review_required → review.
+    assert _map(
+        risk_action="review_required",
+        is_holding=True,
+        blocking_reasons=("opportunity_excluded",),
+    ) == "review"
+
+
+def test_blocked_not_held_is_no_trade() -> None:
+    # P0-3: not-held + blocked → no_trade (buy-side blocker still applies).
+    assert _map(
+        risk_action="exit_review",
+        is_holding=False,
         blocking_reasons=("data_incomplete",),
     ) == "no_trade"
 

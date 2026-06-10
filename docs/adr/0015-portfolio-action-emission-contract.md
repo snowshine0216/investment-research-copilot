@@ -47,9 +47,19 @@ at `_write_opportunity_outputs`; composition stays pure (effects at edges).
 `PortfolioAction = Literal["no_trade", "buy", "trim_review", "exit_review", "review"]`.
 The single pure `map_portfolio_action(*, risk_action, score_action, allocation_selected,
 is_holding, blocking_reasons)` (`src/irc/decision/portfolio_action.py`) decides it in
-fixed precedence: blocked ⇒ `no_trade`; `exit_review ∧ is_holding` ⇒ `exit_review`;
-`trim_review ∧ is_holding` ⇒ `trim_review`; `review_required ∧ is_holding` ⇒ `review`;
-buy-candidate ∧ allocation-selected ⇒ `buy`; else `no_trade`.
+fixed precedence (corrected in P0-3 ship-blocked review, 2026-06-10):
+
+1. `exit_review ∧ is_holding` ⇒ `exit_review`  **← sell-side first**
+2. `trim_review ∧ is_holding` ⇒ `trim_review`
+3. `review_required ∧ is_holding` ⇒ `review`
+4. `blocking_reasons` non-empty ⇒ `no_trade`   **← blocks buy-side only**
+5. buy-candidate ∧ allocation-selected ⇒ `buy`
+6. else `no_trade`
+
+The sell-side branches (1–3) precede the `blocking_reasons` short-circuit (4) because
+buy-side blockers (`venue_blocked`, `opportunity_excluded`, `data_incomplete`, …) block
+BUYING, not selling what you already hold.  A non-held row falls through (1–3) to (4),
+so `not-held + blocked → no_trade` is unchanged.
 
 Two non-obvious choices:
 
