@@ -312,3 +312,44 @@ def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
     from irc.commands.eval_cmd import run_eval
     rc = run_eval(repo_root=repo_root, stage=stage, all_stages=all_stages)
     raise SystemExit(rc)
+
+
+@main.command(
+    "notify-status",
+    help="Classify the last scheduled run's outcome and notify (macOS + optional Feishu).",
+)
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option(
+    "--run-kind",
+    type=click.Choice(["daily", "weekly"]),
+    required=True,
+    help="Which scheduled cadence produced this run.",
+)
+@click.option(
+    "--last-exit-code",
+    "last_exit_code",
+    type=int,
+    required=True,
+    help="The pipeline process exit code captured by the launchd wrapper.",
+)
+@click.option(
+    "--notify-on-clean/--no-notify-on-clean",
+    "notify_on_clean",
+    default=None,
+    help="Emit a quiet notification on a clean run (env: IRC_NOTIFY_ON_CLEAN; default on).",
+)
+def notify_status(
+    repo_root: str,
+    run_kind: str,
+    last_exit_code: int,
+    notify_on_clean: bool | None,
+) -> None:
+    from irc.commands.notify_cmd import run_notify_status
+
+    rc = run_notify_status(
+        repo_root=repo_root,
+        run_kind=run_kind,
+        last_exit_code=last_exit_code,
+        notify_on_clean=notify_on_clean,
+    )
+    raise SystemExit(rc)
