@@ -164,6 +164,17 @@ Use this when you want fresh macro/news/theme citations included before discover
 RESEARCH_ENABLED=true uv run irc run
 ```
 
+### Unattended automation (`irc notify-status`, launchd)
+
+Two macOS LaunchAgents (`ops/launchd/`) run the full `irc run` on a cadence and
+call `irc notify-status` to report the outcome. See **[ops/launchd/README.md](ops/launchd/README.md)**
+for install/uninstall, timezone notes, and the Feishu webhook option (ADR 0016).
+
+```bash
+bash ops/launchd/install.sh             # install daily + weekly launchd agents
+uv run irc notify-status --run-kind daily --last-exit-code 0   # manual dry-run
+```
+
 ### Monthly universe maintenance
 
 Use this to refresh the generated Mainland China fund universe from AkShare.
