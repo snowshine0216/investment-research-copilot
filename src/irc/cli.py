@@ -336,7 +336,11 @@ def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
     "--notify-on-clean/--no-notify-on-clean",
     "notify_on_clean",
     default=None,
-    help="Emit a quiet notification on a clean run (env: IRC_NOTIFY_ON_CLEAN; default on).",
+    help=(
+        "Emit a quiet notification on a clean run. CLI flag wins; else "
+        "IRC_NOTIFY_ON_CLEAN env var (accepted truthy: 1/true/yes/on; "
+        "any other non-empty value is falsy); default on."
+    ),
 )
 def notify_status(
     repo_root: str,

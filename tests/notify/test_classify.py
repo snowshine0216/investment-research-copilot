@@ -133,3 +133,45 @@ def test_exit_124_is_failed_with_timeout_label():
     assert decision.severity == "failed"
     assert decision.should_notify is True
     assert "timeout" in decision.title.lower()
+
+
+# ---- Unknown nonzero exit codes (127/137/143/99) must be failed, never clean ----
+
+@pytest.mark.parametrize(
+    "code,expected_label_fragment",
+    [
+        (127, "127"),
+        (137, "137"),
+        (143, "143"),
+        (99, "99"),
+    ],
+)
+def test_unknown_nonzero_exit_is_failed(code, expected_label_fragment):
+    """Any nonzero exit not in _EXIT_LABELS must produce severity=failed (not clean/halted/stale).
+
+    Exit 127 = command not found, 137 = SIGKILL/OOM, 143 = SIGTERM,
+    99 = generic unknown code — all must be treated as failures.
+    """
+    decision = classify_run_outcome(_outcome(last_exit_code=code))
+    assert decision.severity == "failed", (
+        f"exit {code} must be severity=failed, got {decision.severity!r}"
+    )
+    assert decision.should_notify is True, f"exit {code} must trigger notification"
+    assert expected_label_fragment in decision.title or expected_label_fragment in decision.body, (
+        f"exit code {code} must appear in title or body; "
+        f"title={decision.title!r}, body={decision.body!r}"
+    )
+
+
+def test_unknown_nonzero_exit_beats_halted_and_stale():
+    """Unknown nonzero exit (137) must take precedence over halted/stale flags."""
+    decision = classify_run_outcome(
+        _outcome(last_exit_code=137, pipeline_halted=True, stale_ingest=True)
+    )
+    assert decision.severity == "failed"
+
+
+def test_unknown_nonzero_exit_never_clean():
+    """An unknown nonzero exit (99) with all-zero counts must NOT classify as clean."""
+    decision = classify_run_outcome(_outcome(last_exit_code=99))
+    assert decision.severity != "clean", "exit 99 must never produce severity=clean"

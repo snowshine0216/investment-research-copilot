@@ -64,6 +64,14 @@ so that a *missing* notification unambiguously means the schedule itself broke.
 To suppress clean-run notifications: set `IRC_NOTIFY_ON_CLEAN=0` in `.env` or
 pass `--no-notify-on-clean` to `irc notify-status` manually.
 
+`IRC_NOTIFY_ON_CLEAN` accepted values:
+- **truthy** (notify on clean): `1`, `true`, `yes`, `on` (case-insensitive)
+- **falsy** (suppress clean notifications): any other non-empty value (e.g. `0`, `false`, `no`, `off`)
+- **unset / empty**: defaults to **truthy** (notify on clean)
+
+The `--notify-on-clean` / `--no-notify-on-clean` CLI flag takes precedence
+over the env var when passed explicitly.
+
 ## Logs
 
 | File | Content |
