@@ -183,6 +183,7 @@ def decide_row(
         portfolio_action=portfolio_act,
         current_weight=current_weight,
         weight_delta=weight_delta(current_weight, target_weight),
+        is_holding=is_holding,
     ).to_dict()
 
 
@@ -203,6 +204,7 @@ def _build_decision_row(
     portfolio_action: str = "no_trade",
     current_weight: float = 0.0,
     weight_delta: float = 0.0,
+    is_holding: bool = False,
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
@@ -224,6 +226,7 @@ def _build_decision_row(
         target_weight=target_weight,
         current_weight=current_weight,
         weight_delta=weight_delta,
+        is_holding=is_holding,
         role=role,
     )
 

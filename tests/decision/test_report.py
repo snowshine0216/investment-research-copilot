@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from irc.decision.gates import decide_row
 from irc.decision.report import (
     _holdings_action_section,
     _summary,
@@ -372,3 +373,66 @@ def test_markdown_contains_holdings_section_above_blocked() -> None:
     holdings_idx = md.index("## 持仓行动")
     blocked_idx = md.index("## Blocked — fixable today")
     assert holdings_idx < blocked_idx
+
+
+# P0-1: round-trip test — a real decide_row-produced dict preserves is_holding
+# and flows into _holdings_action_section (not hand-built dicts).
+def test_decide_row_round_trip_is_holding_true() -> None:
+    """is_holding=True from decide_row must survive to_dict() and be visible
+    in the _holdings_action_section renderer (P0-1 fix)."""
+    row = decide_row(
+        score={
+            "instrument_id": "510300",
+            "asset_class": "cn_etf",
+            "action": "watch",
+            "conviction": "med",
+            "data_completeness": 1.0,
+            "missing_data": [],
+        },
+        allocation_selected=False,
+        target_weight_valid=True,
+        trade=None,
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        risk_action="exit_review",
+        is_holding=True,
+        portfolio_weight=0.08,
+        target_weight=0.05,
+        available_venues=["broker_a"],
+        venue_required=["broker_a"],
+    )
+    # is_holding must be in the dict
+    assert row["is_holding"] is True
+    assert row["portfolio_action"] == "exit_review"
+    # The renderer must pick up this row (not empty section)
+    lines = _holdings_action_section([row])
+    text = "\n".join(lines)
+    assert "510300" in text
+    assert "exit_review" in text
+
+
+def test_decide_row_round_trip_is_holding_false_excluded() -> None:
+    """is_holding=False must not appear in the holdings-action section."""
+    row = decide_row(
+        score={
+            "instrument_id": "510300",
+            "asset_class": "cn_etf",
+            "action": "watch",
+            "conviction": "med",
+            "data_completeness": 1.0,
+            "missing_data": [],
+        },
+        allocation_selected=False,
+        target_weight_valid=True,
+        trade=None,
+        pipeline_halted=False,
+        memo_traceability_coverage=1.0,
+        risk_action="trim_review",
+        is_holding=False,
+        available_venues=["broker_a"],
+        venue_required=["broker_a"],
+    )
+    assert row["is_holding"] is False
+    assert row["portfolio_action"] == "no_trade"
+    lines = _holdings_action_section([row])
+    assert "（无持仓调整建议）" in "\n".join(lines)

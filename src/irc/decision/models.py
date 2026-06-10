@@ -61,6 +61,11 @@ class DecisionRow:
     # weight_delta = current_weight - target_weight (fraction units; 0.02 = +2pp).
     current_weight: float = 0.0
     weight_delta: float = 0.0
+    # is_holding: True when the operator holds a position in this instrument
+    # (sourced from inputs/account.yaml via positions[iid].is_holding).
+    # Required by _holdings_action_section to filter the 持仓行动 table
+    # (P0-1: was dropped before reaching DecisionRow.to_dict()).
+    is_holding: bool = False
     # Allocation/trade-plan role tag (e.g. "defensive_cn_bond",
     # "core_gold_hedge"). Empty when no trade exists for this id.
     role: str = ""
