@@ -7,7 +7,10 @@ from irc.commands.init_cmd import _read_template
 
 def _packaged_llm_tasks() -> dict:
     """Parse the shipped packaged llm.yaml task routing (the shipped contract)."""
-    return yaml.safe_load(_read_template("config/llm.yaml"))["tasks"]
+    cfg = yaml.safe_load(_read_template("config/llm.yaml"))
+    assert cfg is not None, "packaged config/llm.yaml is empty — template not installed correctly"
+    assert "tasks" in cfg, f"packaged llm.yaml missing 'tasks' key; got keys: {list(cfg)}"
+    return cfg["tasks"]
 
 
 def test_memo_synthesis_routes_to_openrouter_anthropic() -> None:
