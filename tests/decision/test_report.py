@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from irc.decision.report import compose_decision_report, render_decision_markdown
+from irc.decision.report import (
+    _holdings_action_section,
+    _summary,
+    compose_decision_report,
+    render_decision_markdown,
+)
 
 
 def _scoring() -> dict[str, object]:
@@ -280,3 +285,90 @@ def test_coverage_narrative_only_when_refs_provided_but_none_quoted() -> None:
     )
     assert "memo_narrative_only" in report["blocking_reasons"]
     assert report["overall_status"] == "blocked"
+
+
+def _drow(**overrides):
+    base = dict(
+        instrument_id="510300",
+        instrument_name="沪深300ETF",
+        asset_class="cn_etf",
+        score_action="watch",
+        decision_status="review_sell_later",
+        portfolio_action="trim_review",
+        conviction="med",
+        data_completeness=1.0,
+        missing_data=[],
+        target_weight_valid=True,
+        venue_status="direct",
+        memo_evidence_status="evidence_linked",
+        blocking_reasons=[],
+        reason="",
+        next_step="",
+        watch_reason=None,
+        target_weight=0.05,
+        current_weight=0.08,
+        weight_delta=0.03,
+        is_holding=True,
+        role="",
+    )
+    base.update(overrides)
+    return base
+
+
+def test_summary_counts_sell_actions() -> None:
+    rows = [
+        _drow(portfolio_action="trim_review"),
+        _drow(portfolio_action="exit_review"),
+        _drow(portfolio_action="review"),
+        _drow(portfolio_action="review"),
+        _drow(portfolio_action="no_trade", decision_status="watch_only"),
+    ]
+    summary = _summary(rows)
+    assert summary["trim_count"] == 1
+    assert summary["exit_count"] == 1
+    assert summary["review_count"] == 2
+    assert "sell_count" not in summary
+    # Existing keys preserved (additive-only).
+    assert "actionable_buy_count" in summary
+    assert "watch_count" in summary
+    assert "avoid_count" in summary
+    assert "blocked_count" in summary
+
+
+def test_holdings_action_section_renders_held_sell_rows() -> None:
+    rows = [_drow(portfolio_action="trim_review")]
+    lines = _holdings_action_section(rows)
+    text = "\n".join(lines)
+    assert "## 持仓行动 / Sell · Trim · Review" in text
+    assert "510300" in text
+    assert "trim_review" in text
+    # Δpp rendered as percentage points: 0.03 -> +3.0
+    assert "+3.0" in text
+
+
+def test_holdings_action_section_empty_state() -> None:
+    rows = [_drow(portfolio_action="no_trade", decision_status="watch_only", is_holding=False)]
+    lines = _holdings_action_section(rows)
+    assert "（无持仓调整建议）" in "\n".join(lines)
+
+
+def test_holdings_action_section_excludes_non_holdings() -> None:
+    # AC7 at the renderer: a non-holding with a stray sell action does not appear.
+    rows = [_drow(portfolio_action="trim_review", is_holding=False)]
+    lines = _holdings_action_section(rows)
+    assert "（无持仓调整建议）" in "\n".join(lines)
+
+
+def test_markdown_contains_holdings_section_above_blocked() -> None:
+    report = {
+        "date": "2026-06-10",
+        "overall_status": "ok",
+        "blocking_reasons": [],
+        "summary": _summary([_drow(portfolio_action="trim_review")]),
+        "rows": [_drow(portfolio_action="trim_review")],
+    }
+    md = render_decision_markdown(report)
+    assert "## 持仓行动 / Sell · Trim · Review" in md
+    holdings_idx = md.index("## 持仓行动")
+    blocked_idx = md.index("## Blocked — fixable today")
+    assert holdings_idx < blocked_idx

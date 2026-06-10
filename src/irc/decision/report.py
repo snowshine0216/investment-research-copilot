@@ -80,6 +80,7 @@ def compose_decision_report(
         opportunity_published_ids=opportunity_published_ids,
         trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
         qdii_max_premium_pct=threshold,
+        opportunity_state_by_id=opportunity_state_by_id or {},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -189,6 +190,8 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         weekly_return_by_id=report.get("weekly_return_by_id") or {},
         opportunity_state_by_id=report.get("opportunity_state_by_id") or {},
     ))
+    lines.append("")
+    lines.extend(_holdings_action_section(rows))
     lines.append("")
     lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
     lines.append("")
@@ -324,11 +327,17 @@ def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool,
 
 def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
     statuses = [row.get("decision_status") for row in rows]
+    actions = [row.get("portfolio_action") for row in rows]
     return {
         "actionable_buy_count": statuses.count("actionable_buy"),
         "watch_count": statuses.count("watch_only"),
         "avoid_count": statuses.count("avoid"),
         "blocked_count": statuses.count("blocked"),
+        # Item 001 (ADR 0015 §3): additive sell/review counts keyed off
+        # portfolio_action. NO sell_count — item 002 sums trim+exit itself.
+        "trim_count": actions.count("trim_review"),
+        "exit_count": actions.count("exit_review"),
+        "review_count": actions.count("review"),
     }
 
 
@@ -348,6 +357,7 @@ def _build_rows(
     role_by_id: dict[str, str],
     opportunity_published_ids: set[str] | None,
     trade_plan_targets: set[str],
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
     qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -362,6 +372,7 @@ def _build_rows(
             and iid in trade_plan_targets
             and iid not in opportunity_published_ids
         )
+        opp = (opportunity_state_by_id or {}).get(iid, {})
         rows.append(decide_row(
             score=score,
             allocation_selected=iid in selected_ids,
@@ -377,6 +388,10 @@ def _build_rows(
             role=role_by_id.get(iid, ""),
             excluded_from_opportunity=excluded,
             qdii_max_premium_pct=qdii_max_premium_pct,
+            risk_action=str(opp.get("risk_action", "none")),
+            dca_action=opp.get("dca_action"),
+            portfolio_weight=opp.get("portfolio_weight"),
+            is_holding=bool(opp.get("is_holding", False)),
         ))
     return rows
 
@@ -569,6 +584,49 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
                 next_step=_md(row["next_step"]),
             )
         )
+    return out
+
+
+_HOLDINGS_ACTION_SET = frozenset({"trim_review", "exit_review", "review"})
+
+
+def _holdings_action_section(rows: list[dict[str, Any]]) -> list[str]:
+    """Render the 持仓行动 / Sell·Trim·Review table.
+
+    One row per HELD instrument carrying a trim/exit/review portfolio_action
+    (ADR 0015 §2: the sell branches are is_holding-gated, so is_holding is
+    True here by construction; the explicit filter is belt-and-suspenders for
+    legacy/hand-built rows). Empty-state line `（无持仓调整建议）` when none.
+    Current % is COST-BASIS weight (OQ3).
+    """
+    held = [
+        r for r in rows
+        if r.get("portfolio_action") in _HOLDINGS_ACTION_SET and r.get("is_holding")
+    ]
+    out = ["## 持仓行动 / Sell · Trim · Review", ""]
+    if not held:
+        out.extend(["（无持仓调整建议）", ""])
+        return out
+    out.append(
+        "| Instrument | Name | Action | Current % (cost-basis) | Target % | Δ (pp) | Why |"
+    )
+    out.append("|---|---|---|---:|---:|---:|---|")
+    for r in held:
+        current_pct = float(r.get("current_weight") or 0.0) * 100
+        target_pct = float(r.get("target_weight") or 0.0) * 100
+        delta_pp = float(r.get("weight_delta") or 0.0) * 100
+        out.append(
+            "| {iid} | {name} | {action} | {cur:.1f} | {tgt:.1f} | {delta:+.1f} | {why} |".format(
+                iid=_md(r["instrument_id"]),
+                name=_name_cell(r),
+                action=_md(r.get("portfolio_action") or ""),
+                cur=current_pct,
+                tgt=target_pct,
+                delta=delta_pp,
+                why=_md(r.get("reason") or _score_action_cell(r)),
+            )
+        )
+    out.append("")
     return out
 
 
