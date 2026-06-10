@@ -32,6 +32,7 @@ def compose_decision_report(
     weekly_return_by_id: dict[str, float] | None = None,
     opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
     qdii_max_premium_pct: float | None = None,
+    stale_sell_signals: bool = False,
 ) -> dict[str, Any]:
     target_weight_valid = target_weights_are_valid(allocation)
     selected_ids = {str(row.get("instrument_id")) for row in allocation.get("selected_instruments", [])}
@@ -80,6 +81,7 @@ def compose_decision_report(
         opportunity_published_ids=opportunity_published_ids,
         trade_plan_targets={str(t.get("target")) for t in trade_plan.get("trades", [])},
         qdii_max_premium_pct=threshold,
+        opportunity_state_by_id=opportunity_state_by_id or {},
     )
     blocking_reasons = _overall_blocking_reasons(rows, pipeline_halted, target_weight_valid)
     proxy_coverage = _build_proxy_coverage(trade_plan)
@@ -88,7 +90,7 @@ def compose_decision_report(
         "date": date,
         "overall_status": "blocked" if blocking_reasons else "ok",
         "blocking_reasons": blocking_reasons,
-        "summary": _summary(rows),
+        "summary": _summary(rows, stale_sell_signals=stale_sell_signals),
         "rows": rows,
         # pipeline_incomplete: True when >50% of score rows lack an 'action' field,
         # signalling a corrupt/partial scoring run. Forces overall_status to 'blocked'.
@@ -113,6 +115,10 @@ def compose_decision_report(
         "macro_snapshot": macro_snapshot or {},
         "weekly_return_by_id": weekly_return_by_id or {},
         "opportunity_state_by_id": opportunity_state_by_id or {},
+        # P0-2: True when opportunity_report.json is a pre-001 artifact that lacks
+        # risk_action keys. The renderer shows a visible warning in 持仓行动;
+        # summary sell counts are null (ADR 0015 addendum).
+        "stale_sell_signals": stale_sell_signals,
     }
 
 
@@ -188,6 +194,10 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         macro_snapshot=report.get("macro_snapshot") or {},
         weekly_return_by_id=report.get("weekly_return_by_id") or {},
         opportunity_state_by_id=report.get("opportunity_state_by_id") or {},
+    ))
+    lines.append("")
+    lines.extend(_holdings_action_section(
+        rows, stale_sell_signals=bool(report.get("stale_sell_signals"))
     ))
     lines.append("")
     lines.extend(_blocked_fixable_section(rows, report.get("proxy_coverage", {})))
@@ -322,13 +332,40 @@ def _overall_blocking_reasons(rows: list[dict[str, Any]], pipeline_halted: bool,
     return reasons
 
 
-def _summary(rows: list[dict[str, Any]]) -> dict[str, int]:
+def _summary(
+    rows: list[dict[str, Any]],
+    stale_sell_signals: bool = False,
+) -> dict[str, int | None]:
+    """Summarise decision-row counts.
+
+    ``stale_sell_signals=True`` means the opportunity_report.json being read
+    is a pre-001 artifact that has no ``risk_action`` keys — the sell-side
+    counts are *unknown*, not zero.  Consumers (e.g. the item-002 notifier)
+    MUST treat ``None`` as "signals unavailable", never as 0 (ADR 0015
+    addendum — null counts semantics).
+    """
     statuses = [row.get("decision_status") for row in rows]
+    actions = [row.get("portfolio_action") for row in rows]
+    if stale_sell_signals:
+        trim_count: int | None = None
+        exit_count: int | None = None
+        review_count: int | None = None
+    else:
+        trim_count = actions.count("trim_review")
+        exit_count = actions.count("exit_review")
+        review_count = actions.count("review")
     return {
         "actionable_buy_count": statuses.count("actionable_buy"),
         "watch_count": statuses.count("watch_only"),
         "avoid_count": statuses.count("avoid"),
         "blocked_count": statuses.count("blocked"),
+        # Item 001 (ADR 0015 §3): additive sell/review counts keyed off
+        # portfolio_action. NO sell_count — item 002 sums trim+exit itself.
+        # null (None → JSON null) when stale_sell_signals=True (pre-001
+        # artifact, no risk_action keys); null ≠ 0, see ADR 0015 addendum.
+        "trim_count": trim_count,
+        "exit_count": exit_count,
+        "review_count": review_count,
     }
 
 
@@ -348,6 +385,7 @@ def _build_rows(
     role_by_id: dict[str, str],
     opportunity_published_ids: set[str] | None,
     trade_plan_targets: set[str],
+    opportunity_state_by_id: dict[str, dict[str, Any]] | None = None,
     qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
@@ -362,6 +400,7 @@ def _build_rows(
             and iid in trade_plan_targets
             and iid not in opportunity_published_ids
         )
+        opp = (opportunity_state_by_id or {}).get(iid, {})
         rows.append(decide_row(
             score=score,
             allocation_selected=iid in selected_ids,
@@ -377,6 +416,9 @@ def _build_rows(
             role=role_by_id.get(iid, ""),
             excluded_from_opportunity=excluded,
             qdii_max_premium_pct=qdii_max_premium_pct,
+            risk_action=str(opp.get("risk_action", "none")),
+            portfolio_weight=opp.get("portfolio_weight"),
+            is_holding=bool(opp.get("is_holding", False)),
         ))
     return rows
 
@@ -569,6 +611,68 @@ def _actionable_buys_section(rows: list[dict[str, Any]]) -> list[str]:
                 next_step=_md(row["next_step"]),
             )
         )
+    return out
+
+
+_HOLDINGS_ACTION_SET = frozenset({"trim_review", "exit_review", "review"})
+
+
+_STALE_SELL_WARNING = (
+    "⚠️ 卖出侧信号不可用（opportunity_report.json 为旧版工件）"
+    "— 请先重跑 irc opportunity / "
+    "sell-side signals unavailable (stale artifact) — re-run irc opportunity first"
+)
+
+
+def _holdings_action_section(
+    rows: list[dict[str, Any]],
+    stale_sell_signals: bool = False,
+) -> list[str]:
+    """Render the 持仓行动 / Sell·Trim·Review table.
+
+    One row per HELD instrument carrying a trim/exit/review portfolio_action
+    (ADR 0015 §2: the sell branches are is_holding-gated, so is_holding is
+    True here by construction; the explicit filter is belt-and-suspenders for
+    legacy/hand-built rows). Empty-state line `（无持仓调整建议）` when none.
+    When ``stale_sell_signals=True``, renders a visible warning instead
+    (P0-2: stale pre-001 artifact — sell signals were never derived).
+    Current % is COST-BASIS weight (OQ3).
+    Held rows are sorted by instrument_id for deterministic output (ADR 0004 / P1-3).
+    """
+    out = ["## 持仓行动 / Sell · Trim · Review", ""]
+    if stale_sell_signals:
+        out.extend([_STALE_SELL_WARNING, ""])
+        return out
+    held = sorted(
+        (
+            r for r in rows
+            if r.get("portfolio_action") in _HOLDINGS_ACTION_SET and r.get("is_holding")
+        ),
+        key=lambda r: str(r.get("instrument_id") or ""),
+    )
+    if not held:
+        out.extend(["（无持仓调整建议）", ""])
+        return out
+    out.append(
+        "| Instrument | Name | Action | Current % (cost-basis) | Target % | Δ (pp) | Why |"
+    )
+    out.append("|---|---|---|---:|---:|---:|---|")
+    for r in held:
+        current_pct = float(r.get("current_weight") or 0.0) * 100
+        target_pct = float(r.get("target_weight") or 0.0) * 100
+        delta_pp = float(r.get("weight_delta") or 0.0) * 100
+        out.append(
+            "| {iid} | {name} | {action} | {cur:.1f} | {tgt:.1f} | {delta:+.1f} | {why} |".format(
+                iid=_md(r["instrument_id"]),
+                name=_name_cell(r),
+                action=_md(r.get("portfolio_action") or ""),
+                cur=current_pct,
+                tgt=target_pct,
+                delta=delta_pp,
+                why=_md(r.get("reason") or _score_action_cell(r)),
+            )
+        )
+    out.append("")
     return out
 
 

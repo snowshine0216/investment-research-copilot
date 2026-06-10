@@ -2,7 +2,7 @@
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-001 | ✅ 4d2dcdf | ✅ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-003 | ✅ 90a7050 | ✅ | ✅ #123 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ efd8010 |
 
@@ -36,3 +36,10 @@ is `/verify` (XOR rule).
 ### Process note (binds items 001/002)
 Before `gh pr merge`, PUSH the sub-branch so post-ship verdict commits land in the PR —
 subagents commit without pushing; merging an unpushed-tip PR orphans their commits.
+
+### 001 evidence (through drift)
+- spec: items/001-spec.md (ea1dc6c); grill: items/001-grill.md PASS (02f1d06, ADR 0015);
+  plan: items/001-plan.md (ae4cba1)
+- impl: f93e706,2c1c9bb,94751d9,c06bfc8,1d82afc,4d2dcdf — 346 passed incl. invariant guards;
+  e2e irc decision exit 0
+- drift: items/001-drift.md PASS (701ef6c) — 41/41 steps; 2 accepted findings
