@@ -10,8 +10,13 @@ from irc.notify.types import NotificationDecision
 
 
 def _escape(text: str) -> str:
-    """Escape backslashes then double-quotes for an AppleScript string literal."""
-    return text.replace("\\", "\\\\").replace('"', '\\"')
+    """Escape backslashes then double-quotes for an AppleScript string literal.
+
+    Also replaces \\r and \\n with a space (P1-3 defence-in-depth: osascript
+    does not accept multi-line string literals via display notification).
+    """
+    safe = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return safe.replace("\\", "\\\\").replace('"', '\\"')
 
 
 def format_macos(decision: NotificationDecision) -> tuple[str, str]:

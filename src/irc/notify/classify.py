@@ -37,6 +37,12 @@ def _decide(outcome: RunOutcome) -> tuple[str, str, str]:
             "IRC run failed — no output",
             "No outputs/<today>/ — the scheduled run never produced output.",
         )
+    if outcome.decision_report_unreadable:
+        return (
+            "failed",
+            "IRC run failed — report unreadable",
+            "decision_report.json unreadable — file exists but could not be parsed.",
+        )
     if outcome.last_exit_code in _EXIT_LABELS:
         label = _EXIT_LABELS[outcome.last_exit_code]
         return (

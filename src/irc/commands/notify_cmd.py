@@ -38,12 +38,20 @@ def _china_today() -> date:
 
 
 def _load_holidays(root: Path) -> set[date]:
-    """Read config/cn_market_holidays.yaml (flat YYYY-MM-DD list). Absent ⇒ {}."""
+    """Read config/cn_market_holidays.yaml (flat YYYY-MM-DD list). Absent ⇒ {}.
+
+    Malformed YAML or invalid date values degrade gracefully: log a warning and
+    return an empty set so classification still proceeds (P0-4).
+    """
     path = root / "config" / "cn_market_holidays.yaml"
     if not path.exists():
         return set()
-    raw = yaml.safe_load(path.read_text(encoding="utf-8")) or []
-    return {date.fromisoformat(str(item)) for item in raw}
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8")) or []
+        return {date.fromisoformat(str(item)) for item in raw}
+    except (yaml.YAMLError, ValueError) as exc:
+        _log.warning("could not load holiday YAML — weekend-only skip in effect: %s", exc)
+        return set()
 
 
 def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutcome:
@@ -62,28 +70,36 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             review_count=0,
         )
     summary = _read_summary(out_dir / "decision_report.json")
+    unreadable = summary is None
+    safe = summary if summary is not None else {}
     return RunOutcome(
         run_kind=run_kind,
         last_exit_code=last_exit_code,
         today_dir_exists=True,
         pipeline_halted=(out_dir / "PIPELINE_HALTED.md").exists(),
         stale_ingest=(out_dir / "STALE_INGEST.md").exists(),
-        actionable_buy_count=int(summary.get("actionable_buy_count", 0) or 0),
-        trim_count=summary.get("trim_count", 0),
-        exit_count=summary.get("exit_count", 0),
-        review_count=summary.get("review_count", 0),
+        actionable_buy_count=int(safe.get("actionable_buy_count", 0) or 0),
+        trim_count=safe.get("trim_count"),
+        exit_count=safe.get("exit_count"),
+        review_count=safe.get("review_count"),
+        decision_report_unreadable=unreadable,
     )
 
 
-def _read_summary(path: Path) -> dict:
-    """Return decision_report.json's `summary`; {} when absent/malformed."""
+def _read_summary(path: Path) -> dict | None:
+    """Return decision_report.json's `summary` dict.
+
+    Returns:
+        dict  — parsed summary (may be empty if key absent or null).
+        None  — file exists but could not be parsed (P1-1 corrupt sentinel).
+    """
     if not path.exists():
         return {}
     try:
         return json.loads(path.read_text(encoding="utf-8")).get("summary", {}) or {}
     except json.JSONDecodeError:
-        _log.warning("could not parse decision_report.json — summary defaulted")
-        return {}
+        _log.warning("could not parse decision_report.json — classifying as failed")
+        return None
 
 
 def _send_macos(decision: NotificationDecision) -> None:

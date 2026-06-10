@@ -19,6 +19,9 @@ class RunOutcome:
 
     Sell-side counts are `int | None`: `None` (JSON null) means signals were
     never derived (pre-001 / stale artifact) — unknown, NOT zero (ADR 0015).
+
+    `decision_report_unreadable` is True when the JSON file exists but cannot
+    be parsed (P1-1). The classifier maps this to severity `failed`.
     """
 
     run_kind: RunKind
@@ -30,6 +33,7 @@ class RunOutcome:
     trim_count: int | None
     exit_count: int | None
     review_count: int | None
+    decision_report_unreadable: bool = False
 
 
 @dataclass(frozen=True)

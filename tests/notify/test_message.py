@@ -36,3 +36,30 @@ def test_format_feishu_severity_tag_uppercased():
     decision = _decision("stale", "IRC data stale", "STALE_INGEST.md present.")
     payload = format_feishu(decision)
     assert payload["content"]["text"].startswith("[STALE] ")
+
+
+# ---- P1-3: _escape strips newlines for osascript safety ----
+
+def test_format_macos_strips_newline_in_title():
+    """P1-3: \\n in title is replaced with a space, not left as a literal newline."""
+    decision = _decision("action", "line1\nline2", "body")
+    title, _ = format_macos(decision)
+    assert "\n" not in title
+    assert "\r" not in title
+    assert "line1" in title and "line2" in title
+
+
+def test_format_macos_strips_newline_in_body():
+    """P1-3: \\n in body is replaced with a space."""
+    decision = _decision("action", "title", "first\nsecond\r\nthird")
+    _, body = format_macos(decision)
+    assert "\n" not in body
+    assert "\r" not in body
+    assert "first" in body and "second" in body
+
+
+def test_format_macos_strips_carriage_return_standalone():
+    """P1-3: bare \\r is also replaced with a space."""
+    decision = _decision("action", "title", "part1\rpart2")
+    _, body = format_macos(decision)
+    assert "\r" not in body
