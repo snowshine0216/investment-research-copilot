@@ -9,9 +9,9 @@ DecisionStatus = Literal[
     "watch_only",
     "avoid",
     "blocked",
-    # TODO (Phase 3): add "review_sell_later" when sell/trim signal emission is implemented
+    "review_sell_later",
 ]
-PortfolioAction = Literal["no_trade"]
+PortfolioAction = Literal["no_trade", "buy", "trim_review", "exit_review", "review"]
 VenueStatus = Literal["direct", "proxy_available", "blocked_no_proxy", "unknown"]
 
 # Annotates rows that landed in `watch_only`. Three distinct sub-cases used to
@@ -55,6 +55,12 @@ class DecisionRow:
     # 0.0 when the row isn't in the allocation. Used by the "Today's only
     # action" headline to size each actionable buy.
     target_weight: float = 0.0
+    # Item 001: holdings-aware weights for the 持仓行动 section.
+    # current_weight is COST-BASIS (portfolio_weight = cost_basis_cny /
+    # portfolio_total_cny), not live market value (ADR 0015 §2 / OQ3).
+    # weight_delta = current_weight - target_weight (fraction units; 0.02 = +2pp).
+    current_weight: float = 0.0
+    weight_delta: float = 0.0
     # Allocation/trade-plan role tag (e.g. "defensive_cn_bond",
     # "core_gold_hedge"). Empty when no trade exists for this id.
     role: str = ""
