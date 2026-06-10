@@ -692,3 +692,20 @@ def test_legacy_call_without_sell_params_is_no_trade() -> None:
     assert row["portfolio_action"] == "no_trade"
     assert row["current_weight"] == 0.0
     assert row["weight_delta"] == 0.0
+
+
+def test_portfolio_weight_zero_is_not_treated_as_none() -> None:
+    # P1-1: `portfolio_weight or 0.0` would coerce portfolio_weight=0.0 → 0.0
+    # via falsy check (same result), but the explicit None check is clearer.
+    # A position scaled down to exactly 0.0 weight must yield current_weight=0.0,
+    # not default to some other value if semantics change.
+    row = _decide(
+        score_overrides={"action": "watch"},
+        portfolio_weight=0.0,
+        is_holding=True,
+        risk_action="trim_review",
+        target_weight=0.05,
+    )
+    assert row["current_weight"] == 0.0
+    # weight_delta = 0.0 - 0.05 = -0.05
+    assert row["weight_delta"] == pytest.approx(-0.05)

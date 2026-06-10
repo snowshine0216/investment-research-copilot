@@ -52,7 +52,10 @@ def weight_delta(current: float | None, target: float | None) -> float:
     """Return ``current - target`` in weight-fraction units (0.02 = +2pp).
 
     None is treated as 0.0 (a missing current weight means "not held yet";
-    a missing target means "no allocation slot"). Pure subtraction — no
-    accumulation — so it is deterministic across re-runs (ADR 0004 / R5).
+    a missing target means "no allocation slot"). Explicit None checks so a
+    genuine 0.0 weight is preserved (P1-1: avoid ``0.0 or 0.0`` falsy trap).
+    Pure subtraction — no accumulation — deterministic across re-runs (ADR 0004 / R5).
     """
-    return (current or 0.0) - (target or 0.0)
+    c = 0.0 if current is None else current
+    t = 0.0 if target is None else target
+    return c - t

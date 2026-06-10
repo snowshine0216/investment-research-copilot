@@ -165,7 +165,9 @@ def decide_row(
         score_action, blocking_reasons, allocation_selected, portfolio_act
     )
     watch_reason = _watch_reason(decision_status, score_action, allocation_selected, venue_status)
-    current_weight = portfolio_weight or 0.0
+    # P1-1: explicit None check — `portfolio_weight or 0.0` would treat 0.0
+    # as falsy; `0.0 if None else value` preserves a genuine zero weight.
+    current_weight = 0.0 if portfolio_weight is None else portfolio_weight
     return _build_decision_row(
         score=score,
         score_action=score_action,

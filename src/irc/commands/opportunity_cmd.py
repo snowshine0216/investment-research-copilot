@@ -1371,15 +1371,19 @@ def _write_opportunity_outputs(
     # passed into the pure composer so opportunity_report.json carries them
     # for the decision layer (ADR 0015 §1). Effects-at-edges: the command
     # threads the data; compose_opportunity_report stays pure.
-    discipline_by_id = {
-        dr.instrument_id: {
+    # P1-2: .get() guard so a future caller mismatch (dr in discipline_rows but
+    # absent from positions) skips the row (gets defaults in compose), not KeyError.
+    discipline_by_id = {}
+    for dr in discipline_rows:
+        pos = positions.get(dr.instrument_id)
+        if pos is None:
+            continue
+        discipline_by_id[dr.instrument_id] = {
             "risk_action": dr.risk_action,
             "dca_action": dr.dca_action,
-            "portfolio_weight": positions[dr.instrument_id].portfolio_weight,
-            "is_holding": positions[dr.instrument_id].is_holding,
+            "portfolio_weight": pos.portfolio_weight,
+            "is_holding": pos.is_holding,
         }
-        for dr in discipline_rows
-    }
     atomic_write_text(
         out_dir / "opportunity_report.json",
         json.dumps(

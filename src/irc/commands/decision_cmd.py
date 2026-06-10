@@ -102,6 +102,8 @@ def _read_opportunity_published_ids(path: Path) -> set[str] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        # P1-4: visible warning before fallback so operators know the file is corrupt.
+        print("WARNING: could not parse opportunity_report.json — published-ids fallback to None")
         return None
     rows = data.get("rows") or []
     return {str(r.get("instrument_id")) for r in rows if r.get("instrument_id")}

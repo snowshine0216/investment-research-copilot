@@ -526,6 +526,17 @@ def test_stale_warning_visible_in_markdown() -> None:
     assert "re-run irc opportunity" in md.lower() or "重跑" in md
 
 
+def test_read_opportunity_state_prints_warning_on_bad_json(tmp_path, capsys) -> None:
+    """P1-4: JSONDecodeError in _read_opportunity_state_by_id prints WARNING."""
+    from irc.commands.decision_cmd import _read_opportunity_state_by_id
+    bad_file = tmp_path / "opportunity_report.json"
+    bad_file.write_text("{this is not json", encoding="utf-8")
+    result = _read_opportunity_state_by_id(bad_file)
+    assert result == {}
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.out
+
+
 def test_decide_row_round_trip_is_holding_false_excluded() -> None:
     """is_holding=False must not appear in the holdings-action section."""
     row = decide_row(
