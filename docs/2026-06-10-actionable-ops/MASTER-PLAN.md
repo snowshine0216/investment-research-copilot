@@ -5,7 +5,10 @@ Project type: non-web        # Python CLI — post-ship verifier is /verify (nev
 PR shape: A                  # per-item PRs (no --rollup from user)
 Feature branch: autodev/actionable-ops-feature   # synthesized off main (protected; no merge-to-main opt-in)
 Branch prefix: claude/actionable-ops-
-Item order: (locked after dependency scan — see below)
+Item order: 003, 001, 002   # locked 2026-06-10 — dependency scan: 003 self-contained
+                            # (valuation axis + docs, smallest/lowest-risk); 001 introduces
+                            # decision_report.json sell/review fields; 002's notifier
+                            # consumes them, so 002 runs last. Approved verbatim.
 
 ## Per-mode skill contract (backlog)
 
