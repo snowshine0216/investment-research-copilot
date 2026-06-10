@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — ops wrapper test determinism (2026-06-10)
+
+- The `tests/ops/test_wrappers.py` notify-status regression tests ran the real
+  `run-daily.sh` trading-day gate against the real clock, so the daily-wrapper
+  parametrizations failed on any CN weekend/holiday (the gate exits 0 before
+  notify-status is ever reached; the old comment claiming a forced non-weekend
+  date was wrong). The tests now pin the gate's CN-clock via a stub `date` on
+  `PATH` (answers `+%Y-%m-%d` / `+%u` with a fixed Wednesday, falls through to
+  `/bin/date` otherwise), and a new `test_daily_gate_skips_weekend_before_pipeline`
+  locks the weekend skip (exit 0, zero `uv` invocations) under a pinned Saturday.
+  Wrapper runtime behavior unchanged. (#125)
+
 ### Added — Local scheduler + outcome notifier (2026-06-10)
 
 - **The pipeline now runs unattended on macOS and notifies the operator on

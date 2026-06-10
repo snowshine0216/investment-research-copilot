@@ -30,6 +30,11 @@ import pytest
 _REPO_ROOT = Path(__file__).parents[2]
 _OPS = _REPO_ROOT / "ops" / "launchd"
 
+# Fixed CN-clock gate dates (date string, ISO day-of-week) so the trading-day
+# gate in run-daily.sh is independent of the real calendar.
+_GATE_OPEN_DAY = ("2026-06-10", "3")  # Wednesday — gate passes
+_GATE_CLOSED_DAY = ("2026-06-13", "6")  # Saturday — gate skips
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,6 +82,38 @@ def _template_wrapper(src: Path, tmp_path: Path, stub: Path) -> Path:
     return out
 
 
+def _make_date_stub(tmp_path: Path, day: str, dow: str) -> Path:
+    """Return a bin dir whose `date` reports a fixed CN-clock day to the gate.
+
+    Answers the two trading-day-gate formats (+%Y-%m-%d, +%u) with the given
+    values; any other format falls through to the system date (watchdog line).
+    """
+    bin_dir = tmp_path / "datebin"
+    bin_dir.mkdir(exist_ok=True)
+    stub = bin_dir / "date"
+    stub.write_text(
+        textwrap.dedent(f"""\
+            #!/bin/bash
+            case "$1" in
+              "+%Y-%m-%d") echo "{day}" ;;
+              "+%u") echo "{dow}" ;;
+              *) exec /bin/date "$@" ;;
+            esac
+        """),
+        encoding="utf-8",
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return bin_dir
+
+
+def _wrapper_env(date_bin: Path) -> dict:
+    """Env for templated-wrapper runs: short watchdog + stubbed date on PATH."""
+    return {
+        "IRC_RUN_TIMEOUT": "60",
+        "PATH": f"{date_bin}{os.pathsep}{os.environ.get('PATH', '')}",
+    }
+
+
 def _run_wrapper(wrapper: Path, env: dict | None = None, timeout: int = 30) -> subprocess.CompletedProcess:
     """Run a wrapper script and return the CompletedProcess."""
     merged_env = {**os.environ, **(env or {})}
@@ -111,17 +148,16 @@ def test_nonzero_pipeline_exit_reaches_notify_status(tmp_path: Path, wrapper_nam
     stub, argv_log = _make_stub(tmp_path, exit_code=3)
     src = _OPS / wrapper_name
 
-    # For run-daily.sh: force a non-weekend CN date so the trading-day gate passes.
-    # We do this by pointing to a non-existent holiday file and patching the
-    # date via TZ=UTC+8 (Wednesday 2026-06-10, DOW=3 → not weekend).
-    # For run-weekly-full.sh: no gate, runs unconditionally.
+    # run-daily.sh gates on the CN-clock date (skips Sat/Sun + holidays). Pin
+    # the clock via a stub `date` on PATH so the gate passes deterministically;
+    # the holiday YAML is absent under the tmp REPO_ROOT, so that leg is off.
+    # run-weekly-full.sh has no gate; the stub is harmless there.
     templated = _template_wrapper(src, tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
 
-    # Shorten the watchdog timeout so the test completes quickly, but ensure the
-    # pipeline "exits" before the watchdog fires (the stub exits immediately).
-    env = {"IRC_RUN_TIMEOUT": "60"}
-
-    result = _run_wrapper(templated, env=env)
+    # IRC_RUN_TIMEOUT shortens the watchdog so the test completes quickly, but
+    # the pipeline stub exits long before it fires.
+    result = _run_wrapper(templated, env=_wrapper_env(date_bin))
 
     invocations = _read_argv_log(argv_log)
 
@@ -147,9 +183,9 @@ def test_zero_pipeline_exit_reaches_notify_status(tmp_path: Path, wrapper_name: 
     """Sanity: a successful (exit 0) pipeline also reaches notify-status with --last-exit-code 0."""
     stub, argv_log = _make_stub(tmp_path, exit_code=0)
     templated = _template_wrapper(_OPS / wrapper_name, tmp_path, stub)
-    env = {"IRC_RUN_TIMEOUT": "60"}
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
 
-    _run_wrapper(templated, env=env)
+    _run_wrapper(templated, env=_wrapper_env(date_bin))
 
     invocations = _read_argv_log(argv_log)
     notify_calls = [line for line in invocations if "notify-status" in line]
@@ -160,6 +196,22 @@ def test_zero_pipeline_exit_reaches_notify_status(tmp_path: Path, wrapper_name: 
     assert any("--last-exit-code" in c and c.endswith("0") for c in notify_calls), (
         f"{wrapper_name}: expected --last-exit-code 0 in notify call.\n"
         f"Notify calls: {notify_calls}"
+    )
+
+
+def test_daily_gate_skips_weekend_before_pipeline(tmp_path: Path):
+    """The trading-day gate must exit 0 on a CN weekend without invoking uv at all."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=3)
+    templated = _template_wrapper(_OPS / "run-daily.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_CLOSED_DAY)
+
+    result = _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    assert result.returncode == 0
+    assert "weekend" in result.stdout
+    assert _read_argv_log(argv_log) == [], (
+        f"gate must short-circuit before the pipeline; stub was invoked: "
+        f"{_read_argv_log(argv_log)}"
     )
 
 
