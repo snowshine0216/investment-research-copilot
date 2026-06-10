@@ -423,7 +423,7 @@ def _decide(outcome: RunOutcome) -> tuple[str, str, str]:
                 "STALE_INGEST.md present — report may be built on old inputs.")
     if _any_sell_unknown(outcome):
         return ("action", "IRC: sell-side state UNKNOWN",
-                "Sell-side signals unavailable (stale artifact) — re-run `irc opportunity`.")
+                "Sell-side state unknown (stale artifact) — re-run `irc opportunity`.")
     if _has_action(outcome):
         return ("action", "IRC: action required", _rollup_body(outcome))
     return ("clean", "IRC run clean", "Run completed; nothing actionable.")
@@ -847,6 +847,15 @@ Run: `uv run pytest tests/commands/test_notify_cmd.py -v`
 Expected: FAIL — `ModuleNotFoundError: No module named 'irc.commands.notify_cmd'` (and the CLI smoke tests fail because the subcommand isn't registered).
 
 - [ ] **Step 3: Implement the command edge**
+
+> **Amendment (drift review, 2026-06-10):** `httpx` logs `request.url` at INFO via its
+> own `"httpx"` logger, which propagates to the root logger. Because `setup_logging()`
+> sets root to INFO (writing to stderr → launchd `StandardErrorPath`), the full Feishu
+> webhook URL (including the secret token) would appear in log files. Fix: add
+> `logging.getLogger("httpx").setLevel(logging.WARNING)` at the top of `_send_feishu`
+> (or once at module level). The AC7 test must assert over ALL log records (not just the
+> `"irc.commands.notify_cmd"` logger) to verify the httpx logger emits nothing containing
+> the token.
 
 Create `src/irc/commands/notify_cmd.py`:
 
