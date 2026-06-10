@@ -411,6 +411,121 @@ def test_decide_row_round_trip_is_holding_true() -> None:
     assert "exit_review" in text
 
 
+# P0-2: stale opportunity_report.json (pre-001, no risk_action keys) → null counts + warning.
+
+
+def test_compose_report_stale_signals_null_counts() -> None:
+    """compose_decision_report(stale_sell_signals=True) produces null sell counts in summary."""
+    report = compose_decision_report(
+        date="2026-06-10",
+        scoring={"scores": [{"instrument_id": "518880", "asset_class": "gold",
+                              "action": "watch", "conviction": "low",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
+        pipeline_halted=False,
+        stale_sell_signals=True,
+    )
+    assert report["summary"]["trim_count"] is None
+    assert report["summary"]["exit_count"] is None
+    assert report["summary"]["review_count"] is None
+    assert report["stale_sell_signals"] is True
+
+
+def test_compose_report_no_stale_signals_zero_counts() -> None:
+    """compose_decision_report(stale_sell_signals=False) produces 0 sell counts."""
+    report = compose_decision_report(
+        date="2026-06-10",
+        scoring={"scores": [{"instrument_id": "518880", "asset_class": "gold",
+                              "action": "watch", "conviction": "low",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
+        pipeline_halted=False,
+        stale_sell_signals=False,
+    )
+    assert report["summary"]["trim_count"] == 0
+    assert report["summary"]["exit_count"] == 0
+    assert report["summary"]["review_count"] == 0
+
+
+def test_summary_sell_counts_are_none_when_stale_signals() -> None:
+    """When stale_sell_signals=True, the three sell counts are None (JSON null),
+    not 0. Consumers (item-002 notifier) treat None as 'signals unavailable'."""
+    rows = [_drow(portfolio_action="no_trade", decision_status="watch_only")]
+    summary = _summary(rows, stale_sell_signals=True)
+    assert summary["trim_count"] is None
+    assert summary["exit_count"] is None
+    assert summary["review_count"] is None
+
+
+def test_summary_sell_counts_are_zero_when_signals_present_but_all_none() -> None:
+    """Rows have risk_action keys but all 'none' (not stale) → counts are 0, no null."""
+    rows = [_drow(portfolio_action="no_trade", decision_status="watch_only")]
+    summary = _summary(rows, stale_sell_signals=False)
+    assert summary["trim_count"] == 0
+    assert summary["exit_count"] == 0
+    assert summary["review_count"] == 0
+
+
+def test_holdings_action_section_renders_warning_when_stale() -> None:
+    """Stale artifact → warning line in 持仓行动 section instead of empty-state."""
+    rows = [_drow(portfolio_action="no_trade", decision_status="watch_only")]
+    lines = _holdings_action_section(rows, stale_sell_signals=True)
+    text = "\n".join(lines)
+    assert "卖出侧信号不可用" in text or "sell-side signals unavailable" in text
+    assert "re-run irc opportunity" in text.lower() or "重跑" in text
+
+
+def test_holdings_action_section_no_warning_when_zero_not_stale() -> None:
+    """Not stale + zero held sell rows → empty state (no warning)."""
+    rows = [_drow(portfolio_action="no_trade", decision_status="watch_only")]
+    lines = _holdings_action_section(rows, stale_sell_signals=False)
+    text = "\n".join(lines)
+    assert "（无持仓调整建议）" in text
+    assert "卖出侧信号不可用" not in text
+
+
+def test_is_stale_returns_true_when_no_risk_action_key() -> None:
+    """Pre-001 rows with no risk_action key → stale."""
+    from irc.commands.decision_cmd import _is_stale_opportunity_artifact
+    states = {"518880": {"instrument_id": "518880", "opportunity_state": "core_dca"}}
+    assert _is_stale_opportunity_artifact(states) is True
+
+
+def test_is_stale_returns_false_when_risk_action_present() -> None:
+    """Modern rows with risk_action → not stale."""
+    from irc.commands.decision_cmd import _is_stale_opportunity_artifact
+    states = {"518880": {"instrument_id": "518880", "risk_action": "none"}}
+    assert _is_stale_opportunity_artifact(states) is False
+
+
+def test_is_stale_returns_false_when_empty() -> None:
+    """Empty opportunity_states (file absent) → not stale."""
+    from irc.commands.decision_cmd import _is_stale_opportunity_artifact
+    assert _is_stale_opportunity_artifact({}) is False
+
+
+def test_stale_warning_visible_in_markdown() -> None:
+    """render_decision_markdown must show the warning when stale_sell_signals."""
+    report = compose_decision_report(
+        date="2026-06-10",
+        scoring={"scores": [{"instrument_id": "518880", "asset_class": "gold",
+                              "action": "watch", "conviction": "low",
+                              "data_completeness": 1.0, "missing_data": []}]},
+        allocation={"selected_instruments": [], "diagnostics": {"total_weight": 1.0}},
+        trade_plan={"trades": []},
+        memo_traceability={"n_refs_quoted_verbatim": 1},
+        pipeline_halted=False,
+        stale_sell_signals=True,
+    )
+    md = render_decision_markdown(report)
+    assert "卖出侧信号不可用" in md
+    assert "re-run irc opportunity" in md.lower() or "重跑" in md
+
+
 def test_decide_row_round_trip_is_holding_false_excluded() -> None:
     """is_holding=False must not appear in the holdings-action section."""
     row = decide_row(

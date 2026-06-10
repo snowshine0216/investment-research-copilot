@@ -98,3 +98,25 @@ is unchanged).
   `decision_report.json` consumer keeps working.
 - `current_weight` being cost-basis is an acknowledged first-order approximation;
   live-NAV current weight is a future item, not a defect of this contract.
+
+## Addendum — null-counts semantics (P0-2, ship-blocked review 2026-06-10)
+
+`trim_count` / `exit_count` / `review_count` in `decision_report.json` `summary` are
+**JSON `null`** (Python `None`) when `opportunity_report.json` is a pre-001 artifact —
+i.e. not a single row carries a `risk_action` key.
+
+**`null` ≠ `0`.** Semantics:
+
+| Value | Meaning |
+|---|---|
+| `0` | Signals were derived; zero rows had that action. |
+| `null` | Signals were never derived (stale artifact). Unknown, not zero. |
+
+The `decision_report.md` 持仓行动 section renders a visible warning instead of the
+empty-state line when null. The item-002 notifier **MUST** treat `null` as "signals
+unavailable — re-run `irc opportunity` before acting"; it must NOT treat it as 0 or
+suppress the warning silently.
+
+Detection (implemented in `decision_cmd._is_stale_opportunity_artifact`): True when the
+file has rows but not a single row carries a `risk_action` key.  Rows with
+`risk_action="none"` (modern artifact, all no-risk) → not stale → counts are 0.
