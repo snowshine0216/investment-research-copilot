@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Local scheduler + outcome notifier (2026-06-10)
+
+- **The pipeline now runs unattended on macOS and notifies the operator on
+  outcome.** A new `irc notify-status --run-kind {daily|weekly} --last-exit-code
+  <int>` subcommand reads today's `outputs/<china-today>/` artifacts
+  (`decision_report.json` summary counts, `PIPELINE_HALTED.md`, `STALE_INGEST.md`)
+  plus a launchd-wrapper-supplied exit code into a frozen `RunOutcome`, calls the
+  pure `classify_run_outcome` (`src/irc/notify/`), and dispatches a macOS
+  notification (always, via `osascript`) plus an optional Feishu webhook (gated on
+  `IRC_FEISHU_WEBHOOK_URL`). Classification precedence (ADR 0016): missing
+  today-dir ⇒ `failed`; exit 1–5 ⇒ `failed`; `PIPELINE_HALTED.md` ⇒ `halted`;
+  `STALE_INGEST.md` ⇒ `stale`; any `null` sell-side count ⇒ `action` ("sell-side
+  state UNKNOWN — re-run `irc opportunity`", never folded into clean per ADR 0015);
+  buys-or-sell-signals ⇒ `action`; else `clean` (quiet by default,
+  `--no-notify-on-clean` / `IRC_NOTIFY_ON_CLEAN=0` suppresses). Scheduling is via
+  two checked-in launchd LaunchAgents (`ops/launchd/`, install/uninstall scripts):
+  a Mon–Fri 17:30 daily run (skips weekends + `config/cn_market_holidays.yaml`)
+  and a Saturday-morning weekly run, both running the full `irc run`. The
+  classifier is pure and table-tested; only `osascript` / the Feishu POST are
+  effects; a notifier transport failure logs and exits non-zero without raising.
+  `notify-status` never trips the spend gate. See ADR 0016.
+
 ### Added — Sell surfacing + holdings-aware deltas (2026-06-10)
 
 - **The decision report now tells the operator what to TRIM / EXIT / REVIEW, not
