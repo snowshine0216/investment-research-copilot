@@ -170,8 +170,22 @@ Two macOS LaunchAgents (`ops/launchd/`) run the full `irc run` on a cadence and
 call `irc notify-status` to report the outcome. See **[ops/launchd/README.md](ops/launchd/README.md)**
 for install/uninstall, timezone notes, and the Feishu webhook option (ADR 0016).
 
+| Agent | Schedule (machine-local time) | What it runs |
+|---|---|---|
+| `com.irc.daily` | Mon–Fri 17:30 (after CN NAV publication; skips weekends + dates in `config/cn_market_holidays.yaml`) | full `irc run`, then `irc notify-status --run-kind daily` |
+| `com.irc.weekly-full` | Sat 09:00 | full `irc run`, then `irc notify-status --run-kind weekly` |
+
+You get a macOS notification (plus Feishu when `IRC_FEISHU_WEBHOOK_URL` is set in
+`.env`) whenever there is an operation to do — actionable buys, trim/exit/review
+signals on holdings, sell-side state unknown (stale artifact, ADR 0015 `null`
+counts) — and always on failure, halt, stale ingest, or timeout. Clean no-action
+runs stay silent unless `IRC_NOTIFY_ON_CLEAN` is truthy. Run logs land in
+`outputs/_logs/launchd-{daily,weekly-full}.{out,err}.log`; each run writes the
+normal report set under `outputs/<YYYY-MM-DD>/` — read `decision_report.md` first.
+
 ```bash
 bash ops/launchd/install.sh             # install daily + weekly launchd agents
+bash ops/launchd/uninstall.sh           # remove both agents
 uv run irc notify-status --run-kind daily --last-exit-code 0   # manual dry-run
 ```
 
