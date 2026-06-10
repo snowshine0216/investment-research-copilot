@@ -37,6 +37,14 @@ uses UTC+8 (`_china_today`) regardless. **If your machine is NOT on UTC+8,**
 edit `Hour`/`Minute` in `com.irc.daily.plist` / `com.irc.weekly-full.plist`
 before installing.
 
+> **WARNING — non-CN timezone machines:** the plists fire at *local* 17:30
+> Mon–Fri / Sat 09:00, but the daily wrapper's trading-day gate evaluates the
+> date in `TZ='Asia/Shanghai'`. On a machine whose local timezone is not UTC+8
+> these two clocks disagree: e.g. on PDT (UTC−7) local Friday 17:30 is
+> Saturday CN time, so the job fires but the trading-day gate silently exits 0.
+> `install.sh` will print a warning when `date +%z` is not `+0800`.
+> (Documented in ADR 0016.)
+
 ## Holiday calendar
 
 `config/cn_market_holidays.yaml` is a flat user-maintained list of

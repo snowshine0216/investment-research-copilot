@@ -52,3 +52,15 @@ done
 
 echo "Done. uv=$UV_BIN"
 echo "Inspect with: launchctl print gui/$UID_NUM/com.irc.daily"
+
+# P1: warn when the machine is not on UTC+8 — schedule assumes CN timezone.
+_TZ_OFFSET="$(date +%z)"
+if [ "$_TZ_OFFSET" != "+0800" ]; then
+  echo ""
+  echo "WARNING: your machine timezone offset is $_TZ_OFFSET (expected +0800)." >&2
+  echo "  The launchd schedule fires at LOCAL time (17:30 Mon-Fri / Sat 09:00)." >&2
+  echo "  The daily wrapper's trading-day gate runs in TZ='Asia/Shanghai'." >&2
+  echo "  On a non-CN-TZ machine these two clocks disagree — runs may skip or" >&2
+  echo "  shift. Edit Hour/Minute in the plists to match your local offset, or" >&2
+  echo "  switch your machine to UTC+8 before installing. (ADR 0016)" >&2
+fi

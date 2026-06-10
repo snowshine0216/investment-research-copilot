@@ -18,7 +18,7 @@ _ELAPSED=0
 _KILLED=0
 while kill -0 "$_PID" 2>/dev/null; do
   if [ "$_ELAPSED" -ge "$_TIMEOUT" ]; then
-    echo "[$(TZ='Asia/Shanghai' date +%Y-%m-%d %H:%M)] watchdog: pipeline timed out after ${_TIMEOUT}s — killing $_PID" >&2
+    echo "[$(TZ='Asia/Shanghai' date '+%Y-%m-%d %H:%M')] watchdog: pipeline timed out after ${_TIMEOUT}s — killing $_PID" >&2
     kill -TERM "$_PID" 2>/dev/null || true
     sleep 5
     kill -KILL "$_PID" 2>/dev/null || true
@@ -31,7 +31,6 @@ done
 if [ "$_KILLED" -eq 1 ]; then
   rc=124
 else
-  wait "$_PID"
-  rc=$?
+  wait "$_PID" || rc=$?
 fi
 "$UV_BIN" run irc notify-status --run-kind weekly --last-exit-code "$rc"
