@@ -3,7 +3,7 @@
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-001 | ✅ 4d2dcdf | ✅ | ✅ #124 | ⏭️ | ✅ | ✅ | ✅ | ✅ 2 rounds | ✅ f843669 |
-| 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-002 | ✅ 6d6c327 | ✅ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-003 | ✅ 90a7050 | ✅ | ✅ #123 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ efd8010 |
 
 QA column pre-filled ⏭️ for all items: project type is **non-web** → post-ship verifier
@@ -57,3 +57,10 @@ subagents commit without pushing; merging an unpushed-tip PR orphans their commi
 ### Process note 2 (binds item 002)
 Push the feature branch right after spec/grill/plan commits, BEFORE cutting the sub-branch —
 otherwise the post-merge local feature diverges from the squash (add/add conflicts).
+
+### 002 evidence (through drift)
+- spec: items/002-spec.md (be32078); grill: items/002-grill.md PASS (014e277, ADR 0016);
+  plan: items/002-plan.md
+- impl: 31ef841..6d6c327 — 46 notify+CLI tests; plutil/bash -n clean
+- drift: items/002-drift.md FAIL→PASS (3aae487→16f42fb) — F2 httpx token-leak to launchd logs
+  found by drift, fixed 55ecd8a (RED→GREEN + counterfactual re-verification)
