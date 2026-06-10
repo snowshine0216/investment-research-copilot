@@ -488,3 +488,44 @@ def test_render_section_inline_top_5_orders_by_weight_desc() -> None:
     mid_pos = out.index("中权")
     low_pos = out.index("低权")
     assert high_pos < mid_pos < low_pos
+
+
+def test_opportunity_report_emits_default_discipline_keys() -> None:
+    # No discipline_by_id passed -> byte-identical defaults (back-compat).
+    report = compose_opportunity_report([_row()], "2026-06-10")
+    row = report["rows"][0]
+    assert row["risk_action"] == "none"
+    assert row["dca_action"] is None
+    assert row["portfolio_weight"] is None
+    assert row["is_holding"] is False
+
+
+def test_opportunity_report_emits_discipline_values_from_map() -> None:
+    r = _row(instrument_id="510300")
+    discipline_by_id = {
+        "510300": {
+            "risk_action": "trim_review",
+            "dca_action": "slow_dca",
+            "portfolio_weight": 0.08,
+            "is_holding": True,
+        }
+    }
+    report = compose_opportunity_report(
+        [r], "2026-06-10", discipline_by_id=discipline_by_id
+    )
+    row = report["rows"][0]
+    assert row["risk_action"] == "trim_review"
+    assert row["dca_action"] == "slow_dca"
+    assert row["portfolio_weight"] == 0.08
+    assert row["is_holding"] is True
+
+
+def test_row_to_dict_keeps_existing_keys_when_map_absent() -> None:
+    # The four new keys are additive; the existing schema is unchanged.
+    d = _row_to_dict(_row())
+    for key in (
+        "instrument_id", "valuation_state", "heat_state", "thesis_state",
+        "opportunity_state", "evidence_gaps", "thesis_evidence",
+    ):
+        assert key in d
+    assert d["risk_action"] == "none"

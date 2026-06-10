@@ -14,7 +14,11 @@ from irc.opportunity.types import (
 )
 
 
-def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
+def _row_to_dict(
+    row: OpportunityRow,
+    discipline_by_id: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    disc = (discipline_by_id or {}).get(row.instrument_id, {})
     return {
         "instrument_id": row.instrument_id,
         "name_cn": row.name_cn,
@@ -39,12 +43,20 @@ def _row_to_dict(row: OpportunityRow) -> dict[str, Any]:
             asdict(c) for c in getattr(row, "constituent_analyses", ())
         ],
         "fetch_types_attempted": list(row.fetch_types_attempted),
+        # Item 001: discipline-derived sell-side fields for the decision layer.
+        # Default (no map / id absent) is byte-identical to pre-change.
+        "risk_action": disc.get("risk_action", "none"),
+        "dca_action": disc.get("dca_action"),
+        "portfolio_weight": disc.get("portfolio_weight"),
+        "is_holding": disc.get("is_holding", False),
     }
 
 
 def compose_opportunity_report(
     rows: list[OpportunityRow] | tuple[OpportunityRow, ...],
     date: str,
+    *,
+    discipline_by_id: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     summary = {
         "core_dca_count": 0,
@@ -57,7 +69,7 @@ def compose_opportunity_report(
     return {
         "date": date,
         "summary": summary,
-        "rows": [_row_to_dict(r) for r in rows],
+        "rows": [_row_to_dict(r, discipline_by_id) for r in rows],
     }
 
 
