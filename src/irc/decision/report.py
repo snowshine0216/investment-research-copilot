@@ -417,7 +417,6 @@ def _build_rows(
             excluded_from_opportunity=excluded,
             qdii_max_premium_pct=qdii_max_premium_pct,
             risk_action=str(opp.get("risk_action", "none")),
-            dca_action=opp.get("dca_action"),
             portfolio_weight=opp.get("portfolio_weight"),
             is_holding=bool(opp.get("is_holding", False)),
         ))

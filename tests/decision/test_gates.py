@@ -709,3 +709,34 @@ def test_portfolio_weight_zero_is_not_treated_as_none() -> None:
     assert row["current_weight"] == 0.0
     # weight_delta = 0.0 - 0.05 = -0.05
     assert row["weight_delta"] == pytest.approx(-0.05)
+
+
+def test_review_sell_later_reason_is_meaningful_not_blocked_by_empty() -> None:
+    """_reason() must NOT return 'Blocked by: ' for review_sell_later rows.
+
+    A review_sell_later row has no blocking_reasons (that is how it reaches
+    review_sell_later — if there were blockers it would be 'blocked').
+    The old fallthrough `'Blocked by: ' + ', '.join([])` produced the
+    misleading text 'Blocked by: ' in the Why column of the 持仓行动 table.
+    The fix must derive a meaningful reason from the risk_action instead.
+    """
+    for risk_action in ("exit_review", "trim_review", "review_required"):
+        row = _decide(
+            score_overrides={"action": "watch"},
+            risk_action=risk_action,
+            is_holding=True,
+            portfolio_weight=0.08,
+            target_weight=0.05,
+        )
+        assert row["decision_status"] == "review_sell_later"
+        assert row["blocking_reasons"] == ()
+        reason = row["reason"]
+        assert reason != "Blocked by: ", (
+            f"risk_action={risk_action!r}: reason must not be 'Blocked by: ' "
+            f"(got {reason!r})"
+        )
+        assert reason, f"risk_action={risk_action!r}: reason must not be empty"
+        # Reason must mention the risk_action so it is actionable in the Why column.
+        assert risk_action in reason or "risk" in reason.lower(), (
+            f"risk_action={risk_action!r}: reason {reason!r} should reference the action"
+        )

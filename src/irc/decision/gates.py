@@ -99,7 +99,6 @@ def decide_row(
     excluded_from_opportunity: bool = False,
     qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
     risk_action: str = "none",
-    dca_action: str | None = None,
     portfolio_weight: float | None = None,
     is_holding: bool = False,
 ) -> dict[str, Any]:
@@ -186,6 +185,7 @@ def decide_row(
         current_weight=current_weight,
         weight_delta=weight_delta(current_weight, target_weight),
         is_holding=is_holding,
+        risk_action=risk_action,
     ).to_dict()
 
 
@@ -207,6 +207,7 @@ def _build_decision_row(
     current_weight: float = 0.0,
     weight_delta: float = 0.0,
     is_holding: bool = False,
+    risk_action: str = "none",
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
@@ -221,7 +222,7 @@ def _build_decision_row(
         venue_status=venue_status,
         memo_evidence_status=evidence_status,
         blocking_reasons=tuple(blocking_reasons),
-        reason=_reason(decision_status, blocking_reasons, score_action),
+        reason=_reason(decision_status, blocking_reasons, score_action, risk_action),
         next_step=_next_step(blocking_reasons, decision_status),
         watch_reason=watch_reason,
         instrument_name=instrument_name,
@@ -319,11 +320,18 @@ def _watch_reason(
     return None  # defensive — should not occur given _decision_status
 
 
-def _reason(decision_status: str, blocking_reasons: list[str], score_action: str) -> str:
+def _reason(
+    decision_status: str,
+    blocking_reasons: list[str],
+    score_action: str,
+    risk_action: str = "none",
+) -> str:
     if decision_status == "actionable_buy":
         return "Score, data, allocation, venue, pipeline, and traceability gates are all clear."
     if decision_status == "avoid":
         return f"Scoring action is {score_action}; allocation or trade-plan presence cannot upgrade an avoid signal."
+    if decision_status == "review_sell_later":
+        return f"Risk review: {risk_action}"
     return "Blocked by: " + ", ".join(blocking_reasons)
 
 
