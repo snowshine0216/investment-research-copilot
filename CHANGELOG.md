@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — Valuation axis lock + memo-routing docs (2026-06-10)
+
+- **Regression-locked the shipped valuation-axis and memo-routing contracts.** Two new
+  offline unit tests (`tests/templates/test_valuation_buckets_template.py`,
+  `tests/templates/test_llm_template.py`) pin the **packaged config templates**: the
+  Phase D active-fund look-through axis ships `enabled: true` with `coverage_floor: 0.50`
+  (PR #111 / gate #5), and `memo_synthesis`/`memo_audit` route through OpenRouter Anthropic
+  models (the shipped default README documents). No production code path changed — the
+  axis was already ON; nothing was flipped. The README memo-routing note now names the
+  packaged-template-vs-runtime-config distinction so the shipped default cannot be misread
+  as DeepSeek. The consensus-upside axis (`consensus_upside_pct`) stays dormant by the
+  ADR 0009 degrade-to-`None` contract (out of scope to enable).
+
 ### Added — Phase A legulegu broad-leg rate-limit hardening (2026-06-08)
 
 - **The broad-index PE/PB ingest leg is now polite.** The 8 legulegu calls
