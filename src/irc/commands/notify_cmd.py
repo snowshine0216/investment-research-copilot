@@ -24,6 +24,10 @@ from irc.notify.message import format_feishu, format_macos
 from irc.notify.types import NotificationDecision, RunOutcome
 
 _log = logging.getLogger(__name__)
+# httpx logs the full request URL (including secret token path) at INFO level;
+# httpcore only uses DEBUG. Silence httpx INFO so the Feishu webhook token never
+# reaches the root handler → stderr → launchd StandardErrorPath log files.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 _TRUE = {"1", "true", "yes", "on"}
 _FEISHU_ENV = "IRC_FEISHU_WEBHOOK_URL"
 _CLEAN_ENV = "IRC_NOTIFY_ON_CLEAN"

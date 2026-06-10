@@ -129,16 +129,21 @@ def test_dispatch_skips_everything_when_should_not_notify(monkeypatch):
 
 @respx.mock
 def test_feishu_post_does_not_log_full_url(caplog):
+    """AC7: the webhook token must not appear in any log record from ANY logger.
+
+    This test captures at root scope (not just the app logger) to catch library
+    loggers such as httpx / httpcore that propagate to root, which would reach
+    the RichHandler → stderr → launchd StandardErrorPath log files.
+    """
     url = "https://open.feishu.cn/hook/SECRET-TOKEN-1234"
     respx.post(url).mock(return_value=httpx.Response(200, json={"code": 0}))
     decision = NotificationDecision(True, "action", "t", "b")
-    with caplog.at_level(logging.INFO, logger="irc.commands.notify_cmd"):
+    with caplog.at_level(logging.INFO):  # root scope — catches ALL loggers
         notify_cmd._send_feishu(decision, url)
-    # Only check OUR application logs — httpx logs the URL internally (library log).
-    our_records = [r for r in caplog.records if r.name == "irc.commands.notify_cmd"]
-    assert our_records, "expected at least one notify_cmd log record"
-    for record in our_records:
-        assert "SECRET-TOKEN-1234" not in record.getMessage()
+    for record in caplog.records:
+        assert "SECRET-TOKEN-1234" not in record.getMessage(), (
+            f"Token leaked in logger={record.name!r}: {record.getMessage()!r}"
+        )
 
 
 # ---- CLI smoke (AC5) ----
