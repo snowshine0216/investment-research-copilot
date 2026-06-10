@@ -2,7 +2,7 @@
 
 | id  | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-001 | ✅ 4d2dcdf | ✅ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-001 | ✅ 4d2dcdf | ✅ | ✅ #124 | ⏭️ | ✅ | ✅ | ✅ | ✅ 2 rounds | ✅ f843669 |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ✅ | ✅ | ✅ | ✅ claude/actionable-ops-003 | ✅ 90a7050 | ✅ | ✅ #123 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ efd8010 |
 
@@ -43,3 +43,17 @@ subagents commit without pushing; merging an unpushed-tip PR orphans their commi
 - impl: f93e706,2c1c9bb,94751d9,c06bfc8,1d82afc,4d2dcdf — 346 passed incl. invariant guards;
   e2e irc decision exit 0
 - drift: items/001-drift.md PASS (701ef6c) — 41/41 steps; 2 accepted findings
+
+### 001 evidence (post-ship)
+- PR: https://github.com/snowshine0216/investment-research-copilot/pull/124 (items/001-ship.md)
+- pre-push fix round 1 (2 P0 + contract + 4 P1): 8039927,30d5dba,b3f3002,9365e16 — items/001-ship-blocked.md
+- verify: items/001-verify.md PASS (11/11 AC; e2e irc decision; 814 passed)
+- review: items/001-review.md PASS-WITH-NITS (/ship 8+9)
+- pr-review: items/001-pr-review.md PASS after fix round 2 (107f45a: latent _reason() bug,
+  CONTEXT precedence, dead param; re-verified e378131, 815 passed)
+- merge: squash f843669 (#124); local feature reset --hard to origin (spec/grill/plan commits
+  subsumed by squash — verified zero unique local content before reset)
+
+### Process note 2 (binds item 002)
+Push the feature branch right after spec/grill/plan commits, BEFORE cutting the sub-branch —
+otherwise the post-merge local feature diverges from the squash (add/add conflicts).
