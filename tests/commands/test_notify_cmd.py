@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import logging
+import re
+import subprocess
 from pathlib import Path
 
 import httpx
@@ -11,6 +13,9 @@ from click.testing import CliRunner
 from irc.cli import main
 from irc.commands import notify_cmd
 from irc.notify.types import NotificationDecision
+
+# ---- shell script paths ----
+_OPS = Path(__file__).parents[2] / "ops" / "launchd"
 
 
 def _write_outputs(root: Path, date_str: str, summary: dict) -> Path:
@@ -277,3 +282,72 @@ def test_notify_status_clean_suppressed_exits_zero_no_network(tmp_path, monkeypa
          "--repo-root", str(tmp_path), "--no-notify-on-clean"],
     )
     assert result.exit_code == 0, result.output
+
+
+# ---- shell script validation (P0-2 / P0-3 / P1-2) ----
+
+def test_all_shell_scripts_pass_bash_syntax_check():
+    """All wrapper/install/uninstall scripts must pass bash -n."""
+    scripts = list(_OPS.glob("*.sh"))
+    assert scripts, "expected *.sh in ops/launchd"
+    for script in scripts:
+        result = subprocess.run(
+            ["bash", "-n", str(script)], capture_output=True, text=True
+        )
+        assert result.returncode == 0, (
+            f"bash -n failed for {script.name}:\n{result.stderr}"
+        )
+
+
+def test_wrapper_scripts_contain_uv_bin_placeholder():
+    """P0-2: checked-in wrappers must use __UV_BIN__ placeholder (machine-agnostic)."""
+    for name in ("run-daily.sh", "run-weekly-full.sh"):
+        text = (_OPS / name).read_text(encoding="utf-8")
+        assert "__UV_BIN__" in text, f"{name} missing __UV_BIN__ placeholder"
+        assert 'uv run' not in text, f"{name} must not call 'uv run' directly"
+
+
+def test_install_sh_aborts_if_uv_absent():
+    """P0-2: install.sh must exit non-zero with a clear message when uv is missing."""
+    text = (_OPS / "install.sh").read_text(encoding="utf-8")
+    assert "command -v uv" in text, "install.sh must check 'command -v uv'"
+    assert "exit 1" in text, "install.sh must exit 1 when uv is absent"
+
+
+def test_wrapper_scripts_contain_watchdog_timeout():
+    """P0-3: wrappers must implement the portable background watchdog (IRC_RUN_TIMEOUT)."""
+    for name in ("run-daily.sh", "run-weekly-full.sh"):
+        text = (_OPS / name).read_text(encoding="utf-8")
+        assert "IRC_RUN_TIMEOUT" in text, f"{name} missing IRC_RUN_TIMEOUT"
+        assert "124" in text, f"{name} missing rc=124 for watchdog kill"
+        assert "kill -TERM" in text, f"{name} missing kill -TERM"
+
+
+# ---- P1-2: holiday grep anchor ----
+
+def test_holiday_grep_anchored_regex_does_not_match_comment():
+    """P1-2: the anchored regex must NOT match a date that appears inside a comment."""
+    today = "2026-10-01"
+    # Python equivalent of the POSIX ERE used in run-daily.sh:
+    #   ^[-[:space:]]*[\"']?${TODAY}[\"']?[[:space:]]*$
+    py_pattern = r"^[-\s]*[\"']?" + re.escape(today) + r"[\"']?\s*$"
+
+    # Should NOT match a comment line containing the date
+    comment_line = "# updated 2026-10-01 by user"
+    assert not re.match(py_pattern, comment_line), (
+        "anchored regex must not match date inside a comment"
+    )
+
+    # Should match a plain list entry
+    assert re.match(py_pattern, "- 2026-10-01"), "must match bare list entry"
+    assert re.match(py_pattern, "'2026-10-01'"), "must match quoted entry"
+    assert re.match(py_pattern, "  2026-10-01  "), "must match padded entry"
+
+
+def test_run_daily_sh_uses_anchored_grep():
+    """P1-2: run-daily.sh must use the anchored -Eq grep pattern, not bare grep -q."""
+    text = (_OPS / "run-daily.sh").read_text(encoding="utf-8")
+    assert "grep -Eq" in text, "run-daily.sh must use grep -Eq for anchored holiday match"
+    assert 'grep -q "$TODAY"' not in text, (
+        "run-daily.sh must not use unanchored grep -q for holiday check"
+    )

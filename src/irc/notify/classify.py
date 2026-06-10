@@ -12,6 +12,7 @@ _EXIT_LABELS: dict[int, str] = {
     3: "fetch-budget exceeded",
     4: "lock conflict",
     5: "spend-gate stop",
+    124: "timeout",  # P0-3: watchdog killed the pipeline after IRC_RUN_TIMEOUT
 }
 
 _ALWAYS_NOTIFY = {"failed", "halted", "stale", "action"}

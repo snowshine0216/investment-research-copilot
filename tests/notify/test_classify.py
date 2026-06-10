@@ -123,3 +123,13 @@ def test_halted_precedence_beats_stale_and_action():
         _outcome(pipeline_halted=True, stale_ingest=True, actionable_buy_count=3)
     )
     assert decision.severity == "halted"
+
+
+# ---- P0-3: rc=124 (watchdog timeout) → failed with timeout label ----
+
+def test_exit_124_is_failed_with_timeout_label():
+    """P0-3: watchdog kills the pipeline → rc=124 → severity failed, 'timeout' in title."""
+    decision = classify_run_outcome(_outcome(last_exit_code=124))
+    assert decision.severity == "failed"
+    assert decision.should_notify is True
+    assert "timeout" in decision.title.lower()

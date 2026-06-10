@@ -1,21 +1,48 @@
 #!/bin/bash
-# Idempotent install: template the repo path into the plists, copy to
-# ~/Library/LaunchAgents, then bootout-then-bootstrap each LaunchAgent.
+# Idempotent install: resolve uv, template __REPO_ROOT__ + __UV_BIN__ into
+# the wrapper scripts and plists, copy to ~/Library/LaunchAgents, then
+# bootout-then-bootstrap each LaunchAgent.
+#
+# Precondition: uv must be on PATH.  Install it first if absent:
+#   curl -LsSf https://astral.sh/uv/install.sh | sh
 set -euo pipefail
+
+# ---- resolve uv (P0-2: launchd PATH is /usr/bin:/bin:/usr/sbin:/sbin) ----
+UV_BIN="$(command -v uv 2>/dev/null || true)"
+if [ -z "$UV_BIN" ]; then
+  echo "ERROR: uv not found on PATH. Install uv first:" >&2
+  echo "  curl -LsSf https://astral.sh/uv/install.sh | sh" >&2
+  echo "  Then re-run: bash ops/launchd/install.sh" >&2
+  exit 1
+fi
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC_DIR="$REPO_ROOT/ops/launchd"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 LABELS=("com.irc.daily" "com.irc.weekly-full")
+WRAPPERS=("run-daily.sh" "run-weekly-full.sh")
 
 mkdir -p "$DEST_DIR"
 mkdir -p "$REPO_ROOT/outputs/_logs"
 
+# Template wrapper scripts (resolve __REPO_ROOT__ + __UV_BIN__) into DEST_DIR.
+for wrapper in "${WRAPPERS[@]}"; do
+  sed -e "s#__REPO_ROOT__#$REPO_ROOT#g" \
+      -e "s#__UV_BIN__#$UV_BIN#g" \
+      "$SRC_DIR/$wrapper" > "$DEST_DIR/$wrapper"
+  chmod +x "$DEST_DIR/$wrapper"
+  bash -n "$DEST_DIR/$wrapper"
+  echo "templated wrapper $wrapper → $DEST_DIR/$wrapper"
+done
+
+# Template plists (resolve __REPO_ROOT__) and redirect wrapper path to DEST_DIR.
 for label in "${LABELS[@]}"; do
   src="$SRC_DIR/$label.plist"
   dest="$DEST_DIR/$label.plist"
-  sed "s#__REPO_ROOT__#$REPO_ROOT#g" "$src" > "$dest"
+  sed -e "s#__REPO_ROOT__/ops/launchd/#$DEST_DIR/#g" \
+      -e "s#__REPO_ROOT__#$REPO_ROOT#g" \
+      "$src" > "$dest"
   plutil -lint "$dest"
   # Idempotent: ignore "not found" on first install.
   launchctl bootout "gui/$UID_NUM/$label" 2>/dev/null || true
@@ -23,4 +50,5 @@ for label in "${LABELS[@]}"; do
   echo "installed $label"
 done
 
-echo "Done. Inspect with: launchctl print gui/$UID_NUM/com.irc.daily"
+echo "Done. uv=$UV_BIN"
+echo "Inspect with: launchctl print gui/$UID_NUM/com.irc.daily"
