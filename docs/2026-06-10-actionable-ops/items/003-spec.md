@@ -67,3 +67,42 @@ Each is independently verifiable.
 - **OQ4 — Where to record the "axis already ON" decision (AC1)?** *Resolved:* a concise note in the item/run dir (verdict file or `PROGRESS.md` line), **not** a new ADR. *Rationale:* ADR 0012's addendum already records the PR2 ON decision durably; a fresh ADR would duplicate it. This item only needs a verification record, not a new decision-of-record.
 - **OQ5 — Scope of the doc fix (README only, or CONTEXT/ADR too)?** *Resolved:* **README only**, unless a concrete inaccuracy is found in CONTEXT.md/ADR during implementation. *Rationale:* the inaccuracy was in the MASTER-SPEC's reading, not in the shipped docs; gratuitous ADR edits violate the "don't propose unrelated changes" principle and risk churning load-bearing decision records.
 - **OQ6 — Could not be resolved from MASTER-SPEC + code alone?** *None.* All ambiguities were resolvable from the code, the template files, git history (`cb1642d`, `5b0a22c`), and the ADRs. The only genuine judgement call (OQ2's fix direction) is recorded with rationale and is defensible from the gitignore + template-copy mechanism alone.
+
+## Resolved decisions
+
+Grill pass (2026-06-10, `grill-with-docs`, autonomy-override — recommended answers auto-accepted). Every load-bearing spec claim was re-verified against the working tree before grilling: packaged `valuation_buckets.yaml` (`enabled: true`, `coverage_floor: 0.50`), packaged `llm.yaml` (memo → OpenRouter Anthropic), runtime `config/llm.yaml` (memo → `deepseek-reasoner`, machine-local), `.gitignore:23 config/`, `README.md:36` (already OpenRouter), `TEMPLATE_FILES` seam, git `cb1642d` (PR #111), and ADR 0009/0012/0013. All claims confirmed true; no spec line was disproved, so no strike-throughs were required.
+
+- **Q1 — The spec leans on a "packaged template vs runtime config" distinction that CONTEXT.md never names. Coin a canonical term?**
+  *A:* Yes. Add **"Packaged config template"** (checked-in `src/irc/templates/config/*.yaml`, the shipped contract — enumerated by `TEMPLATE_FILES`, copied by `irc init`, counted by `irc config validate`) vs **"Runtime config"** (`config/*.yaml`, gitignored, operator-editable copy), plus a **"Memo LLM routing (shipped default)"** term pinning the OpenRouter-Anthropic pairing.
+  *Rationale:* the spec's entire correctness argument hinges on this distinction; without a named term a future reader re-derives the false "README contradicts config" claim. Unsurprising established pattern (12 config files) → CONTEXT term, not an ADR.
+  *Doc impact:* CONTEXT.md — new section "Config: packaged template vs runtime" (3 terms).
+
+- **Q2 — Record the "axis already ON" decision as a new ADR (AC1 / OQ4)?**
+  *A:* No new ADR. The PR2 ON decision (`enabled: true`, `coverage_floor: 0.50`, gate #5) is already durably recorded in ADR 0012's 2026-06-05 addendum. This item makes no new decision — it locks an existing one.
+  *Rationale:* verifying-and-locking an existing decision fails all three ADR prongs (not hard-to-reverse, not surprising, no live trade-off). Duplicating it would churn a load-bearing record.
+  *Doc impact:* none (the verification record lives in this spec + `003-grill.md`).
+
+- **Q3 — Does the AC4 README edit contradict a load-bearing ADR or invariant?**
+  *A:* No. ADR 0013 governs the spend recorder (usage-as-data), not routing; **no ADR pins memo provider/model** (the `memo_*` hit in ADR 0008 is macro-excerpt-depth, incidental). The edit is purely additive disambiguation.
+  *Rationale:* no FAIL condition — nothing the README states will conflict with a recorded decision or current code.
+  *Doc impact:* README only (covered by the Q1 CONTEXT terms).
+
+- **Q4 — Is AC5's "no `src/irc/**` production module modified" a sound proof of zero behavioural drift?**
+  *A:* Yes. AC2/AC3 tests only *read* packaged templates via the existing seam and assert values; they add no production code. `OpportunityInput` is compute-only (never serialised). README/CHANGELOG are docs.
+  *Rationale:* an unsurprising consequence of touching only tests + docs; a full before/after output diff is the stronger-but-optional proof AC5 also permits.
+  *Doc impact:* none.
+
+- **Q5 — Is the consensus-upside dormancy (axis B) correctly fenced, and does the spec contradict CONTEXT.md?**
+  *A:* Correctly fenced; no contradiction. CONTEXT.md (`valuation_percentile_fundamental`, `valuation_fundamental_signal`, `KeyRatios` entries) already canonicalises the wire-but-degrade-to-`None` contract; ADR 0009 is the recorded decision. The item must not touch axis B.
+  *Rationale:* lighting axis B needs an out-of-scope target-price source (Tushare) and would violate ADR 0009.
+  *Doc impact:* none (existing terms cover it).
+
+- **Q6 — AC6 scope: did the grill find a concrete inaccuracy in any existing ADR or CONTEXT.md term?**
+  *A:* No. ADR 0009/0012 (incl. addendum)/0013 and CONTEXT.md line 151's `src/irc/templates/config/llm.yaml` reference are all consistent with the verified code. The only doc change beyond README is the *additive* Q1 terminology — a gap fill, not a correction.
+  *Rationale:* the inaccuracy was in the MASTER-SPEC's reading, not in the shipped docs; gratuitous ADR edits are out of scope.
+  *Doc impact:* CONTEXT.md (Q1 addition) + README; ADRs untouched.
+
+- **Q7 — Any spec line disproved by verification (requiring strike-through)?**
+  *A:* None. Every spec line (Background §1/§2, Goal, AC1–AC7, Non-goals, Constraints, OQ1–OQ6) survives verification against code/git/ADRs.
+  *Rationale:* the spec was authored as a correction of the stale MASTER-SPEC premise and matches the working tree exactly; the strike-through mechanism is reserved for disproved lines, of which there are none.
+  *Doc impact:* none (spec body unchanged apart from this appended section).
