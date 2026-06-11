@@ -7,6 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — ops wrapper test determinism (2026-06-10)
+
+- The `tests/ops/test_wrappers.py` notify-status regression tests ran the real
+  `run-daily.sh` trading-day gate against the real clock, so the daily-wrapper
+  parametrizations failed on any CN weekend/holiday (the gate exits 0 before
+  notify-status is ever reached; the old comment claiming a forced non-weekend
+  date was wrong). The tests now pin the gate's CN-clock via a stub `date` on
+  `PATH` (answers `+%Y-%m-%d` / `+%u` with a fixed Wednesday, falls through to
+  `/bin/date` otherwise), and a new `test_daily_gate_skips_weekend_before_pipeline`
+  locks the weekend skip (exit 0, zero `uv` invocations) under a pinned Saturday.
+  Wrapper runtime behavior unchanged. (#125)
+
+### Added — Local scheduler + outcome notifier (2026-06-10)
+
+- **The pipeline now runs unattended on macOS and notifies the operator on
+  outcome.** A new `irc notify-status --run-kind {daily|weekly} --last-exit-code
+  <int>` subcommand reads today's `outputs/<china-today>/` artifacts
+  (`decision_report.json` summary counts, `PIPELINE_HALTED.md`, `STALE_INGEST.md`)
+  plus a launchd-wrapper-supplied exit code into a frozen `RunOutcome`, calls the
+  pure `classify_run_outcome` (`src/irc/notify/`), and dispatches a macOS
+  notification (always, via `osascript`) plus an optional Feishu webhook (gated on
+  `IRC_FEISHU_WEBHOOK_URL`). Classification precedence (ADR 0016): missing
+  today-dir ⇒ `failed`; exit 1–5 ⇒ `failed`; `PIPELINE_HALTED.md` ⇒ `halted`;
+  `STALE_INGEST.md` ⇒ `stale`; any `null` sell-side count ⇒ `action` ("sell-side
+  state UNKNOWN — re-run `irc opportunity`", never folded into clean per ADR 0015);
+  buys-or-sell-signals ⇒ `action`; else `clean` (quiet by default,
+  `--no-notify-on-clean` / `IRC_NOTIFY_ON_CLEAN=0` suppresses). Scheduling is via
+  two checked-in launchd LaunchAgents (`ops/launchd/`, install/uninstall scripts):
+  a Mon–Fri 17:30 daily run (skips weekends + `config/cn_market_holidays.yaml`)
+  and a Saturday-morning weekly run, both running the full `irc run`. The
+  classifier is pure and table-tested; only `osascript` / the Feishu POST are
+  effects; a notifier transport failure logs and exits non-zero without raising.
+  `notify-status` never trips the spend gate. See ADR 0016.
+
+### Added — Sell surfacing + holdings-aware deltas (2026-06-10)
+
+- **The decision report now tells the operator what to TRIM / EXIT / REVIEW, not
+  just what to BUY.** The discipline layer's `risk_action` / `dca_action` /
+  `portfolio_weight` / `is_holding` are surfaced onto each publishable
+  `opportunity_report.json` row (via a defaulted `discipline_by_id` keyword on
+  the pure `compose_opportunity_report`, built at the command edge). The decision
+  layer maps them through a new pure `map_portfolio_action`
+  (`src/irc/decision/portfolio_action.py`) into a five-value `portfolio_action`
+  (`no_trade` / `buy` / `trim_review` / `exit_review` / `review`), gated on
+  `is_holding` so a non-held overheated instrument never renders as a trim
+  (ADR 0015). `decision_report.md` gains a `## 持仓行动 / Sell · Trim · Review`
+  section with current-vs-target cost-basis weight deltas (Δpp), and
+  `decision_report.json` `summary` gains additive `trim_count` / `exit_count` /
+  `review_count` counts for item 002's notifier (no `sell_count` — the notifier
+  composes its own rollup). A held row carrying a sell signal that is not also
+  blocked or an actionable buy gets `decision_status == "review_sell_later"`.
+  No existing JSON key changed; H3 / SAME-3 / Policy B / the `thesis_state`
+  setter rule are all untouched. See ADR 0015.
+
+### Added — Valuation axis lock + memo-routing docs (2026-06-10)
+
+- **Regression-locked the shipped valuation-axis and memo-routing contracts.** Two new
+  offline unit tests (`tests/templates/test_valuation_buckets_template.py`,
+  `tests/templates/test_llm_template.py`) pin the **packaged config templates**: the
+  Phase D active-fund look-through axis ships `enabled: true` with `coverage_floor: 0.50`
+  (PR #111 / gate #5), and `memo_synthesis`/`memo_audit` route through OpenRouter Anthropic
+  models (the shipped default README documents). No production code path changed — the
+  axis was already ON; nothing was flipped. The README memo-routing note now names the
+  packaged-template-vs-runtime-config distinction so the shipped default cannot be misread
+  as DeepSeek. The consensus-upside axis (`consensus_upside_pct`) stays dormant by the
+  ADR 0009 degrade-to-`None` contract (out of scope to enable).
+
 ### Added — Phase A legulegu broad-leg rate-limit hardening (2026-06-08)
 
 - **The broad-index PE/PB ingest leg is now polite.** The 8 legulegu calls

@@ -1,0 +1,6 @@
+# CN market holidays (non-trading weekdays) — user-maintained, refreshed yearly.
+# Flat list of YYYY-MM-DD strings. Absent file ⇒ weekend-only skip (ADR 0016 §6).
+# Example (uncomment + update each year):
+# - 2026-10-01  # National Day
+# - 2026-10-02
+[]

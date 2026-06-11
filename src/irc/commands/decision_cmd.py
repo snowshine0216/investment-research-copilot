@@ -102,6 +102,8 @@ def _read_opportunity_published_ids(path: Path) -> set[str] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        # P1-4: visible warning before fallback so operators know the file is corrupt.
+        print("WARNING: could not parse opportunity_report.json — published-ids fallback to None")
         return None
     rows = data.get("rows") or []
     return {str(r.get("instrument_id")) for r in rows if r.get("instrument_id")}
@@ -118,6 +120,7 @@ def _read_opportunity_state_by_id(path: Path) -> dict[str, dict[str, Any]]:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
+        print("WARNING: could not parse opportunity_report.json — sell-side fields will be defaulted")
         return {}
     out: dict[str, dict[str, Any]] = {}
     for r in data.get("rows") or []:
@@ -125,6 +128,20 @@ def _read_opportunity_state_by_id(path: Path) -> dict[str, dict[str, Any]]:
         if iid:
             out[str(iid)] = r
     return out
+
+
+def _is_stale_opportunity_artifact(opportunity_states: dict[str, dict[str, Any]]) -> bool:
+    """Return True when opportunity_report.json is a pre-001 artifact.
+
+    Detection: the file has rows but NOT A SINGLE ROW carries a 'risk_action'
+    key.  This distinguishes "rows all have risk_action='none'" (modern,
+    counts=0) from "rows have no risk_action key at all" (stale, counts=null).
+    Returns False when there are no rows (file absent / empty — that case is
+    treated as unknown, not stale, so counts default to 0).
+    """
+    if not opportunity_states:
+        return False
+    return not any("risk_action" in row for row in opportunity_states.values())
 
 
 def run_decision(repo_root: str) -> int:
@@ -169,6 +186,7 @@ def run_decision(repo_root: str) -> int:
     audit_summary = _load_audit_summary(out_dir / "memo_audit.txt")
     opportunity_published = _read_opportunity_published_ids(out_dir / "opportunity_report.json")
     opportunity_states = _read_opportunity_state_by_id(out_dir / "opportunity_report.json")
+    stale = _is_stale_opportunity_artifact(opportunity_states)
     trade_ids = {str(t.get("target")) for t in trade_plan.get("trades", []) if t.get("target")}
     macro_snapshot, weekly_returns = read_live_decision_inputs(root, trade_ids)
     report = compose_decision_report(
@@ -188,6 +206,7 @@ def run_decision(repo_root: str) -> int:
         weekly_return_by_id=weekly_returns,
         opportunity_state_by_id=opportunity_states,
         qdii_max_premium_pct=qdii_max_premium,
+        stale_sell_signals=stale,
     )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))

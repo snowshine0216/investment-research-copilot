@@ -1367,10 +1367,29 @@ def _write_opportunity_outputs(
         for r in publishable_rows
         if r.instrument_id in holdings or r.opportunity_state in ("core_dca", "small_watch")
     ]
+    # Item 001: discipline-derived sell-side fields keyed by instrument_id,
+    # passed into the pure composer so opportunity_report.json carries them
+    # for the decision layer (ADR 0015 §1). Effects-at-edges: the command
+    # threads the data; compose_opportunity_report stays pure.
+    # P1-2: .get() guard so a future caller mismatch (dr in discipline_rows but
+    # absent from positions) skips the row (gets defaults in compose), not KeyError.
+    discipline_by_id = {}
+    for dr in discipline_rows:
+        pos = positions.get(dr.instrument_id)
+        if pos is None:
+            continue
+        discipline_by_id[dr.instrument_id] = {
+            "risk_action": dr.risk_action,
+            "dca_action": dr.dca_action,
+            "portfolio_weight": pos.portfolio_weight,
+            "is_holding": pos.is_holding,
+        }
     atomic_write_text(
         out_dir / "opportunity_report.json",
         json.dumps(
-            compose_opportunity_report(publishable_rows, today),
+            compose_opportunity_report(
+                publishable_rows, today, discipline_by_id=discipline_by_id
+            ),
             ensure_ascii=False, indent=2,
         ),
     )

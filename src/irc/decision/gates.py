@@ -4,6 +4,7 @@ from typing import Any
 
 from irc.decision.completeness import MIN_BUY_COMPLETENESS, missing_required_fields
 from irc.decision.models import DecisionRow, DecisionStatus, VenueStatus, WatchReason
+from irc.decision.portfolio_action import map_portfolio_action, weight_delta
 from irc.schemas.discovery import QDII_MAX_PREMIUM_DEFAULT
 from irc.scoring.qdii_premium import _QDII_ASSET_CLASSES
 
@@ -97,6 +98,9 @@ def decide_row(
     role: str = "",
     excluded_from_opportunity: bool = False,
     qdii_max_premium_pct: float = QDII_MAX_PREMIUM_DEFAULT,
+    risk_action: str = "none",
+    portfolio_weight: float | None = None,
+    is_holding: bool = False,
 ) -> dict[str, Any]:
     score_action = str(score.get("action", "unknown"))
     _raw_completeness = score.get("data_completeness", 0.0)
@@ -149,8 +153,20 @@ def decide_row(
         qdii_premium_too_high=qdii_premium_too_high,
         excluded_from_opportunity=excluded_from_opportunity,
     )
-    decision_status = _decision_status(score_action, blocking_reasons, allocation_selected)
+    portfolio_act = map_portfolio_action(
+        risk_action=risk_action,
+        score_action=score_action,
+        allocation_selected=allocation_selected,
+        is_holding=is_holding,
+        blocking_reasons=tuple(blocking_reasons),
+    )
+    decision_status = _decision_status(
+        score_action, blocking_reasons, allocation_selected, portfolio_act
+    )
     watch_reason = _watch_reason(decision_status, score_action, allocation_selected, venue_status)
+    # P1-1: explicit None check — `portfolio_weight or 0.0` would treat 0.0
+    # as falsy; `0.0 if None else value` preserves a genuine zero weight.
+    current_weight = 0.0 if portfolio_weight is None else portfolio_weight
     return _build_decision_row(
         score=score,
         score_action=score_action,
@@ -165,6 +181,11 @@ def decide_row(
         instrument_name=instrument_name,
         target_weight=target_weight,
         role=role,
+        portfolio_action=portfolio_act,
+        current_weight=current_weight,
+        weight_delta=weight_delta(current_weight, target_weight),
+        is_holding=is_holding,
+        risk_action=risk_action,
     ).to_dict()
 
 
@@ -182,13 +203,18 @@ def _build_decision_row(
     instrument_name: str | None = None,
     target_weight: float = 0.0,
     role: str = "",
+    portfolio_action: str = "no_trade",
+    current_weight: float = 0.0,
+    weight_delta: float = 0.0,
+    is_holding: bool = False,
+    risk_action: str = "none",
 ) -> DecisionRow:
     return DecisionRow(
         instrument_id=str(score.get("instrument_id", "")),
         asset_class=str(score.get("asset_class", "unknown")),
         score_action=score_action,
         decision_status=decision_status,
-        portfolio_action="no_trade",
+        portfolio_action=portfolio_action,
         conviction=str(score.get("conviction", "low")),
         data_completeness=completeness,
         missing_data=missing_data,
@@ -196,11 +222,14 @@ def _build_decision_row(
         venue_status=venue_status,
         memo_evidence_status=evidence_status,
         blocking_reasons=tuple(blocking_reasons),
-        reason=_reason(decision_status, blocking_reasons, score_action),
+        reason=_reason(decision_status, blocking_reasons, score_action, risk_action),
         next_step=_next_step(blocking_reasons, decision_status),
         watch_reason=watch_reason,
         instrument_name=instrument_name,
         target_weight=target_weight,
+        current_weight=current_weight,
+        weight_delta=weight_delta,
+        is_holding=is_holding,
         role=role,
     )
 
@@ -243,11 +272,14 @@ def compute_decision_status(
     score_action: str,
     blocking_reasons: list[str],
     allocation_selected: bool,
+    portfolio_action: str = "no_trade",
 ) -> DecisionStatus:
     """Pure verdict on a row given its score action, blockers, and allocation.
 
-    Promoted from the private `_decision_status` so the memo stage can
-    call it (memo §5 决策 column) without depending on decision_report.json.
+    Buy-side precedence is unchanged (avoid > blocked > actionable_buy >
+    watch_only). Item 001 adds one slot: a held row carrying a sell/trim/
+    exit/review portfolio_action that is NOT avoid/blocked/actionable_buy
+    becomes `review_sell_later` instead of `watch_only` (ADR 0015 §3 / R6).
     """
     if score_action in _AVOID_ACTIONS:
         return "avoid"
@@ -255,6 +287,8 @@ def compute_decision_status(
         return "blocked"
     if score_action in _BUY_ACTIONS and allocation_selected:
         return "actionable_buy"
+    if portfolio_action in ("trim_review", "exit_review", "review"):
+        return "review_sell_later"
     return "watch_only"
 
 
@@ -286,11 +320,18 @@ def _watch_reason(
     return None  # defensive — should not occur given _decision_status
 
 
-def _reason(decision_status: str, blocking_reasons: list[str], score_action: str) -> str:
+def _reason(
+    decision_status: str,
+    blocking_reasons: list[str],
+    score_action: str,
+    risk_action: str = "none",
+) -> str:
     if decision_status == "actionable_buy":
         return "Score, data, allocation, venue, pipeline, and traceability gates are all clear."
     if decision_status == "avoid":
         return f"Scoring action is {score_action}; allocation or trade-plan presence cannot upgrade an avoid signal."
+    if decision_status == "review_sell_later":
+        return f"Risk review: {risk_action}"
     return "Blocked by: " + ", ".join(blocking_reasons)
 
 
