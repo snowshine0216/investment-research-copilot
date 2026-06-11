@@ -72,3 +72,19 @@ otherwise the post-merge local feature diverges from the squash (add/add conflic
 - verify: items/002-verify.md PASS (12/12 AC); review: PASS-WITH-NITS; pr-review:
   FAIL→PASS-WITH-NITS (e37bcb0; comment pull/125#issuecomment-4669479737)
 - merge: squash bae6236 (#125), fast-forward clean (process note 2 held)
+
+## FINAL STATUS (close-out 2026-06-11)
+
+- Items merged: 3/3 (003 → #123 efd8010; 001 → #124 f843669; 002 → #125 bae6236)
+- Items skipped/blocked: none
+- Run-level gates: doc-sync PASS (run-doc-sync.md, +863e3f1 gap fix); final-verify PASS
+  (run-final-verify.md); workflow-completeness audit PASS (all 18 verdict artifacts)
+- Full suite: 3254 passed / 24 failed / 62 skipped — failure set identical to main
+  (23 verified failing on main in targeted run; 24th = known hang-prone e2e baseline).
+  ZERO regressions. ruff byte-identical to main (124 pre-existing).
+- Post-merge follow-up landed on branch: 81c1afb (calendar-independent wrapper tests, #125 flag)
+- launchd agents INSTALLED on operator machine 2026-06-10 (com.irc.daily Mon-Fri 17:30,
+  com.irc.weekly-full Sat 09:00); README automation section updated (e5d8fbb)
+- Feature branch: autodev/actionable-ops-feature
+- Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/126
+- Merged into protected branch: no (PR left open for user review)
