@@ -3,6 +3,7 @@
 # the templated wrapper scripts that install.sh copied to DEST_DIR.
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
 LABELS=("com.irc.daily" "com.irc.weekly-full")
@@ -18,5 +19,9 @@ for wrapper in "${WRAPPERS[@]}"; do
   rm -f "$DEST_DIR/$wrapper"
   echo "removed wrapper $wrapper"
 done
+
+# Clear the single-instance lock so a later reinstall is never blocked by a stale
+# lock dir. Per-run logs (run-*.log) are left in place as run history.
+rm -rf "$REPO_ROOT/outputs/_logs/.run.lock"
 
 echo "Done."

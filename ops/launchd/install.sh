@@ -26,6 +26,16 @@ WRAPPERS=("run-daily.sh" "run-weekly-full.sh")
 mkdir -p "$DEST_DIR"
 mkdir -p "$REPO_ROOT/outputs/_logs"
 
+# Remove legacy launchd-owned log files. The plists now log to /dev/null and the
+# wrappers write their own run-*.log; the old launchd-{daily,weekly}.{out,err}.log
+# carry the com.apple.provenance xattr that made launchd fail to reopen them
+# (EX_CONFIG / 78). Drop them so nothing stale lingers. Also clear any stale lock.
+rm -f "$REPO_ROOT/outputs/_logs"/launchd-daily.out.log \
+      "$REPO_ROOT/outputs/_logs"/launchd-daily.err.log \
+      "$REPO_ROOT/outputs/_logs"/launchd-weekly.out.log \
+      "$REPO_ROOT/outputs/_logs"/launchd-weekly.err.log
+rm -rf "$REPO_ROOT/outputs/_logs/.run.lock"
+
 # Template wrapper scripts (resolve __REPO_ROOT__ + __UV_BIN__) into DEST_DIR.
 for wrapper in "${WRAPPERS[@]}"; do
   sed -e "s#__REPO_ROOT__#$REPO_ROOT#g" \

@@ -5,12 +5,21 @@ Two user LaunchAgents run the `irc` pipeline unattended and notify on outcome
 
 | Label | Schedule (machine-local) | Command | Trading-day gate |
 |---|---|---|---|
-| `com.irc.daily` | Mon–Fri 17:30 | full `irc run` | skips weekends + `config/cn_market_holidays.yaml` |
+| `com.irc.daily` | Mon–Fri 17:30, 20:00, 22:30 | full `irc run` | skips weekends + `config/cn_market_holidays.yaml` |
 | `com.irc.weekly-full` | Sat 09:00 | full `irc run` | none (unconditional) |
 
 Both wrappers run the **full** `irc run` (NOT a short `ingest → opportunity →
 decision` chain — `irc decision` requires `score`/`allocate`/`plan`/`memo`
 artifacts, ADR 0016 §2), capture `$?`, then call `irc notify-status`.
+
+**Resilience (daily):** `StartCalendarInterval` does not wake a sleeping Mac, so
+a laptop closed at 17:30 misses that fire. The daily job therefore fires **three
+times** (17:30 / 20:00 / 22:30) and the wrapper is **idempotent** — a day that
+already produced `decision_report.md` (and is not halted) is skipped, so the
+later fires are no-ops once the day has completed but still catch a 17:30 that
+was missed while asleep. A **single-instance lock** (`outputs/_logs/.run.lock`)
+stops two pipelines from running at once (e.g. a slow earlier fire), and a halted
+fire is retried by the next one.
 
 ## Install
 
@@ -72,14 +81,32 @@ pass `--no-notify-on-clean` to `irc notify-status` manually.
 The `--notify-on-clean` / `--no-notify-on-clean` CLI flag takes precedence
 over the env var when passed explicitly.
 
-## Logs
+## Logs (and why launchd writes to `/dev/null`)
+
+The plists set `StandardOutPath`/`StandardErrorPath` to **`/dev/null`**, and each
+wrapper writes its **own fresh per-run log** instead:
 
 | File | Content |
 |---|---|
-| `outputs/_logs/launchd-daily.out.log` / `.err.log` | daily job stdout/stderr |
-| `outputs/_logs/launchd-weekly.out.log` / `.err.log` | weekly job stdout/stderr |
+| `outputs/_logs/run-daily.<YYYYMMDD-HHMMSS>.log` | one file per daily fire (stdout+stderr) |
+| `outputs/_logs/run-weekly.<YYYYMMDD-HHMMSS>.log` | one file per weekly fire |
 
-Inspect a loaded agent: `launchctl print gui/$(id -u)/com.irc.daily`.
+Each wrapper prunes its own logs older than 14 days.
+
+> **Why not a stable launchd log file?** When launchd owns a persistent
+> `StandardOutPath`, the first run's `uv run irc run` writes to it and macOS tags
+> the file with the protected `com.apple.provenance` xattr. On the **next** spawn
+> launchd (a different responsible-app context) is **denied reopening** that
+> tagged file, so the job dies with **`EX_CONFIG` (78) before bash even runs** —
+> zero output, and *no scheduled fire ever executes again* after the first. The
+> xattr cannot be stripped (`xattr -d` is a silent no-op on it). Pointing launchd
+> at `/dev/null` (never tagged, never fails to open) and having the wrapper create
+> a brand-new file each run avoids the reopen entirely. Symptom to recognise:
+> `launchctl print gui/$(id -u)/com.irc.daily` shows `last exit code = 78:
+> EX_CONFIG` with `runs` incrementing but the log files untouched.
+
+Inspect a loaded agent: `launchctl print gui/$(id -u)/com.irc.daily`
+(look for `last exit code` and the armed `StartCalendarInterval` triggers).
 
 ## End-to-end dry run (AC11)
 
