@@ -1,6 +1,6 @@
 from __future__ import annotations
 from html import escape
-from irc.monitor.types import FactorScore, SignalRecord
+from irc.monitor.types import FactorContribution, FactorScore, SignalRecord
 
 CANONICAL_FACTOR_ORDER = ("trend", "valuation", "heat", "macro_tilt", "constituent")
 
@@ -20,7 +20,7 @@ def _num(x: float) -> str:
     return f"{x:.4f}"
 
 
-def _present_row(c, fresh: str) -> str:
+def _present_row(c: FactorContribution, fresh: str) -> str:
     return (
         f"<tr><td>{escape(c.name)}</td><td>{_num(c.value)}</td>"
         f"<td>{_num(c.renorm_weight)}</td><td>{_num(c.contribution)}</td>"
