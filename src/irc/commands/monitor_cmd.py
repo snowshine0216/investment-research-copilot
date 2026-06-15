@@ -15,11 +15,10 @@ from pathlib import Path
 from irc.config_loader import load_monitor_config
 from irc.fundamentals.snapshot import build_snapshot, write_snapshot
 from irc.io_utils import atomic_write_text
-from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
-from irc.monitor.narrative import NarrativeResult, gather_narrative
+from irc.monitor.narrative import gather_narrative
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.render_html import render_report
 from irc.monitor.render_types import FundView, Provenance
