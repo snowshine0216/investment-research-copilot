@@ -1,7 +1,8 @@
 """EDGE: narrow NAV prefetch for the 7 monitor funds.
 
-Fetches NAV history via `fetch_fund_nav_history` (indicator 単位净値走势) only.
-`基金概况` is NEVER used here (grep acceptance test enforces it repo-wide).
+Fetches NAV history via `fetch_fund_nav_history` (unit-NAV trend indicator) only.
+The static-profile indicator (jijin_gaikuang) is NEVER used here;
+Task 35 acceptance test enforces this repo-wide via grep.
 
 On failure (network error, empty result) returns None — the factor eligibility
 gate in signal.py surfaces the gap as trend → N/A (reason: trend_insufficient_history
