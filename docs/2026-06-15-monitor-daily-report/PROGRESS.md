@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 ## Notes
 
@@ -25,3 +25,4 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 verify** — ✅ `/verify` PASS ([`items/001-verify.md`](items/001-verify.md)): `uv run irc monitor` exit 0; all 5 outputs; graceful 401-degradation (deterministic signal intact); self-contained HTML (no remote refs, no JS); universal-row invariant (7/7 funds); `monitor snapshot --help` exit 0; sole-source contract.
 - **001 pr-review** — ✅ `/code-review` on PR #128 PASS-WITH-NITS ([`items/001-pr-review.md`](items/001-pr-review.md)). Round 1 flagged 2 latent-bugs (CostEntry hardcoded provider/model="minimax") + 2 nits → fixed (c0c85cd: resolve real provider+model via `resolve_route`+`_resolve_model`; run-monitor.sh `exit $rc`). Round 2 re-review: 1 cosmetic nit only (`factors.py` `families` var name — intentionally left). [comment](https://github.com/snowshine0216/investment-research-copilot/pull/128#issuecomment-4706336461)
 - **001 fix** — ✅ Loop exited after all 3 post-ship verdicts PASS/PASS-WITH-NITS, zero blockers/latent bugs. **4 fix rounds total:** 3 pre-PR (inline review P0+P1s) + 1 post-ship (pr-review CostEntry latent-bugs). Commits 0a2217e, 9acdc83, 3cb042a, c0c85cd.
+- **001 merge** — ✅ PR [#128](https://github.com/snowshine0216/investment-research-copilot/pull/128) **MERGED** (squash) into `autodev/monitor-daily-report-feature` — merge commit `a065581`; sub-branch deleted. All pre-merge gates passed (protected-base: feature branch non-protected; ship + drift PASS; verify PASS; review + pr-review PASS-WITH-NITS; grill absent-OK spec mode; no required CI). Feature branch left **OPEN** for the user to land into `main`.
