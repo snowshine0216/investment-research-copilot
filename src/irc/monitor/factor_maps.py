@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+_VALUATION_MAP: dict[str, float] = {
+    "cheap": 1.0, "fair_cheap": 0.5, "fair": 0.0,
+    "fair_expensive": -0.5, "expensive": -1.0,
+}
+_RAPID_INFLOW_PCT = 20.0   # AUM/share QoQ Δ above this counts as a rapid inflow
+
+
+def valuation_state_score(state: str) -> float | None:
+    """Fixed map; None for an unrecognised state (→ N/A upstream)."""
+    return _VALUATION_MAP.get(state)
+
+
+def heat_score(*, restricted: bool | None, aum_delta_pct: float | None) -> float | None:
+    """Crowding index → overheated -1 … calm +0.3. None when NO data (§4)."""
+    if restricted is None and aum_delta_pct is None:
+        return None
+    rapid = aum_delta_pct is not None and aum_delta_pct >= _RAPID_INFLOW_PCT
+    if restricted and rapid:
+        return -1.0
+    if restricted or rapid:
+        return -0.5
+    return 0.3
