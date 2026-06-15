@@ -59,3 +59,23 @@ def test_default_bands_are_plus_minus_040():
     # defaults supplied by config/monitor.yaml in real runs; schema default is empty
     # so an explicit-bands fund validates. Here assert the validator path tolerates absence.
     assert cfg.defaults.signal_bands == {}
+
+
+from irc.schemas.monitor import compose_weights, weights_sum_ok
+
+
+def test_compose_overlays_override_on_default():
+    base = {"trend": 0.45, "macro_tilt": 0.35, "heat": 0.20}
+    out = compose_weights(base, {"heat": 0.10, "trend": 0.55})
+    assert out == {"trend": 0.55, "macro_tilt": 0.35, "heat": 0.10}
+
+
+def test_compose_none_override_returns_base():
+    base = {"trend": 0.45, "macro_tilt": 0.35, "heat": 0.20}
+    assert compose_weights(base, None) == base
+
+
+def test_weights_sum_ok_tolerance():
+    assert weights_sum_ok({"a": 0.5, "b": 0.5})
+    assert weights_sum_ok({"a": 0.3, "b": 0.3, "c": 0.4 + 1e-7})
+    assert not weights_sum_ok({"a": 0.3, "b": 0.3})
