@@ -14,6 +14,7 @@ from irc.schemas.triggers import TriggersConfig
 from irc.schemas.overrides import OverridesConfig
 from irc.schemas.macro_view import MacroViewConfig
 from irc.schemas.universe import UniverseConfig
+from irc.schemas.monitor import MonitorConfig
 
 
 _FILENAME_TO_SCHEMA: dict[str, type] = {
@@ -27,6 +28,7 @@ _FILENAME_TO_SCHEMA: dict[str, type] = {
     "config/triggers.yaml": TriggersConfig,
     "config/overrides.yaml": OverridesConfig,
     "config/macro_view.yaml": MacroViewConfig,
+    "config/monitor.yaml": MonitorConfig,
     "config/universe/qdii_us.yaml": UniverseConfig,
     "config/universe/qdii_hk.yaml": UniverseConfig,
     "config/universe/cn_funds.yaml": UniverseConfig,
