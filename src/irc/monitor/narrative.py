@@ -87,7 +87,7 @@ def gather_narrative(
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
         resp = None
         try:
-            resp = call("monitor_narrative", messages, route)
+            resp = call("monitor_narrative", messages, route, temperature=0, max_tokens=2048)
         except Exception as exc:
             return _degraded_result(fund_id, f"provider_error: {exc}", costs)
         if resp is None or not hasattr(resp, "prompt_tokens"):

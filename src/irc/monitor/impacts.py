@@ -66,7 +66,7 @@ def gather_impacts(
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
         resp = None
         try:
-            resp = call("monitor_impact", messages, route)
+            resp = call("monitor_impact", messages, route, temperature=0, max_tokens=1024)
         except Exception as exc:
             return _degrade(fund_id, f"provider_error: {exc}", costs)
         if resp is None or not hasattr(resp, "prompt_tokens"):
