@@ -193,3 +193,23 @@ def test_resolve_model_missing_env_raises(monkeypatch):
                       base_url_env="MINIMAX_BASE_URL", default_model_env="MINIMAX_MODEL")
     with pytest.raises(RuntimeError, match="MINIMAX_MODEL"):
         _resolve_model(r)
+
+
+# --- Phase D: Task 17 tests ---
+
+
+def test_base_resp_nonzero_raises():
+    from irc.llm.http_client import _parse_response
+    body = {"base_resp": {"status_code": 1004, "status_msg": "auth failed"},
+            "choices": []}
+    with pytest.raises(ValueError, match="base_resp"):
+        _parse_response(body, "minimax", "MiniMax-Text-01", 10)
+
+
+def test_base_resp_zero_is_ok():
+    from irc.llm.http_client import _parse_response
+    body = {"base_resp": {"status_code": 0, "status_msg": "success"},
+            "choices": [{"message": {"content": "hi"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+    resp = _parse_response(body, "minimax", "MiniMax-Text-01", 10)
+    assert resp.text == "hi"

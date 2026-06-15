@@ -106,6 +106,12 @@ def _post_request(
 
 
 def _parse_response(body: dict[str, Any], provider: str, model: str, latency_ms: int) -> ChatResponse:
+    base_resp = body.get("base_resp")
+    if isinstance(base_resp, dict) and int(base_resp.get("status_code", 0)) != 0:
+        raise ValueError(
+            f"{provider}/{model} returned error envelope base_resp="
+            f"{base_resp.get('status_code')}: {base_resp.get('status_msg')!r}"
+        )
     choices = body.get("choices") or []
     if not choices:
         raise ValueError(f"empty choices in response from {provider}/{model}: {body!r}")
