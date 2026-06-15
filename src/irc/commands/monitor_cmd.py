@@ -66,6 +66,10 @@ def _search_theme(provider, query: str, fund_id: str) -> tuple:
     """Run one theme search; convert hits to EvidenceItems. Returns () on failure."""
     result = provider.search(query, max_results=5, freshness_days=7)
     if result.failure_reason:
+        _log.warning(
+            "monitor theme search failed for %s (%r): %s",
+            fund_id, query, result.failure_reason,
+        )
         return ()
     items = []
     for hit in result.hits:
