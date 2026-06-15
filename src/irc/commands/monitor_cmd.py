@@ -15,6 +15,7 @@ from pathlib import Path
 from irc.config_loader import load_monitor_config, load_yaml
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
+    load_latest_active_fund_cached,
     write_active_fund_cache,
     write_nav_cache,
     write_snapshot,
@@ -122,6 +123,78 @@ def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
     except Exception as exc:
         _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc, exc_info=True)
         return ()
+
+
+# ── Constituent pool (EDGE — snapshot I/O) ───────────────────────────────────
+
+_TOP_N_HOLDINGS = 5
+
+
+def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
+    """Convert one ConstituentAnalysis → owner-bound EvidenceItems.
+
+    If the holding has ThesisEvidence rows, convert each via make_evidence_item.
+    If none, synthesize one no-url item from one_line_view (stable fallback).
+    v2.0 NOTE: uses snapshot-cached research, NOT fresh daily news. Fresh daily
+    news per top holding is a documented v2.1 follow-up (avoids ~12 extra web
+    searches/run while still wiring the constituent factor).
+    """
+    items = []
+    for ev in holding.evidence:
+        items.append(make_evidence_item(
+            ev.source, ev.summary or ev.source,
+            ev.date, ev.url, owner_fund_id=fund_id,
+        ))
+    if not items and holding.one_line_view:
+        title = f"{holding.name_cn} ({holding.symbol}): {holding.one_line_view}"
+        # Stable fallback source so citation_id is deterministic across runs.
+        items.append(make_evidence_item(
+            f"snapshot:{holding.symbol}", title,
+            "", "", owner_fund_id=fund_id,
+        ))
+    return tuple(items)
+
+
+def build_constituent_pool(fund_id: str, *, root: Path) -> tuple:
+    """EDGE: load latest cached ActiveFundSnapshot → top-N holdings → EvidenceItems.
+
+    Returns () when no snapshot exists (constituent factor stays N/A naturally).
+    v2.0: snapshot-grounded (cheaper than fresh daily news). See _evidence_items_for_holding.
+    """
+    try:
+        snap = load_latest_active_fund_cached(fund_id, root / "data")
+        if snap is None:
+            _log.debug("build_constituent_pool: no cached snapshot for %s", fund_id)
+            return ()
+        top = sorted(
+            snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True
+        )[:_TOP_N_HOLDINGS]
+        items: list = []
+        for holding in top:
+            items.extend(_evidence_items_for_holding(holding, fund_id))
+        return tuple(items)
+    except Exception as exc:
+        _log.warning(
+            "build_constituent_pool failed for %s: %s", fund_id, exc, exc_info=True,
+        )
+        return ()
+
+
+def _make_constituent_rows(
+    impacts: ImpactsResult, top_holdings: tuple,
+) -> tuple:
+    """Map gather_impacts result back to ImpactRows keyed by holding symbol."""
+    symbol_to_weight = {h.symbol: h.weight_pct for h in top_holdings}
+    rows = []
+    for imp in impacts.impacts:
+        if imp.key in symbol_to_weight:
+            rows.append(ImpactRow(
+                imp.key,
+                weight=symbol_to_weight[imp.key],
+                impact=imp.impact,
+                confidence=imp.confidence,
+            ))
+    return tuple(rows)
 
 
 # ── Orchestration helpers ─────────────────────────────────────────────────────
@@ -252,6 +325,7 @@ def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config,
 ) -> tuple[FundView, list]:
     """Process one fund: fetch → impacts → signal → narrative → view."""
+    from irc.monitor.profiles import PROFILES
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
     impacts = gather_impacts(
@@ -260,6 +334,29 @@ def _process_fund(
     )
     cost_history = list(impacts.cost_entries)
     macro_rows = _impact_rows_from(impacts, fund)
+
+    # ── Constituent factor (v2.0: snapshot-grounded) ──────────────────────────
+    # Only for active_fund lookthrough profiles; others (gold/qdii) have no
+    # active_fund snapshot → constituent_rows=() naturally.
+    profile_spec = PROFILES.get(fund.analysis_profile)
+    constituent_rows: tuple = ()
+    if profile_spec and profile_spec.lookthrough == "active_fund":
+        const_pool = build_constituent_pool(fund.id, root=root)
+        snap = load_latest_active_fund_cached(fund.id, root / "data")
+        top_holdings: tuple = ()
+        if snap is not None:
+            top_holdings = tuple(
+                sorted(snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True)
+            )[:_TOP_N_HOLDINGS]
+        if const_pool and top_holdings:
+            holding_symbols = tuple(h.symbol for h in top_holdings)
+            const_impacts = gather_impacts(
+                fund_id=fund.id, themes=holding_symbols, pool=const_pool,
+                route=llm_config, call=llm_call,
+            )
+            cost_history.extend(const_impacts.cost_entries)
+            constituent_rows = _make_constituent_rows(const_impacts, top_holdings)
+
     inp = FactorInputs(
         acc_nav=nav.acc_series if nav else (),
         minimum_observations=cfg.history.minimum_observations,
@@ -268,7 +365,7 @@ def _process_fund(
         restricted=None,
         aum_delta_pct=None,
         macro_rows=macro_rows,
-        constituent_rows=(),
+        constituent_rows=constituent_rows,
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
