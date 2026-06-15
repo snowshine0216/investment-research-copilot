@@ -31,6 +31,7 @@ from irc.monitor.narrative import gather_narrative
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
 from irc.monitor.render_html import render_report
+from irc.monitor.returns import window_returns
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
@@ -226,11 +227,12 @@ def _make_view(
         signal=signal,
         narrative=narr_doc,
         evidence_pool=pool,
-        return_table={},
+        return_table=window_returns(nav.acc_series if nav else ()),
         factor_freshness={c.name: "fresh" for c in signal.contributions},
         missing_factor_reasons=tuple(
             f"{s.name}: {s.reason}" for s in scores if not s.eligible
         ),
+        factor_scores=tuple(scores),
         impacts_status=impacts_status,
     )
 
