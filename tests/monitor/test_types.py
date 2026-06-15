@@ -1,7 +1,7 @@
 import dataclasses
 import pytest
 from irc.monitor.types import (
-    EvidenceItem, FactorScore, SignalRecord, FactorContribution,
+    EvidenceItem, FactorScore, SignalRecord,
 )
 
 

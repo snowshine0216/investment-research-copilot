@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 Status = Literal["ok", "insufficient_evidence", "low_confidence"]
