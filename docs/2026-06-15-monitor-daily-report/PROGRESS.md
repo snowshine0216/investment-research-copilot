@@ -5,6 +5,17 @@ Feature branch: `autodev/monitor-daily-report-feature` (off `main`, left open at
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused gate
 
+## ✅ RUN COMPLETE (2026-06-15)
+
+- **Items:** 1 merged (001), 0 SKIPPED, 0 BLOCKED.
+- **Item PR:** [#128](https://github.com/snowshine0216/investment-research-copilot/pull/128) MERGED (squash `a065581`) into the feature branch.
+- **Feature branch:** `autodev/monitor-daily-report-feature` — **left OPEN**.
+- **Feature-branch PR:** [#129](https://github.com/snowshine0216/investment-research-copilot/pull/129) (→ `main`, **opened not merged** — user lands it).
+- **Merged into protected branch:** no (PR #129 left open for user review — guardrail held; no "merge to main" opt-in given).
+- **Phase 3:** workflow-completeness audit PASS (all verdict artifacts present/valid); build/test sanity PASS (355 passed / 11 skipped on merged branch, feature files ruff-clean, `config validate` OK). N=1 spec mode → cross-item analysis N/A.
+- **Fix rounds:** 4 (P0 `irc monitor` crash + P1 latent bugs, all fixed pre/post-PR). Zero blockers at merge.
+- **Follow-ups (in PR #129 body):** (1) ⚠️ valid `MINIMAX_API_KEY` needed for live narratives (current key is a placeholder → 401 → graceful degradation); (2) deploy schedule via `ops/launchd/install.sh` (jobs are artifacts only); (3) deferred cosmetic nit `factors.py` `families` var name; (4) v1 scope: cached-only index-valuation, hysteresis off (v2 spec recorded).
+
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ |
