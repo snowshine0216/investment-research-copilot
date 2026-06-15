@@ -4,7 +4,9 @@ Run: monitor-report-verdict-justification | Mode: spec | PR shape: A | Project t
 
 | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
-| 001 | ✅⏭️ | ✅⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⬜ | ⬜ | ⬜ | ⬜ |
+| 001 | ✅⏭️ | ✅⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅* |
+
+\* merge = PR #131 left OPEN against protected `main` (no merge-to-main opt-in this turn); all gates green, ready for user to land.
 
 Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped (mode) · ⛔ blocked
 
