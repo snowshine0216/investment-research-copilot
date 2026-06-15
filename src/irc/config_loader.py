@@ -117,6 +117,14 @@ def _merge_universe_configs(primary: UniverseConfig, secondary: UniverseConfig) 
     return UniverseConfig(instruments=instruments)
 
 
+def load_monitor_config(repo_root: Path) -> MonitorConfig:
+    """Narrow loader: validates ONLY config/monitor.yaml against MonitorConfig.
+    Deliberately does NOT call load_repo_configs — the monitor's sole-source
+    contract (spec §3) forbids reading account/preferences/universe, and a
+    poisoned legacy file must never block `irc monitor`."""
+    return load_yaml(Path(repo_root) / "config/monitor.yaml", Path(repo_root))
+
+
 def load_repo_configs(repo_root: Path) -> ConfigBundle:
     """Load every YAML the system needs and return a single immutable bundle.
     Validates each file against its pydantic schema; first failure raises."""
