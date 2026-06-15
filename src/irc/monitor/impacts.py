@@ -9,6 +9,7 @@ from irc.monitor.evidence import sanitize_untrusted
 from irc.monitor.impact_validate import (
     ImpactValidationError, ValidatedImpact, validate_impacts,
 )
+from irc.monitor.json_extract import extract_json
 from irc.monitor.types import EvidenceItem
 
 _MAX_SCHEMA_RETRIES = 2   # distinct from transport retries in retry.py
@@ -76,7 +77,7 @@ def gather_impacts(
             latency_ms=getattr(resp, "latency_ms", 0), ts=_ts(),
         ))
         try:
-            parsed = json.loads(resp.text).get("impacts", [])
+            parsed = extract_json(resp.text).get("impacts", [])
             impacts = validate_impacts(parsed, pool, owner_fund_id=fund_id)
             return ImpactsResult(fund_id, impacts, "ok", tuple(costs))
         except (json.JSONDecodeError, ImpactValidationError) as exc:

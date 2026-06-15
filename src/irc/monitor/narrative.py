@@ -6,6 +6,7 @@ from irc.llm.cost_tracker import CostEntry
 from irc.llm.gateway import resolve_route
 from irc.llm.http_client import _resolve_model
 from irc.monitor.evidence import resolve_in_pool, sanitize_untrusted
+from irc.monitor.json_extract import extract_json
 from irc.monitor.types import Claim, EvidenceItem, NarrativeDoc
 
 _MAX_SCHEMA_RETRIES = 2
@@ -97,7 +98,7 @@ def gather_narrative(
             latency_ms=getattr(resp, "latency_ms", 0), ts=_ts(),
         ))
         try:
-            data = json.loads(resp.text)
+            data = extract_json(resp.text)
             parsed = {f: _parse_claims(data.get(f, []), pool) for f in _FIELDS}
             doc = NarrativeDoc(
                 fund_id, parsed[_FIELDS[0]], parsed[_FIELDS[1]], parsed[_FIELDS[2]], "ok",
