@@ -38,6 +38,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `irc monitor` (MiniMax tasks only) needs `MINIMAX_*`; `irc run` (DeepSeek tasks) needs
   `DEEPSEEK_API_KEY`. `irc config validate` remains secret-free.
 
+### Changed — monitor NAV chart: labelled axes, hover detail, capped size (2026-06-15)
+
+- The monitor report's acc-NAV trend chart (`render_nav_chart`) now renders with
+  **labelled axes** (y-axis NAV at low/mid/high with gridlines; x-axis dates at
+  first/mid/last), **per-point hover detail** (`date · NAV` via native SVG
+  `<title>` on invisible full-height columns, downsampled to ≤120 per chart, with
+  a hover-highlight), and a **capped display size** (`max-width:680px` via a
+  `.navchart` class) so the chart no longer stretches to full page width. The
+  renderer stays pure, JS-free and byte-stable (geometry rounded to 2dp; labels
+  and tooltips exempt); the golden fixture was regenerated.
+
 ### Fixed — launchd schedule silently dead from `com.apple.provenance` (2026-06-12)
 
 - **The daily/weekly launchd schedule never ran after its first fire.**
