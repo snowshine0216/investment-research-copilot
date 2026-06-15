@@ -246,6 +246,25 @@ def load_active_fund_cache(
     return _active_fund_from_dict(body)
 
 
+def load_latest_active_fund_cached(
+    fund_id: str, root: Path,
+) -> ActiveFundSnapshot | None:
+    """Scan `root/fundamentals/*/active_fund/fund_{fund_id}.json`; return most-recent quarter.
+
+    Mirrors `load_latest_nav_cached` at ~line 380. Returns None when no cache exists.
+    """
+    base = root / "fundamentals"
+    if not base.exists():
+        return None
+    candidates = sorted(base.glob(f"*/active_fund/fund_{fund_id}.json"))
+    for path in reversed(candidates):
+        quarter = path.parent.parent.name
+        loaded = load_active_fund_cache(fund_id, quarter, root)
+        if loaded is not None:
+            return loaded
+    return None
+
+
 # ── Item 005: NAV cache I/O ───────────────────────────────────────────────────
 
 

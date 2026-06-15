@@ -57,6 +57,19 @@ def _load_holidays(root: Path) -> set[date]:
 def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutcome:
     """Gather today's on-disk artifacts into a frozen RunOutcome (no fallback)."""
     out_dir = root / "outputs" / _china_today().isoformat()
+    if run_kind == "monitor":
+        report = out_dir / "monitor" / "report.html"
+        return RunOutcome(
+            run_kind=run_kind,
+            last_exit_code=last_exit_code,
+            today_dir_exists=report.exists(),  # success iff report.html written
+            pipeline_halted=False,
+            stale_ingest=False,
+            actionable_buy_count=0,
+            trim_count=0,
+            exit_count=0,
+            review_count=0,
+        )
     if not out_dir.exists():
         return RunOutcome(
             run_kind=run_kind,

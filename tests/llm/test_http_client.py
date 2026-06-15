@@ -149,3 +149,67 @@ def test_post_request_blocks_metadata_resolution(mock_dns):
     from irc.llm.http_client import _post_request, SSRFError
     with pytest.raises(SSRFError):
         _post_request(url="https://attacker.example.com/v1/chat", headers={}, payload={})
+
+
+# --- Phase D: Task 16 tests ---
+
+
+def test_resolve_base_url_prefers_literal():
+    from irc.llm.http_client import _resolve_base_url
+    r = ResolvedRoute(task="t", provider="deepseek", api_key_env="K",
+                      base_url="https://api.deepseek.com")
+    assert _resolve_base_url(r) == "https://api.deepseek.com"
+
+
+def test_resolve_base_url_reads_env(monkeypatch):
+    from irc.llm.http_client import _resolve_base_url
+    monkeypatch.setenv("MINIMAX_BASE_URL", "https://api.minimaxi.com/v1")
+    r = ResolvedRoute(task="t", provider="minimax", api_key_env="K",
+                      base_url_env="MINIMAX_BASE_URL")
+    assert _resolve_base_url(r) == "https://api.minimaxi.com/v1"
+
+
+def test_env_resolved_url_reruns_ssrf_guard(monkeypatch):
+    from irc.llm.http_client import _resolve_base_url, SSRFError
+    monkeypatch.setenv("MINIMAX_BASE_URL", "http://169.254.169.254/v1")
+    r = ResolvedRoute(task="t", provider="minimax", api_key_env="K",
+                      base_url_env="MINIMAX_BASE_URL")
+    with pytest.raises((SSRFError, ValueError)):
+        _resolve_base_url(r)
+
+
+def test_resolve_model_reads_default_model_env(monkeypatch):
+    from irc.llm.http_client import _resolve_model
+    monkeypatch.setenv("MINIMAX_MODEL", "MiniMax-Text-01")
+    r = ResolvedRoute(task="t", provider="minimax", api_key_env="K",
+                      base_url_env="MINIMAX_BASE_URL", default_model_env="MINIMAX_MODEL")
+    assert _resolve_model(r) == "MiniMax-Text-01"
+
+
+def test_resolve_model_missing_env_raises(monkeypatch):
+    from irc.llm.http_client import _resolve_model
+    monkeypatch.delenv("MINIMAX_MODEL", raising=False)
+    r = ResolvedRoute(task="t", provider="minimax", api_key_env="K",
+                      base_url_env="MINIMAX_BASE_URL", default_model_env="MINIMAX_MODEL")
+    with pytest.raises(RuntimeError, match="MINIMAX_MODEL"):
+        _resolve_model(r)
+
+
+# --- Phase D: Task 17 tests ---
+
+
+def test_base_resp_nonzero_raises():
+    from irc.llm.http_client import _parse_response
+    body = {"base_resp": {"status_code": 1004, "status_msg": "auth failed"},
+            "choices": []}
+    with pytest.raises(ValueError, match="base_resp"):
+        _parse_response(body, "minimax", "MiniMax-Text-01", 10)
+
+
+def test_base_resp_zero_is_ok():
+    from irc.llm.http_client import _parse_response
+    body = {"base_resp": {"status_code": 0, "status_msg": "success"},
+            "choices": [{"message": {"content": "hi"}}],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1}}
+    resp = _parse_response(body, "minimax", "MiniMax-Text-01", 10)
+    assert resp.text == "hi"

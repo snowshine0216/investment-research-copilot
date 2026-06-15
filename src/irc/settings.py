@@ -14,8 +14,11 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Required — stored as SecretStr so repr(Settings()) never leaks raw values
-    deepseek_api_key: SecretStr = Field(min_length=1)
+    # Optional — validated at the LLM call edge when a task resolves to its provider.
+    deepseek_api_key: SecretStr = SecretStr("")
+    minimax_api_key: SecretStr = SecretStr("")
+    minimax_base_url: str = ""
+    minimax_model: str = ""
 
     # Optional
     openrouter_api_key: SecretStr = SecretStr("")

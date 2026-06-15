@@ -20,8 +20,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC_DIR="$REPO_ROOT/ops/launchd"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
-LABELS=("com.irc.daily" "com.irc.weekly-full")
-WRAPPERS=("run-daily.sh" "run-weekly-full.sh")
+LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly")
+WRAPPERS=("run-monitor.sh" "run-fundamentals.sh")
 
 mkdir -p "$DEST_DIR"
 mkdir -p "$REPO_ROOT/outputs/_logs"
@@ -35,6 +35,17 @@ rm -f "$REPO_ROOT/outputs/_logs"/launchd-daily.out.log \
       "$REPO_ROOT/outputs/_logs"/launchd-weekly.out.log \
       "$REPO_ROOT/outputs/_logs"/launchd-weekly.err.log
 rm -rf "$REPO_ROOT/outputs/_logs/.run.lock"
+
+# Migration: boot out + remove the legacy jobs this vertical replaces
+# (com.irc.daily / com.irc.weekly-full). Their wrapper scripts were deleted, so a
+# stale LaunchAgent would fail on fire. Idempotent — ignore "not found".
+for legacy in com.irc.daily com.irc.weekly-full; do
+  if launchctl print "gui/$UID_NUM/$legacy" >/dev/null 2>&1; then
+    launchctl bootout "gui/$UID_NUM/$legacy" 2>/dev/null || true
+    echo "removed legacy job $legacy"
+  fi
+  rm -f "$DEST_DIR/$legacy.plist"
+done
 
 # Template wrapper scripts (resolve __REPO_ROOT__ + __UV_BIN__) into DEST_DIR.
 for wrapper in "${WRAPPERS[@]}"; do
@@ -61,15 +72,21 @@ for label in "${LABELS[@]}"; do
 done
 
 echo "Done. uv=$UV_BIN"
-echo "Inspect with: launchctl print gui/$UID_NUM/com.irc.daily"
+echo "Inspect with: launchctl print gui/$UID_NUM/com.irc.monitor"
+
+# Cold-start: build the per-fund snapshot once so valuation/constituent factors
+# aren't N/A on the first brief. The quarterly job maintains it thereafter.
+echo "cold-start: irc monitor snapshot (one-time)…"
+"$UV_BIN" run --directory "$REPO_ROOT" irc monitor snapshot || \
+  echo "WARNING: cold-start snapshot failed — first brief may be degraded (factors N/A, surfaced)."
 
 # P1: warn when the machine is not on UTC+8 — schedule assumes CN timezone.
 _TZ_OFFSET="$(date +%z)"
 if [ "$_TZ_OFFSET" != "+0800" ]; then
   echo ""
   echo "WARNING: your machine timezone offset is $_TZ_OFFSET (expected +0800)." >&2
-  echo "  The launchd schedule fires at LOCAL time (17:30 Mon-Fri / Sat 09:00)." >&2
-  echo "  The daily wrapper's trading-day gate runs in TZ='Asia/Shanghai'." >&2
+  echo "  The launchd schedule fires at LOCAL time (09:00/13:00 Mon-Fri)." >&2
+  echo "  The monitor wrapper's trading-day gate runs in TZ='Asia/Shanghai'." >&2
   echo "  On a non-CN-TZ machine these two clocks disagree — runs may skip or" >&2
   echo "  shift. Edit Hour/Minute in the plists to match your local offset, or" >&2
   echo "  switch your machine to UTC+8 before installing. (ADR 0016)" >&2

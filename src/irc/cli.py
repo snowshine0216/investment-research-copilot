@@ -251,6 +251,23 @@ def universe_build_cn_funds(repo_root: str) -> None:
     raise SystemExit(rc)
 
 
+@main.group(invoke_without_command=True, help="Daily monitor brief for the Monitor set.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.pass_context
+def monitor(ctx: click.Context, repo_root: str) -> None:
+    if ctx.invoked_subcommand is None:
+        from irc.commands.monitor_cmd import run_monitor
+        raise SystemExit(run_monitor(repo_root=repo_root))
+
+
+@monitor.command("snapshot", help="Refresh per-fund snapshot caches for the Monitor set.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.option("--top-n", type=int, default=10, show_default=True)
+def monitor_snapshot(repo_root: str, top_n: int) -> None:
+    from irc.commands.monitor_cmd import run_monitor_snapshot
+    raise SystemExit(run_monitor_snapshot(repo_root=repo_root, top_n=top_n))
+
+
 @main.group(help="Fundamentals snapshot cache management.")
 def fundamentals() -> None:
     pass
@@ -321,7 +338,7 @@ def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option(
     "--run-kind",
-    type=click.Choice(["daily", "weekly"]),
+    type=click.Choice(["daily", "weekly", "monitor"]),
     required=True,
     help="Which scheduled cadence produced this run.",
 )
