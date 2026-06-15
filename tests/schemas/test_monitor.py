@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from irc.schemas.monitor import MonitorConfig
+from irc.schemas.monitor import MonitorConfig, compose_weights, weights_sum_ok
 
 _MIN = {
     "schema_version": 1,
@@ -59,9 +59,6 @@ def test_default_bands_are_plus_minus_040():
     # defaults supplied by config/monitor.yaml in real runs; schema default is empty
     # so an explicit-bands fund validates. Here assert the validator path tolerates absence.
     assert cfg.defaults.signal_bands == {}
-
-
-from irc.schemas.monitor import compose_weights, weights_sum_ok
 
 
 def test_compose_overlays_override_on_default():

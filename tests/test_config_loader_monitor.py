@@ -1,14 +1,11 @@
 import textwrap
-from pathlib import Path
-from irc.config_loader import _FILENAME_TO_SCHEMA
+from irc.config_loader import _FILENAME_TO_SCHEMA, load_monitor_config
 from irc.schemas.monitor import MonitorConfig
 
 
 def test_monitor_yaml_is_registered():
     assert _FILENAME_TO_SCHEMA.get("config/monitor.yaml") is MonitorConfig
 
-
-from irc.config_loader import load_monitor_config
 
 _YAML = textwrap.dedent("""
 schema_version: 1
