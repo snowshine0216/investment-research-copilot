@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 Severity = Literal["failed", "halted", "stale", "action", "clean"]
-RunKind = Literal["daily", "weekly"]
+RunKind = Literal["daily", "weekly", "monitor"]
 
 
 @dataclass(frozen=True)

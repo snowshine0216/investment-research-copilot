@@ -338,7 +338,7 @@ def eval(stage: str | None, all_stages: bool, repo_root: str) -> None:
 @click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
 @click.option(
     "--run-kind",
-    type=click.Choice(["daily", "weekly"]),
+    type=click.Choice(["daily", "weekly", "monitor"]),
     required=True,
     help="Which scheduled cadence produced this run.",
 )
