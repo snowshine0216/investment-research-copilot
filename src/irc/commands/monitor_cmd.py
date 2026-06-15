@@ -13,7 +13,13 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
-from irc.fundamentals.snapshot import build_snapshot, write_snapshot
+from irc.fundamentals.snapshot import build_snapshot
+from irc.fundamentals.snapshot_cache import (
+    write_active_fund_cache,
+    write_nav_cache,
+    write_snapshot,
+)
+from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import call as llm_call
 from irc.monitor.evidence import make_evidence_item
@@ -41,6 +47,20 @@ _ENGINE_VERSION = "1"
 # ── Snapshot subcommand ───────────────────────────────────────────────────────
 
 
+def _persist_snapshot(snapshot, data_root: Path) -> Path:
+    """Dispatch snapshot write to the correct writer by runtime type.
+
+    - ActiveFundSnapshot  → write_active_fund_cache (keyed by fund_id + quarter)
+    - FundLevelSnapshot   → write_nav_cache         (NAV + announcements cache)
+    - ConstituentSnapshot → write_snapshot           (broad-index constituent cache)
+    """
+    if isinstance(snapshot, ActiveFundSnapshot):
+        return write_active_fund_cache(snapshot, data_root)
+    if isinstance(snapshot, FundLevelSnapshot):
+        return write_nav_cache(snapshot, data_root)
+    return write_snapshot(snapshot, data_root)
+
+
 def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
     """EDGE: refresh per-fund snapshot caches for the Monitor set using TYPED
     targets (active_fund / fund-level kinds keyed by provider_symbol=fund_id).
@@ -51,8 +71,11 @@ def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
     for fund in funds:
         target = target_for_fund(fund)
         snapshot = build_snapshot(target, top_n=top_n)
-        path = write_snapshot(snapshot, root / "data")
-        reasons = getattr(snapshot, "failure_reasons", ())
+        path = _persist_snapshot(snapshot, root / "data")
+        reasons = (
+            getattr(snapshot, "failure_reasons", None)
+            or getattr(snapshot, "fund_level_failure_reasons", ())
+        )
         if reasons:
             print(f"WARNING: {fund.id} snapshot gaps: {'; '.join(reasons)}")
         print(f"monitor snapshot OK: {fund.id} -> {path}")
