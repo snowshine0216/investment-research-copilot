@@ -29,9 +29,9 @@ def test_exactly_w_plus_one_points_yields_a_value():
 
 
 def test_zero_denominator_is_none_not_zero_division():
-    vals = [0.0] * 6 + [1.0] * 300  # acc[-1-5] far back is positive; force a zero at -6
+    # acc[-6] == 0.0 → None, no ZeroDivisionError
     rt = window_returns(_series([0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]))
-    assert rt[5] is None  # acc[-6] == 0.0 → None, no ZeroDivisionError
+    assert rt[5] is None
 
 
 def test_values_rounded_to_six_dp_for_byte_stability():
