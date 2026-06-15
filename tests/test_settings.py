@@ -16,11 +16,14 @@ def test_settings_loads_required_keys(monkeypatch):
     assert "sk-or-test" not in repr(s)
 
 
-def test_settings_missing_deepseek_fails(monkeypatch):
+def test_settings_missing_deepseek_constructs_with_empty_default(monkeypatch):
+    # deepseek_api_key is now Optional (validated at call edge, not at construction time).
+    # See Task 18: both provider keys default to "" and raise only when the task resolves
+    # to that provider and _resolve_key finds the env var absent.
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
     monkeypatch.setenv("OPENROUTER_API_KEY", "x")
-    with pytest.raises(ValidationError):
-        Settings(_env_file=None)
+    s = Settings(_env_file=None)
+    assert s.deepseek_api_key.get_secret_value() == ""
 
 
 def test_settings_optional_fields_default_empty(monkeypatch):
