@@ -100,3 +100,17 @@ def test_none_call_degrades_gracefully():
                          route=object(), call=None)
     assert res.status.startswith("provider_error:")
     assert res.impacts == ()
+
+
+def test_call_returns_none_degrades_not_crashes():
+    """Fix 2 [P0]: call() RETURNS None (not raises) — costs.append must not AttributeError."""
+    pool = _pool()
+
+    def none_returning_call(task, messages, route, **kw):
+        return None  # valid return but invalid resp
+
+    res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
+                         route=object(), call=none_returning_call)
+    assert res.status.startswith("provider_error")
+    assert res.impacts == ()
+    assert res.cost_entries == ()  # None resp must NOT be billed

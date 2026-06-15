@@ -97,3 +97,16 @@ def test_none_call_degrades_gracefully():
     pool = _pool()
     res = gather_narrative(fund_id="008986", pool=pool, route=object(), call=None)
     assert res.doc.status.startswith("provider_error:")
+
+
+def test_call_returns_none_degrades_not_crashes():
+    """Fix 2 [P0]: call() RETURNS None — costs.append(resp.prompt_tokens) must not AttributeError."""
+    pool = _pool()
+
+    def none_returning_call(task, messages, route, **kw):
+        return None
+
+    res = gather_narrative(fund_id="008986", pool=pool, route=object(),
+                           call=none_returning_call)
+    assert res.doc.status.startswith("provider_error")
+    assert res.cost_entries == ()  # None resp must NOT be billed

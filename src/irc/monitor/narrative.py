@@ -79,10 +79,13 @@ def gather_narrative(
     costs: list[CostEntry] = []
     last_err = "schema_invalid: no attempts"
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
+        resp = None
         try:
             resp = call("monitor_narrative", messages, route)
         except Exception as exc:
             return _degraded_result(fund_id, f"provider_error: {exc}", costs)
+        if resp is None or not hasattr(resp, "prompt_tokens"):
+            return _degraded_result(fund_id, "provider_error: empty response", costs)
         costs.append(CostEntry(
             task="monitor_narrative", provider="minimax", model="minimax",
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,

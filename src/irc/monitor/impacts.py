@@ -46,16 +46,6 @@ def _degrade(fund_id: str, reason: str, costs: list[CostEntry]) -> ImpactsResult
     return ImpactsResult(fund_id, (), reason, tuple(costs))
 
 
-def _try_call(call, task: str, messages: list[dict], route):
-    """Invoke call(); re-raises only schema errors. Transport/runtime → None."""
-    try:
-        return call(task, messages, route)
-    except (json.JSONDecodeError, ImpactValidationError):
-        raise
-    except Exception as exc:
-        raise RuntimeError(f"provider_error: {exc}") from exc
-
-
 def gather_impacts(
     *, fund_id: str, themes: tuple[str, ...], pool: tuple[EvidenceItem, ...],
     route, call,
@@ -73,6 +63,8 @@ def gather_impacts(
             resp = call("monitor_impact", messages, route)
         except Exception as exc:
             return _degrade(fund_id, f"provider_error: {exc}", costs)
+        if resp is None or not hasattr(resp, "prompt_tokens"):
+            return _degrade(fund_id, "provider_error: empty response", costs)
         costs.append(CostEntry(
             task="monitor_impact", provider="minimax", model="minimax",
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,

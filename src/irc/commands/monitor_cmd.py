@@ -93,7 +93,7 @@ def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
             items.extend(_search_theme(provider, query, fund.id))
         return tuple(items)
     except Exception as exc:
-        _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc)
+        _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc, exc_info=True)
         return ()
 
 
@@ -189,6 +189,7 @@ def _machine_summary(views: list[FundView]) -> dict:
                 "latest_nav": v.latest_nav,
                 "as_of_date": v.as_of_date,
                 "signal": {"status": v.signal.status, "bias": v.signal.bias},
+                "impacts_status": v.impacts_status,
             }
             for v in views
         ]

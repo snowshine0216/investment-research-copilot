@@ -172,6 +172,33 @@ def test_real_gather_path_empty_pool_degrades_gracefully(tmp_path, monkeypatch):
     assert "008986" in signal_data
 
 
+def test_monitor_json_contains_impacts_status_degraded(tmp_path, monkeypatch):
+    """Fix 1 [P0]: empty pool → impacts_status='empty_pool' must appear in monitor.json per fund."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.fetch import NavFetchResult
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(60))
+    monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
+    monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
+    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
+
+    rc = run_monitor(repo_root=str(tmp_path), today="2026-06-15")
+    assert rc == 0
+
+    monitor_data = json.loads(
+        (tmp_path / "outputs" / "2026-06-15" / "monitor" / "monitor.json").read_text(encoding="utf-8")
+    )
+    # impacts_status must be present in every fund entry
+    fund_entry = next(f for f in monitor_data["funds"] if f["fund_id"] == "008986")
+    assert "impacts_status" in fund_entry, "impacts_status missing from monitor.json fund entry"
+    assert fund_entry["impacts_status"] == "empty_pool"
+
+
 def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
     """E2E: drives run_monitor with a FAKE call injected via mc.llm_call.
     Injects a non-empty pool and a call that returns valid impacts JSON.
