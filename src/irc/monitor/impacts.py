@@ -3,6 +3,8 @@ import json
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from irc.llm.cost_tracker import CostEntry
+from irc.llm.gateway import resolve_route
+from irc.llm.http_client import _resolve_model
 from irc.monitor.evidence import sanitize_untrusted
 from irc.monitor.impact_validate import (
     ImpactValidationError, ValidatedImpact, validate_impacts,
@@ -55,6 +57,9 @@ def gather_impacts(
     if not pool:
         return ImpactsResult(fund_id, (), "empty_pool", ())
     messages = _build_messages(fund_id, themes, pool)
+    rr = resolve_route("monitor_impact", route)
+    provider = rr.provider
+    model = _resolve_model(rr)
     costs: list[CostEntry] = []
     last_err = "schema_invalid: no attempts"
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
@@ -66,7 +71,7 @@ def gather_impacts(
         if resp is None or not hasattr(resp, "prompt_tokens"):
             return _degrade(fund_id, "provider_error: empty response", costs)
         costs.append(CostEntry(
-            task="monitor_impact", provider="minimax", model="minimax",
+            task="monitor_impact", provider=provider, model=model,
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,
             latency_ms=getattr(resp, "latency_ms", 0), ts=_ts(),
         ))

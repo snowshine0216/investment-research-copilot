@@ -16,6 +16,25 @@ funds:
 _SENTINEL_LLM_CONFIG = object()   # fake value; tests that monkeypatch gather_* don't need real LLMConfig
 
 
+def _make_llm_config():
+    """Minimal LLMConfig for E2E tests that call through to the real gather_* functions."""
+    from irc.schemas.llm import LLMConfig
+    return LLMConfig(
+        providers={
+            "testprovider": {
+                "base_url": "https://example.com/v1",
+                "api_key_env": "FAKE_API_KEY",
+            },
+        },
+        tasks={
+            "monitor_impact": {"provider": "testprovider", "model": "test-model-x1"},
+            "monitor_narrative": {"provider": "testprovider", "model": "test-model-x1"},
+            "memo_synthesis": {"provider": "testprovider", "model": "test-model-x1"},
+            "memo_audit": {"provider": "testprovider", "model": "test-model-x1"},
+        },
+    )
+
+
 def _patch_edges(monkeypatch):
     import irc.commands.monitor_cmd as mc
     from irc.monitor.fetch import NavFetchResult
@@ -215,7 +234,7 @@ def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
 
     monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
-    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
+    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _make_llm_config())
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
 

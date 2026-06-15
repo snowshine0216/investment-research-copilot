@@ -1,6 +1,7 @@
 import json
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.impacts import gather_impacts, ImpactsResult
+from irc.schemas.llm import LLMConfig
 
 
 def _pool():
@@ -19,6 +20,29 @@ class _FakeResp:
         self.text, self.prompt_tokens, self.completion_tokens, self.latency_ms = text, 10, 5, 1
 
 
+def _make_route(provider: str = "testprovider", model: str = "test-model-x1") -> LLMConfig:
+    """Build a minimal LLMConfig with monitor tasks routed to a fake provider."""
+    return LLMConfig(
+        providers={
+            provider: {
+                "base_url": "https://example.com/v1",
+                "api_key_env": "FAKE_API_KEY",
+            },
+            "noop": {
+                "base_url": "https://example.com/v1",
+                "api_key_env": "FAKE_API_KEY",
+            },
+        },
+        tasks={
+            "monitor_impact": {"provider": provider, "model": model},
+            "monitor_narrative": {"provider": provider, "model": model},
+            # REQUIRED_TASKS must be present
+            "memo_synthesis": {"provider": "noop", "model": "noop-model"},
+            "memo_audit": {"provider": "noop", "model": "noop-model"},
+        },
+    )
+
+
 def test_gather_impacts_first_call_valid(monkeypatch):
     pool = _pool()
     calls = {"n": 0}
@@ -29,7 +53,7 @@ def test_gather_impacts_first_call_valid(monkeypatch):
 
     res = gather_impacts(
         fund_id="008986", themes=("gold_drivers",), pool=pool,
-        route=object(), call=fake_call,
+        route=_make_route(), call=fake_call,
     )
     assert isinstance(res, ImpactsResult)
     assert res.impacts[0].impact == -0.5
@@ -45,7 +69,7 @@ def test_invalid_then_valid_bills_both(monkeypatch):
         return next(seq)
 
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
-                         route=object(), call=fake_call)
+                         route=_make_route(), call=fake_call)
     assert len(res.cost_entries) == 2          # invalid call still billed (§6.4)
     assert res.impacts[0].impact == -0.5
 
@@ -57,7 +81,7 @@ def test_exhausted_retries_degrades(monkeypatch):
         return _FakeResp("never valid")
 
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
-                         route=object(), call=fake_call)
+                         route=_make_route(), call=fake_call)
     assert res.status.startswith("schema_invalid")
     assert len(res.cost_entries) == 3          # 1 + 2 schema-retries, all billed
     assert res.impacts == ()
@@ -72,7 +96,7 @@ def test_empty_pool_early_return_no_call():
         return _FakeResp("{}")
 
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=(),
-                         route=object(), call=fake_call)
+                         route=_make_route(), call=fake_call)
     assert calls["n"] == 0                     # call must NOT be invoked
     assert res.status == "empty_pool"
     assert res.impacts == ()
@@ -87,7 +111,7 @@ def test_transport_error_degrades_gracefully():
         raise ValueError("connection refused")
 
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
-                         route=object(), call=bad_call)
+                         route=_make_route(), call=bad_call)
     assert res.status.startswith("provider_error:")
     assert res.impacts == ()
     assert res.cost_entries == ()              # no response obtained, so no billing
@@ -97,7 +121,7 @@ def test_none_call_degrades_gracefully():
     """P0 fix: call=None must not raise TypeError; degrades to provider_error."""
     pool = _pool()
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
-                         route=object(), call=None)
+                         route=_make_route(), call=None)
     assert res.status.startswith("provider_error:")
     assert res.impacts == ()
 
@@ -110,7 +134,28 @@ def test_call_returns_none_degrades_not_crashes():
         return None  # valid return but invalid resp
 
     res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
-                         route=object(), call=none_returning_call)
+                         route=_make_route(), call=none_returning_call)
     assert res.status.startswith("provider_error")
     assert res.impacts == ()
     assert res.cost_entries == ()  # None resp must NOT be billed
+
+
+def test_cost_entry_records_actual_provider_and_model(monkeypatch):
+    """CostEntry must record the route's actual provider+model, not hardcoded 'minimax'."""
+    pool = _pool()
+    route = _make_route(provider="testprovider", model="test-model-x1")
+    monkeypatch.setenv("FAKE_API_KEY", "dummy")
+
+    def fake_call(task, messages, rt, **kw):
+        return _FakeResp(_good_payload(pool))
+
+    res = gather_impacts(
+        fund_id="008986", themes=("gold_drivers",), pool=pool,
+        route=route, call=fake_call,
+    )
+    assert len(res.cost_entries) == 1
+    entry = res.cost_entries[0]
+    assert entry.provider == "testprovider"
+    assert entry.model == "test-model-x1"
+    assert entry.provider != "minimax"
+    assert entry.model != "minimax"

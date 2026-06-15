@@ -47,4 +47,5 @@ fi
 
 rc=0
 "$UV_BIN" run irc monitor || rc=$?
-"$UV_BIN" run irc notify-status --run-kind monitor --last-exit-code "$rc"
+"$UV_BIN" run irc notify-status --run-kind monitor --last-exit-code "$rc" || true
+exit "$rc"
