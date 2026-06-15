@@ -4,7 +4,7 @@ Run: monitor-report-verdict-justification | Mode: spec | PR shape: A | Project t
 
 | id | spec | grill | plan | branch | impl | drift | ship | verify | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|------|--------|-----------|-----|-------|
-| 001 | ✅⏭️ | ✅⏭️ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ | ⬜ |
+| 001 | ✅⏭️ | ✅⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⬜ | ⬜ | ⬜ | ⬜ |
 
 Legend: ⬜ todo · 🔄 in-progress · ✅ done · ⏭️ pre-completed/skipped (mode) · ⛔ blocked
 
