@@ -2,7 +2,7 @@ from __future__ import annotations
 import pytest
 import respx
 import httpx
-from irc.schemas.llm import LLMConfig
+from irc.schemas.llm import LLMConfig, ProviderConfig, TaskRoute
 from irc.llm.gateway import resolve_route, ResolvedRoute, call
 
 
@@ -57,6 +57,40 @@ def test_resolve_route_missing_provider_raises():
     )
     with pytest.raises(KeyError, match="unknown provider"):
         resolve_route("memo_synthesis", cfg)
+
+
+# --- Phase D: Task 15 tests ---
+
+
+def _cfg_minimax():
+    return LLMConfig(
+        providers={
+            "minimax": ProviderConfig(base_url_env="MINIMAX_BASE_URL",
+                                      api_key_env="MINIMAX_API_KEY",
+                                      default_model_env="MINIMAX_MODEL"),
+            "deepseek": ProviderConfig(base_url="https://api.deepseek.com",
+                                       api_key_env="DEEPSEEK_API_KEY"),
+        },
+        tasks={
+            "monitor_impact": TaskRoute(provider="minimax"),
+            "memo_synthesis": TaskRoute(provider="deepseek", model="deepseek-reasoner"),
+            "memo_audit": TaskRoute(provider="deepseek", model="deepseek-reasoner"),
+        },
+    )
+
+
+def test_resolve_route_carries_env_names_for_minimax():
+    r = resolve_route("monitor_impact", _cfg_minimax())
+    assert r.base_url_env == "MINIMAX_BASE_URL"
+    assert r.default_model_env == "MINIMAX_MODEL"
+    assert r.base_url is None and r.model is None
+
+
+def test_resolve_route_literal_for_deepseek():
+    r = resolve_route("memo_synthesis", _cfg_minimax())
+    assert r.base_url == "https://api.deepseek.com"
+    assert r.model == "deepseek-reasoner"
+    assert r.base_url_env is None
 
 
 @respx.mock

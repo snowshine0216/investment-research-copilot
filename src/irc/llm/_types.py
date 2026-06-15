@@ -1,5 +1,5 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -8,9 +8,11 @@ class ResolvedRoute:
     """Outcome of routing a task to a concrete (provider, model, endpoint)."""
     task: str
     provider: str
-    model: str
-    base_url: str
     api_key_env: str
+    model: str | None = None
+    base_url: str | None = None
+    base_url_env: str | None = None
+    default_model_env: str | None = None
 
 
 @dataclass(frozen=True)

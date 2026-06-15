@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — `irc monitor` daily brief + configurable LLM routing + schedule rework (2026-06-15)
+
+- `irc monitor` daily brief for the fixed 7-fund Monitor set (`config/monitor.yaml`):
+  current price · acc-NAV trend chart · directional bias (`ADD_BIAS` / `NEUTRAL` /
+  `REDUCE_BIAS` | `NO_CALL`) · causal MiniMax narrative. Self-contained HTML report at
+  `outputs/<date>/monitor/report.html`. Evidence is isolated from the dual-coverage gate
+  (ADR 0017 — monitor evidence never pollutes the main opportunity/memo pipeline).
+- `irc monitor snapshot` — typed per-fund constituent snapshot refresh (active_fund or
+  fund_level targets keyed by `provider_symbol = fund_id`, from each fund's
+  `analysis_profile`). Quarterly job; called by `com.irc.fundamentals-quarterly`.
+- Configurable LLM provider routing (env-driven `base_url` + `api_key` + `default_model`):
+  MiniMax added as a provider, DeepSeek retained; per-task routing via `config/llm.yaml`.
+  Monitor tasks (`monitor_impact`, `monitor_narrative`) route to MiniMax; legacy tasks
+  (`memo_synthesis`, `memo_audit`, scoring rationales, thesis checks, Q&A) stay on
+  DeepSeek/OpenRouter. Adding a third provider is a `config/llm.yaml` edit, no code change.
+  SSRF guard re-applied on env-resolved base URLs.
+
+### Changed — schedule rework + call-edge key validation (2026-06-15)
+
+- Schedule reworked: removed `com.irc.daily` (Mon–Fri 17:30/20:00/22:30) and
+  `com.irc.weekly-full` (Sat 09:00); added `com.irc.monitor` (Mon–Fri 09:00 primary +
+  13:00 retry, Asia/Shanghai, idempotency on `report.html`) and
+  `com.irc.fundamentals-quarterly` (1st of Jan/Apr/Jul/Oct, calls `irc monitor snapshot`).
+  Morning brief reads prior trading day's *complete* published NAV; 13:00 fires only if
+  09:00 failed. `notify-status` gains a new `monitor` run-kind whose success detection
+  looks for `outputs/<date>/monitor/report.html`.
+- `DEEPSEEK_API_KEY` no longer hard-required at `Settings()` construction. Both
+  `deepseek_api_key` and `minimax_api_key` are Optional; validated at the LLM call edge.
+  `irc monitor` (MiniMax tasks only) needs `MINIMAX_*`; `irc run` (DeepSeek tasks) needs
+  `DEEPSEEK_API_KEY`. `irc config validate` remains secret-free.
+
 ### Fixed — launchd schedule silently dead from `com.apple.provenance` (2026-06-12)
 
 - **The daily/weekly launchd schedule never ran after its first fire.**

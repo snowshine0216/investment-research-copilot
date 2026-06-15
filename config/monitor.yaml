@@ -1,0 +1,28 @@
+# config/monitor.yaml — SOLE source of truth for `irc monitor`.
+schema_version: 1
+
+history:
+  minimum_observations: 251
+  fetch_calendar_days: 550
+
+defaults:
+  return_windows: [5, 20, 60, 120, 250]
+  signal_weights:
+    trend: 0.30
+    valuation: 0.20
+    heat: 0.15
+    macro_tilt: 0.20
+    constituent: 0.15
+  signal_bands:
+    buy: 0.40
+    sell: -0.40
+  minimum_confidence: 0.50
+
+funds:
+  - { id: "008986", name_cn: 广发上海金ETF联接A, market: cn_off_exchange, analysis_profile: gold, themes: [gold_drivers, geopolitics, us_monetary], constituent_news: false }
+  - { id: "270023", name_cn: 广发全球精选股票(QDII)人民币A, market: cn_off_exchange, analysis_profile: qdii_global, themes: [global_growth, us_monetary, us_fiscal_politics, geopolitics, fx_cny], constituent_news: true }
+  - { id: "519069", name_cn: 汇添富价值精选混合, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+  - { id: "260112", name_cn: 景顺长城能源基建混合A, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_equity_property_policy, cn_monetary, geopolitics], constituent_news: true }
+  - { id: "006533", name_cn: 易方达科融混合, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, geopolitics], constituent_news: true }
+  - { id: "009225", name_cn: 天弘中证美互联网QDII, market: cn_off_exchange, analysis_profile: qdii_china_us_internet, themes: [us_monetary, geopolitics, cn_equity_property_policy], constituent_news: true }
+  - { id: "000083", name_cn: 汇添富消费行业混合, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }

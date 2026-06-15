@@ -3792,6 +3792,35 @@ git commit -m "feat(monitor): `monitor snapshot` subcommand — typed per-fund s
 
 Orchestrates the full brief: `load_monitor_config → preflight_gate → resolve funds → fetch NAV → research evidence → impacts → signal → narrative → render → atomic writes → record_command_run`. Effects only; pure cores are called as already-tested functions.
 
+> **Post-review correction (2026-06-15, ship steps 8+9).** The draft below had two
+> defects the pre-landing review caught (3 reviewers, P0). They are CORRECTED here and
+> are the authoritative contract for the fix:
+> 1. **LLM wiring.** The gateway `call(task, messages, config, …)` takes the **`LLMConfig`**
+>    as its 3rd positional arg (it resolves the route internally). So the gather functions'
+>    `route` parameter must be the **loaded `LLMConfig`**, and `call` must be the real
+>    `irc.llm.gateway.call`. `route=None` + `call=None` (the draft / shipped impl) BOTH
+>    crash. Load it narrowly (sole-source OK): `llm_config = load_yaml(root / "config/llm.yaml", root)`
+>    (returns `LLMConfig` via `_FILENAME_TO_SCHEMA`). Pass `route=llm_config, call=llm_call`.
+> 2. **Graceful degradation (spec §6 contract) — never crash.** `gather_impacts` /
+>    `gather_narrative` must (a) **early-return** an empty/degraded result with typed reason
+>    `empty_pool` when `pool == ()` (no LLM call at all), and (b) wrap the `call(...)` so a
+>    transport/runtime error (e.g. MiniMax 401 from a placeholder key, timeout) → degraded
+>    result with a typed reason (`provider_error: …`), billed where a response exists. A
+>    failed/empty LLM leg degrades `narrative_status` / `impacts.status`; the report STILL
+>    ships with deterministic facts + signal + N/A news factors.
+> 3. **`build_evidence_pool` (Step 3a) is MANDATORY**, not a `return ()` stub — implement the
+>    real research wiring (defensively wrapped → `()` on any failure).
+> 4. **`impacts.status`** must be surfaced into `FundView` (new field, e.g.
+>    `impacts_status`) so a schema-retry-exhaustion reason isn't silently dropped (mirror
+>    how `narrative.status` is surfaced).
+> 5. **End-to-end test gap.** The integration test below monkeypatches `gather_impacts`/
+>    `gather_narrative`, so the production `_process_fund` wiring is never exercised — which
+>    is why a command-breaking `call=None` shipped green. Add a test that drives `run_monitor`
+>    through the **real** `_process_fund` + real gather functions: one case with `pool == ()`
+>    asserting graceful degradation (rc==0, report.html exists, signal from trend,
+>    narrative_status degraded, NO crash), and one case with a **fake injected `call`**
+>    returning valid impacts asserting the LLM path produces `status="ok"`.
+
 **Files:**
 - Modify: `src/irc/commands/monitor_cmd.py`
 - Test: `tests/commands/test_monitor_cmd.py` (inject fakes for fetch/research/LLM — no network)
@@ -3917,14 +3946,14 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         return gate
     cfg = load_monitor_config(root)
     funds = resolve_funds(cfg)
-    route = None
+    llm_config = load_yaml(root / "config/llm.yaml", root)  # narrow LLMConfig (sole-source OK)
     cost_history: list = []
     views = []
     for fund in funds:
         nav = nav_series_for(fund.id)
         pool = build_evidence_pool(fund, repo_root=root)
         impacts = gather_impacts(fund_id=fund.id, themes=fund.themes, pool=pool,
-                                 route=route, call=llm_call)
+                                 route=llm_config, call=llm_call)
         cost_history.extend(impacts.cost_entries)
         macro_rows = _impact_rows_from(impacts, fund)
         inp = FactorInputs(
@@ -3936,7 +3965,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         )
         scores = build_factor_scores(fund.analysis_profile, inp)
         signal = compute_signal(fund, scores)
-        narr = gather_narrative(fund_id=fund.id, pool=pool, route=route, call=llm_call)
+        narr = gather_narrative(fund_id=fund.id, pool=pool, route=llm_config, call=llm_call)
         cost_history.extend(narr.cost_entries)
         views.append(_make_view(fund, nav, signal, scores, narr.doc, pool))
     prior = _read_prior_signal(root, _today)

@@ -18,11 +18,17 @@ COMMAND_TASKS: dict[str, tuple[str, ...]] = {
     "narrative": ("scoring_rationale", "thesis_falsify", "thesis_defend"),
     "opportunity": ("thesis_falsify", "thesis_defend"),
     "memo": ("memo_synthesis", "memo_audit"),
+    "monitor": ("monitor_impact", "monitor_narrative"),
     "decision": (),
 }
 
 STAGE_SEARCH_PROVIDERS: dict[str, tuple[str, ...]] = {
     "research": ("tavily", "brave", "bocha", "jina"),
+}
+
+# NEW: command-level search providers (mirrors STAGE_SEARCH_PROVIDERS for `run`).
+COMMAND_SEARCH_PROVIDERS: dict[str, tuple[str, ...]] = {
+    "monitor": ("tavily", "brave", "bocha", "jina"),
 }
 
 ALL_LLM_TASKS: frozenset[str] = frozenset(
@@ -46,4 +52,7 @@ def resolve_scope(command: str, *, stages: tuple[str, ...] | None = None) -> Sco
             p for s in run_stages for p in STAGE_SEARCH_PROVIDERS.get(s, ())
         )
         return Scope(tasks=tasks, search_providers=search)
-    return Scope(tasks=frozenset(COMMAND_TASKS.get(command, ())), search_providers=frozenset())
+    return Scope(
+        tasks=frozenset(COMMAND_TASKS.get(command, ())),
+        search_providers=frozenset(COMMAND_SEARCH_PROVIDERS.get(command, ())),
+    )

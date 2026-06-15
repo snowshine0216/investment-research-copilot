@@ -6,8 +6,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
-LABELS=("com.irc.daily" "com.irc.weekly-full")
-WRAPPERS=("run-daily.sh" "run-weekly-full.sh")
+LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly")
+WRAPPERS=("run-monitor.sh" "run-fundamentals.sh")
 
 for label in "${LABELS[@]}"; do
   launchctl bootout "gui/$UID_NUM/$label" 2>/dev/null || true

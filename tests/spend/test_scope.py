@@ -27,3 +27,10 @@ def test_every_llm_yaml_task_is_mapped_somewhere():
     assert set(llm.tasks) <= ALL_LLM_TASKS, (
         f"unmapped tasks escape the gate: {set(llm.tasks) - ALL_LLM_TASKS}"
     )
+
+
+def test_monitor_scope_has_tasks_and_search_providers():
+    from irc.spend.scope import resolve_scope
+    scope = resolve_scope("monitor")
+    assert scope.tasks == frozenset({"monitor_impact", "monitor_narrative"})
+    assert "tavily" in scope.search_providers and "bocha" in scope.search_providers
