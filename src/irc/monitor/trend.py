@@ -7,10 +7,12 @@ def _clamp(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
 
 
 def _r60(vals: list[float]) -> float:
-    """Total acc-NAV return over the 60-trading-day window (or longest available)."""
-    if len(vals) >= 61:
-        return vals[-1] / vals[-61] - 1.0
-    return vals[-1] / vals[0] - 1.0
+    """Total acc-NAV return over the 60-trading-day window (or longest available).
+    Returns 0.0 when the denominator is 0 or None (→ trend factor gets 0 momentum)."""
+    denom = vals[-61] if len(vals) >= 61 else vals[0]
+    if not denom:
+        return 0.0
+    return vals[-1] / denom - 1.0
 
 
 def _mean(xs: list[float]) -> float:

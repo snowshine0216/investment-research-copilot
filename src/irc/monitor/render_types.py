@@ -24,3 +24,4 @@ class FundView:
     return_table: dict[int, float]
     factor_freshness: dict[str, str]
     missing_factor_reasons: tuple[str, ...]
+    impacts_status: str = "ok"   # mirrors impacts.status; surfaced so schema/provider errors aren't silently dropped

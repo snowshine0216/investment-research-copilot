@@ -61,3 +61,42 @@ def test_exhausted_retries_degrades(monkeypatch):
     assert res.status.startswith("schema_invalid")
     assert len(res.cost_entries) == 3          # 1 + 2 schema-retries, all billed
     assert res.impacts == ()
+
+
+def test_empty_pool_early_return_no_call():
+    """P1/P0 fix: empty pool → degrade immediately, never call the LLM."""
+    calls = {"n": 0}
+
+    def fake_call(*a, **k):
+        calls["n"] += 1
+        return _FakeResp("{}")
+
+    res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=(),
+                         route=object(), call=fake_call)
+    assert calls["n"] == 0                     # call must NOT be invoked
+    assert res.status == "empty_pool"
+    assert res.impacts == ()
+    assert res.cost_entries == ()
+
+
+def test_transport_error_degrades_gracefully():
+    """P0 fix: transport exception (not JSONDecodeError) → provider_error: reason, no crash."""
+    pool = _pool()
+
+    def bad_call(task, messages, route, **kw):
+        raise ValueError("connection refused")
+
+    res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
+                         route=object(), call=bad_call)
+    assert res.status.startswith("provider_error:")
+    assert res.impacts == ()
+    assert res.cost_entries == ()              # no response obtained, so no billing
+
+
+def test_none_call_degrades_gracefully():
+    """P0 fix: call=None must not raise TypeError; degrades to provider_error."""
+    pool = _pool()
+    res = gather_impacts(fund_id="008986", themes=("gold_drivers",), pool=pool,
+                         route=object(), call=None)
+    assert res.status.startswith("provider_error:")
+    assert res.impacts == ()

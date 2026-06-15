@@ -63,3 +63,37 @@ def test_unresolved_citation_rejected(monkeypatch):
     res = gather_narrative(fund_id="008986", pool=pool, route=object(),
                            call=lambda *a, **k: _FakeResp(bad))
     assert res.doc.status.startswith("unresolved_citation")
+
+
+def test_empty_pool_early_return_no_call():
+    """P0 fix: empty pool → degrade immediately with empty_pool, never call the LLM."""
+    calls = {"n": 0}
+
+    def fake_call(*a, **k):
+        calls["n"] += 1
+        return _FakeResp("{}")
+
+    res = gather_narrative(fund_id="008986", pool=(), route=object(), call=fake_call)
+    assert calls["n"] == 0
+    assert res.doc.status == "empty_pool"
+    assert res.doc.price_action_commentary == ()
+    assert res.cost_entries == ()
+
+
+def test_transport_error_degrades_gracefully():
+    """P0 fix: transport exception → provider_error: reason, no crash."""
+    pool = _pool()
+
+    def bad_call(task, messages, route, **kw):
+        raise OSError("timeout")
+
+    res = gather_narrative(fund_id="008986", pool=pool, route=object(), call=bad_call)
+    assert res.doc.status.startswith("provider_error:")
+    assert res.cost_entries == ()
+
+
+def test_none_call_degrades_gracefully():
+    """P0 fix: call=None must not raise TypeError."""
+    pool = _pool()
+    res = gather_narrative(fund_id="008986", pool=pool, route=object(), call=None)
+    assert res.doc.status.startswith("provider_error:")

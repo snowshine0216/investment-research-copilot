@@ -97,6 +97,29 @@ def test_changed_flag_present_when_prior_differs():
     assert "changed-since-yesterday" in html
 
 
+def test_impacts_status_carried_in_fundview():
+    """P1 fix: impacts_status field exists and is accessible (not silently dropped)."""
+    v_ok = _view()
+    assert v_ok.impacts_status == "ok"
+
+    # FundView with a degraded impacts_status should carry the reason
+    ev = _ev()
+    rec = v_ok.signal
+    narr = v_ok.narrative
+    v_bad = FundView(
+        fund_id="008986", name_cn="广发上海金ETF联接A", latest_nav=2.13,
+        as_of_date="2026-06-15",
+        nav_series=tuple((f"2026-01-{i % 28 + 1:02d}", 1.0 + 0.001 * i) for i in range(300)),
+        signal=rec, narrative=narr, evidence_pool=(ev,),
+        return_table={}, factor_freshness={}, missing_factor_reasons=(),
+        impacts_status="schema_invalid: bad json",
+    )
+    assert v_bad.impacts_status == "schema_invalid: bad json"
+    # render must not crash when impacts_status is non-ok
+    html = render_report((v_bad,), _prov(), prior_signal=None, now=_NOW)
+    assert 'class="fund-card"' in html
+
+
 def test_byte_stable_given_identical_inputs():
     v = (_view(),)
     a = render_report(v, _prov(), prior_signal=None, now=_NOW)

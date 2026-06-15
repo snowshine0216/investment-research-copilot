@@ -64,15 +64,25 @@ def _build_messages(fund_id: str, pool: tuple[EvidenceItem, ...]) -> list[dict]:
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def _degraded_result(fund_id: str, reason: str, costs: list[CostEntry]) -> NarrativeResult:
+    return NarrativeResult(NarrativeDoc(fund_id, (), (), (), reason), tuple(costs))
+
+
 def gather_narrative(
     *, fund_id: str, pool: tuple[EvidenceItem, ...], route, call,
 ) -> NarrativeResult:
-    """EDGE: call monitor_narrative, validate claims, schema-retry up to 2, bill every call."""
+    """EDGE: call monitor_narrative, validate claims, schema-retry up to 2, bill every call.
+    Empty pool → early-return (no LLM call). Transport/runtime error → degraded."""
+    if not pool:
+        return _degraded_result(fund_id, "empty_pool", [])
     messages = _build_messages(fund_id, pool)
     costs: list[CostEntry] = []
     last_err = "schema_invalid: no attempts"
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
-        resp = call("monitor_narrative", messages, route)
+        try:
+            resp = call("monitor_narrative", messages, route)
+        except Exception as exc:
+            return _degraded_result(fund_id, f"provider_error: {exc}", costs)
         costs.append(CostEntry(
             task="monitor_narrative", provider="minimax", model="minimax",
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,

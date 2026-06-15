@@ -42,16 +42,37 @@ def _build_messages(fund_id: str, themes: tuple[str, ...], pool: tuple[EvidenceI
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
+def _degrade(fund_id: str, reason: str, costs: list[CostEntry]) -> ImpactsResult:
+    return ImpactsResult(fund_id, (), reason, tuple(costs))
+
+
+def _try_call(call, task: str, messages: list[dict], route):
+    """Invoke call(); re-raises only schema errors. Transport/runtime → None."""
+    try:
+        return call(task, messages, route)
+    except (json.JSONDecodeError, ImpactValidationError):
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"provider_error: {exc}") from exc
+
+
 def gather_impacts(
     *, fund_id: str, themes: tuple[str, ...], pool: tuple[EvidenceItem, ...],
     route, call,
 ) -> ImpactsResult:
-    """EDGE: call monitor_impact, validate, schema-retry up to 2, bill every call."""
+    """EDGE: call monitor_impact, validate, schema-retry up to 2, bill every call.
+    Empty pool → early-return (no LLM call). Transport/runtime error → degraded."""
+    if not pool:
+        return ImpactsResult(fund_id, (), "empty_pool", ())
     messages = _build_messages(fund_id, themes, pool)
     costs: list[CostEntry] = []
     last_err = "schema_invalid: no attempts"
     for _ in range(_MAX_SCHEMA_RETRIES + 1):
-        resp = call("monitor_impact", messages, route)
+        resp = None
+        try:
+            resp = call("monitor_impact", messages, route)
+        except Exception as exc:
+            return _degrade(fund_id, f"provider_error: {exc}", costs)
         costs.append(CostEntry(
             task="monitor_impact", provider="minimax", model="minimax",
             prompt_tokens=resp.prompt_tokens, completion_tokens=resp.completion_tokens,

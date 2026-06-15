@@ -45,3 +45,26 @@ def test_drawdown_zero_at_new_high():
 def test_output_clamped_to_unit_interval():
     s = _series([1.0] + [5.0])  # explosive jump
     assert -1.0 <= trend_score(s) <= 1.0
+
+
+def test_r60_zero_denominator_returns_zero():
+    """Guard: when vals[-61] is 0.0 → return 0.0, NOT ZeroDivisionError."""
+    # 239 normal values, then 0.0, then 60 values → vals[-61] == 0.0
+    vals = [1.0] * 239 + [0.0] + [1.0] * 60
+    assert len(vals) == 300
+    assert vals[-61] == 0.0
+    assert _r60(vals) == 0.0          # must not raise
+
+
+def test_r60_zero_first_element_short_series_returns_zero():
+    """Guard: short series where vals[0] == 0.0 → return 0.0, NOT ZeroDivisionError."""
+    vals = [0.0, 1.0, 2.0]
+    assert _r60(vals) == 0.0
+
+
+def test_trend_score_zero_nav_degrades_not_crash():
+    """trend_score must not raise ZeroDivisionError when _r60 hits a zero denominator."""
+    # Build a series where the 61st-from-end element is 0.0
+    s = _series([1.0] * 239 + [0.0] + [1.0] * 60)
+    score = trend_score(s)            # must not raise
+    assert -1.0 <= score <= 1.0

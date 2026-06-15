@@ -12,20 +12,25 @@ import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from irc.config_loader import load_monitor_config
+from irc.config_loader import load_monitor_config, load_yaml
 from irc.fundamentals.snapshot import build_snapshot, write_snapshot
 from irc.io_utils import atomic_write_text
+from irc.llm.gateway import call as llm_call
+from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
 from irc.monitor.narrative import gather_narrative
 from irc.monitor.news_factor import ImpactRow
+from irc.monitor.profiles import theme_query_seed
 from irc.monitor.render_html import render_report
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
 from irc.monitor.snapshot_targets import target_for_fund
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
+from irc.research.search.factory import build_providers
+from irc.settings import Settings
 from irc.spend.record_run import record_command_run
 from irc.commands.spend_cmd import preflight_gate
 
@@ -57,11 +62,39 @@ def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
 # ── Evidence pool (EDGE) ──────────────────────────────────────────────────────
 
 
+def _search_theme(provider, query: str, fund_id: str) -> tuple:
+    """Run one theme search; convert hits to EvidenceItems. Returns () on failure."""
+    result = provider.search(query, max_results=5, freshness_days=7)
+    if result.failure_reason:
+        return ()
+    items = []
+    for hit in result.hits:
+        items.append(make_evidence_item(
+            hit.source_domain or provider.name,
+            hit.title, hit.published_iso or "", hit.url,
+            owner_fund_id=fund_id,
+        ))
+    return tuple(items)
+
+
 def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
-    """EDGE: run the monitor's theme/holding research → owner-bound EvidenceItems.
-    Returns () on any provider failure (factor gate surfaces the gap)."""
-    # v1: stub — full research wiring is Phase J.
-    return ()
+    """EDGE: run theme searches via configured providers → owner-bound EvidenceItems.
+    Returns () when no providers are configured or on any failure (factor gate surfaces gap).
+    This is the ONLY place the monitor touches search providers."""
+    try:
+        settings = Settings()
+        providers = build_providers(settings)
+        if not providers:
+            return ()
+        provider = providers[0]   # use first available provider
+        items: list = []
+        for theme in fund.themes:
+            query = theme_query_seed(theme)
+            items.extend(_search_theme(provider, query, fund.id))
+        return tuple(items)
+    except Exception as exc:
+        _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc)
+        return ()
 
 
 # ── Orchestration helpers ─────────────────────────────────────────────────────
@@ -82,6 +115,7 @@ def _make_view(
     scores: tuple,
     narr_doc: NarrativeDoc,
     pool: tuple,
+    impacts_status: str = "ok",
 ) -> FundView:
     return FundView(
         fund_id=fund.id,
@@ -97,6 +131,7 @@ def _make_view(
         missing_factor_reasons=tuple(
             f"{s.name}: {s.reason}" for s in scores if not s.eligible
         ),
+        impacts_status=impacts_status,
     )
 
 
@@ -185,12 +220,15 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None) -> None
 # ── Main orchestration ────────────────────────────────────────────────────────
 
 
-def _process_fund(fund: MonitorFund, cfg, root: Path) -> tuple[FundView, list]:
+def _process_fund(
+    fund: MonitorFund, cfg, root: Path, llm_config,
+) -> tuple[FundView, list]:
     """Process one fund: fetch → impacts → signal → narrative → view."""
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
     impacts = gather_impacts(
-        fund_id=fund.id, themes=fund.themes, pool=pool, route=None, call=None,
+        fund_id=fund.id, themes=fund.themes, pool=pool,
+        route=llm_config, call=llm_call,
     )
     cost_history = list(impacts.cost_entries)
     macro_rows = _impact_rows_from(impacts, fund)
@@ -206,9 +244,11 @@ def _process_fund(fund: MonitorFund, cfg, root: Path) -> tuple[FundView, list]:
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
-    narr = gather_narrative(fund_id=fund.id, pool=pool, route=None, call=None)
+    narr = gather_narrative(
+        fund_id=fund.id, pool=pool, route=llm_config, call=llm_call,
+    )
     cost_history.extend(narr.cost_entries)
-    view = _make_view(fund, nav, signal, scores, narr.doc, pool)
+    view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status)
     return view, cost_history
 
 
@@ -221,10 +261,11 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         return gate
     cfg = load_monitor_config(root)
     funds = resolve_funds(cfg)
+    llm_config = load_yaml(root / "config/llm.yaml", root)   # narrow LLMConfig (sole-source OK)
     views: list[FundView] = []
     all_costs: list = []
     for fund in funds:
-        view, costs = _process_fund(fund, cfg, root)
+        view, costs = _process_fund(fund, cfg, root, llm_config)
         views.append(view)
         all_costs.extend(costs)
     prior = _read_prior_signal(root, _today)
