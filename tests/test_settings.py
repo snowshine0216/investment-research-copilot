@@ -1,6 +1,5 @@
 from __future__ import annotations
-import pytest
-from pydantic import ValidationError
+from pydantic import SecretStr
 from irc.settings import Settings
 
 
@@ -36,9 +35,6 @@ def test_settings_optional_fields_default_empty(monkeypatch):
     s = Settings(_env_file=None)
     assert s.openbb_fmp_key.get_secret_value() == ""
     assert s.tushare_token.get_secret_value() == ""
-
-
-from pydantic import SecretStr
 
 
 def test_provider_secrets_are_secretstr(monkeypatch):
