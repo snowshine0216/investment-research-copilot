@@ -5,6 +5,33 @@ Feature branch: `autodev/monitor-daily-report-feature` (off `main`, left open at
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused gate
 
+## Post-close-out — live-verification fixes + schedule setup (2026-06-15)
+
+After the autodev run closed, live runs with a real `MINIMAX_API_KEY` surfaced issues the
+mocked tests couldn't (gather functions were monkeypatched). All fixed on the feature branch
+(PR #129), each TDD'd + live-verified:
+
+- `074ad0c` **robust JSON extraction** — `MiniMax-M3` reasoning model emits `<think>…</think>`; bare `json.loads` failed every call. Spec §6 "extract JSON" now implemented (strips reasoning/fences, first balanced object).
+- `17fc49b` **temperature=0 + max_tokens** on LLM calls (spec §6) — gather functions passed neither → unbounded generation.
+- `1e92492` **snapshot write dispatch** — `irc monitor snapshot` crashed (`'FundLevelSnapshot' has no attribute 'as_of_iso'`); now type-dispatches to `write_nav_cache`/`write_active_fund_cache`/`write_snapshot`. The cold-start + quarterly job would both have failed.
+- `ea617f4` **constituent factor wired** — reads cached active-fund snapshot holdings (top-5 by weight) → `gather_impacts` → `constituent_rows`; lifts the active CN funds off `NO_CALL`. (v2.0 snapshot-grounded; daily-fresh-news per holding = v2.1.)
+- `a4ffb24` docs + `install.sh` legacy-job removal.
+
+**Model requirement learned:** `MINIMAX_MODEL` must be a **fast non-reasoning chat model**
+(`MiniMax-Text-01`). `MiniMax-M3` (reasoning) overruns the 60s call deadline + truncates JSON.
+Set in `.env` (local). Documented in README + ops/launchd/README.
+
+**Schedule INSTALLED:** `com.irc.monitor` (Mon–Fri 09:00 + 13:00) + `com.irc.fundamentals-quarterly`
+loaded in launchd; legacy `com.irc.daily`/`weekly-full` booted out; cold-start snapshot ran (7 caches).
+
+**Final live brief (MiniMax-Text-01):** exit 0, all 5 outputs, **6/7 funds earn directional biases**
+(008986 NEUTRAL · 270023 ADD_BIAS · 519069 NEUTRAL · 260112 NEUTRAL · 006533 ADD_BIAS · 000083 NEUTRAL),
+**7/7 narratives ok**. 009225 = honest `NO_CALL` (fund-level QDII, no constituent holdings; valuation
+factor is the next piece). Feature-scoped suite: 380 passed / 11 skipped; feature files ruff-clean.
+
+**Known follow-ups (v2.1):** valuation factor wiring (would lift 009225 + add confidence); daily-fresh
+constituent news (current uses snapshot research); constituent symbol-keying can vary run-to-run.
+
 ## ✅ RUN COMPLETE (2026-06-15)
 
 - **Items:** 1 merged (001), 0 SKIPPED, 0 BLOCKED.
