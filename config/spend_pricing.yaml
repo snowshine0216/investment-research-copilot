@@ -13,6 +13,14 @@ llm:
     models:
       deepseek/deepseek-chat:     { input_per_mtok: 0.28, output_per_mtok: 0.88 }
       deepseek/deepseek-reasoner: { input_per_mtok: 0.55, output_per_mtok: 2.19 }
+  minimax:
+    # Preflight cannot read MINIMAX_MODEL (env-resolved at the call edge; not in secrets).
+    # The estimator falls back to the first seeded model id ("minimax-default") when
+    # route.model is None.  Recorded actuals (Phase I Task 30) use the real resolved model.
+    # VERIFY prices against https://www.minimax.io/pricing before production use.
+    currency: CNY
+    models:
+      minimax-default: { input_per_mtok: 1.0, output_per_mtok: 4.0 }   # conservative seed
 search:
   tavily: { currency: credits, per_query: 2.0 }    # advanced search = 2 credits/request
   bocha:  { currency: CNY,     per_query: 0.036 }  # Web Search API ¥0.036/call
@@ -30,6 +38,8 @@ seeds:
   research_synth:    { calls: 12, prompt_tokens: 4000,  completion_tokens: 1500 }
   memo_synthesis:    { calls: 1,  prompt_tokens: 12000, completion_tokens: 6000 }
   memo_audit:        { calls: 1,  prompt_tokens: 12000, completion_tokens: 6000 }
+  monitor_impact:    { calls: 60, prompt_tokens: 2000,  completion_tokens: 800 }
+  monitor_narrative: { calls: 11, prompt_tokens: 3000,  completion_tokens: 1500 }
 search_seeds:
   tavily: { units: 40 }
   bocha:  { units: 40 }
