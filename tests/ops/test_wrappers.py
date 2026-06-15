@@ -133,6 +133,22 @@ def _read_argv_log(argv_log: Path) -> list[str]:
     return [line for line in argv_log.read_text(encoding="utf-8").splitlines() if line.strip()]
 
 
+def _read_run_log(tmp_path: Path, prefix: str) -> str:
+    """Return the concatenated contents of the wrapper's own per-run log file(s).
+
+    The hardened wrappers redirect their own stdout/stderr to a fresh
+    `outputs/_logs/<prefix>.<timestamp>.log` (launchd writes to /dev/null — the
+    com.apple.provenance reopen-denial fix). Gate/guard messages land there, not
+    on the wrapper process's stdout.
+    """
+    log_dir = tmp_path / "outputs" / "_logs"
+    if not log_dir.exists():
+        return ""
+    return "\n".join(
+        p.read_text(encoding="utf-8") for p in sorted(log_dir.glob(f"{prefix}.*.log"))
+    )
+
+
 # ---------------------------------------------------------------------------
 # P0: wait exit-capture regression
 # ---------------------------------------------------------------------------
@@ -208,11 +224,136 @@ def test_daily_gate_skips_weekend_before_pipeline(tmp_path: Path):
     result = _run_wrapper(templated, env=_wrapper_env(date_bin))
 
     assert result.returncode == 0
-    assert "weekend" in result.stdout
+    # The wrapper redirects its own output to a per-run log (launchd → /dev/null).
+    assert "weekend" in _read_run_log(tmp_path, "run-daily")
     assert _read_argv_log(argv_log) == [], (
         f"gate must short-circuit before the pipeline; stub was invoked: "
         f"{_read_argv_log(argv_log)}"
     )
+
+
+# ---------------------------------------------------------------------------
+# P0: com.apple.provenance fix — launchd logs must be /dev/null; the wrapper
+#     writes its own fresh per-run log so launchd never reopens a tagged file.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "plist_name,stale_marker",
+    [
+        ("com.irc.daily.plist", "launchd-daily"),
+        ("com.irc.weekly-full.plist", "launchd-weekly"),
+    ],
+)
+def test_plist_logs_to_devnull(plist_name: str, stale_marker: str):
+    """launchd StandardOut/ErrPath must be /dev/null (provenance reopen-denial fix)."""
+    text = (_OPS / plist_name).read_text(encoding="utf-8")
+    assert text.count("<string>/dev/null</string>") >= 2, (
+        f"{plist_name}: StandardOutPath and StandardErrorPath must both be /dev/null"
+    )
+    assert stale_marker not in text, (
+        f"{plist_name}: must not point launchd at a {stale_marker}.*.log file "
+        f"(those acquire com.apple.provenance and become unopenable on reopen)"
+    )
+
+
+def test_daily_plist_has_redundant_fire_times():
+    """Daily plist must fire at 17:30, 20:00 and 22:30 so a missed/asleep slot is
+    caught later (idempotency guard makes the redundant fires safe)."""
+    text = (_OPS / "com.irc.daily.plist").read_text(encoding="utf-8")
+    # 17:30 + 20:00 + 22:30 across Mon–Fri = three distinct hours.
+    assert "<integer>20</integer>" in text, "daily plist missing the 20:00 catch-up fire"
+    assert "<integer>22</integer>" in text, "daily plist missing the 22:30 catch-up fire"
+    # Still Mon–Fri only (no weekend weekday 6/7 entries).
+    assert "<integer>6</integer>" not in text and "<integer>7</integer>" not in text
+
+
+@pytest.mark.parametrize("wrapper_name,prefix", [("run-daily.sh", "run-daily"), ("run-weekly-full.sh", "run-weekly")])
+def test_wrapper_writes_own_fresh_run_log(tmp_path: Path, wrapper_name: str, prefix: str):
+    """Each run must create a fresh outputs/_logs/<prefix>.<ts>.log it owns."""
+    stub, _ = _make_stub(tmp_path, exit_code=0)
+    templated = _template_wrapper(_OPS / wrapper_name, tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
+
+    _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    logs = list((tmp_path / "outputs" / "_logs").glob(f"{prefix}.*.log"))
+    assert logs, f"{wrapper_name}: expected a fresh {prefix}.<ts>.log under outputs/_logs"
+
+
+# ---------------------------------------------------------------------------
+# Idempotency guard (daily): skip when today's run already succeeded.
+# ---------------------------------------------------------------------------
+
+def _seed_today_outputs(tmp_path: Path, day: str, *, decision: bool, halted: bool) -> None:
+    out = tmp_path / "outputs" / day
+    out.mkdir(parents=True, exist_ok=True)
+    if decision:
+        (out / "decision_report.md").write_text("# decision\n", encoding="utf-8")
+    if halted:
+        (out / "PIPELINE_HALTED.md").write_text("# halted\n", encoding="utf-8")
+
+
+def test_daily_idempotency_skips_when_today_completed(tmp_path: Path):
+    """A completed run today (decision_report.md, no halt marker) must skip the
+    pipeline so redundant fire times don't re-run it."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    templated = _template_wrapper(_OPS / "run-daily.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
+    _seed_today_outputs(tmp_path, _GATE_OPEN_DAY[0], decision=True, halted=False)
+
+    result = _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    assert result.returncode == 0
+    assert _read_argv_log(argv_log) == [], "idempotency guard must skip the pipeline"
+    assert "already completed" in _read_run_log(tmp_path, "run-daily")
+
+
+def test_daily_idempotency_runs_when_prior_run_halted(tmp_path: Path):
+    """A halted run today (PIPELINE_HALTED.md present) must RE-RUN (retry)."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    templated = _template_wrapper(_OPS / "run-daily.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
+    _seed_today_outputs(tmp_path, _GATE_OPEN_DAY[0], decision=True, halted=True)
+
+    _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    assert _read_argv_log(argv_log), "guard must retry when today's run halted"
+
+
+# ---------------------------------------------------------------------------
+# Single-instance lock: skip when a live run holds it; steal a stale lock.
+# ---------------------------------------------------------------------------
+
+def _seed_lock(tmp_path: Path, pid: int) -> None:
+    lock = tmp_path / "outputs" / "_logs" / ".run.lock"
+    lock.mkdir(parents=True, exist_ok=True)
+    (lock / "pid").write_text(str(pid), encoding="utf-8")
+
+
+def test_lock_skips_when_held_by_live_process(tmp_path: Path):
+    """If another run holds the lock (live pid), skip rather than collide."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    templated = _template_wrapper(_OPS / "run-daily.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
+    _seed_lock(tmp_path, os.getpid())  # the test process is alive
+
+    result = _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    assert result.returncode == 0
+    assert _read_argv_log(argv_log) == [], "must not run while another holds the lock"
+    assert "in progress" in _read_run_log(tmp_path, "run-daily")
+
+
+def test_lock_steals_stale_lock_and_runs(tmp_path: Path):
+    """A stale lock (dead pid) must be reclaimed so a real run proceeds."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    templated = _template_wrapper(_OPS / "run-daily.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN_DAY)
+    _seed_lock(tmp_path, 999999)  # not a live pid
+
+    _run_wrapper(templated, env=_wrapper_env(date_bin))
+
+    assert _read_argv_log(argv_log), "must steal a stale lock and run the pipeline"
 
 
 # ---------------------------------------------------------------------------

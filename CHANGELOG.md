@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — launchd schedule silently dead from `com.apple.provenance` (2026-06-12)
+
+- **The daily/weekly launchd schedule never ran after its first fire.**
+  `launchctl print gui/$(id -u)/com.irc.daily` showed `last exit code = 78:
+  EX_CONFIG` with `runs` incrementing but the log files untouched — launchd was
+  failing to *spawn* the job before bash ever started. Root cause: the plists
+  pointed `StandardOutPath`/`StandardErrorPath` at persistent files
+  (`outputs/_logs/launchd-daily.{out,err}.log`); once `uv run irc run` wrote to
+  them macOS tagged the files with the protected **`com.apple.provenance`** xattr,
+  and launchd (a different responsible-app context) was then **denied reopening**
+  the tagged file on the next spawn → `EX_CONFIG`. The xattr cannot be stripped.
+  This was independent of the label, wrapper, timezone, and machine sleep state
+  (proven: an identical agent pointed at *fresh* log paths ran the full pipeline).
+- **Fix:** the plists now set `StandardOutPath`/`StandardErrorPath` to `/dev/null`
+  (never tagged, never fails to open) and each wrapper writes its **own fresh
+  per-run log** `outputs/_logs/run-{daily,weekly}.<timestamp>.log` (pruned after 14
+  days), so launchd never reopens a provenance-tagged file. `install.sh` removes
+  the legacy `launchd-*.log` files.
+
+### Added — daily schedule resilience: redundant fires, idempotency, single-instance lock (2026-06-12)
+
+- **Redundant fire times.** `com.irc.daily` now fires at **17:30, 20:00 and
+  22:30** Mon–Fri. `StartCalendarInterval` cannot wake a sleeping Mac, so a laptop
+  closed at 17:30 would otherwise miss the day entirely; a later fire catches it
+  once the machine is awake.
+- **Idempotency guard.** The daily wrapper skips (exit 0) when today already
+  produced `decision_report.md` and is not halted, so the extra fires are no-ops
+  on a completed day but still **retry** a fire that halted.
+- **Single-instance lock.** Both wrappers take an atomic `mkdir` lock
+  (`outputs/_logs/.run.lock`, stale-lock reclaim) so two pipelines never run at
+  once. `install.sh`/`uninstall.sh` clear the lock.
+- Tests: `tests/ops/test_wrappers.py` covers the `/dev/null` plists, redundant
+  fire times, per-run log creation, idempotency skip/retry, and lock skip/steal.
+
 ### Fixed — ops wrapper test determinism (2026-06-10)
 
 - The `tests/ops/test_wrappers.py` notify-status regression tests ran the real

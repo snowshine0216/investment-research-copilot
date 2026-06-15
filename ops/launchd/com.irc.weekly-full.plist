@@ -22,9 +22,11 @@
   </dict>
   <key>RunAtLoad</key>
   <false/>
+  <!-- /dev/null: see com.irc.daily.plist — the wrapper writes its own per-run log
+       (com.apple.provenance reopen-denial fix). -->
   <key>StandardOutPath</key>
-  <string>__REPO_ROOT__/outputs/_logs/launchd-weekly.out.log</string>
+  <string>/dev/null</string>
   <key>StandardErrorPath</key>
-  <string>__REPO_ROOT__/outputs/_logs/launchd-weekly.err.log</string>
+  <string>/dev/null</string>
 </dict>
 </plist>
