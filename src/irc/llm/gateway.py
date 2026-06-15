@@ -22,9 +22,11 @@ def resolve_route(task: str, config: LLMConfig) -> ResolvedRoute:
     return ResolvedRoute(
         task=task,
         provider=route.provider,
+        api_key_env=provider_cfg.api_key_env,
         model=route.model,
         base_url=provider_cfg.base_url,
-        api_key_env=provider_cfg.api_key_env,
+        base_url_env=provider_cfg.base_url_env,
+        default_model_env=provider_cfg.default_model_env,
     )
 
 
