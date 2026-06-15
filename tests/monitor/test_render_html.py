@@ -1,6 +1,6 @@
 import re
 from irc.monitor.types import (
-    SignalRecord, FactorContribution, NarrativeDoc, Claim, EvidenceItem,
+    SignalRecord, FactorContribution, NarrativeDoc, Claim, EvidenceItem, FactorScore,
 )
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.render_types import FundView, Provenance
@@ -33,6 +33,13 @@ def _view(status="ok", bias="ADD_BIAS", with_narr=True):
         signal=rec, narrative=narr, evidence_pool=(ev,),
         return_table={5: 0.01, 20: 0.03}, factor_freshness={"trend": "fresh"},
         missing_factor_reasons=("heat: heat_no_data",),
+        factor_scores=(
+            FactorScore("trend", 0.6, True, "", 1.0),
+            FactorScore("valuation", None, False, "valuation_no_index", 1.0),
+            FactorScore("heat", None, False, "heat_no_data", 1.0),
+            FactorScore("macro_tilt", None, False, "macro_no_rows", 1.0),
+            FactorScore("constituent", None, False, "constituent_no_snapshot", 1.0),
+        ),
     )
 
 
@@ -132,3 +139,40 @@ def test_golden_file(tmp_path):
     html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
     golden = Path(__file__).parent / "golden" / "report.html"
     assert html == golden.read_text(encoding="utf-8")
+
+
+def test_card_has_verdict_block():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert 'class="verdict"' in html
+    assert "综合分 C" in html
+
+
+def test_card_has_factor_table_with_na_rows():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert "class='factors'" in html
+    assert "factor-na" in html               # at least one N/A factor row
+    assert "heat_no_data" in html            # structured reason surfaced
+
+
+def test_card_has_real_returns_table():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert "class='returns'" in html
+    assert "60d:" in html and "250d:" in html  # the full window set
+
+
+def test_card_has_risk_block_or_placeholder():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert 'class="risk"' in html
+
+
+def test_old_missing_ul_is_gone():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert "class='missing'" not in html      # replaced by the factor table
+
+
+def test_no_call_card_keeps_gate_clause_and_no_neutral_label():
+    v = _view(status="insufficient_evidence", bias=None)
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
+    assert "NO_CALL" in html
+    # NO_CALL ≠ NEUTRAL: the verdict clause must not assert a NEUTRAL call
+    assert "落在中性带内" not in html
