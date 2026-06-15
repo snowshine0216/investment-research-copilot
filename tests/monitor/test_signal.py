@@ -1,6 +1,6 @@
 import pytest
 from irc.monitor.types import MonitorFund, FactorScore
-from irc.monitor.signal import compute_signal, present_families
+from irc.monitor.signal import compute_signal
 
 
 def _fund(weights, bands=None, min_conf=0.50, profile="gold"):

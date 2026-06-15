@@ -1,4 +1,3 @@
-import pytest
 from irc.monitor.factors import build_factor_scores, FactorInputs
 from irc.monitor.news_factor import ImpactRow
 
