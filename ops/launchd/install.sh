@@ -36,6 +36,17 @@ rm -f "$REPO_ROOT/outputs/_logs"/launchd-daily.out.log \
       "$REPO_ROOT/outputs/_logs"/launchd-weekly.err.log
 rm -rf "$REPO_ROOT/outputs/_logs/.run.lock"
 
+# Migration: boot out + remove the legacy jobs this vertical replaces
+# (com.irc.daily / com.irc.weekly-full). Their wrapper scripts were deleted, so a
+# stale LaunchAgent would fail on fire. Idempotent — ignore "not found".
+for legacy in com.irc.daily com.irc.weekly-full; do
+  if launchctl print "gui/$UID_NUM/$legacy" >/dev/null 2>&1; then
+    launchctl bootout "gui/$UID_NUM/$legacy" 2>/dev/null || true
+    echo "removed legacy job $legacy"
+  fi
+  rm -f "$DEST_DIR/$legacy.plist"
+done
+
 # Template wrapper scripts (resolve __REPO_ROOT__ + __UV_BIN__) into DEST_DIR.
 for wrapper in "${WRAPPERS[@]}"; do
   sed -e "s#__REPO_ROOT__#$REPO_ROOT#g" \

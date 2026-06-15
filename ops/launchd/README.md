@@ -25,11 +25,17 @@ if the quarterly job lapses, affected factors degrade to N/A (surfaced, not sile
 
 ## Install
 
-```bash
-# 1. Cold-start: populate per-fund constituent caches so day-one briefs are not half-empty
-uv run irc monitor snapshot
+> **Before installing:** set `MINIMAX_MODEL` in `.env` to a **fast, non-reasoning
+> chat model** (e.g. `MiniMax-Text-01`). A reasoning model (`MiniMax-M3`) overruns the
+> per-call deadline and the scheduled brief degrades to `NO_CALL` — see the main README
+> "Model choice". `install.sh` also boots out the legacy `com.irc.daily` /
+> `com.irc.weekly-full` jobs this vertical replaces.
 
-# 2. Install launchd agents (idempotent — boots out any prior agent first)
+```bash
+# 0. (one-time) ensure MINIMAX_MODEL=MiniMax-Text-01 (or another fast model) in .env
+
+# 1. Install launchd agents (idempotent — boots out prior + legacy agents; runs a
+#    one-time cold-start `irc monitor snapshot` at the end so day-one briefs aren't half-empty)
 bash ops/launchd/install.sh
 ```
 
