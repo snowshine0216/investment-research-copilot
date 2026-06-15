@@ -14,6 +14,9 @@ _CSS = (
     ".add_bias{background:#1a7f37;color:#fff}"
     ".neutral{background:#6e7781;color:#fff}"
     ".reduce_bias{background:#cf222e;color:#fff}"
+    ".navchart{width:100%;max-width:680px;height:auto;display:block;"
+    "margin:8px 0;background:#fff;border:1px solid #d0d7de;border-radius:6px}"
+    ".navchart .hit:hover{fill:#0969da;fill-opacity:.08}"
     "</style>"
 )
 
