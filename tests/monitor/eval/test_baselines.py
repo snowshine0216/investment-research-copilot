@@ -43,3 +43,41 @@ def test_momentum_defined_false_when_non_finite():
 def test_momentum_defined_true_for_clean_series():
     series = tuple((f"2026-01-{i:02d}", 1.0 + 0.01 * i) for i in range(1, 23))
     assert momentum_defined(series) is True
+
+
+# ---------------------------------------------------------------------------
+# Task 8: within-run_date permutation grouping + degenerate exclusions
+# ---------------------------------------------------------------------------
+from irc.monitor.eval.baselines import permutable_groups, permutation_excluded  # noqa: E402
+
+
+def _row(run_date, label, fwd):
+    return {"run_date": run_date, "label": label, "fwd": fwd}
+
+
+def test_single_actionable_run_date_excluded_too_few_rows():
+    rows = [_row("2026-01-01", 1, 0.01)]  # only 1 row in its group
+    groups, excl = permutable_groups(rows, label_key="label")
+    assert groups == {}                       # nothing permutable
+    assert excl["too_few_rows"] == 1
+    assert excl.get("identical_labels", 0) == 0
+
+
+def test_identical_label_run_date_excluded_separately():
+    # all 7 funds ADD_BIAS (label +1) → permuting is identity → no null variation.
+    rows = [_row("2026-01-02", 1, 0.01 * i) for i in range(1, 8)]
+    groups, excl = permutable_groups(rows, label_key="label")
+    assert groups == {}
+    assert excl["identical_labels"] == 1
+    assert excl.get("too_few_rows", 0) == 0   # NOT counted as too_few_rows
+
+
+def test_groups_share_run_date_not_entry_nav_date():
+    # two funds same run_date, different entry_nav_date → permuted TOGETHER
+    rows = [
+        {"run_date": "2026-01-03", "entry_nav_date": "2026-01-04", "label": 1, "fwd": 0.02},
+        {"run_date": "2026-01-03", "entry_nav_date": "2026-01-06", "label": -1, "fwd": -0.01},
+    ]
+    groups, excl = permutable_groups(rows, label_key="label")
+    assert set(groups.keys()) == {"2026-01-03"}
+    assert len(groups["2026-01-03"]) == 2
