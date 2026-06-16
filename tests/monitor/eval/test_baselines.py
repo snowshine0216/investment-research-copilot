@@ -81,3 +81,24 @@ def test_groups_share_run_date_not_entry_nav_date():
     groups, excl = permutable_groups(rows, label_key="label")
     assert set(groups.keys()) == {"2026-01-03"}
     assert len(groups["2026-01-03"]) == 2
+
+
+# ---------------------------------------------------------------------------
+# Task 9: permutation-null delta + insufficient-data state
+# ---------------------------------------------------------------------------
+from irc.monitor.eval.baselines import random_null_delta  # noqa: E402
+
+
+def test_random_null_delta_insufficient_dates_returns_state():
+    # < MIN_PERM_DATES permutable run_dates → state, no point estimate
+    rows = [
+        {"run_date": "2026-01-01", "label": 1, "fwd": 0.02},
+        {"run_date": "2026-01-01", "label": -1, "fwd": -0.01},
+    ]  # only 1 permutable date < MIN_PERM_DATES (8)
+    def metric(rs):
+        from irc.monitor.eval.stats import hit_rate
+        return hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])
+    out = random_null_delta(rows, metric=metric, label_key="label",
+                            signal_value=1.0, seed=7, b=100)
+    assert out["state"] == "insufficient_data"
+    assert "delta" not in out
