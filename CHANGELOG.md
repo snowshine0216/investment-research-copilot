@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor eval LLM suites (M1) (2026-06-16)
+
+- Offline LLM-quality eval suites for the two MiniMax-routed monitor tasks. Synthetic/adversarial
+  corpora under `src/irc/monitor/eval/cases/{impact,narrative}/*.json` (directional-strong/neutral,
+  contradiction, injection, citation-discipline; citation-resolve, entailment-ablation,
+  attribution-honesty, no-numbers, injection) and pure deterministic scorers
+  (`metrics_impact.py`: sign-accuracy, magnitude-band, injection-resistance, citation-validity;
+  `metrics_narrative.py`: citation-resolution, entailment-ablation, attribution-honesty,
+  hallucination-rate, injection-resistance) — unit-testable on canned outputs with no network.
+- `live_gated` runners `evals/monitor_impact/` + `evals/monitor_narrative/` (shared
+  `evals/monitor_suite/driver.py`): load the corpora, drive the real MiniMax route, score, write a
+  `StageReport`. Gated by `IRC_RUN_LIVE_LLM_EVAL=1` + the M0 `eval-live` budget gate; the runner
+  ledgers spend via `record_command_run`. This is the only paid M1 surface; the green suite never
+  hits the API.
+- Live run now gates on the LLM suites: `GATING_STAGES_M1` resolves the latest
+  `monitor_impact`/`monitor_narrative` reports (run-global) → a fresh `FAIL` marks affected funds
+  `EVAL_GATED`; `SKIPPED`/stale/missing fail open (`caveated`).
+
 ### Added — monitor eval spine (M0) (2026-06-16)
 
 - New `src/irc/monitor/eval/` package: an in-run validation + forward-evaluation spine for the
