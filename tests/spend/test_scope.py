@@ -22,6 +22,12 @@ def test_ask_scope_is_interactive_query_only():
     assert scope.tasks == frozenset({"interactive_query"})
 
 
+def test_eval_live_scope_is_both_monitor_tasks_no_search():
+    scope = resolve_scope("eval-live")
+    assert scope.tasks == frozenset({"monitor_impact", "monitor_narrative"})
+    assert scope.search_providers == frozenset()
+
+
 def test_every_llm_yaml_task_is_mapped_somewhere():
     llm = load_yaml(REPO / "config/llm.yaml", REPO)
     assert set(llm.tasks) <= ALL_LLM_TASKS, (
