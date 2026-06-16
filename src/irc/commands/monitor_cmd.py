@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
@@ -36,6 +36,13 @@ from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
 from irc.monitor.snapshot_targets import target_for_fund
+from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M1, published_state
+from irc.monitor.eval.structural import monitor_signal_health
+from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
+from irc.monitor.eval.trace import build_eval_trace
+from irc.monitor.eval.forward_log import append_ledger, ledger_row
+from irc.monitor.eval.types import FundTraceBundle, GateDecision
+from evals._shared.latest_report import latest_stage_report
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -44,6 +51,7 @@ from irc.commands.spend_cmd import preflight_gate
 
 _log = logging.getLogger(__name__)
 _ENGINE_VERSION = "1"
+_NAV_STALE_DAYS = 7
 
 
 # ── Snapshot subcommand ───────────────────────────────────────────────────────
@@ -298,9 +306,12 @@ def _machine_summary(views: list[FundView]) -> dict:
     }
 
 
-def _write_outputs(out: Path, views: list[FundView], prior: dict | None) -> None:
+def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
+                   gates: tuple[GateDecision, ...] = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
-    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso())
+    gate_map = {g.fund_id: g for g in gates} if gates else None
+    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
+                         gates=gate_map)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -320,13 +331,85 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None) -> None
     )
 
 
+# ── Eval wiring helpers ───────────────────────────────────────────────────────
+
+
+def _suite_healths(root: Path, today: str, now: datetime) -> tuple:
+    """EDGE-read: resolve the two LLM-suite StageHealths ONCE per run (run-global,
+    OQ-E). Missing/SKIPPED/stale → UNKNOWN → caveated (fail-open)."""
+    return tuple(
+        resolve_health(latest_stage_report(root, stage, today_iso=today),
+                       now=now, stale_after_days=STALE_AFTER_DAYS, stage=stage)
+        for stage in ("monitor_impact", "monitor_narrative")
+    )
+
+
+def _compute_gates(
+    funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
+    *, min_obs: int, root: Path, today: str,
+) -> tuple[GateDecision, ...]:
+    """Build each fund's trace projection, derive its monitor_signal health, append
+    the two run-global LLM-suite healths, and apply the M1 gate. The suite healths
+    are resolved once (run-global) — they are identical for every fund (OQ-E)."""
+    now = datetime.now(timezone(timedelta(hours=8)))
+    suite_healths = _suite_healths(root, today, now)
+    gates: list[GateDecision] = []
+    for fund, view, bundle in zip(funds, views, bundles):
+        stub = GateDecision(fund.id, False, (), "validated", "")
+        projection = build_eval_trace(
+            ((fund, view, stub, bundle),), engine_version=_ENGINE_VERSION,
+            run_date="",
+        )["funds"][fund.id]
+        signal_health = monitor_signal_health(
+            projection, minimum_observations=min_obs,
+            stale_days=_NAV_STALE_DAYS, today=date.today(),
+        )
+        health = (signal_health, *suite_healths)
+        gates.append(apply_eval_gate(view.signal, health=health,
+                                     gating_stages=GATING_STAGES_M1))
+    return tuple(gates)
+
+
+def _write_eval_artifacts(
+    out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
+    bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
+) -> None:
+    """EDGE: serialize eval_trace.json + append the forward ledger. Failures are
+    logged and swallowed — the brief must still render."""
+    try:
+        trace = build_eval_trace(
+            tuple(zip(funds, views, gates, bundles)),
+            engine_version=_ENGINE_VERSION, run_date=run_date,
+        )
+        atomic_write_text(out / "eval_trace.json",
+                          json.dumps(trace, ensure_ascii=False, indent=2))
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("eval_trace write failed", exc_info=True)
+    try:
+        written_at = _now_iso()
+        rows = [
+            ledger_row(
+                run_date=run_date, fund_id=fund.id, written_at=written_at,
+                signal=view.signal,
+                nav_acc=(view.nav_series[-1][1] if view.nav_series else None),
+                nav_unit=view.latest_nav, as_of_date=view.as_of_date,
+                published_state=published_state(view.signal, gate), gate=gate,
+                manifest_versions={"engine": _ENGINE_VERSION},
+            )
+            for fund, view, gate in zip(funds, views, gates)
+        ]
+        append_ledger(root / "data" / "monitor" / "forward_ledger.jsonl", rows)
+    except Exception:  # noqa: BLE001 — append_ledger already swallows, this guards ledger_row
+        _log.warning("forward ledger write failed", exc_info=True)
+
+
 # ── Main orchestration ────────────────────────────────────────────────────────
 
 
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config,
-) -> tuple[FundView, list]:
-    """Process one fund: fetch → impacts → signal → narrative → view."""
+) -> tuple[FundView, list, FundTraceBundle]:
+    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
@@ -337,11 +420,10 @@ def _process_fund(
     cost_history = list(impacts.cost_entries)
     macro_rows = _impact_rows_from(impacts, fund)
 
-    # ── Constituent factor (v2.0: snapshot-grounded) ──────────────────────────
-    # Only for active_fund lookthrough profiles; others (gold/qdii) have no
-    # active_fund snapshot → constituent_rows=() naturally.
-    profile_spec = PROFILES.get(fund.analysis_profile)
     constituent_rows: tuple = ()
+    const_impacts_result = None
+    const_pool: tuple = ()
+    profile_spec = PROFILES.get(fund.analysis_profile)
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
         snap = load_latest_active_fund_cached(fund.id, root / "data")
@@ -352,12 +434,12 @@ def _process_fund(
             )[:_TOP_N_HOLDINGS]
         if const_pool and top_holdings:
             holding_symbols = tuple(h.symbol for h in top_holdings)
-            const_impacts = gather_impacts(
+            const_impacts_result = gather_impacts(
                 fund_id=fund.id, themes=holding_symbols, pool=const_pool,
                 route=llm_config, call=llm_call,
             )
-            cost_history.extend(const_impacts.cost_entries)
-            constituent_rows = _make_constituent_rows(const_impacts, top_holdings)
+            cost_history.extend(const_impacts_result.cost_entries)
+            constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
 
     inp = FactorInputs(
         acc_nav=nav.acc_series if nav else (),
@@ -376,7 +458,13 @@ def _process_fund(
     )
     cost_history.extend(narr.cost_entries)
     view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status)
-    return view, cost_history
+    bundle = FundTraceBundle(
+        fund_id=fund.id,
+        macro_impacts=impacts.impacts,
+        constituent_impacts=const_impacts_result.impacts if const_impacts_result else (),
+        constituent_pool=const_pool,
+    )
+    return view, cost_history, bundle
 
 
 def run_monitor(*, repo_root: str, today: str | None = None) -> int:
@@ -388,17 +476,23 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         return gate
     cfg = load_monitor_config(root)
     funds = resolve_funds(cfg)
-    llm_config = load_yaml(root / "config/llm.yaml", root)   # narrow LLMConfig (sole-source OK)
+    llm_config = load_yaml(root / "config/llm.yaml", root)
     views: list[FundView] = []
+    bundles: list[FundTraceBundle] = []
     all_costs: list = []
     for fund in funds:
-        view, costs = _process_fund(fund, cfg, root, llm_config)
+        view, costs, bundle = _process_fund(fund, cfg, root, llm_config)
         views.append(view)
+        bundles.append(bundle)
         all_costs.extend(costs)
+    gates = _compute_gates(list(funds), views, bundles,
+                           min_obs=cfg.history.minimum_observations,
+                           root=root, today=_today)
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
-    _write_outputs(out, views, prior)
+    _write_eval_artifacts(out, root, list(funds), views, bundles, gates, run_date=_today)
+    _write_outputs(out, views, prior, gates)
     record_command_run(
         repo_root=root,
         history=all_costs,

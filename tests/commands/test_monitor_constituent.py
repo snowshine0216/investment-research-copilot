@@ -323,7 +323,7 @@ def test_process_fund_active_cn_equity_gets_constituent_rows(tmp_path, monkeypat
 
     fund = _make_active_fund()
     _sentinel_cfg = object()
-    view, costs = mc._process_fund(fund, _MinCfg(), tmp_path, _sentinel_cfg)
+    view, costs, _bundle = mc._process_fund(fund, _MinCfg(), tmp_path, _sentinel_cfg)
 
     assert "inp" in captured_inputs, "_spy never fired"
     assert len(captured_inputs["inp"].constituent_rows) > 0, (
@@ -387,5 +387,5 @@ def test_process_fund_active_no_snapshot_constituent_rows_empty(tmp_path, monkey
             minimum_observations = 10
 
     fund = _make_active_fund()
-    view, costs = mc._process_fund(fund, _MinCfg(), tmp_path, object())
+    view, costs, _bundle = mc._process_fund(fund, _MinCfg(), tmp_path, object())
     assert captured_inputs["inp"].constituent_rows == ()

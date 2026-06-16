@@ -19,6 +19,7 @@ COMMAND_TASKS: dict[str, tuple[str, ...]] = {
     "opportunity": ("thesis_falsify", "thesis_defend"),
     "memo": ("memo_synthesis", "memo_audit"),
     "monitor": ("monitor_impact", "monitor_narrative"),
+    "eval-live": ("monitor_impact", "monitor_narrative"),
     "decision": (),
 }
 

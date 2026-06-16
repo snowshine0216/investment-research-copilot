@@ -1,0 +1,8 @@
+{
+  "category": "directional-strong",
+  "messages_seed": { "fund_id": "000002", "themes": ["新能源车"] },
+  "evidence_pool": [
+    {"source": "cls", "title": "补贴退坡叠加价格战，新能源车板块订单显著下滑", "date": "2026-06-13", "url": "https://example.com/ev-down-1", "owner_fund_id": "000002", "citation_id": "aaaa000000000002"}
+  ],
+  "expected": { "sign": "-", "min_abs": 0.5 }
+}

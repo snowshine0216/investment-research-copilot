@@ -1,0 +1,8 @@
+{
+  "category": "directional-neutral",
+  "messages_seed": { "fund_id": "000004", "themes": ["医药"] },
+  "evidence_pool": [
+    {"source": "yicai", "title": "医药行业协会发布常规年度统计口径说明", "date": "2026-06-11", "url": "https://example.com/pharma-neutral-1", "owner_fund_id": "000004", "citation_id": "aaaa000000000004"}
+  ],
+  "expected": { "max_abs": 0.3 }
+}

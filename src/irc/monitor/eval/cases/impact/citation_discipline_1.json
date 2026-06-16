@@ -1,0 +1,8 @@
+{
+  "category": "citation-discipline",
+  "messages_seed": { "fund_id": "000008", "themes": ["消费"] },
+  "evidence_pool": [
+    {"source": "eastmoney", "title": "社会消费品零售总额温和回升", "date": "2026-06-07", "url": "https://example.com/cons-1", "owner_fund_id": "000008", "citation_id": "aaaa00000000000a"}
+  ],
+  "expected": { "all_cids_in_pool": true }
+}

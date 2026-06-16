@@ -1,20 +1,44 @@
 from __future__ import annotations
 
 import importlib
+import os
 from pathlib import Path
 from typing import Callable
 
+from evals._shared.missing_input import (
+    EVAL_RC_SKIPPED,
+    skipped_report,
+    write_missing_input_report,
+)
 from evals._shared.registry import (
     EvalStageSpec,
     active_suite_stages,
     get_spec,
     is_inactive,
+    is_live_gated,
 )
+from irc.commands.spend_cmd import preflight_gate
+
+_LIVE_ENV = "IRC_RUN_LIVE_LLM_EVAL"
+_TRUE = {"1", "true", "yes", "on"}
 
 
 def _resolve_runner(spec: EvalStageSpec) -> Callable[[Path], int]:
     mod = importlib.import_module(spec.runner_module)
     return mod.run
+
+
+def _run_live_gated(root: Path, spec: EvalStageSpec) -> int:
+    """SKIPPED when the env gate is unset; otherwise budget-gate before dispatch."""
+    if os.environ.get(_LIVE_ENV, "").strip().lower() not in _TRUE:
+        report = skipped_report(spec.stage, "env absent; not executed")
+        write_missing_input_report(root, report)
+        print(f"{spec.stage} eval: SKIPPED (env absent; not executed)")
+        return EVAL_RC_SKIPPED
+    gate = preflight_gate(str(root), "eval-live")
+    if gate != 0:
+        return gate
+    return _resolve_runner(spec)(root)
 
 
 def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
@@ -35,6 +59,8 @@ def run_eval(repo_root: str, stage: str | None, all_stages: bool) -> int:
             f"not part of the active suite — no current artifact contract to evaluate"
         )
         return 2
+    if is_live_gated(spec):
+        return _run_live_gated(root, spec)
     return _resolve_runner(spec)(root)
 
 
