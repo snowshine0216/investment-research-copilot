@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import logging
 import os
 from pathlib import Path
 from typing import Callable
@@ -18,6 +19,8 @@ from evals._shared.registry import (
     is_live_gated,
 )
 from irc.commands.spend_cmd import preflight_gate
+
+_log = logging.getLogger(__name__)
 
 _LIVE_ENV = "IRC_RUN_LIVE_LLM_EVAL"
 _TRUE = {"1", "true", "yes", "on"}
@@ -69,8 +72,8 @@ def _run_active_suite(root: Path) -> int:
     for s in active_suite_stages():
         try:
             by_stage[s] = _resolve_runner(get_spec(s))(root)
-        except Exception as e:  # noqa: BLE001 — one stage failing must not kill the suite
-            print(f"eval {s} raised: {e}")
+        except Exception:  # noqa: BLE001 — one stage failing must not kill the suite
+            _log.exception("eval stage %s raised", s)
             by_stage[s] = 2
     _print_eval_summary(by_stage)
     return max(by_stage.values()) if by_stage else 0
