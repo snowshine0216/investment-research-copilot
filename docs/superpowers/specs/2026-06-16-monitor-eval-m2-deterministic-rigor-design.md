@@ -1,6 +1,6 @@
 # Monitor Eval M2 — Deterministic Rigor
 
-**Status:** Approved for planning (2026-06-16, rev 2 — incorporates the design-review block below)
+**Status:** Approved for planning (2026-06-16, rev 3 — adversarial-review fixes folded in; see §11)
 **Owner:** Xue Yin
 **Relates to:** [monitor-eval roadmap §5 M2](2026-06-16-monitor-eval-roadmap.md) · [M0/M1 design](2026-06-16-monitor-eval-m0-m1-design.md) · [ADR 0017](../../adr/0017-monitor-evidence-isolation.md) · CONTEXT.md "Monitor eval spine"
 **Milestone position:** M0 (spine) + M1 (LLM suites) are **built + merged to main** (PR #134, `4b8fdf3`). M2 is the next milestone. M3 (retro backtest + forward-ledger scorer) and M4 (ablation + economic-rationale ADR) follow.
@@ -30,7 +30,10 @@ Two gaps remain:
    outcome — not the deterministic stage's own health.
 
 M2 closes both: an **offline property + hybrid-oracle test suite** (D1) and an **in-run
-`deterministic_scoring` panel row** that recomputes the full signal from raw inputs and diffs it (D2).
+`deterministic_scoring` panel row** that recomputes the full signal block from the persisted
+`factor_scores` + `resolved` and diffs it (D2). Note `factor_scores` is itself a *derived* artifact
+(the output of `build_factor_scores`); D2 therefore validates `compute_signal`'s re-derivation, while
+`build_factor_scores`'s own correctness is covered by **D1** (§3.1), not D2.
 
 ## 2. Scope
 
@@ -95,31 +98,42 @@ Exact equality for categorical outputs (`status`, `bias`, reason codes, divergen
 ### 3.4 Determinism config
 
 The global rule requires fast, deterministic tests. Register a `derandomize=True` hypothesis profile
-(`deadline=None`, bounded `max_examples` — e.g. 100–200, cheap for pure functions) in
-`tests/conftest.py` (create if absent) and `load_profile` it. No reliance on `[tool.hypothesis]` in
-`pyproject.toml` (hypothesis reads profiles from code).
+(`deadline=None`, bounded `max_examples` — e.g. 100–200, cheap for pure functions) in the **existing**
+`tests/conftest.py` (it already defines an autouse `_skip_spend_gate` fixture; a module-level
+`register_profile` + `load_profile` coexists fine) and load it. No reliance on `[tool.hypothesis]` in
+`pyproject.toml` (hypothesis reads profiles from code). Hypothesis needs **no pytest marker**, so do
+**not** add a `markers` entry — `--strict-markers` ([`pyproject.toml:50`](../../../pyproject.toml)) is
+unaffected.
 
 ## 4. D2 — In-run `deterministic_scoring` panel row
 
 ### 4.1 Source of truth = `factor_scores + resolved`
 
-The persisted trace ([`trace.py`](../../../src/irc/monitor/eval/trace.py)) carries the **raw inputs**
-(`resolved` = profile/weights/bands/min-confidence; `factor_scores` = the five `FactorScore`s) **and**
-the **derived `signal` block** (`status/bias/composite/signal_confidence/available_weight/`
-`present_families/contributions/divergence_codes`) separately. D2 recomputes the signal from the raw
-inputs and diffs it against the recorded block — so it is **not self-referential** and catches stale
-or malformed derived metadata (P1).
+The persisted trace ([`trace.py`](../../../src/irc/monitor/eval/trace.py)) carries the **inputs to
+`compute_signal`** (`resolved` = profile/weights/bands/min-confidence; `factor_scores` = the five
+`FactorScore`s) **and** the **derived `signal` block** (`status/bias/composite/signal_confidence/`
+`available_weight/present_families/contributions/divergence_codes`) separately. D2 recomputes the
+signal from `factor_scores` + `resolved` and diffs it against the recorded block — so it is **not
+self-referential** and catches stale or malformed derived metadata (P1).
 
 New pure module `src/irc/monitor/eval/determinism.py`:
 
 ```
-KNOWN_NA_REASONS                                          # imported from factors.py (single source — §6)
-recompute_signal_from_trace(trace_fund) -> SignalRecord  # rebuild MonitorFund from `resolved`
-                                                         # + FactorScores from `factor_scores`; run compute_signal
-diff_signal(recomputed, recorded_signal: dict) -> tuple[str, ...]   # names of mismatched fields
-deterministic_health(trace_fund) -> StageHealth          # per fund (PASS / FAIL)
-aggregate_deterministic_health(traces) -> StageHealth     # worst-of; reasons name offending funds
+KNOWN_NA_REASONS                                                   # imported from factors.py (single source — §6)
+recompute_signal_from_trace(fund_id, trace_fund) -> SignalRecord  # rebuild MonitorFund from fund_id + `resolved`
+                                                                  # + FactorScores from `factor_scores`; run compute_signal
+diff_signal(recomputed, recorded_signal: dict) -> tuple[str, ...] # names of mismatched fields
+deterministic_health(fund_id, trace_fund) -> StageHealth          # per fund (PASS / FAIL)
+aggregate_deterministic_health(traces: dict) -> StageHealth        # worst-of over funds dict; reasons name offending funds
 ```
+
+> **P0 fix (rev 3).** `fund_id` is **required** and is **not** inside the per-fund trace value dict —
+> it is only the `funds` dict key ([`trace.py:121`](../../../src/irc/monitor/eval/trace.py); `resolved`
+> and `signal` both omit it). `compute_signal` reads `fund.id` ([`signal.py:80`](../../../src/irc/monitor/signal.py)),
+> so the recompute/health signatures take `fund_id` explicitly and `aggregate_deterministic_health`
+> passes it from the dict key — mirroring M0's `_rebuild_fund(fund_id, resolved)`
+> ([`metrics.py:9`](../../../evals/monitor_signal/metrics.py)). (`diff_signal` does not compare
+> `fund_id`; it is needed only to construct the `MonitorFund`.)
 
 `diff_signal` compares recomputed-vs-recorded for: `available_weight`, `present_families`, **every
 contribution** (`name`/`renorm_weight`/`value`/`contribution`/`confidence`), rounded `composite`,
@@ -128,17 +142,23 @@ exact). `deterministic_health` additionally checks **N/A-reason validity**: ever
 `factor_scores[].reason` on an ineligible factor ∈ `KNOWN_NA_REASONS`. A non-empty diff or an unknown
 reason → `FAIL` with the field/fund named in `reasons`; otherwise `PASS`.
 
-**Layering** (ADR 0017 §3.3 import table): `determinism.py` imports only pure monitor cores
-(`signal.py`, `types.py`, `factors.py`) + eval's own types. No I/O, AkShare, LLM, settings, or
-`evals/`-root imports.
+**Layering** (ADR 0017 §3.3 import table): `determinism.py` imports pure monitor cores
+(`signal.py`, `types.py`, `factors.py`), eval's own types, **and pure `evals._shared` helpers** —
+specifically `evals._shared.status.worst_status` for the worst-of aggregation, exactly as the sibling
+[`structural.py:6`](../../../src/irc/monitor/eval/structural.py) and
+[`staleness.py`](../../../src/irc/monitor/eval/staleness.py) already do. The real ADR 0017 ban is
+**I/O, AkShare, providers, LLM gateway, settings, filesystem** — `evals._shared.status` is none of
+those, so reuse it rather than re-implementing `worst_status`.
 
 ### 4.2 Relationship to M0 / D1
 
 - **D2 is a strict superset of M0's `oracle_signal_match`** (full signal block vs four fields),
   surfaced in-run rather than only via `irc eval monitor_signal`.
-- **Division of labour:** D2 (in-run, self-recompute from raw) catches **persisted-artifact
-  inconsistency**; D1 (offline, independent oracle + properties) catches **`compute_signal` logic
-  bugs**. Complementary — they share only the pure cores.
+- **Division of labour:** D2 (in-run, recompute from `factor_scores` + `resolved`) catches
+  **persisted-artifact inconsistency** in `compute_signal`'s output; D1 (offline, independent oracle +
+  properties) catches **logic bugs in both `compute_signal` and `build_factor_scores`**. Neither D2 nor
+  the M0 oracle re-runs `build_factor_scores` (they consume its persisted output) — that stage's
+  correctness rests on D1. Complementary; they share only the pure cores.
 
 ### 4.3 Not a gate
 
@@ -166,12 +186,18 @@ class ValidationPanelRow:
 ```
 
 Changes:
-- `_compute_gates` **stops discarding health** → returns `(gates, signal_healths)`.
+- `_compute_gates` **stops discarding health** → returns `(gates, signal_healths, deterministic_healths)`.
+  Both per-fund healths derive from the **same single per-fund trace projection** already built inside
+  its loop ([`monitor_cmd.py:359-362`](../../../src/irc/commands/monitor_cmd.py)): `signal_health` via
+  `monitor_signal_health(...)` (unchanged), `deterministic_health` via the new
+  `deterministic_health(fund.id, projection)`. **No extra `build_eval_trace` pass** — the call site does
+  not rebuild projections (that ambiguity is the rev-3 P1-A fix).
 - New pure `build_panel_rows(signal_healths, deterministic_healths, now) -> tuple[ValidationPanelRow, ...]`
-  builds **both** rows from the healths (aggregating per-fund → worst-of).
+  builds **both** rows from the healths (aggregating per-fund → worst-of via `worst_status`).
 - `validation_panel_html(*, rows: tuple[ValidationPanelRow, ...], badge_counts: dict[str, int])`
   renders **N rows** (was hardcoded to one). `badge_counts` (validated/caveated/gated tally) remains a
-  legitimate **gate summary**, computed from gates and passed separately.
+  legitimate **gate summary**, computed from gates ([`render_html.py:136-139`](../../../src/irc/monitor/render_html.py))
+  and passed separately.
 - `render_report` receives `panel_rows` explicitly; `_panel` no longer reverse-engineers a row from
   `GateDecision`.
 
@@ -194,7 +220,10 @@ imports it. Putting the set in `eval/determinism.py` (as first suggested) and im
 `factors.py`'s `_na(...)` call sites are refactored to use the named constants.
 
 A test asserts the set is **exhaustive both ways**: every `_na` branch in `build_factor_scores` emits
-a member of `KNOWN_NA_REASONS`, and every member is reachable (no dead codes).
+a member of `KNOWN_NA_REASONS`, and every member is reachable (no dead codes). Note `constituent_no_coverage`
+is emitted by **two** branches ([`factors.py:70` and `:73`](../../../src/irc/monitor/factors.py)) — the
+reachability check maps codes-to-branches many-to-one, so two branches sharing one code is **not** a
+dead-code false positive.
 
 ## 7. Architecture map
 
@@ -206,8 +235,8 @@ src/irc/monitor/
   eval/panel.py              # GENERALIZE: single row → N rows; validation_panel_html(rows, badge_counts)
   eval/types.py              # + ValidationPanelRow
   render_html.py             # _panel renders passed rows + badge tally; no GateDecision reverse-engineering
-src/irc/commands/monitor_cmd.py   # _compute_gates returns (gates, signal_healths); builds panel rows
-                                  #   incl. aggregate_deterministic_health from per-fund projections
+src/irc/commands/monitor_cmd.py   # _compute_gates returns (gates, signal_healths, deterministic_healths)
+                                  #   from ONE per-fund projection; call site builds panel rows via build_panel_rows
 
 tests/monitor/
   _oracle.py                 # NEW test-only independent reference impls (composite/renorm, gate, bands, maps)
@@ -240,8 +269,21 @@ Red → green → refactor; test files mirror source. Order:
    crafted trace fixtures (a clean trace → PASS; a trace with a corrupted contribution / bad reason →
    FAIL naming the field).
 4. `ValidationPanelRow` + multi-row `validation_panel_html` + `_panel`/`_compute_gates`/`render_report`
-   wiring; extend `test_panel.py`; assert `deterministic_scoring` never enters `apply_eval_gate`
-   (guard test: a FAILing deterministic health does not suppress any bias).
+   wiring; assert `deterministic_scoring` never enters `apply_eval_gate` (guard test: a FAILing
+   deterministic health does not suppress any bias).
+
+**Tests that must be re-expressed for divergence 1** (the `monitor_signal` row now shows aggregated raw
+`signal_health`, not the gate outcome) — under-scoping these is the rev-3 P1-C fix:
+- [`tests/monitor/test_render_html_eval.py`](../../../tests/monitor/test_render_html_eval.py) —
+  `test_validation_panel_overall_is_not_pass_when_fund_is_gated` asserts `">PASS<" not in html` for a
+  gated-but-clean fund; that fund's raw health is PASS, so the assertion must move to the
+  **gate-outcome surface** (`badge_counts`/the `EVAL-GATED` badge), which still renders.
+- [`tests/monitor/test_acceptance_eval.py`](../../../tests/monitor/test_acceptance_eval.py) — panel
+  assertions for a gated fund; re-express against `badge_counts`/`EVAL-GATED`, not the row status.
+- `tests/monitor/eval/test_panel.py` — extend for multi-row.
+
+Gate-outcome visibility is **preserved**: `badge_counts` (validated/caveated/gated) and the per-fund
+`EVAL-GATED` published-state are unchanged; only the `monitor_signal` *row status* changes meaning.
 
 Full suite stays green and offline. No new live marker.
 
@@ -250,11 +292,30 @@ Full suite stays green and offline. No new live marker.
 - **Float order-of-operations** in the renorm oracle → use the §3.3 eps, not bit-equality.
 - **Suite runtime** → bounded `max_examples`; pure functions keep it sub-second.
 - **Hypothesis nondeterminism** → `derandomize=True` profile loaded in `conftest.py`.
-- **Panel-row meaning change** (§5 divergence 1) → covered by an updated `test_panel.py` expectation;
-  `badge_counts` preserves gate-outcome visibility.
+- **Panel-row meaning change** (§5 divergence 1) → blast radius is `test_render_html_eval.py`,
+  `test_acceptance_eval.py`, and `test_panel.py` (enumerated in §8); `badge_counts`/`EVAL-GATED`
+  preserve gate-outcome visibility.
 
 ## 10. Open questions (deferred)
 
 - Whether an in-run `deterministic_scoring` FAIL should *ever* gate (M2: no; revisit post-M3).
 - Final `max_examples` per property (tune during implementation to keep the suite sub-second).
 - Whether to fold the M0 metrics.py consolidation (§7) into a later cleanup PR.
+
+## 11. Adversarial-review resolutions (rev 3)
+
+An independent adversarial review (2026-06-16) verified the rev-2 spec against the code and raised
+1 P0 + 4 P1. All folded in:
+
+| # | Sev | Finding | Resolution |
+|---|---|---|---|
+| 1 | **P0** | `recompute_signal_from_trace(trace_fund)` can't supply `MonitorFund.id` — fund_id is only the `funds` dict key, absent from the per-fund value (`trace.py:121`); `compute_signal` needs `fund.id` (`signal.py:80`) | §4.1: signatures take `fund_id` explicitly; `aggregate_deterministic_health` passes it from the dict key, mirroring M0's `_rebuild_fund(fund_id, …)` |
+| 2 | P1 | Panel data flow contradictory — §5 returned `(gates, signal_healths)` but `deterministic_healths` had no source; projections are local to `_compute_gates` | §5/§7: `_compute_gates` returns `(gates, signal_healths, deterministic_healths)` from one per-fund projection; no extra `build_eval_trace` pass |
+| 3 | P1 | "No `evals/`-root imports" contradicts as-built `structural.py:6` (`worst_status` from `evals._shared`); ADR 0017's real ban is I/O/AkShare/LLM/settings/fs | §4.1: allow pure `evals._shared` helpers (`worst_status`); keep the real ban |
+| 4 | P1 | Divergence-1 breaks `test_render_html_eval.py` / `test_acceptance_eval.py` (gated-overall-not-PASS), not just `test_panel.py` | §8/§9: enumerate all three; gate-outcome visibility moves to `badge_counts`/`EVAL-GATED` (still rendered) |
+| 5 | P1 | "raw inputs" overclaims — `factor_scores` is derived; D2 doesn't validate `build_factor_scores` | §1/§4.2: reworded to "`factor_scores` + `resolved`"; `build_factor_scores` correctness assigned to D1 |
+
+P2s folded: §3.4 `conftest.py` already exists (extend, not create) + `--strict-markers` note; §6
+two-branch `constituent_no_coverage` exhaustiveness note. The review confirmed (and the spec relies on)
+these holding: stable contribution ordering for the diff, the §3.3 float-eps soundness, both
+dependency blocks present, and the trace persisting every field `diff_signal` needs.
