@@ -6,7 +6,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | 🔄    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | 🔄 | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 | 002 | M1 LLM suites   | ⏳   | ⏳    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
