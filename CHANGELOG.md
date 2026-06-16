@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `irc init` missing `config/monitor.yaml` template (2026-06-16)
+
+- `irc init` iterates `TEMPLATE_FILES` (`config_loader.py`) and reads each from the packaged
+  `irc/templates/<rel>`; `config/monitor.yaml` was registered in `_FILENAME_TO_SCHEMA` (hence
+  `TEMPLATE_FILES`) but its template file was never added, so `run_init` hit `FileNotFoundError` on
+  that entry and returned rc 1 — breaking `irc init` and the command/scaffolding tests that depend on
+  it. Add the template, mirroring the canonical fixed 7-fund monitor set (`config/monitor.yaml`).
+
 ### Added — monitor eval deterministic rigor (M2) (2026-06-16)
 
 - **D1 — offline property + hybrid-oracle suite** over the six pure scorers (`compute_signal`,
