@@ -55,6 +55,6 @@ def latest_per_key(rows: Iterable[dict]) -> list[dict]:
     for row in rows:
         key = (row["run_date"], row["fund_id"])
         cur = best.get(key)
-        if cur is None or row["written_at"] >= cur["written_at"]:
+        if cur is None or row.get("written_at", "") >= cur.get("written_at", ""):
             best[key] = row
     return list(best.values())

@@ -71,3 +71,15 @@ def test_latest_per_key_collapses_rerun_to_last_written_at():
     assert by_key[("2026-06-16", "a")] == 2  # later written_at wins
     assert by_key[("2026-06-16", "b")] == 3
     assert len(out) == 2
+
+
+def test_latest_per_key_missing_written_at_does_not_raise():
+    # A corrupt JSONL line lacking 'written_at' must not crash dedup.
+    rows = [
+        {"run_date": "2026-06-16", "fund_id": "x"},  # no written_at
+        {"run_date": "2026-06-16", "fund_id": "x", "written_at": "2026-06-16T09:00:00"},
+    ]
+    out = latest_per_key(rows)
+    assert len(out) == 1
+    # The row with written_at should win (greater than "")
+    assert out[0].get("written_at") == "2026-06-16T09:00:00"
