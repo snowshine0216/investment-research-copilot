@@ -6,7 +6,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | ✅ #132 | ⏭️ | ⏳     | ✅     | ⏳        | ⏳  | ⏳    |
+| 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | ✅ #132 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | 🔄    |
 | 002 | M1 LLM suites   | ⏳   | ⏳    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
@@ -28,6 +28,9 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 - 001 drift: [items/001-drift.md](items/001-drift.md) — PASS, all 20 tasks verified in diff; plan amended for fixtures (7d3f682)
 - 001 ship: [items/001-ship.md](items/001-ship.md) — PR [#132](https://github.com/snowshine0216/investment-research-copilot/pull/132) into monitor-eval. /ship steps 8+9 found blocker+5 bugs → all fixed pre-push (c095f74..e8750b2).
 - 001 review (inline /ship 8+9): [items/001-review.md](items/001-review.md) — PASS (findings found+fixed pre-push). Spawned follow-up for pre-existing eval_cmd print-swallow.
+- 001 verify: [items/001-verify.md](items/001-verify.md) — PASS, 32 criteria via live CLI (eval SKIPPED rc 3, --all excludes live) + integration tests
+- 001 pr-review: [items/001-pr-review.md](items/001-pr-review.md) — PASS-WITH-NITS, 2 nits, 0 bugs ([comment](https://github.com/snowshine0216/investment-research-copilot/pull/132#issuecomment-4714793673))
+- 001 fix: [items/001-fix.md](items/001-fix.md) — round 1 (6 pre-push fixes) + round 2 (2 nits polished); all 3 post-ship verdicts clean
 
 ## Notes
 

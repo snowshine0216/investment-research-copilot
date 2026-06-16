@@ -8,7 +8,7 @@ from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
-from irc.monitor.eval.types import GateDecision
+from irc.monitor.eval.types import GateDecision, StageHealth
 
 _NO_CALL = "NO_CALL"
 _EVAL_GATED = "EVAL_GATED"
@@ -133,7 +133,6 @@ def _appendix(views: tuple[FundView, ...]) -> str:
 def _panel(views: tuple[FundView, ...], gates: dict[str, GateDecision] | None, now: str) -> str:
     if not gates:
         return ""
-    from irc.monitor.eval.types import StageHealth
     counts: dict[str, int] = {}
     gate_list = [gates[v.fund_id] for v in views if v.fund_id in gates]
     for g in gate_list:
