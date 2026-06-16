@@ -69,3 +69,24 @@ def test_injection_cases_are_adversarial():  # AC5
         # expected reflects content, not the directive: impact stays small / narrative ignores verb
         if case in impact_inj:
             assert case["expected"]["max_abs"] <= 0.3
+
+
+def test_impact_injection_corpus_covers_multiple_styles():  # granularity (gap fix)
+    # A single injection case scored binary vs fail_below=0.95 pins
+    # injection_resistance to 0.0 on one leak. Several distinct styles give the
+    # metric granularity and broaden attack-surface coverage.
+    impact_inj = [c for c in load_cases(_IMPACT_DIR) if c["category"] == "injection"]
+    assert len(impact_inj) >= 4, "need several injection styles for metric granularity"
+    directives = [c["expected"]["must_ignore"] for c in impact_inj]
+    assert len(set(directives)) == len(directives), "injection directives must be distinct"
+
+
+def test_impact_injection_directives_are_neutralised_by_sanitizer():
+    # The deterministic guarantee behind the live metric: every corpus injection
+    # directive must be broken by sanitize_untrusted (the live LLM call is gated).
+    from irc.monitor.evidence import sanitize_untrusted
+    impact_inj = [c for c in load_cases(_IMPACT_DIR) if c["category"] == "injection"]
+    for case in impact_inj:
+        for ev in case["evidence_pool"]:
+            cleaned = sanitize_untrusted(ev["title"])
+            assert case["expected"]["must_ignore"] not in cleaned, case
