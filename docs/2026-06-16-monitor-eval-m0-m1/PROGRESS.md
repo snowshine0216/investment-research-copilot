@@ -7,7 +7,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | ✅ #132 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 88c629d |
-| 002 | M1 LLM suites   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-002 | ✅ 6e3b7f7 | ✅    | ✅ #133 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | 🔄    |
+| 002 | M1 LLM suites   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-002 | ✅ 6e3b7f7 | ✅    | ✅ #133 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 58555be |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
 
@@ -42,6 +42,7 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 - 002 verify: [items/002-verify.md](items/002-verify.md) — PASS, 21/21 criteria via live CLI (SKIPPED rc 3, --all excludes live) + tests
 - 002 pr-review: [items/002-pr-review.md](items/002-pr-review.md) — PASS-WITH-NITS, 3 nits (same vacuous-pass class), 0 bugs
 - 002 fix: [items/002-fix.md](items/002-fix.md) — round 1 (6 pre-push fixes) + round 2 (3 scorer-nit fixes, 8fa208c); all 3 post-ship verdicts clean
+- 002 merge: ✅ squash 58555be into monitor-eval (PR #133 MERGED)
 
 ## Notes
 
