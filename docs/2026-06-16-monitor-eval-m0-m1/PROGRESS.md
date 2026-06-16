@@ -6,7 +6,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | M0 eval spine   | ⏳   | ⏳    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 001 | M0 eval spine   | ✅   | ✅    | ✅   | 🔄     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 | 002 | M1 LLM suites   | ⏳   | ⏳    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
@@ -21,7 +21,9 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 
 ## Artifact links (filled as phases complete)
 
-(none yet)
+- 001 spec: [items/001-spec.md](items/001-spec.md) — 32 acceptance criteria (commit 9de39ab)
+- 001 grill: [items/001-grill.md](items/001-grill.md) — PASS, 7 Q/A; CONTEXT.md + ADR 0017 synced (commit 64c5aec); caught GateDecision name collision
+- 001 plan: [items/001-plan.md](items/001-plan.md) — 20 tasks / 102 steps, strict TDD (commit af5c0f0)
 
 ## Notes
 
