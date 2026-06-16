@@ -5,7 +5,6 @@ from irc.monitor.eval.types import StageHealth
 
 def test_panel_renders_monitor_signal_row_with_counts():
     health = StageHealth("monitor_signal", "PASS", ())
-    badges = ("validated", "validated", "gated", "caveated")
     html = validation_panel_html(stage_health=health, ran_at="2026-06-16T09:00:00+08:00",
                                  badge_counts={"validated": 2, "caveated": 1, "gated": 1})
     assert "Validation" in html

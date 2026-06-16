@@ -1,5 +1,5 @@
 from __future__ import annotations
-from evals._shared.status import classify_status, worst_status, Status
+from evals._shared.status import classify_status, worst_status
 
 
 def test_classify_pass():

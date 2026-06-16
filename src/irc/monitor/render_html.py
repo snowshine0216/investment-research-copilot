@@ -60,7 +60,7 @@ def _badge(view: FundView, gate: GateDecision | None) -> str:
     if state == _NO_CALL:
         return f'<span class="badge no-call">{_NO_CALL}</span>'
     if state == _EVAL_GATED:
-        return f'<span class="badge eval-gated">EVAL-GATED 🛡</span>'
+        return '<span class="badge eval-gated">EVAL-GATED 🛡</span>'
     chip = ""
     cls_label = _CHIP.get(gate.badge)
     if cls_label:

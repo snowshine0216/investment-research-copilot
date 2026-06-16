@@ -23,16 +23,21 @@ def test_process_fund_returns_three_tuple_with_bundle(monkeypatch, tmp_path: Pat
     monkeypatch.setattr(monitor_cmd, "build_evidence_pool", lambda fund, repo_root: ())
 
     class _Imp:
-        impacts = (); status = "empty_pool"; cost_entries = ()
+        impacts = ()
+        status = "empty_pool"
+        cost_entries = ()
+
     monkeypatch.setattr(monitor_cmd, "gather_impacts",
                         lambda **kw: _Imp())
 
     class _Narr:
         from irc.monitor.types import NarrativeDoc as _ND
-        doc = _ND("008986", (), (), (), "empty_pool"); cost_entries = ()
+        doc = _ND("008986", (), (), (), "empty_pool")
+        cost_entries = ()
+
     monkeypatch.setattr(monitor_cmd, "gather_narrative", lambda **kw: _Narr())
 
-    out = monitor_cmd._process_fund(_fund(), _Cfg(), tmp_path, route_stub := object())
+    out = monitor_cmd._process_fund(_fund(), _Cfg(), tmp_path, object())
     assert len(out) == 3
     view, costs, bundle = out
     assert isinstance(view, FundView)
