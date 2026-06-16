@@ -20,3 +20,15 @@ def test_worst_status():
     assert worst_status(["PASS", "WARN", "PASS"]) == "WARN"
     assert worst_status(["PASS", "WARN", "FAIL"]) == "FAIL"
     assert worst_status([]) == "PASS"
+
+
+def test_status_literal_includes_skipped():
+    import typing
+    from evals._shared.status import Status
+    assert "SKIPPED" in typing.get_args(Status)
+
+
+def test_worst_status_unchanged_ranks_only_pass_warn_fail():
+    # worst_status must NOT be passed SKIPPED; it ranks only PASS/WARN/FAIL.
+    assert worst_status(["PASS", "FAIL"]) == "FAIL"
+    assert worst_status(["PASS", "WARN"]) == "WARN"
