@@ -41,6 +41,8 @@ from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
+from irc.monitor.eval.nav_history import nav_history_append_rows, append_nav_history
+from irc.monitor.eval.constants import NAV_APPEND_DAYS
 from irc.monitor.eval.types import FundTraceBundle, GateDecision
 from evals._shared.latest_report import latest_stage_report
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
@@ -401,6 +403,24 @@ def _write_eval_artifacts(
         append_ledger(root / "data" / "monitor" / "forward_ledger.jsonl", rows)
     except Exception:  # noqa: BLE001 — append_ledger already swallows, this guards ledger_row
         _log.warning("forward ledger write failed", exc_info=True)
+    _append_nav_history_for_views(root, views, run_date=run_date, written_at=written_at)
+
+
+def _append_nav_history_for_views(
+    root: Path, views: list[FundView], *, run_date: str, written_at: str,
+) -> None:
+    """EDGE: append each fund's bounded NAV tail to nav_history.jsonl. Bounded to
+    nav_date >= run_date - NAV_APPEND_DAYS. Swallows failures — never crash the brief."""
+    try:
+        rows: list = []
+        for v in views:
+            rows.extend(nav_history_append_rows(
+                fund_id=v.fund_id, acc_series=v.nav_series, run_date=run_date,
+                written_at=written_at, nav_append_days=NAV_APPEND_DAYS,
+            ))
+        append_nav_history(root / "data" / "monitor" / "nav_history.jsonl", rows)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("nav_history append failed", exc_info=True)
 
 
 # ── Main orchestration ────────────────────────────────────────────────────────
