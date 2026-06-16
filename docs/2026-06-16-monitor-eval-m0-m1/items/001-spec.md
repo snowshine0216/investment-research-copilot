@@ -92,6 +92,12 @@ is TDD test-first; all pure cores are unit-testable without mocks.
    `HealthStatus = Literal["PASS","WARN","FAIL","UNKNOWN"]`, `Badge =
    Literal["validated","caveated","gated"]`, `StageHealth(stage,status,reasons)`,
    `GateDecision(fund_id,suppressed,failed_stages,badge,reason)`, `FundTraceBundle` (per #6).
+   **Grill note (naming-collision guard):** this `GateDecision` is a DIFFERENT type from the
+   pre-existing `irc.spend.types.GateDecision` (`blocked/warnings/ok`, the spend-preflight verdict).
+   Both names are kept (the M0 name is the rev-3 pinned interface, §2.2), but they MUST be imported by
+   qualified module path (`from irc.monitor.eval.types import GateDecision`), never bare-imported into
+   a module that also touches `irc.spend.types`, so the two verdicts can never be conflated. See
+   CONTEXT.md "`GateDecision` (monitor eval)".
 10. **`structural.py`** (pure) exposes `signal_consistency`, `citation_integrity`, `nav_quality`,
     `monitor_signal_health` over one fund's trace projection. `monitor_signal_health` = worst-wins
     over the three, `stage="monitor_signal"`. Unit-tested per check:
@@ -340,3 +346,90 @@ the source pins `nav_quality` `stale_days` default = 7 and `STALE_AFTER_DAYS` = 
 constants (§7). These are reproduced as-is; if a fund ever needs an override they are promoted to
 `config/monitor.yaml` (already the pinned escalation path) — not an open question, just the documented
 future path.
+
+---
+
+## Resolved decisions
+
+> Grill pass (grill-with-docs, opus subagent, 2026-06-16) hardening this spec's **terminology and
+> domain-model fit** against CONTEXT.md, ADR 0017, and the grounded code. Scope was precision only —
+> no §7 pinned decision and no resolved P0/P1/P2 finding was re-opened. Every spec claim that was
+> grounded against `src/irc/monitor/` and `evals/_shared/` checked out (`compute_signal` reads only
+> `id`/`weights`/`bands`/`minimum_confidence`; `FundView.evidence_pool` is macro-only; `as_of_date`
+> is `str`; `Provenance.engine_version` exists; `status.py`/`registry.py`/`missing_input.py` match
+> the "add X" deltas; `preflight_gate(repo_root, command)` returns 5 when blocked), so no original
+> spec line turned out factually wrong → no strike-throughs. One inline precision note was added to
+> AC #9 (the `GateDecision` naming-collision guard).
+
+- **Q1 — Are the new M0-eval terms (`eval_trace`, `FundTraceBundle`, `StageHealth`, `GateDecision`,
+  `published_state`, `EVAL_GATED`, validation badge/chip, forward ledger, `live_gated`, `eval-live`)
+  defined in CONTEXT.md?**
+  **A:** No — CONTEXT.md "Monitor vertical" only defined `Monitor set` / `Discovered watchlist` /
+  `Directional bias` / `NO_CALL` / `analysis_profile` / `EvidenceItem`. Added a new
+  "Monitor eval spine (validation track)" sub-section with one entry per term, in the existing style.
+  **Rationale:** the spec introduces ten load-bearing terms with zero prior glossary coverage; a plan
+  reader needs canonical definitions. **Doc impact:** CONTEXT.md (10 new terms).
+
+- **Q2 — Does `published_state` collide with the existing `NO_CALL` / `Directional bias` render
+  semantics?**
+  **A:** `published_state` is the NEW single render-label selector that *supersedes* the bare
+  `NO_CALL`/`bias` decision by layering `EVAL_GATED` on top, with the precedence
+  `NO_CALL` (if `status ≠ ok`) > `EVAL_GATED` (if suppressed) > `bias`. The existing
+  `NO_CALL ≠ NEUTRAL` invariant is preserved, and `NO_CALL`-wins-over-`EVAL_GATED` is now an explicit
+  structural invariant (we cannot gate a call we never made). **Rationale:** keeps the spec's AC #14
+  precedence consistent with CONTEXT.md's `NO_CALL` definition; prevents a reader from thinking
+  `published_state` is a fourth independent field. **Doc impact:** CONTEXT.md (`published_state` term +
+  updated `NO_CALL` cross-reference). Matches AC #14 verbatim — no spec change.
+
+- **Q3 — Naming collision: `irc.monitor.eval.types.GateDecision` vs the pre-existing
+  `irc.spend.types.GateDecision`.**
+  **A:** Real domain-language collision found (the spend gate's verdict is `blocked/warnings/ok`; the
+  eval gate's is `fund_id/suppressed/failed_stages/badge/reason`). Keep both names (the M0 name is the
+  rev-3 §2.2 pinned interface — not mine to rename), but disambiguate in the glossary and require
+  qualified-module-path imports so the two never mix. **Rationale:** Python namespaces them safely, but
+  the *vocabulary* must stay sharp; a bare `from … import GateDecision` in a module touching both
+  would be a latent confusion. **Doc impact:** CONTEXT.md (`GateDecision` (monitor eval) term with
+  explicit disambiguation) + inline grill note on AC #9.
+
+- **Q4 — The forward ledger writes to `data/monitor/forward_ledger.jsonl`, but CLAUDE.md / ADR 0006
+  say "`data/` is reserved for the DuckDB cache, not memo outputs." Is `data/` the right home?**
+  **A:** Yes — `data/` already holds non-DuckDB cumulative state (`fundamentals/`, `spend/`,
+  `research/`), and the ledger is **cross-run cumulative** track-record state, the opposite of a
+  date-partitioned `outputs/<date>/` artifact. Recorded the rationale so a future reader does not
+  "normalize" it into `outputs/` (which would silently reset the track record every run).
+  **Rationale:** placement is a deliberate, non-obvious, hard-to-reverse choice once data accumulates.
+  **Doc impact:** CONTEXT.md (`Forward ledger` term) + ADR 0017 §"Monitor-eval data contracts".
+
+- **Q5 — Does the `eval_trace.json` artifact contract clear the ADR three-of-three bar, and does
+  serializing a *unified* evidence pool contradict ADR 0017's isolation invariant?**
+  **A:** (1) hard to reverse (schema locks once daily runs + M3 scorer/`monitor_signal` oracle
+  consume it), (2) surprising (a 5th monitor dump with a pool that doesn't exist on `FundView`),
+  (3) real trade-off (new artifact vs extending `signal.json`, pinned §7) → clears the bar. It does
+  **NOT** contradict ADR 0017: "unified" means macro ⊕ constituent *within one fund's own monitor
+  pool* (no `scope`, never reaching `build_cited_map`/the dual-coverage gate), not monitor ⊕
+  opportunity. Recorded as an extension of ADR 0017 (same decision lineage) rather than a new ADR.
+  **Rationale:** the contract's surprise/reversibility is rooted in ADR 0017's isolation rule, so the
+  decision belongs there. **Doc impact:** ADR 0017 §"Monitor-eval data contracts" (eval_trace
+  sub-section) + CONTEXT.md (`eval_trace.json`, `FundTraceBundle`).
+
+- **Q6 — Does the append-mode JSONL ledger writer clear the ADR bar (it deviates from the project's
+  atomic `.tmp→replace` convention)?**
+  **A:** (1) hard to reverse (append-only data accumulates; format change needs migration),
+  (2) surprising (every other writer uses atomic temp+replace per CLAUDE.md — a reader sees
+  `open(path,"a")` and assumes a convention bug), (3) real trade-off (real append vs atomic-replace,
+  chosen so concurrent/rerun rows are never lost; single JSONL line < `PIPE_BUF` ⇒ atomic on POSIX) →
+  clears the bar. Folded into the same ADR 0017 extension. **Rationale:** same monitor-eval lineage;
+  the deviation-from-convention is exactly what an ADR exists to flag. **Doc impact:** ADR 0017
+  §"Monitor-eval data contracts" (forward-ledger sub-section). (NB: this is the M0 *data-contract*
+  ADR; it is distinct from the source §9 "ablation/calibration ADR", which stays M2–M4 out-of-scope.)
+
+- **Q7 — Does `StageHealth.status` (`UNKNOWN`) collide with the eval suite's whole-stage `overall`
+  status (`PASS/WARN/FAIL/SKIPPED`)?**
+  **A:** They are different vocabularies on purpose. `StageHealth` is the *gate's input* and uses
+  `UNKNOWN` for an absent/skipped/stale resolved upstream report; `overall` is the *report's verdict*
+  and uses `SKIPPED` (the new `EVAL_RC_SKIPPED=3` whole-stage outcome). `resolve_health` is the one
+  mapping (`overall=="SKIPPED"` → `StageHealth(UNKNOWN, "skipped")`). Recorded the distinction in the
+  glossary so the two literals are not unified. **Rationale:** worst-wins (`worst_status`) ranks only
+  PASS/WARN/FAIL and must never be passed `SKIPPED` (AC #21) — keeping the two literal sets separate is
+  what makes that invariant hold. **Doc impact:** CONTEXT.md (`StageHealth` term notes the
+  distinction). No spec change (consistent with AC #21/#22).

@@ -55,3 +55,56 @@ machinery and the dual-coverage gate **never touch**.
 - The monitor's coverage gate (independent evidence *families*: price-momentum,
   valuation, crowding, news) is `scope`-agnostic, so dropping `scope` costs it
   nothing.
+
+## Monitor-eval data contracts (2026-06-16, monitor-eval M0)
+
+The monitor-eval **spine** (validation track, milestone M0) adds two durable data
+contracts. Both clear the ADR bar (hard to reverse once data accumulates,
+surprising without context, chosen over a real alternative) and are recorded here
+rather than as a fresh ADR because their surprise and reversibility are rooted in
+*this* ADR's evidence-isolation invariant.
+
+### `eval_trace.json` — unified evidence pool, monitor-only
+
+Each `irc monitor` run writes one additive artifact
+`outputs/<date>/monitor/eval_trace.json` (the four legacy dumps unchanged), a
+schema-versioned, degradation-safe serialization of each fund's resolved params,
+NAV, evidence pool, factor scores, signal, impacts, narrative, and gate decision.
+**Decision:** the trace's per-fund `evidence_pool` is the **unified** pool
+`dedup_by_citation_id(view.evidence_pool ⊕ bundle.constituent_pool)` — the macro
+pool (`FundView.evidence_pool`) merged with the constituent pool carried on the
+`FundTraceBundle` — so both macro *and* constituent impact/narrative `citation_id`s
+resolve under the in-run `citation_integrity` check. *Rejected — extend
+`signal.json`* (pinned §7: a new artifact, not an overload). *Rejected — serialize
+only the macro pool* (constituent citations would falsely FAIL).
+
+**This unification does not breach the isolation above.** The merged pool is built
+**only** from one fund's own `EvidenceItem`s (no `scope` field) and is consumed
+**only** by the monitor's own structural checks and offline `monitor_signal` eval.
+It never reaches `build_cited_map` or the dual-coverage gate. The isolation
+invariant — monitor evidence and the dual-coverage gate never touch — is preserved
+verbatim; "unified" means macro ⊕ constituent *within the monitor*, never monitor ⊕
+opportunity.
+
+### Forward ledger — real append-mode JSONL, cumulative under `data/`
+
+The forward ledger `data/monitor/forward_ledger.jsonl` starts the per-fund
+track-record clock: one row per fund per run, each storing both the raw pre-gate
+verdict and the `published_state`, plus the perf basis `nav_acc = coalesce(nav_acc,
+nav)`. **Decision:** the writer uses a **real append** (`open(path, "a")`, one JSON
+object per line), NOT the project's usual atomic `.tmp.{pid} → os.replace`
+whole-file write. A single-line JSONL row is well under `PIPE_BUF`, so the append
+is atomic on POSIX, and concurrent/rerun rows are never lost; rerun duplicates for
+a `(run_date, fund_id)` are expected and collapsed at *read* time by
+`latest_per_key` (last `written_at` wins). *Rejected — atomic temp+replace*: a
+whole-file rewrite races and can drop a concurrent run's row, defeating the point
+of an append-only track record. A degraded fund (`obs_count == 0`) still gets a row
+with `nav_acc = null`; the future ledger scorer drops null-`nav_acc` rows (no
+forward basis).
+
+**Why `data/` not `outputs/<date>/`.** The ledger is **cross-run cumulative**
+state, unlike every date-partitioned artifact under `outputs/`. It therefore lives
+under `data/` alongside the other cumulative caches/ledgers (`fundamentals/`,
+`spend/`), deliberately not in the per-run output tree. A future reader who
+"normalizes" it into `outputs/<date>/` would silently reset the track record each
+run — this placement is intentional, not an oversight.
