@@ -29,6 +29,7 @@ dev = [
     "pytest-mock>=3.12",
     "respx>=0.21",
     "ruff>=0.4",
+    "hypothesis>=6.100",
 ]
 
 [project.scripts]
@@ -64,4 +65,5 @@ target-version = "py312"
 dev = [
     "pytest>=9.0.3",
     "respx>=0.23.1",
+    "hypothesis>=6.100",
 ]

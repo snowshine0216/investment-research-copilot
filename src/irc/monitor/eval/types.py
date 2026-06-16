@@ -22,6 +22,14 @@ class StageHealth:
 
 
 @dataclass(frozen=True)
+class ValidationPanelRow:
+    stage: str
+    status: str                  # PASS | WARN | FAIL | UNKNOWN
+    ran_at: str
+    reasons: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class GateDecision:
     fund_id: str
     suppressed: bool
