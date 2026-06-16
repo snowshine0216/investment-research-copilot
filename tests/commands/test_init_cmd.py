@@ -17,6 +17,7 @@ def test_init_creates_inputs_and_config(tmp_path: Path):
     assert (tmp_path / "config/triggers.yaml").exists()
     assert (tmp_path / "config/overrides.yaml").exists()
     assert (tmp_path / "config/macro_view.yaml").exists()
+    assert (tmp_path / "config/monitor.yaml").exists()
     for name in ("qdii_us", "qdii_hk", "cn_funds", "gold"):
         assert (tmp_path / f"config/universe/{name}.yaml").exists()
     # spend gate configs must be scaffolded too — `irc config validate` requires them
