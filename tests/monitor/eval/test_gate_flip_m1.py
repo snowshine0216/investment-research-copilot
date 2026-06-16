@@ -3,8 +3,6 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-import pytest
-
 from irc.monitor.eval.gate import GATING_STAGES_M0, GATING_STAGES_M1
 import irc.commands.monitor_cmd as mc
 from irc.monitor.types import (
