@@ -88,8 +88,10 @@ def run(repo_root: Path) -> int:
         print(f"{_STAGE} eval: FAIL (scorer invariant: {exc})")
         return EVAL_RC_FAIL
 
+    _log.info("monitor_forward forward exclusions: %s", _excl)
     reports, details = build_metric_reports(
         forward_rows=forward_rows, retro_points=[], seed=20260616)
+    details["forward_excluded"] = _excl
 
     # write details.json sibling, then point each MetricReport at the repo-relative path
     out_dir = report_dir(repo_root, _STAGE, today)

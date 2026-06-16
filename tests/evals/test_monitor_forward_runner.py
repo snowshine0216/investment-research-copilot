@@ -103,6 +103,32 @@ def test_scorer_invariant_error_returns_fail(tmp_path: Path, monkeypatch):
     assert rc == EVAL_RC_FAIL
 
 
+# ── Fix 6: forward_excluded surfaced in details.json ─────────────────────────
+
+def test_details_json_carries_forward_excluded(tmp_path: Path):
+    """A null_signal_nav row (nav_acc=None) should be excluded by prefilter;
+    the exclusion count must appear in details.json under forward_excluded."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                         encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    # Good line (fund a) + line with nav_acc=null (fund b → null_signal_nav exclusion)
+    good_line = _ledger_line(run_date, "a", run_date)
+    null_nav_line = json.dumps({
+        "run_date": run_date, "fund_id": "b", "written_at": f"{run_date}T09:00:00",
+        "raw_status": "ok", "raw_bias": "ADD_BIAS", "raw_composite": 0.2,
+        "nav_acc": None, "as_of_date": run_date,
+    })
+    (md / "forward_ledger.jsonl").write_text(
+        good_line + "\n" + null_nav_line + "\n", encoding="utf-8")
+    run(tmp_path)
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    details = json.loads((out_dir / "details.json").read_text())
+    assert "forward_excluded" in details, "forward_excluded key missing from details.json"
+    assert details["forward_excluded"].get("null_signal_nav", 0) >= 1
+
+
 def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     md = tmp_path / "data" / "monitor"
     md.mkdir(parents=True)
