@@ -4,7 +4,7 @@
 
 | # | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |---|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Legend:** ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped (mode) · ⛔ refused gate
 
@@ -18,7 +18,7 @@
 ## Artifact links (filled as phases complete)
 
 - spec: [`items/001-spec.md`](items/001-spec.md)
-- plan: _pending_
+- plan: [`items/001-plan.md`](items/001-plan.md) (commit b6e8cc1 — 11 phases, 26 tasks, TDD-ordered)
 - drift: _pending_
 - ship: _pending_
 - verify: _pending_
