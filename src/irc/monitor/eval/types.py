@@ -54,8 +54,8 @@ class PredictiveMetricView:
     value: float
     status: str                       # "PASS" | "WARN"
     state: str                        # "ok" | "insufficient_data" | "undefined"
-    ci_low: float
-    ci_high: float
+    ci_low: float | None              # None → no real CI yet (panel: "CI pending")
+    ci_high: float | None
     random_delta: float | None
     momentum_delta: float | None      # None / absent on the rank_ic row
     buy_hold_delta: float | None      # None / absent on the rank_ic row

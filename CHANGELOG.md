@@ -63,6 +63,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   below baseline for K consecutive weeks). `evals/_shared/latest_report.py` gains a `StageReportEntry`
   wrapper + report-history API (`list_stage_reports`, `latest_stage_report_entry`); the existing
   `latest_stage_report` is unchanged (M0/M1 back-compat).
+- **Real Rank-IC CI (follow-up).** The `rank_ic` row now carries a genuine CI instead of the
+  placeholder `ci_low==ci_high==value`: an own bootstrap CI over the defined days (new
+  `stats.mean_bootstrap_ci`) plus a per-day permutation-null `baseline_deltas.random` (permute the
+  signal labels within each defined day, recompute Spearman, average over defined days — reusing
+  `random_null_delta` with the time-averaged IC as the metric under test). The `>= MIN_DEFINED_DAYS`
+  status ladder now PASSes only when that random delta clears zero (`ci_low > 0`), mirroring the
+  hit-rate rows; below the reportable threshold the CI is `None` and the panel renders **"CI pending"**
+  rather than a fake interval. `rank_ic` `effective_n` is now the block span of the ok-status IC
+  population (was all-status rows). WARN-max and the three-`MetricReport`-row structure are unchanged.
 
 ### Fixed — eval-suite crash logging (2026-06-16)
 
