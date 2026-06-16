@@ -95,3 +95,13 @@ def test_hallucination_rate_inline_ref_marker_positive():
     # inline [ref:...] in narrative text is itself suspect (prod claims carry no markers)
     outs = [_doc([_claim("估值偏低 [ref:cccc000000000000]")])]
     assert hallucination_rate(cases, outs) == 1.0
+
+
+# ---- Finding 3: degraded {} output must not be a vacuous PASS ----
+
+def test_hallucination_rate_all_degraded_is_fail():
+    """Finding 3 [P0]: all-degraded run → _all_claims({}) is [] → total==0 → was 0.0 (PASS).
+    When cases exist but all outputs are degraded, must return 1.0 (FAIL)."""
+    cases = [_case("no-numbers", {})]
+    outs = [{}]  # degraded: no claim fields
+    assert hallucination_rate(cases, outs) == 1.0  # any degraded no-numbers case = FAIL

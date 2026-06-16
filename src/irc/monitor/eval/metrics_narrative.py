@@ -70,10 +70,13 @@ def attribution_honesty(cases: list[dict], outputs: list[dict]) -> float:
 
 def hallucination_rate(cases: list[dict], outputs: list[dict]) -> float:
     pairs = [(c, o) for c, o in zip(cases, outputs) if c["category"] == "no-numbers"]
+    if not pairs:
+        return 0.0
     total = bad = 0
     for _c, o in pairs:
         for claim in _all_claims(o):
             text = claim.get("claim", "")
             total += 1
             bad += 1 if (_DIGIT.search(text) or _REF.search(text)) else 0
-    return _frac(bad, total) if total else 0.0
+    # Finding 3: cases present but all outputs degraded (total==0) → FAIL (1.0)
+    return _frac(bad, total) if total else 1.0

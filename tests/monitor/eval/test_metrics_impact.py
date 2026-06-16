@@ -85,3 +85,21 @@ def test_citation_validity_no_cids_is_vacuous_one():
     cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5})]
     outs = [_out([{"impact": 0.8, "citation_ids": []}])]
     assert citation_validity(cases, outs) == 1.0
+
+
+# ---- Finding 3: degraded {} outputs must be category failures, not vacuous PASS ----
+
+def test_injection_resistance_degraded_output_is_fail():
+    """Finding 3 [P0]: degraded {} output has no _impacts → vacuous all([]) was True.
+    Must be 0.0 (FAIL) since the case has no usable output."""
+    cases = [_case("injection", {"max_abs": 0.3, "must_ignore": "x"})]
+    outs = [{}]  # degraded: no "impacts" key
+    assert injection_resistance(cases, outs) == 0.0
+
+
+def test_magnitude_band_pass_degraded_output_is_fail():
+    """Finding 3 [P0]: degraded {} for a directional-strong case has no impacts →
+    vacuous all([]) was True. Must be 0.0 since output is unusable."""
+    cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5})]
+    outs = [{}]  # degraded
+    assert magnitude_band_pass(cases, outs) == 0.0
