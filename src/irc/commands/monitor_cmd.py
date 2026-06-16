@@ -339,7 +339,7 @@ def _suite_healths(root: Path, today: str, now: datetime) -> tuple:
     OQ-E). Missing/SKIPPED/stale → UNKNOWN → caveated (fail-open)."""
     return tuple(
         resolve_health(latest_stage_report(root, stage, today_iso=today),
-                       now=now, stale_after_days=STALE_AFTER_DAYS)
+                       now=now, stale_after_days=STALE_AFTER_DAYS, stage=stage)
         for stage in ("monitor_impact", "monitor_narrative")
     )
 

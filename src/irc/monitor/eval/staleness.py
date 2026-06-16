@@ -10,12 +10,16 @@ STALE_AFTER_DAYS = 14
 
 def resolve_health(
     report: StageReport | None, *, now: datetime, stale_after_days: int,
+    stage: str,
 ) -> StageHealth:
     if report is None:
-        return StageHealth("monitor_suite", "UNKNOWN", ("absent",))
+        return StageHealth(stage, "UNKNOWN", ("absent",))
     if report.overall == "SKIPPED":
         return StageHealth(report.stage, "UNKNOWN", ("skipped",))
-    ran_at = datetime.fromisoformat(report.ran_at)
+    try:
+        ran_at = datetime.fromisoformat(report.ran_at)
+    except (ValueError, TypeError):
+        return StageHealth(report.stage, "UNKNOWN", ("corrupt_ran_at",))
     if ran_at.tzinfo is None:
         ran_at = ran_at.replace(tzinfo=now.tzinfo)
     if (now - ran_at).days > stale_after_days:

@@ -103,7 +103,7 @@ def test_missing_suite_reports_fail_open(tmp_path: Path):  # AC20
     gates = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
                               root=tmp_path, today=today)
     assert gates[0].suppressed is False
-    assert gates[0].badge in ("caveated", "validated")
+    assert gates[0].badge == "caveated"  # Finding 1: missing report must be caveated, not validated
 
 
 def test_no_call_precedence_when_status_not_ok(tmp_path: Path):  # AC19 NO_CALL branch
