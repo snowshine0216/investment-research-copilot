@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ 0010acd | ✅ | ✅ #137 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ 0010acd | ✅ | ✅ #137 | ✅ | ✅ | ✅ PWN | 🔄 | ⏳ |
 
 ## Notes
 
