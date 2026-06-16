@@ -1,0 +1,9 @@
+{
+  "category": "contradiction",
+  "messages_seed": { "fund_id": "000005", "themes": ["地产"] },
+  "evidence_pool": [
+    {"source": "cls", "title": "地产成交环比回暖，多地放松限购", "date": "2026-06-10", "url": "https://example.com/re-up-1", "owner_fund_id": "000005", "citation_id": "aaaa000000000005"},
+    {"source": "wallstreetcn", "title": "同期地产新开工同比大幅走弱，去化压力上升", "date": "2026-06-10", "url": "https://example.com/re-down-1", "owner_fund_id": "000005", "citation_id": "aaaa000000000006"}
+  ],
+  "expected": { "max_abs": 0.3 }
+}

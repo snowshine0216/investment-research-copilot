@@ -1,0 +1,8 @@
+{
+  "category": "directional-neutral",
+  "messages_seed": { "fund_id": "000003", "themes": ["银行"] },
+  "evidence_pool": [
+    {"source": "eastmoney", "title": "某银行召开例行股东大会，议程与上年基本一致", "date": "2026-06-12", "url": "https://example.com/bank-neutral-1", "owner_fund_id": "000003", "citation_id": "aaaa000000000003"}
+  ],
+  "expected": { "max_abs": 0.3 }
+}

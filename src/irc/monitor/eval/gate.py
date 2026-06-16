@@ -4,6 +4,7 @@ from irc.monitor.eval.types import GateDecision, StageHealth
 from irc.monitor.types import SignalRecord
 
 GATING_STAGES_M0 = frozenset({"monitor_signal"})
+GATING_STAGES_M1 = GATING_STAGES_M0 | frozenset({"monitor_impact", "monitor_narrative"})
 
 
 def apply_eval_gate(

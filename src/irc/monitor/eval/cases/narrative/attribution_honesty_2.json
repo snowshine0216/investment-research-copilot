@@ -1,0 +1,8 @@
+{
+  "category": "attribution-honesty",
+  "messages_seed": { "fund_id": "000106" },
+  "evidence_pool": [
+    {"source": "wallstreetcn", "title": "盈利预期上修", "date": "2026-06-09", "url": "https://example.com/n-attr-2", "owner_fund_id": "000106", "citation_id": "bbbb000000000006"}
+  ],
+  "expected": {}
+}

@@ -1,0 +1,8 @@
+{
+  "category": "citation-resolve",
+  "messages_seed": { "fund_id": "000101" },
+  "evidence_pool": [
+    {"source": "wallstreetcn", "title": "半导体设备国产化加速", "date": "2026-06-14", "url": "https://example.com/n-semi-1", "owner_fund_id": "000101", "citation_id": "bbbb000000000001"}
+  ],
+  "expected": {}
+}

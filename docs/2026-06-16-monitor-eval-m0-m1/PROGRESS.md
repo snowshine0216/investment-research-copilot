@@ -7,7 +7,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | ✅ #132 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 88c629d |
-| 002 | M1 LLM suites   | ✅   | ✅    | ✅   | 🔄     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 002 | M1 LLM suites   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-002 | ✅ 6e3b7f7 | ✅    | ✅ #133 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | 🔄    |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
 
@@ -34,6 +34,14 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 - 001 merge: ✅ squash 88c629d into monitor-eval (PR #132 MERGED)
 - 002 spec: [items/002-spec.md](items/002-spec.md) — 21 acceptance criteria, 5 OQs resolved (commit 62cc983)
 - 002 grill: [items/002-grill.md](items/002-grill.md) — PASS, 8 Q/A; CONTEXT.md + ADR 0017 M1 sections (b1f15d3); fixed attribution_strength 2-vs-4-value framing
+- 002 plan: [items/002-plan.md](items/002-plan.md) — 15 tasks / ~75 steps, strict TDD (commit 45a3bd3)
+- 002 impl: 15 TDD commits 02263d4..6e3b7f7; 92 M1 tests pass + 49 M0-wiring regression pass (gating flip ok); 2 live tests skipped (double-gated); ruff clean on M1 files.
+- 002 drift: [items/002-drift.md](items/002-drift.md) — PASS, 15/15 tasks verified; eval_cmd zero-diff confirmed (5b38daf)
+- 002 ship: [items/002-ship.md](items/002-ship.md) — PR [#133](https://github.com/snowshine0216/investment-research-copilot/pull/133). /ship 8+9 found 6 P0/P1 bugs → all fixed pre-push (ded3a44,8726780,5eb6284); 1 adversarial P0 rejected (false positive). 165 passed after fixes.
+- 002 review (inline /ship 8+9): [items/002-review.md](items/002-review.md) — PASS (findings found+fixed pre-push)
+- 002 verify: [items/002-verify.md](items/002-verify.md) — PASS, 21/21 criteria via live CLI (SKIPPED rc 3, --all excludes live) + tests
+- 002 pr-review: [items/002-pr-review.md](items/002-pr-review.md) — PASS-WITH-NITS, 3 nits (same vacuous-pass class), 0 bugs
+- 002 fix: [items/002-fix.md](items/002-fix.md) — round 1 (6 pre-push fixes) + round 2 (3 scorer-nit fixes, 8fa208c); all 3 post-ship verdicts clean
 
 ## Notes
 

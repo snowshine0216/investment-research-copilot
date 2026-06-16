@@ -17,28 +17,32 @@ def test_stale_after_days_default_is_14():
 
 
 def test_absent_report_is_unknown_absent():
-    h = resolve_health(None, now=_NOW, stale_after_days=14)
+    h = resolve_health(None, now=_NOW, stale_after_days=14, stage="monitor_impact")
     assert h.status == "UNKNOWN" and "absent" in h.reasons[0]
 
 
 def test_skipped_report_is_unknown_skipped():
-    h = resolve_health(_report("SKIPPED", ran_at=_NOW), now=_NOW, stale_after_days=14)
+    h = resolve_health(_report("SKIPPED", ran_at=_NOW), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
     assert h.status == "UNKNOWN" and "skipped" in h.reasons[0]
 
 
 def test_stale_report_is_unknown_stale():
     old = _NOW - timedelta(days=20)
-    h = resolve_health(_report("PASS", ran_at=old), now=_NOW, stale_after_days=14)
+    h = resolve_health(_report("PASS", ran_at=old), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
     assert h.status == "UNKNOWN" and "stale" in h.reasons[0]
 
 
 def test_fresh_pass_passes_through():
-    h = resolve_health(_report("PASS", ran_at=_NOW), now=_NOW, stale_after_days=14)
+    h = resolve_health(_report("PASS", ran_at=_NOW), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
     assert h.status == "PASS"
 
 
 def test_fresh_fail_passes_through():
-    h = resolve_health(_report("FAIL", ran_at=_NOW), now=_NOW, stale_after_days=14)
+    h = resolve_health(_report("FAIL", ran_at=_NOW), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
     assert h.status == "FAIL"
 
 
@@ -49,12 +53,50 @@ def test_naive_ran_at_does_not_raise_and_gives_correct_staleness():
     rep_recent = StageReport(stage="monitor_impact",
                              ran_at=naive_recent.isoformat(),
                              based_on=[], metrics=[], overall="PASS")
-    h = resolve_health(rep_recent, now=_NOW, stale_after_days=14)
+    h = resolve_health(rep_recent, now=_NOW, stale_after_days=14, stage="monitor_impact")
     assert h.status == "PASS"   # no TypeError, correct result
 
     naive_old = datetime(2026, 5, 1, 9, 0)       # naive, clearly stale
     rep_old = StageReport(stage="monitor_impact",
                           ran_at=naive_old.isoformat(),
                           based_on=[], metrics=[], overall="PASS")
-    h2 = resolve_health(rep_old, now=_NOW, stale_after_days=14)
+    h2 = resolve_health(rep_old, now=_NOW, stale_after_days=14, stage="monitor_impact")
     assert h2.status == "UNKNOWN" and "stale" in h2.reasons[0]
+
+
+# ── Finding 1: resolve_health(None) must use caller-supplied stage ────────────
+
+
+def test_absent_report_uses_supplied_stage_not_hardcoded():
+    """Finding 1: None report must produce StageHealth with the queried stage, not
+    the hardcoded 'monitor_suite'."""
+    h = resolve_health(None, now=_NOW, stale_after_days=14, stage="monitor_impact")
+    assert h.stage == "monitor_impact"
+    assert h.status == "UNKNOWN"
+    assert "absent" in h.reasons[0]
+
+
+def test_absent_report_narrative_uses_narrative_stage():
+    h = resolve_health(None, now=_NOW, stale_after_days=14, stage="monitor_narrative")
+    assert h.stage == "monitor_narrative"
+
+
+# ── Finding 2: corrupt ran_at must not crash ─────────────────────────────────
+
+
+def test_corrupt_ran_at_returns_unknown_not_crash():
+    """Finding 2: malformed ran_at (non-ISO) must return UNKNOWN/corrupt_ran_at."""
+    bad_rep = StageReport(stage="monitor_impact", ran_at="NOT-A-DATE",
+                          based_on=[], metrics=[], overall="PASS")
+    h = resolve_health(bad_rep, now=_NOW, stale_after_days=14, stage="monitor_impact")
+    assert h.status == "UNKNOWN"
+    assert "corrupt_ran_at" in h.reasons
+
+
+def test_empty_ran_at_returns_unknown_not_crash():
+    """Finding 2: empty ran_at must also degrade gracefully."""
+    bad_rep = StageReport(stage="monitor_narrative", ran_at="",
+                          based_on=[], metrics=[], overall="PASS")
+    h = resolve_health(bad_rep, now=_NOW, stale_after_days=14, stage="monitor_narrative")
+    assert h.status == "UNKNOWN"
+    assert "corrupt_ran_at" in h.reasons
