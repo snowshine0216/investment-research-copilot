@@ -1,7 +1,10 @@
 from __future__ import annotations
+import datetime as _dt
 from irc.monitor.eval.structural import (
     signal_consistency, citation_integrity, nav_quality, monitor_signal_health,
 )
+
+_TODAY = _dt.date(2026, 6, 16)
 
 
 def _good_fund():
@@ -67,28 +70,26 @@ def test_nav_quality_fail_when_obs_count_zero():
     t = _good_fund()
     t["nav"] = {"as_of_date": "N/A", "latest_unit_nav": 0.0, "nav_acc": None,
                 "acc_series": [], "obs_count": 0, "max_gap_days": None}
-    assert nav_quality(t, minimum_observations=2, stale_days=7).status == "FAIL"
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "FAIL"
 
 
 def test_nav_quality_fail_when_below_minimum_observations():
     t = _good_fund()
     t["nav"]["obs_count"] = 1
-    assert nav_quality(t, minimum_observations=2, stale_days=7).status == "FAIL"
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "FAIL"
 
 
 def test_nav_quality_fail_when_as_of_older_than_stale_days():
     t = _good_fund()
     t["nav"]["as_of_date"] = "2000-01-01"
-    assert nav_quality(t, minimum_observations=2, stale_days=7).status == "FAIL"
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "FAIL"
 
 
 def test_nav_quality_warn_on_single_gap_over_five_days():
     t = _good_fund()
     t["nav"]["max_gap_days"] = 9
-    t["nav"]["as_of_date"] = "2026-06-16"
-    import datetime as _dt
-    t["nav"]["as_of_date"] = _dt.date.today().isoformat()
-    assert nav_quality(t, minimum_observations=2, stale_days=7).status == "WARN"
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "WARN"
 
 
 def test_nav_quality_does_not_compare_na_as_of():
@@ -97,19 +98,18 @@ def test_nav_quality_does_not_compare_na_as_of():
     t["nav"]["obs_count"] = 0
     t["nav"]["nav_acc"] = None
     # FAIL comes from obs/nav_acc, NOT from a date-parse crash
-    assert nav_quality(t, minimum_observations=2, stale_days=7).status == "FAIL"
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "FAIL"
 
 
 def test_monitor_signal_health_worst_wins_and_stage_name():
     t = _good_fund()
     t["nav"]["obs_count"] = 0          # nav_quality FAIL
     t["nav"]["nav_acc"] = None
-    h = monitor_signal_health(t, minimum_observations=2, stale_days=7)
+    h = monitor_signal_health(t, minimum_observations=2, stale_days=7, today=_TODAY)
     assert h.stage == "monitor_signal" and h.status == "FAIL"
 
 
 def test_monitor_signal_health_pass_on_good_fund():
-    import datetime as _dt
     t = _good_fund()
-    t["nav"]["as_of_date"] = _dt.date.today().isoformat()
-    assert monitor_signal_health(t, minimum_observations=2, stale_days=7).status == "PASS"
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    assert monitor_signal_health(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"

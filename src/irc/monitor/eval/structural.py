@@ -58,7 +58,9 @@ def citation_integrity(t: dict) -> StageHealth:
     return StageHealth("citation_integrity", "PASS", ())
 
 
-def nav_quality(t: dict, *, minimum_observations: int, stale_days: int) -> StageHealth:
+def nav_quality(
+    t: dict, *, minimum_observations: int, stale_days: int, today: date | None = None,
+) -> StageHealth:
     nav = t["nav"]
     obs = nav.get("obs_count", 0)
     as_of = nav.get("as_of_date", "N/A")
@@ -67,7 +69,8 @@ def nav_quality(t: dict, *, minimum_observations: int, stale_days: int) -> Stage
     if obs < minimum_observations:
         return StageHealth("nav_quality", "FAIL", (f"obs<{minimum_observations}",))
     parsed = _parse_date(as_of)
-    if parsed is not None and (date.today() - parsed).days > stale_days:
+    _today = today if today is not None else date.today()
+    if parsed is not None and (_today - parsed).days > stale_days:
         return StageHealth("nav_quality", "FAIL", (f"as_of older than {stale_days}d",))
     gap = nav.get("max_gap_days")
     if gap is not None and gap > _WARN_GAP_DAYS:
@@ -75,11 +78,14 @@ def nav_quality(t: dict, *, minimum_observations: int, stale_days: int) -> Stage
     return StageHealth("nav_quality", "PASS", ())
 
 
-def monitor_signal_health(t: dict, *, minimum_observations: int, stale_days: int) -> StageHealth:
+def monitor_signal_health(
+    t: dict, *, minimum_observations: int, stale_days: int, today: date | None = None,
+) -> StageHealth:
     parts = (
         signal_consistency(t),
         citation_integrity(t),
-        nav_quality(t, minimum_observations=minimum_observations, stale_days=stale_days),
+        nav_quality(t, minimum_observations=minimum_observations, stale_days=stale_days,
+                    today=today),
     )
     overall = worst_status([p.status for p in parts])  # only PASS/WARN/FAIL here (no UNKNOWN)
     reasons = tuple(r for p in parts for r in p.reasons)

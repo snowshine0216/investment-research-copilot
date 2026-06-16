@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
@@ -347,7 +347,8 @@ def _compute_gates(
             run_date="",  # run_date irrelevant for the per-fund projection
         )["funds"][fund.id]
         health = (monitor_signal_health(projection, minimum_observations=min_obs,
-                                        stale_days=_NAV_STALE_DAYS),)
+                                        stale_days=_NAV_STALE_DAYS,
+                                        today=date.today()),)
         gates.append(apply_eval_gate(view.signal, health=health,
                                      gating_stages=GATING_STAGES_M0))
     return tuple(gates)
