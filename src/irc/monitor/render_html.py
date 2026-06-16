@@ -1,8 +1,11 @@
 from __future__ import annotations
 from html import escape
 from irc.monitor.render_types import FundView, Provenance
+from irc.monitor.render_cards import (
+    narrative_sections_html, risk_block_html, verdict_block_html,
+)
+from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
-from irc.monitor.types import Claim, NarrativeDoc
 
 _NO_CALL = "NO_CALL"
 
@@ -17,6 +20,20 @@ _CSS = (
     ".navchart{width:100%;max-width:680px;height:auto;display:block;"
     "margin:8px 0;background:#fff;border:1px solid #d0d7de;border-radius:6px}"
     ".navchart .hit:hover{fill:#0969da;fill-opacity:.08}"
+    ".verdict{margin:8px 0;padding:8px;border-left:3px solid #0969da;background:#f6f8fa}"
+    ".verdict-clause{font-weight:600;margin:0 0 4px}"
+    ".verdict blockquote{margin:4px 0;padding-left:8px;border-left:2px solid #d0d7de;color:#57606a}"
+    ".factors{border-collapse:collapse;width:100%;max-width:680px;margin:8px 0;font-size:13px}"
+    ".factors th,.factors td{border:1px solid #d0d7de;padding:3px 6px;text-align:right}"
+    ".factors th:first-child,.factors td:first-child{text-align:left}"
+    ".factor-na{color:#8c959f;background:#f6f8fa}"
+    ".factor-foot td{text-align:left;background:#f6f8fa;font-size:12px}"
+    ".returns{border-collapse:collapse;margin:8px 0;font-size:13px}"
+    ".returns td{border:1px solid #d0d7de;padding:3px 8px}"
+    ".risk{margin:8px 0;padding:8px;border-left:3px solid #cf222e;background:#fff8f6}"
+    ".risk h3{margin:0 0 4px;color:#cf222e;font-size:14px}"
+    ".price-action h3{font-size:14px;margin:8px 0 4px}"
+    ".muted{color:#8c959f}"
     "</style>"
 )
 
@@ -25,21 +42,6 @@ def _badge(view: FundView) -> str:
     if view.signal.status != "ok":
         return f'<span class="badge no-call">{_NO_CALL}</span>'
     return f'<span class="badge {view.signal.bias.lower()}">{escape(view.signal.bias)}</span>'
-
-
-def _claim_html(claim: Claim) -> str:
-    text = escape(claim.claim)
-    refs = "".join(f"[ref:{cid}]" for cid in claim.citation_ids)
-    return f"<p>{text} {refs}</p>"
-
-
-def _narrative_html(narr: NarrativeDoc) -> str:
-    if narr.status != "ok":
-        return f'<p class="narr-degraded">narrative unavailable: {escape(narr.status)}</p>'
-    blocks = [_claim_html(c) for c in narr.price_action_commentary]
-    blocks += [_claim_html(c) for c in narr.signal_rationale_commentary]
-    blocks += [_claim_html(c) for c in narr.risk_commentary]
-    return "".join(blocks)
 
 
 def _markers(view: FundView) -> tuple[EventMarker, ...]:
@@ -51,11 +53,6 @@ def _markers(view: FundView) -> tuple[EventMarker, ...]:
         )
         for ev in view.evidence_pool
     )
-
-
-def _returns_html(rt: dict[int, float]) -> str:
-    cells = "".join(f"<td>{w}d: {v:+.2%}</td>" for w, v in sorted(rt.items()))
-    return f"<table class='returns'><tr>{cells}</tr></table>"
 
 
 def _summary_row(view: FundView, prior: dict | None) -> str:
@@ -75,13 +72,16 @@ def _summary_row(view: FundView, prior: dict | None) -> str:
 
 def _card(view: FundView) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
-    miss = "".join(f"<li>{escape(r)}</li>" for r in view.missing_factor_reasons)
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view)}</h2>"
-        f"{chart}{_returns_html(view.return_table)}"
-        f"{_narrative_html(view.narrative)}"
-        f"<ul class='missing'>{miss}</ul></section>"
+        f"{verdict_block_html(view.signal, view.narrative)}"
+        f"{chart}"
+        f"{returns_table_html(view.return_table)}"
+        f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
+        f"{narrative_sections_html(view.narrative)}"
+        f"{risk_block_html(view.signal, view.narrative)}"
+        "</section>"
     )
 
 

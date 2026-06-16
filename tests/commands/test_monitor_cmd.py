@@ -218,6 +218,43 @@ def test_monitor_json_contains_impacts_status_degraded(tmp_path, monkeypatch):
     assert fund_entry["impacts_status"] == "empty_pool"
 
 
+def test_make_view_populates_factor_scores_and_return_table():
+    from irc.commands.monitor_cmd import _make_view
+    from irc.monitor.fetch import NavFetchResult
+    from irc.monitor.types import (
+        FactorScore, SignalRecord, NarrativeDoc, MonitorFund,
+    )
+    fund = MonitorFund(
+        id="008986", name_cn="n", market="cn_off_exchange", analysis_profile="gold",
+        themes=(), constituent_news=False, weights={"trend": 1.0},
+        bands={"buy": 0.4, "sell": -0.4}, minimum_confidence=0.5,
+    )
+    acc = tuple((f"2026-01-{i % 28 + 1:02d}", 1.0 + 0.001 * i) for i in range(300))
+    nav = NavFetchResult(fund_id="008986", latest_nav=acc[-1][1], as_of_date="2026-06-15", acc_series=acc)
+    rec = SignalRecord("008986", "ok", "ADD_BIAS", 0.6, 0.9, 1.0, ("price-momentum",),
+                       (), ())
+    scores = (
+        FactorScore("trend", 0.6, True, "", 1.0),
+        FactorScore("heat", None, False, "heat_no_data", 1.0),
+    )
+    narr = NarrativeDoc("008986", (), (), (), "ok")
+    view = _make_view(fund, nav, rec, scores, narr, ())
+    assert view.factor_scores == scores            # full ordered set incl. N/A
+    assert set(view.return_table) == {5, 20, 60, 120, 250}
+    assert view.return_table[60] is not None       # 300 points → all windows valued
+
+
+def test_make_view_no_nav_yields_all_none_returns():
+    from irc.commands.monitor_cmd import _make_view
+    from irc.monitor.types import SignalRecord, NarrativeDoc, MonitorFund, FactorScore
+    fund = MonitorFund("x", "n", "m", "gold", (), False, {}, {"buy": .4, "sell": -.4}, .5)
+    rec = SignalRecord("x", "insufficient_evidence", None, 0.0, 0.0, 0.0, (), (), ())
+    narr = NarrativeDoc("x", (), (), (), "ok")
+    view = _make_view(fund, None, rec, (FactorScore("trend", None, False, "no_nav", 1.0),), narr, ())
+    assert all(v is None for v in view.return_table.values())
+    assert view.factor_scores[0].name == "trend"
+
+
 def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
     """E2E: drives run_monitor with a FAKE call injected via mc.llm_call.
     Injects a non-empty pool and a call that returns valid impacts JSON.

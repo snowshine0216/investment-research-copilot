@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from irc.monitor.types import EvidenceItem, NarrativeDoc, SignalRecord
+from irc.monitor.types import EvidenceItem, FactorScore, NarrativeDoc, SignalRecord
 
 
 @dataclass(frozen=True)
@@ -24,4 +24,5 @@ class FundView:
     return_table: dict[int, float]
     factor_freshness: dict[str, str]
     missing_factor_reasons: tuple[str, ...]
+    factor_scores: tuple[FactorScore, ...] = ()
     impacts_status: str = "ok"   # mirrors impacts.status; surfaced so schema/provider errors aren't silently dropped

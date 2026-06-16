@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor report verdict justification (2026-06-15)
+
+- Each per-fund card in `outputs/<date>/monitor/report.html` now explains *why* it earned
+  its bias, surfacing data the signal engine already computed but the renderer discarded:
+  a **verdict block** (deterministic `C` vs bands clause + concise lead MiniMax rationale),
+  an **all-factors contribution table** (canonical order; present factors show value `sᵢ` /
+  renorm weight `w'ᵢ` / contribution `w'ᵢ·sᵢ` / confidence; N/A factors show a dimmed row
+  with their eligibility reason; footer carries `C` / confidence / available weight /
+  families), a real **`[5,20,60,120,250]d` returns table** (was always empty), a labeled
+  **risk & divergence block** (`divergence_codes` → plain caveats + MiniMax `risk_commentary`),
+  and a **price-action-only narrative** section (no longer merged with rationale + risk).
+  `NO_CALL` funds are self-explaining. Renderer stays pure, byte-stable, self-contained
+  (no JS / remote refs); XSS-escaping, H3 universal-rows, and citation-closure invariants
+  preserved. New pure modules `returns.py`, `render_factors.py`, `render_cards.py`.
+
 ### Added — `irc monitor` daily brief + configurable LLM routing + schedule rework (2026-06-15)
 
 - `irc monitor` daily brief for the fixed 7-fund Monitor set (`config/monitor.yaml`):
