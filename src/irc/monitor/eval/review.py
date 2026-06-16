@@ -14,3 +14,22 @@ def review_trigger(
         return False
     recent = weekly_headline_random_deltas[-k:]
     return all(d is not None and d < 0 for d in recent)
+
+
+from datetime import date
+
+
+def _iso_week_key(artifact_date: str) -> tuple[int, int]:
+    y, w, _ = date.fromisoformat(artifact_date).isocalendar()
+    return (y, w)
+
+
+def dedup_iso_weeks(entries: list, *, k: int) -> list:
+    """Keep one entry per ISO year-week (highest artifact_date; tiebreak by
+    report.ran_at), most-recent weeks first, capped at k. Pure — entries are any
+    objects with .artifact_date (str) and .report.ran_at (str)."""
+    by_week: dict[tuple[int, int], object] = {}
+    for e in sorted(entries, key=lambda x: (x.artifact_date, x.report.ran_at)):
+        by_week[_iso_week_key(e.artifact_date)] = e   # later sort order wins → highest kept
+    ordered = sorted(by_week.values(), key=lambda x: x.artifact_date, reverse=True)
+    return ordered[:k]
