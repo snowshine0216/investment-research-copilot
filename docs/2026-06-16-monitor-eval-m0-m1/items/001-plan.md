@@ -2231,7 +2231,7 @@ class _Cfg:
         minimum_observations = 2
 
 
-def _fund(profile="gold_etf"):
+def _fund(profile="gold"):  # amended: "gold_etf" → "gold" (real profile; "gold_etf" does not exist in PROFILES). Rationale: impl corrected fixture to avoid KeyError in PROFILES.get().
     return MonitorFund(id="008986", name_cn="测试", market="CN", analysis_profile=profile,
                        themes=("gold",), constituent_news=False, weights={"trend": 1.0},
                        bands={"buy": 0.1, "sell": -0.1}, minimum_confidence=0.5)
@@ -2432,7 +2432,7 @@ def _view(fid, *, degraded=False):
 
 
 def _patch_pipeline(monkeypatch, funds, views):
-    monkeypatch.setattr(monitor_cmd, "load_monitor_config", lambda root: object())
+    monkeypatch.setattr(monitor_cmd, "load_monitor_config", lambda root: _Cfg())  # amended: object() → _Cfg(). Rationale: _compute_gates accesses cfg.history.minimum_observations; object() raises AttributeError.
     monkeypatch.setattr(monitor_cmd, "resolve_funds", lambda cfg: funds)
     monkeypatch.setattr(monitor_cmd, "load_yaml", lambda *a, **k: object())
     monkeypatch.setattr(monitor_cmd, "preflight_gate", lambda *a, **k: 0)
@@ -2965,7 +2965,7 @@ def _stale_view(fid="008986"):
 
 
 def _patch(monkeypatch, funds, views):
-    monkeypatch.setattr(monitor_cmd, "load_monitor_config", lambda root: object())
+    monkeypatch.setattr(monitor_cmd, "load_monitor_config", lambda root: _Cfg())  # amended: object() → _Cfg(). Rationale: same as Task 17 — cfg.history.minimum_observations required by _compute_gates.
     monkeypatch.setattr(monitor_cmd, "resolve_funds", lambda cfg: funds)
     monkeypatch.setattr(monitor_cmd, "load_yaml", lambda *a, **k: object())
     monkeypatch.setattr(monitor_cmd, "preflight_gate", lambda *a, **k: 0)
