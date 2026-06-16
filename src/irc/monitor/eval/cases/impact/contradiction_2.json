@@ -1,0 +1,9 @@
+{
+  "category": "contradiction",
+  "messages_seed": { "fund_id": "000006", "themes": ["光伏"] },
+  "evidence_pool": [
+    {"source": "eastmoney", "title": "光伏出口数据创新高，需求旺盛", "date": "2026-06-09", "url": "https://example.com/pv-up-1", "owner_fund_id": "000006", "citation_id": "aaaa000000000007"},
+    {"source": "yicai", "title": "光伏组件价格持续下跌，企业盈利承压", "date": "2026-06-09", "url": "https://example.com/pv-down-1", "owner_fund_id": "000006", "citation_id": "aaaa000000000008"}
+  ],
+  "expected": { "max_abs": 0.3 }
+}

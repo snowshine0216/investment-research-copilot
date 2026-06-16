@@ -1,0 +1,8 @@
+{
+  "category": "directional-strong",
+  "messages_seed": { "fund_id": "000001", "themes": ["半导体"] },
+  "evidence_pool": [
+    {"source": "wallstreetcn", "title": "国家大基金加码半导体设备，行业景气度大幅上行", "date": "2026-06-14", "url": "https://example.com/semi-up-1", "owner_fund_id": "000001", "citation_id": "aaaa000000000001"}
+  ],
+  "expected": { "sign": "+", "min_abs": 0.5 }
+}
