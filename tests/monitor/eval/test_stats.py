@@ -1,5 +1,4 @@
 from __future__ import annotations
-import math
 from irc.monitor.eval.stats import (
     sign, bias_to_sign, hit_rate, spearman_ic, effective_n, block_bootstrap_ci,
 )
@@ -67,16 +66,23 @@ def test_effective_n_counts_shared_timeline_blocks():
     assert effective_n(rows) == 2
 
 
+def _stat_hit_rate(rs):
+    return hit_rate([r["pred"] for r in rs], [r["fwd"] for r in rs])
+
+
+def _stat_zero(_rs):
+    return 0.0
+
+
 def test_block_bootstrap_ci_deterministic_with_fixed_seed():
-    rows = [_row(f"2026-01-{d:02d}", 1, 0.01) for d in range(1, 11)] + \
-           [_row(f"2026-01-{d:02d}", -1, -0.02) for d in range(11, 21)]
-    stat = lambda rs: hit_rate([r["pred"] for r in rs], [r["fwd"] for r in rs])
-    ci1 = block_bootstrap_ci(rows, stat, seed=1234, b=500)
-    ci2 = block_bootstrap_ci(rows, stat, seed=1234, b=500)
+    rows = [_row(f"2026-01-{d:02d}", 1, 0.01) for d in range(1, 11)] + [
+        _row(f"2026-01-{d:02d}", -1, -0.02) for d in range(11, 21)
+    ]
+    ci1 = block_bootstrap_ci(rows, _stat_hit_rate, seed=1234, b=500)
+    ci2 = block_bootstrap_ci(rows, _stat_hit_rate, seed=1234, b=500)
     assert ci1 == ci2                      # fixed-seed determinism
     assert ci1[0] <= ci1[1]                # ordered lo<=hi
 
 
 def test_block_bootstrap_ci_empty_rows():
-    stat = lambda rs: 0.0
-    assert block_bootstrap_ci([], stat, seed=1, b=10) == (0.0, 0.0)
+    assert block_bootstrap_ci([], _stat_zero, seed=1, b=10) == (0.0, 0.0)
