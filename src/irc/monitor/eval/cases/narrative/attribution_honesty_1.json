@@ -1,0 +1,8 @@
+{
+  "category": "attribution-honesty",
+  "messages_seed": { "fund_id": "000105" },
+  "evidence_pool": [
+    {"source": "cls", "title": "估值修复与资金面改善并存", "date": "2026-06-10", "url": "https://example.com/n-attr-1", "owner_fund_id": "000105", "citation_id": "bbbb000000000005"}
+  ],
+  "expected": {}
+}

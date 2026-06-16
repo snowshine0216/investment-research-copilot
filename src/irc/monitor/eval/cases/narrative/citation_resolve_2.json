@@ -1,0 +1,8 @@
+{
+  "category": "citation-resolve",
+  "messages_seed": { "fund_id": "000102" },
+  "evidence_pool": [
+    {"source": "cls", "title": "新能源车出口维持高增", "date": "2026-06-13", "url": "https://example.com/n-ev-1", "owner_fund_id": "000102", "citation_id": "bbbb000000000002"}
+  ],
+  "expected": {}
+}
