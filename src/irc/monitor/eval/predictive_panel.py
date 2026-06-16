@@ -9,12 +9,20 @@ def _delta_cell(d: float | None) -> str:
     return "n/a" if d is None else f"{d:+.3f}"
 
 
+def _ci_cell(lo: float | None, hi: float | None) -> str:
+    """Render the CI interval, or 'CI pending' when no real CI exists yet (e.g. a
+    thin/undefined Rank-IC) — never a faked [v, v] interval."""
+    if lo is None or hi is None:
+        return "CI pending"
+    return f"[{lo:+.3f}, {hi:+.3f}]"
+
+
 def _metric_row(m: PredictiveMetricView) -> str:
     return (
         f"<tr><td>{escape(m.name)}</td>"
         f"<td>{m.value:+.3f}</td>"
         f"<td>{escape(m.status)}</td>"
-        f"<td>[{m.ci_low:+.3f}, {m.ci_high:+.3f}]</td>"
+        f"<td>{_ci_cell(m.ci_low, m.ci_high)}</td>"
         f"<td>{_delta_cell(m.random_delta)}</td>"
         f"<td>{_delta_cell(m.momentum_delta)}</td>"
         f"<td>{_delta_cell(m.buy_hold_delta)}</td>"

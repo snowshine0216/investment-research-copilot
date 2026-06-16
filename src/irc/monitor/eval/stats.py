@@ -116,3 +116,24 @@ def block_bootstrap_ci(
     lo = stats[int(0.025 * (b - 1))]
     hi = stats[int(0.975 * (b - 1))]
     return (lo, hi)
+
+
+def mean_bootstrap_ci(
+    values: Sequence[float], *, seed: int, b: int = 2000,
+) -> tuple[float, float]:
+    """95% percentile CI of the MEAN by resampling `values` with replacement.
+
+    Used for the time-averaged cross-sectional Rank-IC (each value is one defined
+    day's Spearman IC — "bootstrap over defined days", §4.2). Each day is one
+    observation; resample days with replacement and recompute the mean. Empty →
+    (0.0, 0.0). Fixed seed → byte-stable CI."""
+    if not values:
+        return (0.0, 0.0)
+    n = len(values)
+    rng = random.Random(seed)
+    means = sorted(
+        sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(b)
+    )
+    lo = means[int(0.025 * (b - 1))]
+    hi = means[int(0.975 * (b - 1))]
+    return (lo, hi)
