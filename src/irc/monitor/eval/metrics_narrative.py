@@ -28,12 +28,17 @@ def _banned_verb_present(text: str) -> bool:
 
 def citation_resolution(cases: list[dict], outputs: list[dict]) -> float:
     total = resolved = 0
+    any_claims = False
     for c, o in zip(cases, outputs):
         pool = _pool_cids(c)
         for claim in _all_claims(o):
+            any_claims = True
             for cid in claim.get("citation_ids", ()):
                 total += 1
                 resolved += 1 if cid in pool else 0
+    # Finding 3: cases exist but all outputs degraded (no claim fields at all) → FAIL
+    if not any_claims and cases:
+        return 0.0
     return _frac(resolved, total)
 
 
@@ -59,10 +64,14 @@ def attribution_honesty(cases: list[dict], outputs: list[dict]) -> float:
         return 1.0
     hits = 0
     for _c, o in pairs:
+        claims = _all_claims(o)
+        if not claims:
+            # Finding 3: degraded output → no claims → miss, not vacuous pass
+            continue
         ok = all(
             not _banned_verb_present(claim.get("claim", ""))
             or claim.get("attribution_strength") == "supported_attribution"
-            for claim in _all_claims(o)
+            for claim in claims
         )
         hits += 1 if ok else 0
     return _frac(hits, len(pairs))

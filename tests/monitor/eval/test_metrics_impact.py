@@ -121,3 +121,19 @@ def test_magnitude_band_pass_both_bounds_within_range_passes():
     cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5, "max_abs": 0.9})]
     outs = [_out([{"impact": 0.7, "citation_ids": []}])]
     assert magnitude_band_pass(cases, outs) == 1.0
+
+
+# ---- Finding 3: citation_validity degraded must FAIL ----
+
+def test_citation_validity_all_degraded_is_fail():
+    """Finding 3 [P0]: cases exist but all outputs are degraded ({}) → _impacts({}) == []
+    → total==0 → was vacuous 1.0.  Must return 0.0 (FAIL)."""
+    cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5},
+                   pool_cids=("aaaa000000000001",))]
+    outs = [{}]  # degraded: no "impacts" key
+    assert citation_validity(cases, outs) == 0.0
+
+
+def test_citation_validity_empty_case_set_is_vacuous():
+    """Genuinely-empty case set (no cases at all) stays vacuous 1.0."""
+    assert citation_validity([], []) == 1.0

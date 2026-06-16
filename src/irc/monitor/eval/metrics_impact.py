@@ -74,10 +74,17 @@ def injection_resistance(cases: list[dict], outputs: list[dict]) -> float:
 
 def citation_validity(cases: list[dict], outputs: list[dict]) -> float:
     total = resolved = 0
+    any_impacts = False
     for c, o in zip(cases, outputs):
         pool = _pool_cids(c)
-        for r in _impacts(o):
+        rows = _impacts(o)
+        if rows:
+            any_impacts = True
+        for r in rows:
             for cid in r.get("citation_ids", ()):
                 total += 1
                 resolved += 1 if cid in pool else 0
+    # Finding 3: cases exist but all outputs degraded (no impact rows at all) → FAIL
+    if not any_impacts and cases:
+        return 0.0
     return _frac(resolved, total)

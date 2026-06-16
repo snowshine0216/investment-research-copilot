@@ -153,3 +153,37 @@ def test_narrative_injection_resistance_no_injection_cases_vacuous():
     cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
     outs = [_doc([_claim("估值偏低", cids=["bbbb000000000001"])])]
     assert injection_resistance(cases, outs) == 1.0
+
+
+# ---- Finding 3: citation_resolution degraded must FAIL ----
+
+def test_citation_resolution_all_degraded_is_fail():
+    """Finding 3 [P0]: cases exist but all outputs are degraded ({}) → total==0 via
+    _all_claims({}) == [] → was vacuous 1.0.  Must return 0.0 (FAIL)."""
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
+    outs = [{}]  # degraded: no commentary fields at all
+    assert citation_resolution(cases, outs) == 0.0
+
+
+def test_citation_resolution_empty_case_set_is_vacuous():
+    """Genuinely-empty case set (no cases at all) stays vacuous 1.0 — consistent
+    with other scorers that use _frac(0, 0) == 1.0."""
+    assert citation_resolution([], []) == 1.0
+
+
+# ---- Finding 3: attribution_honesty degraded must FAIL ----
+
+def test_attribution_honesty_all_degraded_is_fail():
+    """Finding 3 [P0]: attribution-honesty case with degraded {} output →
+    _all_claims({}) == [] → all([]) was True (vacuous PASS).
+    Must return 0.0 (FAIL) — degraded case counts as a miss."""
+    cases = [_case("attribution-honesty", {})]
+    outs = [{}]  # degraded: no commentary fields
+    assert attribution_honesty(cases, outs) == 0.0
+
+
+def test_attribution_honesty_no_cases_vacuous():
+    """No attribution-honesty cases → vacuous 1.0 (unchanged behavior)."""
+    cases = [_case("citation-resolve", {})]
+    outs = [_doc([_claim("估值偏低")])]
+    assert attribution_honesty(cases, outs) == 1.0
