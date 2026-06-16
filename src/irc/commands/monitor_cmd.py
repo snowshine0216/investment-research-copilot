@@ -307,7 +307,9 @@ def _machine_summary(views: list[FundView]) -> dict:
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
-    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso())
+    gate_map = {g.fund_id: g for g in gates} if gates else None
+    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
+                         gates=gate_map)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
