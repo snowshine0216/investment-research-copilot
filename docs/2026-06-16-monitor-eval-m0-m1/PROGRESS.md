@@ -15,8 +15,8 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 
 | gate            | status |
 |-----------------|--------|
-| run-doc-sync    | ⏳     |
-| run-final-verify| ⏳     |
+| run-doc-sync    | ✅ PASS (after README/CLAUDE.md fix 4aa2062; re-verdict 9a439b7) |
+| run-final-verify| 🔄     |
 | run-close-out   | ⏳     |
 
 ## Artifact links (filled as phases complete)
