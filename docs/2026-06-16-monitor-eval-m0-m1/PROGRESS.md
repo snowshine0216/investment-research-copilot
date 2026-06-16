@@ -7,7 +7,7 @@ Mode: backlog · PR shape: A · Project type: non-web · Feature branch: monitor
 | id  | item            | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|-----------------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | M0 eval spine   | ✅   | ✅    | ✅   | ✅ claude/monitor-eval-m0-m1-001 | ✅ 821a8be | ✅    | ✅ #132 | ⏭️ | ✅     | ✅     | ✅ PASS-WITH-NITS | ✅ 2 rounds | ✅ 88c629d |
-| 002 | M1 LLM suites   | ⏳   | ⏳    | ⏳   | ⏳     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
+| 002 | M1 LLM suites   | ✅   | ✅    | ✅   | 🔄     | ⏳   | ⏳    | ⏳ | ⏭️ | ⏳     | ⏳     | ⏳        | ⏳  | ⏳    |
 
 QA column ⏭️ for all rows: project type is non-web → `/verify` is the active post-ship verifier.
 
@@ -31,6 +31,9 @@ QA column ⏭️ for all rows: project type is non-web → `/verify` is the acti
 - 001 verify: [items/001-verify.md](items/001-verify.md) — PASS, 32 criteria via live CLI (eval SKIPPED rc 3, --all excludes live) + integration tests
 - 001 pr-review: [items/001-pr-review.md](items/001-pr-review.md) — PASS-WITH-NITS, 2 nits, 0 bugs ([comment](https://github.com/snowshine0216/investment-research-copilot/pull/132#issuecomment-4714793673))
 - 001 fix: [items/001-fix.md](items/001-fix.md) — round 1 (6 pre-push fixes) + round 2 (2 nits polished); all 3 post-ship verdicts clean
+- 001 merge: ✅ squash 88c629d into monitor-eval (PR #132 MERGED)
+- 002 spec: [items/002-spec.md](items/002-spec.md) — 21 acceptance criteria, 5 OQs resolved (commit 62cc983)
+- 002 grill: [items/002-grill.md](items/002-grill.md) — PASS, 8 Q/A; CONTEXT.md + ADR 0017 M1 sections (b1f15d3); fixed attribution_strength 2-vs-4-value framing
 
 ## Notes
 
