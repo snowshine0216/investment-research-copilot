@@ -83,6 +83,32 @@ def test_eval_all_excludes_inactive_stages(tmp_path, capsys):
         assert stage in out, f"active stage {stage} missing from --all summary"
 
 
+def test_run_active_suite_logs_raising_stage_with_exc_info(tmp_path, monkeypatch, caplog):
+    """A runner crash (exception) must be logged with a traceback (exc_info)
+    so launchd/CI runs can distinguish a crash from a normal FAIL — not merely
+    printed to stdout. The swallow-and-continue contract holds: the stage still
+    gets rc=2 and the suite completes.
+    """
+    import logging
+    from irc.commands import eval_cmd
+
+    def boom(_spec):
+        def _raise(_root):
+            raise KeyError("malformed trace")
+        return _raise
+
+    monkeypatch.setattr(eval_cmd, "_resolve_runner", boom)
+
+    with caplog.at_level(logging.ERROR, logger="irc.commands.eval_cmd"):
+        rc = eval_cmd._run_active_suite(tmp_path)
+
+    # Every active stage raised → suite still completes; worst rc is FAIL.
+    assert rc == 2
+    raised = [r for r in caplog.records if "raised" in r.getMessage()]
+    assert raised, f"no 'raised' log record: {[r.getMessage() for r in caplog.records]}"
+    assert all(r.exc_info is not None for r in raised), "traceback (exc_info) not preserved"
+
+
 def test_live_gated_skips_without_env(tmp_path, monkeypatch, capsys):
     import json
     from datetime import datetime, timedelta, timezone
