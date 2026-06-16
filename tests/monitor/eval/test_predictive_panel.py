@@ -52,6 +52,31 @@ def test_review_flag_renders_warning():
     assert "review" in html.lower() and "underperforming" in html.lower()
 
 
+def test_ci_pending_rendered_when_ci_is_none():
+    """A row with no real CI (ci_low/ci_high None) must render 'CI pending' — never
+    a faked interval and never the literal 'None' in the CI cell."""
+    m = PredictiveMetricView(
+        name="rank_ic", value=0.12, status="WARN", state="insufficient_data",
+        ci_low=None, ci_high=None, random_delta=None,
+        momentum_delta=None, buy_hold_delta=None, n_observations=3,
+    )
+    model = PredictivePanelModel(present=True, stale=False, artifact_date="2026-06-16",
+                                 metrics=(m,), review_flag=False)
+    html = predictive_validity_panel_html(model=model)
+    assert "CI pending" in html
+    assert "None" not in html
+
+
+def test_real_ci_still_rendered_as_interval():
+    """A row WITH a real CI still renders the bracketed interval (regression guard)."""
+    m = _metric("rank_ic", 0.30, "PASS")     # ci_low=0.20, ci_high=0.40
+    model = PredictivePanelModel(present=True, stale=False, artifact_date="2026-06-16",
+                                 metrics=(m,), review_flag=False)
+    html = predictive_validity_panel_html(model=model)
+    assert "[+0.200, +0.400]" in html
+    assert "CI pending" not in html
+
+
 def test_baseline_na_state_renders_na():
     m = PredictiveMetricView(
         name="publishable_bias_directional", value=0.6, status="PASS", state="ok",

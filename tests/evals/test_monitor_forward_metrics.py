@@ -271,6 +271,110 @@ def test_momentum_baseline_unavailable_when_too_few_blocks():
     assert mom.get("state") == "baseline_unavailable", f"expected baseline_unavailable; got {mom}"
 
 
+# ── Follow-up: real Rank-IC CI (own bootstrap + random permutation null) ──────
+
+def _cross_sectional_ic_rows(n_days, *, sign_mult=1.0):
+    """n_days run_dates x 4 funds; composite predicts fwd cross-sectionally so
+    every day is a DEFINED IC day (>= MIN_CROSS=4 funds, non-constant ranks).
+    sign_mult=+1 → IC=+1 per day; -1 → inverse (IC=-1)."""
+    rows = []
+    comps = [0.9, 0.3, -0.3, -0.9]
+    biases = ["ADD_BIAS", "ADD_BIAS", "REDUCE_BIAS", "REDUCE_BIAS"]
+    for di in range(n_days):
+        rd = f"2026-03-{di + 1:02d}"
+        fwds = [sign_mult * x for x in (0.05, 0.02, -0.02, -0.05)]
+        for fund, comp, bias, fwd in zip("abcd", comps, biases, fwds):
+            rows.append(_fr(rd, fund, "ok", comp, bias, fwd))
+    return rows
+
+
+def _mixed_positive_ic_rows(n_days=12):
+    """Like above but alternates IC=+1.0 and IC=+0.8 days so the per-day ICs VARY
+    → the own bootstrap CI is a real non-degenerate interval (not a faked [v,v])."""
+    rows = []
+    comps = [0.9, 0.3, -0.3, -0.9]
+    biases = ["ADD_BIAS", "ADD_BIAS", "REDUCE_BIAS", "REDUCE_BIAS"]
+    for di in range(n_days):
+        rd = f"2026-03-{di + 1:02d}"
+        fwds = ([0.05, 0.02, -0.02, -0.05] if di % 2 == 0
+                else [0.02, 0.05, -0.02, -0.05])   # swap top two → IC=0.8
+        for fund, comp, bias, fwd in zip("abcd", comps, biases, fwds):
+            rows.append(_fr(rd, fund, "ok", comp, bias, fwd))
+    return rows
+
+
+def test_ic_real_ci_is_present_and_non_degenerate_when_reportable():
+    """>= MIN_DEFINED_DAYS defined days → a REAL own CI (ci_low < ci_high),
+    not the old ci_low==ci_high==value placeholder; value sits inside it."""
+    rows = _mixed_positive_ic_rows(12)
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    ic = details["rank_ic"]
+    assert ic["ci_low"] is not None and ic["ci_high"] is not None
+    assert ic["ci_low"] < ic["ci_high"], "IC CI is degenerate — still a [v,v] placeholder"
+    assert ic["ci_low"] <= ic["value"] <= ic["ci_high"]
+
+
+def test_ic_random_baseline_carries_delta_and_ci_when_reportable():
+    """The rank_ic random permutation null must surface {delta, ci_low, ci_high}
+    when there are enough defined days (no longer a bare insufficient_data stub)."""
+    rows = _mixed_positive_ic_rows(12)
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    rnd = details["rank_ic"]["baseline_deltas"]["random"]
+    assert {"delta", "ci_low", "ci_high"} <= set(rnd.keys()), f"got {rnd}"
+    assert rnd["ci_low"] <= rnd["ci_high"]
+
+
+def test_ic_pass_gate_reachable_for_strong_positive_signal():
+    """A strongly positive cross-sectional signal over >= MIN_DEFINED_DAYS days
+    clears its random permutation baseline (random.ci_low > 0) → status PASS."""
+    rows = _mixed_positive_ic_rows(12)
+    reports, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    ic = next(r for r in reports if r.name == "rank_ic")
+    assert ic.status == "PASS"
+    assert details["rank_ic"]["state"] == "ok"
+    assert details["rank_ic"]["baseline_deltas"]["random"]["ci_low"] > 0
+
+
+def test_ic_ci_pending_when_insufficient_defined_days():
+    """1 <= defined < MIN_DEFINED_DAYS → point estimate computed but NO real CI:
+    ci_low/ci_high are None (panel renders 'CI pending'), state insufficient_data,
+    status WARN, and the random baseline stays insufficient_data."""
+    rows = _cross_sectional_ic_rows(5)   # 5 defined days < MIN_DEFINED_DAYS=8
+    reports, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    ic = next(r for r in reports if r.name == "rank_ic")
+    d = details["rank_ic"]
+    assert ic.status == "WARN" and d["state"] == "insufficient_data"
+    assert d["value"] != 0.0                      # point estimate still recorded
+    assert d["ci_low"] is None and d["ci_high"] is None
+    assert d["baseline_deltas"]["random"] == {"state": "insufficient_data"}
+
+
+def test_ic_ci_none_when_undefined():
+    """Zero defined days → ci_low/ci_high None (no fake interval), undefined sentinel."""
+    rows = [_fr(f"2026-03-{d:02d}", "a", "ok", 0.2, "ADD_BIAS", 0.01) for d in range(1, 5)]
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    d = details["rank_ic"]
+    assert d["state"] == "undefined"
+    assert d["ci_low"] is None and d["ci_high"] is None
+
+
+def test_ic_effective_n_counts_ok_rows_only_not_all_status():
+    """nit #2: effective_n is the block span of the ok-status IC population, NOT
+    of all forward_rows. Fixture: 4 ok funds on one day + 20 non-ok rows on 20
+    distinct dates — all-status spans 2 blocks, ok-status spans 1."""
+    from irc.monitor.eval.stats import effective_n
+    rows = [_fr("2024-01-01", f, "ok", c, b, fwd) for f, c, b, fwd in
+            [("a", 0.9, "ADD_BIAS", 0.05), ("b", 0.3, "ADD_BIAS", 0.02),
+             ("c", -0.3, "REDUCE_BIAS", -0.02), ("d", -0.9, "REDUCE_BIAS", -0.05)]]
+    rows += [_fr(f"2024-02-{d:02d}", "z", "insufficient_evidence", 0.1, "ADD_BIAS", 0.01)
+             for d in range(1, 21)]
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=5)
+    ok_pop = [{"run_date": r.run_date} for r in rows if r.raw_status == "ok"]
+    all_pop = [{"run_date": r.run_date} for r in rows]
+    assert effective_n(all_pop) != effective_n(ok_pop), "fixture must force a difference"
+    assert details["rank_ic"]["effective_n"] == effective_n(ok_pop)
+
+
 def test_buy_hold_uses_paired_bootstrap():
     """buy_hold CI should carry delta, ci_low, ci_high (paired bootstrap)."""
     from irc.monitor.eval.constants import N_MIN_BLOCKS

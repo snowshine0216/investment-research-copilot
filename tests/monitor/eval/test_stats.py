@@ -1,6 +1,7 @@
 from __future__ import annotations
 from irc.monitor.eval.stats import (
     sign, bias_to_sign, hit_rate, spearman_ic, effective_n, block_bootstrap_ci,
+    mean_bootstrap_ci,
 )
 
 
@@ -86,3 +87,31 @@ def test_block_bootstrap_ci_deterministic_with_fixed_seed():
 
 def test_block_bootstrap_ci_empty_rows():
     assert block_bootstrap_ci([], _stat_zero, seed=1, b=10) == (0.0, 0.0)
+
+
+# ── mean_bootstrap_ci: "bootstrap over defined days" for the time-averaged IC ──
+
+def test_mean_bootstrap_ci_deterministic_and_ordered():
+    vals = [0.1, 0.2, 0.15, -0.05, 0.3, 0.0, 0.25, 0.05]
+    ci1 = mean_bootstrap_ci(vals, seed=7, b=500)
+    ci2 = mean_bootstrap_ci(vals, seed=7, b=500)
+    assert ci1 == ci2                      # fixed-seed determinism
+    assert ci1[0] <= ci1[1]                # ordered lo<=hi
+
+
+def test_mean_bootstrap_ci_empty_is_zero():
+    assert mean_bootstrap_ci([], seed=1, b=10) == (0.0, 0.0)
+
+
+def test_mean_bootstrap_ci_constant_values_collapse_to_value():
+    # all-identical day ICs → CI collapses to that value (a REAL CI, not a faked [v,v])
+    lo, hi = mean_bootstrap_ci([0.4, 0.4, 0.4, 0.4], seed=3, b=200)
+    assert lo == hi and abs(lo - 0.4) < 1e-9
+
+
+def test_mean_bootstrap_ci_brackets_the_mean():
+    vals = [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+    mean = sum(vals) / len(vals)
+    lo, hi = mean_bootstrap_ci(vals, seed=11, b=1000)
+    assert lo < hi                          # non-degenerate spread
+    assert lo <= mean <= hi                 # brackets the point estimate

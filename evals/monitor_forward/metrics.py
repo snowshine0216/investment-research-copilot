@@ -12,6 +12,7 @@ from irc.monitor.eval.constants import (
 from irc.monitor.eval.forward_score import ForwardRow
 from irc.monitor.eval.stats import (
     sign, bias_to_sign, hit_rate, spearman_ic, effective_n, block_bootstrap_ci,
+    mean_bootstrap_ci,
 )
 from irc.monitor.eval.baselines import (
     buy_hold_dir, random_null_delta,
@@ -143,31 +144,75 @@ def _hit_rate_report(
     return rep, details
 
 
-def _ic_report(rows: Sequence[ForwardRow], *, seed: int) -> tuple[MetricReport, dict]:
+def _avg_day_ic(rows: Sequence[dict]) -> float:
+    """Time-averaged cross-sectional Spearman IC over DEFINED days (>= MIN_CROSS
+    funds, non-constant signal & return ranks). Empty → 0.0. This single definition
+    is shared by the observed point estimate AND the permuted statistic in the IC
+    random null, so the null is the metric under test (§4.4)."""
+    by_day: dict[str, list[dict]] = defaultdict(list)
+    for r in rows:
+        by_day[r["run_date"]].append(r)
+    ics = []
+    for grp in by_day.values():
+        if len(grp) < MIN_CROSS:
+            continue
+        ic = spearman_ic([r["sig"] for r in grp], [r["fwd"] for r in grp])
+        if ic is not None:
+            ics.append(ic)
+    return sum(ics) / len(ics) if ics else 0.0
+
+
+def _ic_day_breakdown(rows: Sequence[ForwardRow]) -> tuple[list[float], list[dict]]:
+    """ok rows → (per-day IC over defined days, defined-day rows as permutation-ready
+    {run_date, sig, fwd} dicts). Population is raw_status=='ok' rows scored on
+    raw_composite, NEUTRAL composites included (§4.2)."""
     by_day: dict[str, list[ForwardRow]] = defaultdict(list)
     for r in rows:
         if r.raw_status == "ok":
             by_day[r.run_date].append(r)
     day_ics: list[float] = []
-    for _day, grp in by_day.items():
+    defined_rows: list[dict] = []
+    for day, grp in by_day.items():
         if len(grp) < MIN_CROSS:
             continue
         ic = spearman_ic([g.raw_composite for g in grp], [g.fwd_ret for g in grp])
-        if ic is not None:
-            day_ics.append(ic)
+        if ic is None:
+            continue
+        day_ics.append(ic)
+        defined_rows.extend(
+            {"run_date": day, "sig": g.raw_composite, "fwd": g.fwd_ret} for g in grp)
+    return day_ics, defined_rows
+
+
+def _ic_ci_status(day_ics, defined_rows, value, defined, *, seed):
+    """Own CI (bootstrap over defined days) + random permutation-null delta +
+    status ladder (§4.2). A real CI is reported ONLY at defined >= MIN_DEFINED_DAYS
+    (the statistically-reportable threshold); below that ci=None ('CI pending') and
+    the random baseline stays insufficient_data. Returns (ci_low, ci_high, rnd,
+    state, status). WARN-max: never FAIL for statistical weakness."""
+    if defined < MIN_DEFINED_DAYS:
+        state = "undefined" if defined == 0 else "insufficient_data"
+        return None, None, {"state": "insufficient_data"}, state, "WARN"
+    ci_low, ci_high = mean_bootstrap_ci(day_ics, seed=seed, b=BOOTSTRAP_B)
+    rnd = random_null_delta(defined_rows, metric=_avg_day_ic, label_key="sig",
+                            signal_value=value, seed=seed + 1, b=BOOTSTRAP_B)
+    passed = rnd.get("delta") is not None and rnd.get("ci_low", -1) > 0
+    return ci_low, ci_high, rnd, "ok", ("PASS" if passed else "WARN")
+
+
+def _ic_report(rows: Sequence[ForwardRow], *, seed: int) -> tuple[MetricReport, dict]:
+    day_ics, defined_rows = _ic_day_breakdown(rows)
     defined = len(day_ics)
     value = sum(day_ics) / defined if defined else 0.0
-    if defined == 0:
-        state, status = "undefined", "WARN"
-    elif defined < MIN_DEFINED_DAYS:
-        state, status = "insufficient_data", "WARN"
-    else:
-        state, status = "ok", "PASS"
-    comp_rows = _composite_rows(rows)
+    # nit #2: effective_n is the block span of the ok-status IC population, NOT
+    # all-status rows — aligned to the population the IC is computed over (§4.2).
+    eff_n = effective_n([{"run_date": r.run_date} for r in rows if r.raw_status == "ok"])
+    ci_low, ci_high, rnd, state, status = _ic_ci_status(
+        day_ics, defined_rows, value, defined, seed=seed)
     details = {
-        "value": value, "ci_low": value, "ci_high": value,
-        "baseline_deltas": {"random": {"state": "insufficient_data"}},
-        "defined_day_count": defined, "effective_n": effective_n(comp_rows),
+        "value": value, "ci_low": ci_low, "ci_high": ci_high,
+        "baseline_deltas": {"random": rnd},
+        "defined_day_count": defined, "effective_n": eff_n,
         "excluded": {}, "state": state,
     }
     rep = MetricReport(name="rank_ic", value=value, status=status,
