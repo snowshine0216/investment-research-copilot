@@ -31,7 +31,13 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 ## Final status
 
 ```
+Run: COMPLETE (spec mode, N=1) — all 11 per-phase gates passed.
 Feature branch: claude/xenodochial-cohen-339150
-Item 001: MERGED (squash a30c080)
-Merged into protected branch: no (left open for user review — Phase 3 opens a roll-up PR into main, not merged)
+Item 001: MERGED into feature branch via PR #137 (squash a30c080)
+Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/139 (into main — OPENED, NOT merged)
+Merged into protected branch: no (PR left open for user review)
+Phase 3: workflow-completeness audit PASS · build/test sanity 401 passed/8 skipped · doc-sync PASS (CONTEXT.md M2 subsection)
 ```
+
+### Follow-up flagged (out of scope)
+- Pre-existing: `src/irc/templates/config/monitor.yaml` is missing → 80 `run_init`-based `tests/commands` tests fail on `main` and the feature base (NOT a regression from this run). Flagged as a separate background task.
