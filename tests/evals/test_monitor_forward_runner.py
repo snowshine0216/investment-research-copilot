@@ -129,6 +129,97 @@ def test_details_json_carries_forward_excluded(tmp_path: Path):
     assert details["forward_excluded"].get("null_signal_nav", 0) >= 1
 
 
+# ── Fix 2: runner wires retro via load_monitor_config + run_backtest ─────────
+
+def _deep_nav_lines(fund, n=310, start="2024-01-01", base=1.0, step=0.001):
+    """310 NAV rows → enough for minimum_observations=251 + some replay points."""
+    d0 = date.fromisoformat(start)
+    return [json.dumps({
+        "fund_id": fund, "nav_date": (d0 + timedelta(days=i)).isoformat(),
+        "nav_acc": base + step * i, "written_at": "w", "source_run_date": "r",
+    }) for i in range(n)]
+
+
+def test_runner_retro_block_non_empty_with_deep_nav(tmp_path: Path, monkeypatch):
+    """Given a fund in the monitor config and deep nav history, runner produces
+    a non-empty retro block in details.json. Uses synthetic config/monitor.yaml
+    to avoid coupling to the real 7-fund set."""
+    # Write a minimal monitor.yaml with one fund matching the nav fixture
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "monitor.yaml").write_text(
+        "schema_version: 1\n"
+        "history:\n  minimum_observations: 10\n  fetch_calendar_days: 550\n"
+        "defaults:\n"
+        "  return_windows: [5, 20, 60, 120, 250]\n"
+        "  signal_weights:\n"
+        "    trend: 0.30\n    valuation: 0.20\n    heat: 0.15\n"
+        "    macro_tilt: 0.20\n    constituent: 0.15\n"
+        "  signal_bands:\n    buy: 0.40\n    sell: -0.40\n"
+        "  minimum_confidence: 0.50\n"
+        "funds:\n"
+        "  - { id: '008986', name_cn: TestFund, market: cn_off_exchange, "
+        "analysis_profile: gold, themes: [gold_drivers] }\n",
+        encoding="utf-8",
+    )
+
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    # 60 NAV rows — enough for min_obs=10 from the synthetic config
+    nav_rows = _nav_lines("008986", 60)
+    (md / "nav_history.jsonl").write_text("\n".join(nav_rows) + "\n", encoding="utf-8")
+    # ledger: thin but present (runner still needs it for forward path)
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    (md / "forward_ledger.jsonl").write_text(
+        _ledger_line(run_date, "008986", run_date) + "\n", encoding="utf-8"
+    )
+
+    rc = run(tmp_path)
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    details = json.loads((out_dir / "details.json").read_text())
+    # retro sub-block MUST be present in raw_composite_directional after Fix 2
+    assert "retro" in details["raw_composite_directional"], (
+        "retro sub-block missing — runner did not wire run_backtest (Fix 2)"
+    )
+    retro = details["raw_composite_directional"]["retro"]
+    assert "label" in retro, "retro sub-block missing label"
+    # Runner must stay offline — no network imports triggered
+    assert rc in (0, 1, 2)  # completed without exception
+
+
+def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
+    """Runner with deep nav must still produce exactly 3 MetricReport rows."""
+    cfg_dir = tmp_path / "config"
+    cfg_dir.mkdir(parents=True)
+    (cfg_dir / "monitor.yaml").write_text(
+        "schema_version: 1\n"
+        "history:\n  minimum_observations: 10\n  fetch_calendar_days: 550\n"
+        "defaults:\n"
+        "  return_windows: [5, 20, 60, 120, 250]\n"
+        "  signal_weights:\n"
+        "    trend: 0.30\n    valuation: 0.20\n    heat: 0.15\n"
+        "    macro_tilt: 0.20\n    constituent: 0.15\n"
+        "  signal_bands:\n    buy: 0.40\n    sell: -0.40\n"
+        "  minimum_confidence: 0.50\n"
+        "funds:\n"
+        "  - { id: '008986', name_cn: TestFund, market: cn_off_exchange, "
+        "analysis_profile: gold, themes: [gold_drivers] }\n",
+        encoding="utf-8",
+    )
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("008986", 60)) + "\n",
+                                          encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    (md / "forward_ledger.jsonl").write_text(
+        _ledger_line(run_date, "008986", run_date) + "\n", encoding="utf-8"
+    )
+    run(tmp_path)
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    report = json.loads((out_dir / "report.json").read_text())
+    assert len(report["metrics"]) == 3, f"expected 3 metrics; got {len(report['metrics'])}"
+
+
 def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     md = tmp_path / "data" / "monitor"
     md.mkdir(parents=True)

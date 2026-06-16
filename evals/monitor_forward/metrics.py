@@ -17,6 +17,10 @@ from irc.monitor.eval.baselines import (
     buy_hold_dir, random_null_delta,
 )
 
+_RETRO_LABEL = (
+    "evidence-free core (retro) — directionally analogous, not directly comparable"
+)
+
 # direction is higher_is_better for all three; thresholds are documentation-only
 _HIT_TH: dict[str, float] = {}      # NO fail_below — WARN set manually
 _IC_TH: dict[str, float] = {}
@@ -44,30 +48,93 @@ def _bias_rows(rows: Sequence[ForwardRow]) -> tuple[list[dict], dict[str, int]]:
     return out, excl
 
 
-def _buy_hold_delta(prepared: list[dict], signal_value: float) -> dict:
-    bh = hit_rate([buy_hold_dir() for _ in prepared], [r["fwd"] for r in prepared])
-    return {"delta": signal_value - bh, "ci_low": signal_value - bh,
-            "ci_high": signal_value - bh}
+def _retro_details(retro_points: Sequence) -> dict:
+    """Build the retro sub-block for raw_composite_directional details (§4.1)."""
+    if not retro_points:
+        return {"state": "insufficient_data", "n": 0, "label": _RETRO_LABEL}
+    preds = [sign(p.composite) for p in retro_points]
+    fwds = [p.fwd_ret for p in retro_points]
+    # count only non-zero fwd_ret (same as hit_rate exclusion)
+    scored = [(p, f) for p, f in zip(preds, fwds) if sign(f) != 0]
+    value = hit_rate(preds, fwds)
+    return {"value": value, "n": len(scored), "label": _RETRO_LABEL}
 
 
-def _hit_rate_report(name: str, prepared: list[dict], *, seed: int) -> tuple[MetricReport, dict]:
+def _buy_hold_delta_paired(prepared: list[dict], signal_value: float, *, seed: int) -> dict:
+    """Paired block bootstrap CI for buy_hold delta (spec §4.4)."""
+    bh_preds = [buy_hold_dir() for _ in prepared]
+    bh_value = hit_rate(bh_preds, [r["fwd"] for r in prepared])
+    delta = signal_value - bh_value
+    # paired bootstrap: resample buckets together, compute delta for each resample
+    bh_rows = [{**r, "bh": buy_hold_dir()} for r in prepared]
+    def _bh_stat(rs: Sequence[dict]) -> float:
+        return (hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])
+                - hit_rate([r["bh"] for r in rs], [r["fwd"] for r in rs]))
+    ci = block_bootstrap_ci(bh_rows, _bh_stat, seed=seed, b=BOOTSTRAP_B)
+    return {"delta": delta, "ci_low": ci[0], "ci_high": ci[1]}
+
+
+def _momentum_delta(
+    prepared: list[dict],
+    momentum_by_key: dict,
+    signal_value: float,
+    *,
+    seed: int,
+) -> tuple[dict, int]:
+    """Compute momentum paired delta; return (baseline_entry, momentum_undefined_count).
+
+    Rows with undefined momentum (None) are excluded from the paired population
+    but still counted in the signal's own value. Survivors spanning < N_MIN_BLOCKS
+    run-date blocks → state='baseline_unavailable'."""
+    defined = []
+    undefined_count = 0
+    for r in prepared:
+        mom = momentum_by_key.get((r["run_date"], r["fund_id"]))
+        if mom is None:
+            undefined_count += 1
+        else:
+            defined.append({**r, "mom": mom})
+    if not defined or effective_n(defined) < N_MIN_BLOCKS:
+        return {"state": "baseline_unavailable"}, undefined_count
+    mom_base = hit_rate([r["mom"] for r in defined], [r["fwd"] for r in defined])
+    mom_sig = hit_rate([r["pred"] for r in defined], [r["fwd"] for r in defined])
+    delta = mom_sig - mom_base
+
+    def _paired_delta(rs: Sequence[dict]) -> float:
+        return (hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])
+                - hit_rate([r["mom"] for r in rs], [r["fwd"] for r in rs]))
+
+    ci = block_bootstrap_ci(defined, _paired_delta, seed=seed, b=BOOTSTRAP_B)
+    return {"delta": delta, "ci_low": ci[0], "ci_high": ci[1]}, undefined_count
+
+
+def _hit_rate_report(
+    name: str, prepared: list[dict], *,
+    seed: int,
+    momentum_by_key: dict | None = None,
+) -> tuple[MetricReport, dict]:
     value = hit_rate([r["pred"] for r in prepared], [r["fwd"] for r in prepared])
     eff_n = effective_n(prepared)
     stat = lambda rs: hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])  # noqa: E731
     ci = block_bootstrap_ci(prepared, stat, seed=seed, b=BOOTSTRAP_B)
     rnd = random_null_delta(prepared, metric=stat, label_key="label",
                             signal_value=value, seed=seed + 1, b=BOOTSTRAP_B)
+    bh = _buy_hold_delta_paired(prepared, value, seed=seed + 3)
+    mbk = momentum_by_key or {}
+    mom, mom_undef = _momentum_delta(prepared, mbk, value, seed=seed + 2)
     if eff_n < N_MIN_BLOCKS:
         state, status = "insufficient_data", "WARN"
     elif rnd.get("delta") is not None and rnd.get("ci_low", -1) > 0:
         state, status = "ok", "PASS"
     else:
         state, status = "ok", "WARN"
+    excl: dict[str, int] = {}
+    if mom_undef:
+        excl["momentum_undefined"] = mom_undef
     details = {
         "value": value, "ci_low": ci[0], "ci_high": ci[1],
-        "baseline_deltas": {"random": rnd, "momentum": {"state": "baseline_unavailable"},
-                            "buy_hold": _buy_hold_delta(prepared, value)},
-        "effective_n": eff_n, "excluded": {}, "state": state,
+        "baseline_deltas": {"random": rnd, "momentum": mom, "buy_hold": bh},
+        "effective_n": eff_n, "excluded": excl, "state": state,
     }
     rep = MetricReport(name=name, value=value, status=status,
                        n_observations=eff_n, threshold=_HIT_TH,
@@ -109,14 +176,20 @@ def _ic_report(rows: Sequence[ForwardRow], *, seed: int) -> tuple[MetricReport, 
 
 def build_metric_reports(
     *, forward_rows: Sequence[ForwardRow], retro_points: Sequence, seed: int,
+    momentum_by_key: dict | None = None,
 ) -> tuple[list[MetricReport], dict]:
     comp = _composite_rows(forward_rows)
     bias, bias_excl = _bias_rows(forward_rows)
-    r_comp, d_comp = _hit_rate_report("raw_composite_directional", comp, seed=seed)
-    r_bias, d_bias = _hit_rate_report("publishable_bias_directional", bias, seed=seed + 10)
+    mbk = momentum_by_key or {}
+    r_comp, d_comp = _hit_rate_report("raw_composite_directional", comp,
+                                      seed=seed, momentum_by_key=mbk)
+    r_bias, d_bias = _hit_rate_report("publishable_bias_directional", bias,
+                                      seed=seed + 10, momentum_by_key=mbk)
     if bias_excl:
         d_bias["excluded"] = {**d_bias.get("excluded", {}), **bias_excl}
     r_ic, d_ic = _ic_report(forward_rows, seed=seed + 20)
+    # Wire retro sub-block into raw_composite_directional details (§4.1)
+    d_comp["retro"] = _retro_details(retro_points)
     details = {
         "raw_composite_directional": d_comp,
         "publishable_bias_directional": d_bias,
