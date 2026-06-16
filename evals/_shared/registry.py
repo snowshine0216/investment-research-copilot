@@ -28,6 +28,7 @@ Lifecycle = Literal[
     "inactive_legacy",
     "inactive_uninstrumented",
     "unimplemented_active",
+    "live_gated",
 ]
 
 
@@ -53,6 +54,9 @@ _SPECS: tuple[EvalStageSpec, ...] = (
     EvalStageSpec("triggers",     "evals.triggers.runner",     "unimplemented_active", True),
     EvalStageSpec("news",         "evals.news.runner",         "inactive_legacy", False),
     EvalStageSpec("queries",      "evals.queries.runner",      "inactive_uninstrumented", False),
+    EvalStageSpec("monitor_signal",    "evals.monitor_signal.runner",    "active", True),
+    EvalStageSpec("monitor_impact",    "evals.monitor_impact.runner",    "live_gated", False),
+    EvalStageSpec("monitor_narrative", "evals.monitor_narrative.runner", "live_gated", False),
 )
 
 
@@ -71,3 +75,7 @@ def active_suite_stages() -> tuple[str, ...]:
 
 def is_inactive(spec: EvalStageSpec) -> bool:
     return spec.lifecycle in ("inactive_legacy", "inactive_uninstrumented")
+
+
+def is_live_gated(spec: EvalStageSpec) -> bool:
+    return spec.lifecycle == "live_gated"

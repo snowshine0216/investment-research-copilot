@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor eval spine (M0) (2026-06-16)
+
+- New `src/irc/monitor/eval/` package: an in-run validation + forward-evaluation spine for the
+  `irc monitor` daily brief. Each run now also emits `outputs/<date>/monitor/eval_trace.json`
+  (per-fund signal/factor/citation projection with a unified macro+constituent evidence pool) and
+  appends a row per fund to `data/monitor/forward_ledger.jsonl` (real append-mode JSONL; reruns
+  collapsed at read time by `latest_per_key`, last-write-wins). The four legacy monitor dumps are
+  unchanged.
+- Pure cores: `structural` (in-run signal-consistency / citation-integrity / NAV-quality health,
+  worst-wins), `staleness` (resolve suite `StageReport` → `StageHealth`), `gate`
+  (`apply_eval_gate` / `published_state`), `forward_log`, `trace`, `panel`. NAV is
+  degradation-safe — a fund with no NAV observations is gated (`EVAL_GATED`) rather than crashing,
+  and still gets a ledger row.
+- New `evals/monitor_signal/` artifact eval (oracle signal-recompute, citation-resolution,
+  NAV-completeness) wired into `irc eval --all`. Shared-infra: `SKIPPED` status + `EVAL_RC_SKIPPED`,
+  a `live_gated` lifecycle, `latest_stage_report` (China-date lookup), an `eval-live` spend scope,
+  and an `irc eval` SKIPPED/budget-gate path for live LLM suites (runners land in M1).
+- Report card render: an `EVAL-GATED 🛡` badge, per-bias validation chips (✓ validated / ⚠
+  caveated), and a Validation panel section.
+
 ### Changed — monitor report verdict justification (2026-06-15)
 
 - Each per-fund card in `outputs/<date>/monitor/report.html` now explains *why* it earned

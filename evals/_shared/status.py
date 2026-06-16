@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Literal
 
 
-Status = Literal["PASS", "WARN", "FAIL"]
+Status = Literal["PASS", "WARN", "FAIL", "SKIPPED"]
 _RANK: dict[str, int] = {"PASS": 0, "WARN": 1, "FAIL": 2}
 
 

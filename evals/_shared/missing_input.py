@@ -20,6 +20,7 @@ from evals._shared.report_schema import StageReport
 EVAL_RC_PASS = 0
 EVAL_RC_WARN = 1
 EVAL_RC_FAIL = 2
+EVAL_RC_SKIPPED = 3
 
 _TZ = timezone(timedelta(hours=8))
 _SECS_PER_DAY = 86_400.0
@@ -44,6 +45,18 @@ def missing_input_report(
         based_on=based_on,
         metrics=[],
         overall="FAIL",
+        notes=reason,
+    )
+
+
+def skipped_report(stage: str, reason: str) -> StageReport:
+    """Build a SKIPPED StageReport (live_gated stage not executed; env absent)."""
+    return StageReport(
+        stage=stage,
+        ran_at=datetime.now(_TZ).isoformat(),
+        based_on=[],
+        metrics=[],
+        overall="SKIPPED",
         notes=reason,
     )
 
