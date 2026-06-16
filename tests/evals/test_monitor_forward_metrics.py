@@ -88,6 +88,21 @@ def test_permutation_null_is_not_noop_for_perfect_signal():
     )
 
 
+# ── Fix 5 regression: unknown bias does not crash _bias_rows ─────────────────
+
+def test_unknown_bias_value_skipped_not_crash():
+    """A row with raw_status=='ok' but raw_bias not in {ADD_BIAS,REDUCE_BIAS,NEUTRAL}
+    must be skipped (excluded under 'unknown_bias'), not raise KeyError."""
+    rows = [
+        _fr("2026-01-01", "a", "ok", 0.2, "GARBAGE", 0.01),   # unknown bias — must skip
+        _fr("2026-01-01", "b", "ok", 0.2, "ADD_BIAS", 0.01),  # valid row
+    ]
+    # Must not raise KeyError
+    reports, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
+    # The invalid bias row was excluded; the metric should still compute
+    assert details["publishable_bias_directional"] is not None
+
+
 def test_permutation_pass_gate_reachable_for_perfect_signal():
     """With a perfect signal and enough data, ci_low > 0 should be achievable
     (the PASS gate in _hit_rate_report). Before Fix 1, ci_low was always 0."""

@@ -28,15 +28,20 @@ def _composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
              "fwd": r.fwd_ret} for r in rows]
 
 
-def _bias_rows(rows: Sequence[ForwardRow]) -> list[dict]:
+def _bias_rows(rows: Sequence[ForwardRow]) -> tuple[list[dict], dict[str, int]]:
     out = []
+    excl: dict[str, int] = {}
     for r in rows:
         if r.raw_status != "ok" or r.raw_bias is None:
             continue
+        try:
+            s = bias_to_sign(r.raw_bias)
+        except KeyError:
+            excl["unknown_bias"] = excl.get("unknown_bias", 0) + 1
+            continue
         out.append({"run_date": r.run_date, "fund_id": r.fund_id,
-                    "pred": bias_to_sign(r.raw_bias), "label": bias_to_sign(r.raw_bias),
-                    "fwd": r.fwd_ret})
-    return out
+                    "pred": s, "label": s, "fwd": r.fwd_ret})
+    return out, excl
 
 
 def _buy_hold_delta(prepared: list[dict], signal_value: float) -> dict:
@@ -106,9 +111,11 @@ def build_metric_reports(
     *, forward_rows: Sequence[ForwardRow], retro_points: Sequence, seed: int,
 ) -> tuple[list[MetricReport], dict]:
     comp = _composite_rows(forward_rows)
-    bias = _bias_rows(forward_rows)
+    bias, bias_excl = _bias_rows(forward_rows)
     r_comp, d_comp = _hit_rate_report("raw_composite_directional", comp, seed=seed)
     r_bias, d_bias = _hit_rate_report("publishable_bias_directional", bias, seed=seed + 10)
+    if bias_excl:
+        d_bias["excluded"] = {**d_bias.get("excluded", {}), **bias_excl}
     r_ic, d_ic = _ic_report(forward_rows, seed=seed + 20)
     details = {
         "raw_composite_directional": d_comp,
