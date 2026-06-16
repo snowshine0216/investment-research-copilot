@@ -135,11 +135,16 @@ def _panel(views: tuple[FundView, ...], gates: dict[str, GateDecision] | None, n
         return ""
     from irc.monitor.eval.types import StageHealth
     counts: dict[str, int] = {}
-    for v in views:
-        g = gates.get(v.fund_id)
-        if g is not None:
-            counts[g.badge] = counts.get(g.badge, 0) + 1
-    health = StageHealth("monitor_signal", "PASS", ())
+    gate_list = [gates[v.fund_id] for v in views if v.fund_id in gates]
+    for g in gate_list:
+        counts[g.badge] = counts.get(g.badge, 0) + 1
+    if any(g.suppressed for g in gate_list):
+        overall = "FAIL"
+    elif any(g.badge == "caveated" for g in gate_list):
+        overall = "WARN"
+    else:
+        overall = "PASS"
+    health = StageHealth("monitor_signal", overall, ())
     return validation_panel_html(stage_health=health, ran_at=now, badge_counts=counts)
 
 
