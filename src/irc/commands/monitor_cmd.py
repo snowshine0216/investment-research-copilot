@@ -310,11 +310,12 @@ def _machine_summary(views: list[FundView]) -> dict:
 
 
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
-                   gates: tuple[GateDecision, ...] = ()) -> None:
+                   gates: tuple[GateDecision, ...] = (),
+                   predictive_panel: PredictivePanelModel | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
-                         gates=gate_map)
+                         gates=gate_map, predictive_panel=predictive_panel)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -580,7 +581,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates, run_date=_today)
-    _write_outputs(out, views, prior, gates)
+    predictive_panel = _predictive_panel_model(root, today=_today)
+    _write_outputs(out, views, prior, gates, predictive_panel=predictive_panel)
     record_command_run(
         repo_root=root,
         history=all_costs,

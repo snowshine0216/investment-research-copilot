@@ -1,7 +1,6 @@
 from __future__ import annotations
 import json
 from pathlib import Path
-from datetime import date, timedelta
 from irc.commands.monitor_cmd import _predictive_panel_model
 from evals._shared.report_schema import StageReport, MetricReport, report_to_dict
 
