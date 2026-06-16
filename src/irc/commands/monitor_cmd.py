@@ -36,6 +36,7 @@ from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
 from irc.monitor.snapshot_targets import target_for_fund
+from irc.monitor.eval.types import FundTraceBundle
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -298,7 +299,8 @@ def _machine_summary(views: list[FundView]) -> dict:
     }
 
 
-def _write_outputs(out: Path, views: list[FundView], prior: dict | None) -> None:
+def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
+                   gates: tuple = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso())
     atomic_write_text(out / "report.html", html)
@@ -325,8 +327,8 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None) -> None
 
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config,
-) -> tuple[FundView, list]:
-    """Process one fund: fetch → impacts → signal → narrative → view."""
+) -> tuple[FundView, list, FundTraceBundle]:
+    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
@@ -337,11 +339,10 @@ def _process_fund(
     cost_history = list(impacts.cost_entries)
     macro_rows = _impact_rows_from(impacts, fund)
 
-    # ── Constituent factor (v2.0: snapshot-grounded) ──────────────────────────
-    # Only for active_fund lookthrough profiles; others (gold/qdii) have no
-    # active_fund snapshot → constituent_rows=() naturally.
-    profile_spec = PROFILES.get(fund.analysis_profile)
     constituent_rows: tuple = ()
+    const_impacts_result = None
+    const_pool: tuple = ()
+    profile_spec = PROFILES.get(fund.analysis_profile)
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
         snap = load_latest_active_fund_cached(fund.id, root / "data")
@@ -352,12 +353,12 @@ def _process_fund(
             )[:_TOP_N_HOLDINGS]
         if const_pool and top_holdings:
             holding_symbols = tuple(h.symbol for h in top_holdings)
-            const_impacts = gather_impacts(
+            const_impacts_result = gather_impacts(
                 fund_id=fund.id, themes=holding_symbols, pool=const_pool,
                 route=llm_config, call=llm_call,
             )
-            cost_history.extend(const_impacts.cost_entries)
-            constituent_rows = _make_constituent_rows(const_impacts, top_holdings)
+            cost_history.extend(const_impacts_result.cost_entries)
+            constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
 
     inp = FactorInputs(
         acc_nav=nav.acc_series if nav else (),
@@ -376,7 +377,13 @@ def _process_fund(
     )
     cost_history.extend(narr.cost_entries)
     view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status)
-    return view, cost_history
+    bundle = FundTraceBundle(
+        fund_id=fund.id,
+        macro_impacts=impacts.impacts,
+        constituent_impacts=const_impacts_result.impacts if const_impacts_result else (),
+        constituent_pool=const_pool,
+    )
+    return view, cost_history, bundle
 
 
 def run_monitor(*, repo_root: str, today: str | None = None) -> int:
@@ -390,10 +397,12 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     funds = resolve_funds(cfg)
     llm_config = load_yaml(root / "config/llm.yaml", root)   # narrow LLMConfig (sole-source OK)
     views: list[FundView] = []
+    bundles: list[FundTraceBundle] = []
     all_costs: list = []
     for fund in funds:
-        view, costs = _process_fund(fund, cfg, root, llm_config)
+        view, costs, bundle = _process_fund(fund, cfg, root, llm_config)
         views.append(view)
+        bundles.append(bundle)
         all_costs.extend(costs)
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
