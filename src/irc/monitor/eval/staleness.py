@@ -16,6 +16,8 @@ def resolve_health(
     if report.overall == "SKIPPED":
         return StageHealth(report.stage, "UNKNOWN", ("skipped",))
     ran_at = datetime.fromisoformat(report.ran_at)
+    if ran_at.tzinfo is None:
+        ran_at = ran_at.replace(tzinfo=now.tzinfo)
     if (now - ran_at).days > stale_after_days:
         return StageHealth(report.stage, "UNKNOWN", ("stale",))
     return StageHealth(report.stage, report.overall, ())  # type: ignore[arg-type]

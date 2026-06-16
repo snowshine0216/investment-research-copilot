@@ -40,3 +40,21 @@ def test_fresh_pass_passes_through():
 def test_fresh_fail_passes_through():
     h = resolve_health(_report("FAIL", ran_at=_NOW), now=_NOW, stale_after_days=14)
     assert h.status == "FAIL"
+
+
+def test_naive_ran_at_does_not_raise_and_gives_correct_staleness():
+    # A ran_at without tz offset (naive ISO string) must not crash with TypeError.
+    # A naive ran_at that is recent → PASS passthrough; one that is old → UNKNOWN stale.
+    naive_recent = datetime(2026, 6, 16, 9, 0)   # no tzinfo
+    rep_recent = StageReport(stage="monitor_impact",
+                             ran_at=naive_recent.isoformat(),
+                             based_on=[], metrics=[], overall="PASS")
+    h = resolve_health(rep_recent, now=_NOW, stale_after_days=14)
+    assert h.status == "PASS"   # no TypeError, correct result
+
+    naive_old = datetime(2026, 5, 1, 9, 0)       # naive, clearly stale
+    rep_old = StageReport(stage="monitor_impact",
+                          ran_at=naive_old.isoformat(),
+                          based_on=[], metrics=[], overall="PASS")
+    h2 = resolve_health(rep_old, now=_NOW, stale_after_days=14)
+    assert h2.status == "UNKNOWN" and "stale" in h2.reasons[0]
