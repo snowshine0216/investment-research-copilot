@@ -1,0 +1,98 @@
+from __future__ import annotations
+import json
+from pathlib import Path
+from irc.commands import monitor_cmd
+from irc.monitor.eval.types import FundTraceBundle
+from irc.monitor.render_types import FundView
+from irc.monitor.types import (
+    MonitorFund, SignalRecord, FactorContribution, NarrativeDoc,
+)
+
+
+def _fund(fid="008986"):
+    return MonitorFund(id=fid, name_cn="测试", market="CN", analysis_profile="gold_etf",
+                       themes=("gold",), constituent_news=False, weights={"trend": 1.0},
+                       bands={"buy": 0.1, "sell": -0.1}, minimum_confidence=0.5)
+
+
+def _signal(fid, status="ok", bias="ADD_BIAS"):
+    return SignalRecord(fund_id=fid, status=status, bias=bias, composite=0.3,
+                        signal_confidence=1.0, available_weight=1.0,
+                        present_families=("price-momentum",),
+                        contributions=(FactorContribution("trend", 1.0, 0.3, 0.3, 1.0, True, ""),),
+                        divergence_codes=())
+
+
+def _view(fid, *, degraded=False):
+    series = () if degraded else (("2026-06-15", 2.4), ("2026-06-16", 2.5))
+    return FundView(fund_id=fid, name_cn="测试", latest_nav=0.0 if degraded else 2.0,
+                    as_of_date="N/A" if degraded else "2026-06-16", nav_series=series,
+                    signal=_signal(fid), narrative=NarrativeDoc(fid, (), (), (), "ok"),
+                    evidence_pool=(), return_table={}, factor_freshness={},
+                    missing_factor_reasons=(), factor_scores=())
+
+
+class _Cfg:
+    class history:
+        minimum_observations = 2
+
+
+def _patch_pipeline(monkeypatch, funds, views):
+    monkeypatch.setattr(monitor_cmd, "load_monitor_config", lambda root: _Cfg())
+    monkeypatch.setattr(monitor_cmd, "resolve_funds", lambda cfg: funds)
+    monkeypatch.setattr(monitor_cmd, "load_yaml", lambda *a, **k: object())
+    monkeypatch.setattr(monitor_cmd, "preflight_gate", lambda *a, **k: 0)
+    monkeypatch.setattr(monitor_cmd, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(monitor_cmd, "_read_prior_signal", lambda root, today: None)
+    view_iter = iter(views)
+    monkeypatch.setattr(
+        monitor_cmd, "_process_fund",
+        lambda fund, cfg, root, llm: (next(view_iter), [],
+                                      FundTraceBundle(fund.id, (), (), ())),
+    )
+
+
+def test_run_monitor_writes_eval_trace_and_ledger(monkeypatch, tmp_path: Path):
+    funds = [_fund("008986")]
+    _patch_pipeline(monkeypatch, funds, [_view("008986")])
+    rc = monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    trace_path = tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json"
+    assert trace_path.exists()
+    trace = json.loads(trace_path.read_text(encoding="utf-8"))
+    assert "008986" in trace["funds"]
+    ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
+    assert ledger.exists()
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert rows and rows[0]["nav_basis"] == "coalesce(nav_acc,nav)"
+
+
+def test_degraded_nav_fund_is_eval_gated_with_null_nav_acc(monkeypatch, tmp_path: Path):
+    funds = [_fund("600000")]
+    _patch_pipeline(monkeypatch, funds, [_view("600000", degraded=True)])
+    monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    trace = json.loads(
+        (tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json")
+        .read_text(encoding="utf-8"))
+    assert trace["funds"]["600000"]["published_state"] == "EVAL_GATED"
+    rows = [json.loads(line) for line in
+            (tmp_path / "data" / "monitor" / "forward_ledger.jsonl")
+            .read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["nav_acc"] is None
+
+
+def test_run_monitor_still_renders_when_trace_write_fails(monkeypatch, tmp_path: Path):
+    funds = [_fund("008986")]
+    _patch_pipeline(monkeypatch, funds, [_view("008986")])
+
+    real_write = monitor_cmd.atomic_write_text
+
+    def flaky_write(path, content, *a, **k):
+        if path.name == "eval_trace.json":
+            raise OSError("disk full")
+        return real_write(path, content, *a, **k)
+
+    monkeypatch.setattr(monitor_cmd, "atomic_write_text", flaky_write)
+    rc = monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    assert (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").exists()
