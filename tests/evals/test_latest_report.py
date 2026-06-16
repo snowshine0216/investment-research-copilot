@@ -46,7 +46,7 @@ def test_skipped_today_resolves_to_unknown(tmp_path: Path):
     _write(tmp_path, "monitor_impact", "2026-06-16", overall="SKIPPED")
     rep = latest_stage_report(tmp_path, "monitor_impact", today_iso="2026-06-16")
     now = datetime(2026, 6, 16, 12, tzinfo=_TZ)
-    h = resolve_health(rep, now=now, stale_after_days=14)
+    h = resolve_health(rep, now=now, stale_after_days=14, stage="monitor_impact")
     assert h.status == "UNKNOWN" and "skipped" in h.reasons[0]
 
 
