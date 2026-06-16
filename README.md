@@ -207,6 +207,35 @@ still the wrong tool here. A fast model finishes a full 7-fund brief in ~4–5 m
 Each workflow raises a clear "missing key for provider X" only if that provider is
 actually invoked. `irc config validate` remains secret-free (structural only).
 
+### Monitor eval & validation (`irc eval monitor_*`)
+
+Every `irc monitor` run now also emits a validation **eval spine** alongside the four
+legacy dumps: a per-run `outputs/<date>/monitor/eval_trace.json` (each fund's
+signal / factor / citation projection) and an append-only
+`data/monitor/forward_ledger.jsonl` (one row per fund per day, for later
+forward-validity scoring). In the report, a fund whose in-run health fails — missing or
+stale NAV, a broken citation, or (once the LLM suites have run) a fresh suite **FAIL** —
+gets a gray **EVAL-GATED 🛡** badge instead of a bias; published biases carry a small
+validation chip (✓ validated / ⚠ caveated), and a **Validation** panel summarises the
+gating stages. Missing/stale/skipped suite reports **fail open** (caveated, not gated).
+
+Offline eval suites run via `irc eval`:
+
+```bash
+uv run irc eval monitor_signal              # in-run health + oracle re-compute over eval_trace.json (part of `irc eval --all`)
+uv run irc eval monitor_impact              # SKIPPED (rc 3) unless IRC_RUN_LIVE_LLM_EVAL=1 — paid live-LLM suite
+uv run irc eval monitor_narrative           # SKIPPED (rc 3) unless IRC_RUN_LIVE_LLM_EVAL=1 — paid live-LLM suite
+IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact   # actually drive the MiniMax route (budgeted by the `eval-live` spend gate)
+```
+
+- `monitor_signal` is a **free, deterministic** artifact eval (no network); it is included
+  in `irc eval --all`.
+- `monitor_impact` / `monitor_narrative` are **`live_gated`** LLM-quality suites that score
+  synthetic/adversarial corpora through the real MiniMax route. They are **excluded from
+  `--all`** and **skip with exit code 3** unless `IRC_RUN_LIVE_LLM_EVAL=1` is set; when run,
+  they are budgeted by the `eval-live` spend gate and ledger their spend like `irc monitor`.
+  This is the only paid eval surface.
+
 ### Unattended automation (`irc notify-status`, launchd)
 
 Two macOS LaunchAgents (`ops/launchd/`) run the pipeline unattended and notify on
@@ -365,8 +394,10 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 
 | Command | Main outputs |
 |---|---|
-| `uv run irc monitor` | `outputs/<date>/monitor/report.html` (self-contained daily brief) |
+| `uv run irc monitor` | `outputs/<date>/monitor/report.html` (self-contained daily brief) + `outputs/<date>/monitor/eval_trace.json` + appends to `data/monitor/forward_ledger.jsonl` |
 | `uv run irc monitor snapshot` | per-fund constituent caches under `data/fundamentals/<quarter>/` |
+| `uv run irc eval monitor_signal` | `outputs/<date>/evals/monitor_signal/report.json` (free, in `--all`) |
+| `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` / `monitor_narrative` | `outputs/<date>/evals/monitor_{impact,narrative}/report.json` (live-LLM; SKIPPED rc 3 without the env) |
 | `uv run irc ingest` | `data/local.duckdb`, provider manifests under `data/_manifest/` |
 | `uv run irc research` | `data/research/*.md`, `data/research/research_status.json` |
 | `uv run irc fundamentals snapshot` | `data/fundamentals/<quarter>/*.json` |
