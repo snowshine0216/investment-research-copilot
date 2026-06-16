@@ -236,6 +236,10 @@ IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact   # actually drive the Mi
   they are budgeted by the `eval-live` spend gate and ledger their spend like `irc monitor`.
   This is the only paid eval surface.
 
+The eval surface, lifecycle, metrics, and expected output are documented in
+[`evals/README.md`](evals/README.md); the workflow diagram is
+[`evals/docs/monitor-eval-workflow.html`](evals/docs/monitor-eval-workflow.html).
+
 ### Unattended automation (`irc notify-status`, launchd)
 
 Two macOS LaunchAgents (`ops/launchd/`) run the pipeline unattended and notify on
