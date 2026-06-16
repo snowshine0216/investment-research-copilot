@@ -27,7 +27,7 @@
 **Create:**
 - `src/irc/monitor/eval/determinism.py` — pure: `recompute_signal_from_trace`, `diff_signal`, `deterministic_health`, `aggregate_deterministic_health`, `build_panel_rows` (panel-only).
 - `tests/monitor/_oracle.py` — test-only independent reference impls (composite/renorm, gate predicate, band classifier, valuation/heat decision tables).
-- `tests/monitor/conftest.py` — register + load the hypothesis derandomize profile, scoped to `tests/monitor/`.
+- `tests/conftest.py` (MODIFY) — append register + load of the hypothesis derandomize profile to the existing root conftest (spec §3.4 — extend, do not create a new conftest).
 - `tests/monitor/test_signal_property.py`, `test_factors_property.py`, `test_trend_property.py`, `test_factor_maps_oracle.py`, `test_news_factor_property.py` — D1 property/oracle modules.
 - `tests/monitor/test_known_na_reasons.py` — two-way exhaustiveness test.
 - `tests/monitor/eval/test_determinism.py` — D2 crafted-trace example tests.
@@ -124,29 +124,56 @@ git add pyproject.toml uv.lock
 git commit -m "build(monitor-eval-m2): add hypothesis>=6.100 to dev deps"
 ```
 
-### Task 1: Register the derandomize hypothesis profile in `tests/monitor/conftest.py`
+### Task 1: Register the derandomize hypothesis profile in the **existing** `tests/conftest.py`
 
-The existing root `tests/conftest.py` defines the autouse `_skip_spend_gate` fixture (`tests/conftest.py:6-19`); do NOT touch it. Add a **module-level** profile registration in a new `tests/monitor/conftest.py` so the derandomize profile loads for every monitor property test. (Spec §3.4: `register_profile` + `load_profile` coexists fine; `derandomize=True`, `deadline=None`, bounded `max_examples`.)
+> **Orchestrator amendment (spec fidelity).** Spec §3.4 is explicit: register the profile in the **existing** `tests/conftest.py` (it "already defines an autouse `_skip_spend_gate` fixture; a module-level `register_profile` + `load_profile` coexists fine"). This is a rev-3 P2 resolution — the spec author already weighed and rejected a separate conftest. EXTEND the root file; do **not** create `tests/monitor/conftest.py`. The profile is global (hypothesis reads profiles from code), so `load_profile` at the root conftest's import time covers every property test wherever it lives.
+
+Append a **module-level** profile registration to `tests/conftest.py` after the existing fixtures. `derandomize=True`, `deadline=None`, bounded `max_examples`.
 
 **Files:**
-- Create: `tests/monitor/conftest.py`
+- Modify: `tests/conftest.py`
 
-- [ ] **Step 1: Write the conftest**
+- [ ] **Step 1: Append the profile registration to `tests/conftest.py`**
 
-Create `tests/monitor/conftest.py`:
+Add the hypothesis import to the top imports and append the registration block **after** the existing `tmp_repo` fixture (do NOT touch `_skip_spend_gate` or `tmp_repo`). The resulting file:
 
 ```python
-"""Hypothesis determinism config for the monitor property suite (spec §3.4).
-
-The global rule requires fast, deterministic tests. We register a derandomized
-profile (no deadline, bounded max_examples — cheap for pure functions) and load
-it at import time so every property run is reproducible and offline. Hypothesis
-reads profiles from code, so no [tool.hypothesis] in pyproject.toml and no new
-pytest marker (--strict-markers stays satisfied).
-"""
 from __future__ import annotations
+from pathlib import Path
+import pytest
 from hypothesis import settings, HealthCheck
 
+
+@pytest.fixture(autouse=True)
+def _skip_spend_gate(monkeypatch):
+    """Bypass the preflight spend/balance gate by default in the test suite.
+
+    The gate does live, read-only balance probes when provider keys are present
+    in the environment (they are, in dev), so leaving it active would make any
+    test that drives a real command runner hit the network and depend on the
+    current account balance. The gate's own behaviour is covered directly by
+    tests/spend/ (run_preflight, estimator, ledger, gate, probes) and by the
+    dedicated wiring tests that monkeypatch the gate, so skipping it here removes
+    a network dependency without losing coverage. A test that needs the live
+    gate can monkeypatch.delenv("IRC_SKIP_SPEND_GATE", raising=False).
+    """
+    monkeypatch.setenv("IRC_SKIP_SPEND_GATE", "1")
+
+
+@pytest.fixture
+def tmp_repo(tmp_path: Path) -> Path:
+    """Empty temporary repo root with inputs/ and config/ ready to populate."""
+    (tmp_path / "inputs").mkdir()
+    (tmp_path / "config" / "universe").mkdir(parents=True)
+    return tmp_path
+
+
+# --- Hypothesis determinism config (Monitor Eval M2, spec §3.4) ---------------
+# The global rule requires fast, deterministic tests. Register a derandomized
+# profile (no deadline, bounded max_examples — cheap for pure functions) and load
+# it at import time so every property run is reproducible and offline. Hypothesis
+# reads profiles from code, so there is no [tool.hypothesis] in pyproject.toml and
+# no new pytest marker (--strict-markers stays satisfied).
 settings.register_profile(
     "monitor_deterministic",
     derandomize=True,
@@ -160,21 +187,21 @@ settings.load_profile("monitor_deterministic")
 - [ ] **Step 2: Verify it loads without breaking collection**
 
 Run: `uv run pytest --co -q tests/monitor/ 2>&1 | tail -3`
-Expected: collection succeeds; no import error from `tests/monitor/conftest.py`.
+Expected: collection succeeds; no import error from `tests/conftest.py`.
 
-- [ ] **Step 3: Verify existing monitor tests still pass (profile is inert until a property test exists)**
+- [ ] **Step 3: Verify existing tests still pass (profile is inert until a property test exists)**
 
-Run: `uv run pytest tests/monitor/test_signal.py tests/monitor/test_factors.py -q`
-Expected: all pass (the conftest does not change example-based tests).
+Run: `uv run pytest tests/monitor/test_signal.py tests/monitor/test_factors.py tests/spend -q`
+Expected: all pass (the new block does not change example-based tests or the spend-gate fixture; `tests/spend` confirms the root conftest still behaves).
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add tests/monitor/conftest.py
+git add tests/conftest.py
 git commit -m "test(monitor-eval-m2): register derandomized hypothesis profile"
 ```
 
-**Verification point (Milestone 0):** `import hypothesis` works; `tests/monitor/conftest.py` loads the `monitor_deterministic` profile; `uv run pytest -q tests/monitor` still green.
+**Verification point (Milestone 0):** `import hypothesis` works; `tests/conftest.py` loads the `monitor_deterministic` profile; `uv run pytest -q tests/monitor` still green; `uv run pytest -q tests/spend` still green.
 
 ---
 
@@ -573,7 +600,7 @@ def test_reproducible_same_inputs_equal_record(fund, scores):
 - [ ] **Step 2: Run to verify it passes (derandomized, sub-second)**
 
 Run: `uv run pytest tests/monitor/test_signal_property.py -q`
-Expected: 7 passed, fast (< 2s). The `tests/monitor/conftest.py` profile makes every run reproducible.
+Expected: 7 passed, fast (< 2s). The `tests/conftest.py` derandomize profile makes every run reproducible.
 
 - [ ] **Step 3: Lint**
 
@@ -1948,4 +1975,4 @@ git commit -m "test(monitor-eval-m2): verification pass — full monitor suite g
 - **Spec coverage:** §3 D1 (oracle Task 3; per-scorer properties Tasks 4-8) · §3.4 derandomize profile (Task 1) · §4 D2 determinism module (Tasks 9, 11) · §4.1 P0 fund_id-explicit (Task 9 signatures) · §4.3 not-a-gate (Task 11 guard) · §5 panel data-flow + ValidationPanelRow + build_panel_rows + multi-row panel + render_report (Tasks 10-14) · §5 divergence 1 re-expressions (Tasks 12-14) · §6 KNOWN_NA_REASONS single source + two-way exhaustiveness (Task 2) · §7 architecture map (every NEW/MODIFY file has a task) · §8 TDD ordering (milestones follow steps 1→4).
 - **Float policy:** categoricals exact; composite/numeric via `_EPS = 1e-9`; production's `round(...,4)` honored by `test_composite_equals_rounded_oracle` and `diff_signal`.
 - **Layering:** `determinism.py` imports `factors.KNOWN_NA_REASONS` (core, single source) + `evals._shared.status.worst_status` (allowed pure helper, mirrors `structural.py:6`). No I/O/AkShare/LLM/settings/fs import.
-- **Judgment calls:** (1) `build_panel_rows` placed in `determinism.py` rather than a new module — the spec lists it in §5 without a file; `determinism.py` is the pure home that already owns `deterministic_health` and `worst_status`, and §7 does not mandate a separate file. (2) `tests/monitor/conftest.py` (monitor-scoped) created rather than editing root `tests/conftest.py` — the spec §3.4 says "the existing tests/conftest.py", but the worktree's `tests/monitor/` has no conftest, and a monitor-scoped conftest keeps the derandomize profile from perturbing unrelated suites while still loading at import for every property test; the root `_skip_spend_gate` autouse fixture is inherited unchanged. If the orchestrator requires the profile in the root file, move the `register_profile`/`load_profile` block there verbatim. (3) The M1 gate test's 3 call sites were not enumerated in the spec but MUST change because `_compute_gates`'s return shape grows (Task 14 Step 1) — confirmed by reading `test_gate_flip_m1.py:91,103,116`.
+- **Judgment calls:** (1) `build_panel_rows` placed in `determinism.py` rather than a new module — the spec lists it in §5 without a file; `determinism.py` is the pure home that already owns `deterministic_health` and `worst_status`, and §7 does not mandate a separate file. (2) ~~`tests/monitor/conftest.py` (monitor-scoped) created rather than editing root `tests/conftest.py`~~ — **CORRECTED by orchestrator (spec fidelity, Task 1):** spec §3.4 explicitly says extend the existing `tests/conftest.py` (a rev-3 P2 resolution the author already weighed). The profile is now appended to the root `tests/conftest.py`; no new conftest is created. `tests/spend` is added to the Milestone-0 verification to confirm the root `_skip_spend_gate` fixture still behaves. (3) The M1 gate test's 3 call sites were not enumerated in the spec but MUST change because `_compute_gates`'s return shape grows (Task 14 Step 1) — confirmed by reading `test_gate_flip_m1.py:91,103,116`.
