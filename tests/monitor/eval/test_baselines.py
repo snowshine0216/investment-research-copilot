@@ -1,5 +1,4 @@
 from __future__ import annotations
-import math
 from irc.monitor.eval.baselines import (
     buy_hold_dir, momentum_dir, momentum_defined,
 )
@@ -48,7 +47,7 @@ def test_momentum_defined_true_for_clean_series():
 # ---------------------------------------------------------------------------
 # Task 8: within-run_date permutation grouping + degenerate exclusions
 # ---------------------------------------------------------------------------
-from irc.monitor.eval.baselines import permutable_groups, permutation_excluded  # noqa: E402
+from irc.monitor.eval.baselines import permutable_groups  # noqa: E402
 
 
 def _row(run_date, label, fwd):
