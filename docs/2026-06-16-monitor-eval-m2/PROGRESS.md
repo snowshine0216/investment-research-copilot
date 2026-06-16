@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ 0010acd | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ 0010acd | ✅ | ✅ #137 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 
 ## Notes
 
@@ -16,4 +16,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 ## Artifact links
 
-_(filled in as phases complete)_
+- plan → [`items/001-plan.md`](items/001-plan.md)
+- impl → commit `0010acd` (+ pre-push fix `b2e093f`)
+- drift → [`items/001-drift.md`](items/001-drift.md) (Verdict: PASS)
+- ship → [`items/001-ship.md`](items/001-ship.md) · PR [#137](https://github.com/snowshine0216/investment-research-copilot/pull/137) (base = feature branch)
+- review → [`items/001-review.md`](items/001-review.md) (Verdict: PASS; 3 pre-push findings fixed in `b2e093f`)
+- pr-review → _pending (`/code-review` on #137)_
+- verify → _pending (`/verify`, non-web)_
