@@ -22,6 +22,16 @@
 - **New-feature test surface: 435 passed**, all M3 source files <200 lines, ruff clean on all M3 files.
 - **Known pre-existing failure (NOT introduced):** `tests/evals/test_architecture.py::test_dag_acyclic_check_true_for_valid_imports` — verified failing identically on the feature-branch base (one of the 24 baseline failures).
 
+## ✅ RUN COMPLETE (Phase 3 close-out)
+
+- **Items merged:** 1/1 (001 → PR #138 squashed into the feature branch as `e3f48ff`). **0 SKIPPED, 0 BLOCKED.**
+- **Feature branch:** `claude/stupefied-swirles-a9365f`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/140 (into `main`)
+- **Merged into protected branch:** no — PR #140 left OPEN for user review (guardrail held; no protected-merge opt-in given).
+- **Phase 3:** workflow-completeness audit PASS (all verdict artifacts present, non-web XOR correct); build/test sanity 454 passed (sole failure = pre-existing `test_dag_acyclic_check_true_for_valid_imports`); ruff clean; doc-sync PASS ([doc-sync.md](doc-sync.md)); final-verify PASS ([final-verify.md](final-verify.md)).
+- **Review history:** 1 P0 (permutation no-op) + 2 spec-completeness gaps (retro unwired, momentum stubbed) + a runner-robustness cluster, ALL fixed pre-PR (ship steps 8+9 review→fix). 0 post-ship fix rounds. Final pr-review PASS-WITH-NITS (0 blockers/latent).
+- **Follow-up:** spawned `task_f18c3eae` — real `rank_ic` CI + honest panel render (documented deferral; nits #1/#2). Nit #3 (deferred import style) accepted.
+
 ## Post-ship verdicts (loop exit contract satisfied)
 
 - **verify** ✅ PASS — [`items/001-verify.md`](items/001-verify.md): CLI degraded path rc 2; happy-path end-to-end rc 1 WARN with 3 metric rows + correct per-metric baseline schema; `--all` excludes monitor_forward; never-gates invariant.
