@@ -42,3 +42,17 @@ def test_write_missing_input_report_emits_json_with_fail_overall(tmp_path: Path)
     assert body["stage"] == "triggers"
     # based_on may be empty list, never absent.
     assert body["based_on"] == []
+
+
+def test_eval_rc_skipped_is_3():
+    from evals._shared.missing_input import EVAL_RC_SKIPPED
+    assert EVAL_RC_SKIPPED == 3
+
+
+def test_skipped_report_has_overall_skipped():
+    from evals._shared.missing_input import skipped_report
+    r = skipped_report("monitor_impact", "env absent; not executed")
+    assert r.stage == "monitor_impact"
+    assert r.overall == "SKIPPED"
+    assert "env absent" in r.notes
+    assert r.metrics == []
