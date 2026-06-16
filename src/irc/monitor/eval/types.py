@@ -38,3 +38,26 @@ class FundTraceBundle:
     macro_impacts: tuple[ValidatedImpact, ...]
     constituent_impacts: tuple[ValidatedImpact, ...]
     constituent_pool: tuple[EvidenceItem, ...]
+
+
+@dataclass(frozen=True)
+class PredictiveMetricView:
+    name: str
+    value: float
+    status: str                       # "PASS" | "WARN"
+    state: str                        # "ok" | "insufficient_data" | "undefined"
+    ci_low: float
+    ci_high: float
+    random_delta: float | None
+    momentum_delta: float | None      # None / absent on the rank_ic row
+    buy_hold_delta: float | None      # None / absent on the rank_ic row
+    n_observations: int
+
+
+@dataclass(frozen=True)
+class PredictivePanelModel:
+    present: bool                     # a latest report exists
+    stale: bool
+    artifact_date: str | None
+    metrics: tuple[PredictiveMetricView, ...]
+    review_flag: bool
