@@ -86,14 +86,25 @@ def test_bias_matches_band_classifier_when_ok(fund, scores):
         assert rec.bias == _oracle.band_classifier(rec.composite, fund.bands)
 
 
-@given(fund=_fund(), scores=_scores())
-def test_raising_composite_never_moves_bias_toward_reduce(fund, scores):
-    # Band monotonicity: a higher composite never yields REDUCE when the lower one
-    # yielded ADD/NEUTRAL. Compare the band classifier at composite and composite+δ.
-    lo = _oracle.band_classifier(0.0, fund.bands)
-    hi = _oracle.band_classifier(1.0, fund.bands)
+@given(
+    fund=_fund(),
+    composites=st.tuples(
+        st.floats(-1.0, 1.0, allow_nan=False, allow_infinity=False),
+        st.floats(-1.0, 1.0, allow_nan=False, allow_infinity=False),
+    ),
+)
+def test_raising_composite_never_moves_bias_toward_reduce(fund, composites):
+    """Band monotonicity (spec §3.1): for any two composites c_lo <= c_hi drawn
+    from the real input range [-1, 1], the band classifier must never assign a
+    *lower* bias order to the higher composite.  Uses the same band-classification
+    path that compute_signal uses (verified by test_bias_matches_band_classifier_when_ok).
+    This test is NON-TRIVIAL: it draws real pairs and fails if band_classifier
+    were non-monotone (e.g. bands with sell > buy)."""
+    c_lo, c_hi = min(composites), max(composites)
     order = {"REDUCE_BIAS": 0, "NEUTRAL": 1, "ADD_BIAS": 2}
-    assert order[hi] >= order[lo]
+    bias_lo = _oracle.band_classifier(c_lo, fund.bands)
+    bias_hi = _oracle.band_classifier(c_hi, fund.bands)
+    assert order[bias_hi] >= order[bias_lo]
 
 
 @given(fund=_fund(), scores=_scores())

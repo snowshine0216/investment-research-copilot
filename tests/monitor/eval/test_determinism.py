@@ -7,7 +7,7 @@ fund_id is the funds-dict key, absent from the per-fund value.
 from __future__ import annotations
 from irc.monitor.eval.determinism import (
     recompute_signal_from_trace, diff_signal, deterministic_health,
-    aggregate_deterministic_health,
+    aggregate_deterministic_health, _safe_status,
 )
 
 
@@ -178,6 +178,17 @@ def test_health_fail_when_composite_key_absent():
     assert any("composite" in r for r in h.reasons)
 
 
+# ── Finding #1: _safe_status guard + aggregate consistency ──────────────────
+
+
+def test_safe_status_maps_unknown_to_fail():
+    """_safe_status('UNKNOWN') == 'FAIL'; known statuses pass through unchanged."""
+    assert _safe_status("UNKNOWN") == "FAIL"
+    assert _safe_status("PASS") == "PASS"
+    assert _safe_status("WARN") == "WARN"
+    assert _safe_status("FAIL") == "FAIL"
+
+
 # ── Finding B: _row / build_panel_rows must not KeyError on "UNKNOWN" status ─
 
 
@@ -190,6 +201,24 @@ def test_build_panel_rows_unknown_status_does_not_raise():
     rows = {r.stage: r for r in build_panel_rows(sig, det, now="t")}
     # Should not raise; the unknown status must not be "PASS"
     assert rows["monitor_signal"].status != "PASS"
+
+
+def test_aggregate_unknown_status_does_not_raise():
+    """aggregate_deterministic_health must not KeyError when a per-fund health
+    carries a non-PASS/FAIL status (e.g. 'UNKNOWN'). _safe_status maps it to
+    FAIL so worst_status never sees an unrecognised key."""
+    from unittest.mock import patch
+    from irc.monitor.eval.types import StageHealth as SH
+    unknown_health = SH("deterministic_scoring", "UNKNOWN", ("synthetic",))
+    clean = _record_signal(_clean_fund())
+    traces = {"funds": {"AAA": clean}}
+    with patch(
+        "irc.monitor.eval.determinism.deterministic_health",
+        return_value=unknown_health,
+    ):
+        agg = aggregate_deterministic_health(traces)
+    # Must not raise; UNKNOWN is treated as FAIL, so aggregate is FAIL
+    assert agg.status == "FAIL"
 
 
 def test_validation_panel_row_is_frozen_dataclass():

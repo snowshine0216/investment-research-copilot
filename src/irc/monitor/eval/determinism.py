@@ -125,20 +125,6 @@ def deterministic_health(fund_id: str, trace_fund: dict) -> StageHealth:
     return StageHealth(stage=_STAGE, status=status, reasons=reasons)
 
 
-def aggregate_deterministic_health(traces: dict) -> StageHealth:
-    """Worst-of over the funds dict; reasons name the offending funds. Passes
-    fund_id from the dict KEY into the per-fund health (P0 rev-3)."""
-    funds = traces.get("funds", {})
-    per_fund = [
-        (fid, deterministic_health(fid, f)) for fid, f in funds.items()
-    ]
-    overall = worst_status([h.status for _, h in per_fund])
-    reasons = tuple(
-        f"{fid}: {r}" for fid, h in per_fund for r in h.reasons
-    )
-    return StageHealth(stage=_STAGE, status=overall, reasons=reasons)
-
-
 _KNOWN_STATUSES = {"PASS", "WARN", "FAIL"}
 
 
@@ -146,6 +132,20 @@ def _safe_status(s: str) -> str:
     """Map any unrecognised status (e.g. 'UNKNOWN') to 'FAIL' for worst-of.
     An unknown health state is never better than FAIL."""
     return s if s in _KNOWN_STATUSES else "FAIL"
+
+
+def aggregate_deterministic_health(traces: dict) -> StageHealth:
+    """Worst-of over the funds dict; reasons name the offending funds. Passes
+    fund_id from the dict KEY into the per-fund health (P0 rev-3)."""
+    funds = traces.get("funds", {})
+    per_fund = [
+        (fid, deterministic_health(fid, f)) for fid, f in funds.items()
+    ]
+    overall = worst_status([_safe_status(h.status) for _, h in per_fund])
+    reasons = tuple(
+        f"{fid}: {r}" for fid, h in per_fund for r in h.reasons
+    )
+    return StageHealth(stage=_STAGE, status=overall, reasons=reasons)
 
 
 def _row(stage: str, healths: dict, now: str) -> ValidationPanelRow:
