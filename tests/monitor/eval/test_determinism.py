@@ -130,6 +130,68 @@ def test_aggregate_empty_is_pass():
     assert aggregate_deterministic_health({"funds": {}}).status == "PASS"
 
 
+# ── Finding A: absent recorded key must be a mismatch, not a silent pass ────
+
+
+def test_diff_missing_composite_is_mismatch():
+    """Absent 'composite' key in recorded → diff names 'composite'."""
+    fund = _record_signal(_clean_fund())
+    del fund["signal"]["composite"]
+    rec = recompute_signal_from_trace("008986", fund)
+    fields = diff_signal(rec, fund["signal"])
+    assert "composite" in fields
+
+
+def test_diff_missing_available_weight_is_mismatch():
+    """Absent 'available_weight' key in recorded → diff names 'available_weight'."""
+    fund = _record_signal(_clean_fund())
+    del fund["signal"]["available_weight"]
+    rec = recompute_signal_from_trace("008986", fund)
+    fields = diff_signal(rec, fund["signal"])
+    assert "available_weight" in fields
+
+
+def test_diff_missing_divergence_codes_is_mismatch():
+    """Absent 'divergence_codes' key in recorded → diff names 'divergence_codes'."""
+    fund = _record_signal(_clean_fund())
+    del fund["signal"]["divergence_codes"]
+    rec = recompute_signal_from_trace("008986", fund)
+    fields = diff_signal(rec, fund["signal"])
+    assert "divergence_codes" in fields
+
+
+def test_diff_missing_contribution_renorm_weight_is_mismatch():
+    """Absent 'renorm_weight' on a contribution entry → diff names the field."""
+    fund = _record_signal(_clean_fund())
+    del fund["signal"]["contributions"][0]["renorm_weight"]
+    rec = recompute_signal_from_trace("008986", fund)
+    fields = diff_signal(rec, fund["signal"])
+    assert any("renorm_weight" in f for f in fields)
+
+
+def test_health_fail_when_composite_key_absent():
+    """deterministic_health → FAIL when 'composite' is absent from recorded signal."""
+    fund = _record_signal(_clean_fund())
+    del fund["signal"]["composite"]
+    h = deterministic_health("008986", fund)
+    assert h.status == "FAIL"
+    assert any("composite" in r for r in h.reasons)
+
+
+# ── Finding B: _row / build_panel_rows must not KeyError on "UNKNOWN" status ─
+
+
+def test_build_panel_rows_unknown_status_does_not_raise():
+    """A StageHealth with status='UNKNOWN' must not crash _row / build_panel_rows."""
+    from irc.monitor.eval.types import StageHealth
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "UNKNOWN", ("stale",))}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    rows = {r.stage: r for r in build_panel_rows(sig, det, now="t")}
+    # Should not raise; the unknown status must not be "PASS"
+    assert rows["monitor_signal"].status != "PASS"
+
+
 def test_validation_panel_row_is_frozen_dataclass():
     from irc.monitor.eval.types import ValidationPanelRow
     row = ValidationPanelRow(stage="monitor_signal", status="PASS",

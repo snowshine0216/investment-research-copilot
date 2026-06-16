@@ -18,6 +18,7 @@ from evals._shared.status import worst_status
 
 _STAGE = "deterministic_scoring"
 _EPS = 1e-9
+_MISSING = object()  # sentinel: key absent from recorded dict
 
 
 def _rebuild_fund(fund_id: str, resolved: dict) -> MonitorFund:
@@ -52,6 +53,14 @@ def _ne(a: float, b: float) -> bool:
     return abs(a - b) >= _EPS
 
 
+def _float_diff(name: str, recomputed: float, recorded: dict) -> str | None:
+    """Return field name if key absent OR value differs beyond eps; else None."""
+    raw = recorded.get(name, _MISSING)
+    if raw is _MISSING or _ne(recomputed, raw):
+        return name
+    return None
+
+
 def _diff_contributions(recomputed, recorded: list[dict]) -> list[str]:
     out: list[str] = []
     if len(recomputed) != len(recorded):
@@ -60,37 +69,40 @@ def _diff_contributions(recomputed, recorded: list[dict]) -> list[str]:
     for i, (c, rc) in enumerate(zip(recomputed, recorded)):
         if c.name != rc.get("name"):
             out.append(f"contributions[{i}].name")
-        if _ne(c.renorm_weight, rc.get("renorm_weight", 0.0)):
-            out.append(f"contributions[{i}].renorm_weight")
-        if _ne(c.value, rc.get("value", 0.0)):
-            out.append(f"contributions[{i}].value")
-        if _ne(c.contribution, rc.get("contribution", 0.0)):
-            out.append(f"contributions[{i}].contribution")
-        if _ne(c.confidence, rc.get("confidence", 0.0)):
-            out.append(f"contributions[{i}].confidence")
+        for subfield, val in (("renorm_weight", c.renorm_weight),
+                              ("value", c.value),
+                              ("contribution", c.contribution),
+                              ("confidence", c.confidence)):
+            diff = _float_diff(subfield, val, rc)
+            if diff is not None:
+                out.append(f"contributions[{i}].{diff}")
     return out
 
 
 def diff_signal(recomputed: SignalRecord, recorded: dict) -> tuple[str, ...]:
     """Names of mismatched fields between a recompute and the recorded signal.
-    Float fields via the §3.3 eps; categoricals exact. Does NOT compare fund_id."""
+    Float fields via the §3.3 eps; categoricals exact. Absent keys count as
+    mismatches (spec §1/§4.1). Does NOT compare fund_id."""
     out: list[str] = []
-    if _ne(recomputed.available_weight, recorded.get("available_weight", 0.0)):
-        out.append("available_weight")
-    if list(recomputed.present_families) != list(recorded.get("present_families", [])):
-        out.append("present_families")
-    out.extend(_diff_contributions(recomputed.contributions,
-                                   recorded.get("contributions", [])))
-    if _ne(recomputed.composite, recorded.get("composite", 0.0)):
-        out.append("composite")
-    if _ne(recomputed.signal_confidence, recorded.get("signal_confidence", 0.0)):
-        out.append("signal_confidence")
+    for fname, fval in (("available_weight", recomputed.available_weight),
+                        ("composite", recomputed.composite),
+                        ("signal_confidence", recomputed.signal_confidence)):
+        diff = _float_diff(fname, fval, recorded)
+        if diff is not None:
+            out.append(diff)
+    for lname, lval in (("present_families", list(recomputed.present_families)),
+                        ("divergence_codes", list(recomputed.divergence_codes))):
+        raw = recorded.get(lname, _MISSING)
+        if raw is _MISSING or list(raw) != lval:
+            out.append(lname)
+    if "contributions" not in recorded:
+        out.append("contributions")
+    else:
+        out.extend(_diff_contributions(recomputed.contributions, recorded["contributions"]))
     if recomputed.status != recorded.get("status"):
         out.append("status")
     if recomputed.bias != recorded.get("bias"):
         out.append("bias")
-    if list(recomputed.divergence_codes) != list(recorded.get("divergence_codes", [])):
-        out.append("divergence_codes")
     return tuple(out)
 
 
@@ -127,9 +139,18 @@ def aggregate_deterministic_health(traces: dict) -> StageHealth:
     return StageHealth(stage=_STAGE, status=overall, reasons=reasons)
 
 
+_KNOWN_STATUSES = {"PASS", "WARN", "FAIL"}
+
+
+def _safe_status(s: str) -> str:
+    """Map any unrecognised status (e.g. 'UNKNOWN') to 'FAIL' for worst-of.
+    An unknown health state is never better than FAIL."""
+    return s if s in _KNOWN_STATUSES else "FAIL"
+
+
 def _row(stage: str, healths: dict, now: str) -> ValidationPanelRow:
     """Aggregate per-fund StageHealths → worst-of one panel row (spec §5)."""
-    statuses = [h.status for h in healths.values()]
+    statuses = [_safe_status(h.status) for h in healths.values()]
     overall = worst_status(statuses) if statuses else "PASS"
     reasons = tuple(r for h in healths.values() for r in h.reasons)
     return ValidationPanelRow(stage=stage, status=overall, ran_at=now, reasons=reasons)

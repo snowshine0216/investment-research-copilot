@@ -81,6 +81,32 @@ def test_degraded_nav_fund_is_eval_gated_with_null_nav_acc(monkeypatch, tmp_path
     assert rows[0]["nav_acc"] is None
 
 
+def test_compute_gates_degrades_to_fail_on_recompute_error(monkeypatch, tmp_path: Path):
+    """Finding C: a per-fund error inside deterministic_health must not crash
+    _compute_gates.  The offending fund degrades to FAIL with a recompute_error
+    reason; the run still completes."""
+    funds = [_fund("008986"), _fund("159934")]
+    _patch_pipeline(monkeypatch, funds, [_view("008986"), _view("159934")])
+
+    # Patch build_eval_trace so the projection for 159934 lacks 'signal'.
+    real_build_eval_trace = monitor_cmd.build_eval_trace
+
+    def patched_build_eval_trace(items, *, engine_version, run_date):
+        result = real_build_eval_trace(items, engine_version=engine_version, run_date=run_date)
+        # Remove 'resolved' from 159934's projection to trigger a KeyError in
+        # deterministic_health (recompute_signal_from_trace reads trace_fund["resolved"]).
+        # monitor_signal_health does NOT read 'resolved', so only deterministic_health
+        # raises — which is the error boundary we are hardening.
+        if "159934" in result.get("funds", {}):
+            result["funds"]["159934"].pop("resolved", None)
+        return result
+
+    monkeypatch.setattr(monitor_cmd, "build_eval_trace", patched_build_eval_trace)
+
+    rc = monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+
+
 def test_run_monitor_still_renders_when_trace_write_fails(monkeypatch, tmp_path: Path):
     funds = [_fund("008986")]
     _patch_pipeline(monkeypatch, funds, [_view("008986")])

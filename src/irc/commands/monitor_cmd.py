@@ -41,7 +41,7 @@ from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
-from irc.monitor.eval.types import FundTraceBundle, GateDecision, ValidationPanelRow
+from irc.monitor.eval.types import FundTraceBundle, GateDecision, StageHealth, ValidationPanelRow
 from irc.monitor.eval.determinism import deterministic_health, build_panel_rows
 from evals._shared.latest_report import latest_stage_report
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
@@ -372,7 +372,17 @@ def _compute_gates(
             stale_days=_NAV_STALE_DAYS, today=date.today(),
         )
         signal_healths[fund.id] = signal_health
-        deterministic_healths[fund.id] = deterministic_health(fund.id, projection)
+        try:
+            deterministic_healths[fund.id] = deterministic_health(fund.id, projection)
+        except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
+            _log.warning(
+                "deterministic_health failed for %s: %r", fund.id, exc, exc_info=True,
+            )
+            deterministic_healths[fund.id] = StageHealth(
+                stage="deterministic_scoring",
+                status="FAIL",
+                reasons=(f"{fund.id}: recompute_error: {exc!r}",),
+            )
         health = (signal_health, *suite_healths)
         gates.append(apply_eval_gate(view.signal, health=health,
                                      gating_stages=GATING_STAGES_M1))
