@@ -36,11 +36,13 @@ from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
 from irc.monitor.snapshot_targets import target_for_fund
-from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M0, published_state
+from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M1, published_state
 from irc.monitor.eval.structural import monitor_signal_health
+from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
 from irc.monitor.eval.types import FundTraceBundle, GateDecision
+from evals._shared.latest_report import latest_stage_report
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -332,25 +334,39 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
 # ── Eval wiring helpers ───────────────────────────────────────────────────────
 
 
+def _suite_healths(root: Path, today: str, now: datetime) -> tuple:
+    """EDGE-read: resolve the two LLM-suite StageHealths ONCE per run (run-global,
+    OQ-E). Missing/SKIPPED/stale → UNKNOWN → caveated (fail-open)."""
+    return tuple(
+        resolve_health(latest_stage_report(root, stage, today_iso=today),
+                       now=now, stale_after_days=STALE_AFTER_DAYS)
+        for stage in ("monitor_impact", "monitor_narrative")
+    )
+
+
 def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
-    *, min_obs: int,
+    *, min_obs: int, root: Path, today: str,
 ) -> tuple[GateDecision, ...]:
-    """PURE-ish: build each fund's trace projection, derive its monitor_signal health,
-    and apply the M0 gate. Two-pass: a stub trace gives the projection the structural
-    checks read; the real trace (Task: _write_eval_artifacts) re-serializes with the gate."""
+    """Build each fund's trace projection, derive its monitor_signal health, append
+    the two run-global LLM-suite healths, and apply the M1 gate. The suite healths
+    are resolved once (run-global) — they are identical for every fund (OQ-E)."""
+    now = datetime.now(timezone(timedelta(hours=8)))
+    suite_healths = _suite_healths(root, today, now)
     gates: list[GateDecision] = []
     for fund, view, bundle in zip(funds, views, bundles):
         stub = GateDecision(fund.id, False, (), "validated", "")
         projection = build_eval_trace(
             ((fund, view, stub, bundle),), engine_version=_ENGINE_VERSION,
-            run_date="",  # run_date irrelevant for the per-fund projection
+            run_date="",
         )["funds"][fund.id]
-        health = (monitor_signal_health(projection, minimum_observations=min_obs,
-                                        stale_days=_NAV_STALE_DAYS,
-                                        today=date.today()),)
+        signal_health = monitor_signal_health(
+            projection, minimum_observations=min_obs,
+            stale_days=_NAV_STALE_DAYS, today=date.today(),
+        )
+        health = (signal_health, *suite_healths)
         gates.append(apply_eval_gate(view.signal, health=health,
-                                     gating_stages=GATING_STAGES_M0))
+                                     gating_stages=GATING_STAGES_M1))
     return tuple(gates)
 
 
@@ -470,7 +486,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         bundles.append(bundle)
         all_costs.extend(costs)
     gates = _compute_gates(list(funds), views, bundles,
-                           min_obs=cfg.history.minimum_observations)
+                           min_obs=cfg.history.minimum_observations,
+                           root=root, today=_today)
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
