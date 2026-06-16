@@ -62,11 +62,12 @@ def _retro_details(retro_points: Sequence) -> dict:
 
 def _buy_hold_delta_paired(prepared: list[dict], signal_value: float, *, seed: int) -> dict:
     """Paired block bootstrap CI for buy_hold delta (spec §4.4)."""
-    bh_preds = [buy_hold_dir() for _ in prepared]
-    bh_value = hit_rate(bh_preds, [r["fwd"] for r in prepared])
+    # freeze the buy_hold baseline ONCE so the point estimate and the bootstrap CI
+    # use the same per-row baseline values (robust if buy_hold_dir ever varies).
+    bh_rows = [{**r, "bh": buy_hold_dir()} for r in prepared]
+    bh_value = hit_rate([r["bh"] for r in bh_rows], [r["fwd"] for r in bh_rows])
     delta = signal_value - bh_value
     # paired bootstrap: resample buckets together, compute delta for each resample
-    bh_rows = [{**r, "bh": buy_hold_dir()} for r in prepared]
     def _bh_stat(rs: Sequence[dict]) -> float:
         return (hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])
                 - hit_rate([r["bh"] for r in rs], [r["fwd"] for r in rs]))
