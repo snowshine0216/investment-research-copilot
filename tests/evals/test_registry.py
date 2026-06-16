@@ -21,6 +21,7 @@ def test_all_known_stages_present() -> None:
         "allocation", "trade_plan", "memo", "architecture", "opportunity",
         "triggers", "news", "queries",
         "monitor_signal", "monitor_impact", "monitor_narrative",
+        "monitor_forward",
     }
     assert set(REGISTRY) == expected
 

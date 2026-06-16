@@ -16,6 +16,13 @@ Inactive stages are excluded from ``--all`` and produce a clear inactive-stage
 CLI message when invoked directly — they do NOT pretend their input artifact
 is missing (the previous behavior masked retirement decisions behind generic
 FAIL reports).
+
+Active-but-excluded-from-``--all``: a stage may be ``lifecycle="active"`` yet
+``in_all_suite=False`` when it is informational and data-dependent (its inputs
+accrue slowly), so it must NOT make the green ``--all`` suite data-dependent.
+``monitor_forward`` (M3 predictive-validity backtest) is the first such stage:
+run it by name (``irc eval monitor_forward``), scheduled/CI weekly; it never
+enters ``active_suite_stages()``. Do NOT "fix" it into ``--all``.
 """
 from __future__ import annotations
 
@@ -57,6 +64,7 @@ _SPECS: tuple[EvalStageSpec, ...] = (
     EvalStageSpec("monitor_signal",    "evals.monitor_signal.runner",    "active", True),
     EvalStageSpec("monitor_impact",    "evals.monitor_impact.runner",    "live_gated", False),
     EvalStageSpec("monitor_narrative", "evals.monitor_narrative.runner", "live_gated", False),
+    EvalStageSpec("monitor_forward",   "evals.monitor_forward.runner",   "active", False),
 )
 
 
