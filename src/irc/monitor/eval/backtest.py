@@ -63,8 +63,15 @@ def run_backtest(
         # TRUNCATED input window — compute_signal sees ONLY series[:as_of_idx+1]
         truncated = series[: as_of_idx + 1]
         sig = _evidence_free_composite(fund, truncated, minimum_observations)
-        if sig.status == "insufficient_evidence":   # degenerate constant-0 → exclude
-            excluded["insufficient_evidence"] = excluded.get("insufficient_evidence", 0) + 1
+        # Degenerate-grid guard (§2.3): exclude ONLY a constant-0 composite (e.g. a flat
+        # window → trend ~0), which would feed the IC a constant-0 signal (Spearman None).
+        # Do NOT exclude on status: trend-only ALWAYS yields status=="insufficient_evidence"
+        # (1 family < the 2-family gate), yet spec §3 scores the continuous composite
+        # REGARDLESS of status — excluding on status would make retro permanently empty.
+        if sig.composite == 0.0:
+            excluded["degenerate_zero_composite"] = (
+                excluded.get("degenerate_zero_composite", 0) + 1
+            )
             continue
         # retro: run_date == as_of_date; entry strictly > as_of_date
         eo = series_entry_outcome(series, anchor=as_of_date, h=h, today=today)

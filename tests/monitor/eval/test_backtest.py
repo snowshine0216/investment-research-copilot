@@ -18,6 +18,11 @@ def _rising_series(n, start="2024-01-01"):
     return tuple(((d0 + timedelta(days=i)).isoformat(), 1.0 + 0.001 * i) for i in range(n))
 
 
+def _flat_series(n, start="2024-01-01"):
+    d0 = date.fromisoformat(start)
+    return tuple(((d0 + timedelta(days=i)).isoformat(), 1.0) for i in range(n))
+
+
 def test_replay_points_excluded_below_minimum_observations():
     # window just below minimum_observations → compute_signal returns composite==0.0
     # / insufficient_evidence (trend N/A) → NOT a replay point.
@@ -35,6 +40,7 @@ def test_replay_truncated_input_window_never_sees_future():
                              today="2099-01-01")
     pts_long = run_backtest(_fund(), base, minimum_observations=251, h=20,
                             today="2099-01-01")
+    assert pts_long.points   # guard: the look-ahead check is vacuous if grid is empty
     short_by_idx = {p.as_of_idx: p.composite for p in pts_short.points}
     for p in pts_long.points:
         if p.as_of_idx in short_by_idx:
@@ -55,10 +61,24 @@ def test_entry_strictly_after_as_of_date():
         assert p.entry_nav_date > p.as_of_date   # strict >
 
 
-def test_degenerate_grid_constant_zero_excluded():
-    # a flat series: trend present but composite may be 0; ensure no constant-0
-    # signal is emitted as a replay point if status is insufficient_evidence.
+def test_retro_scores_composite_despite_insufficient_status():
+    # spec §3: trend-only ALWAYS yields status=="insufficient_evidence" (1 family <
+    # the 2-family gate) yet retro scores the continuous NON-ZERO composite REGARDLESS
+    # of status. Above the floor the grid MUST be non-empty — excluding on status
+    # would make retro permanently empty (a dead feature).
     series = _rising_series(300)
     out = run_backtest(_fund(), series, minimum_observations=251, h=20, today="2099-01-01")
-    # all emitted points cleared the floor → status was NOT insufficient_evidence
-    assert all(p.status != "insufficient_evidence" for p in out.points)
+    assert out.points, "above-floor points must be scored, not excluded on status"
+    assert all(p.status == "insufficient_evidence" for p in out.points)
+    assert all(p.composite != 0.0 for p in out.points)
+    assert "insufficient_evidence" not in out.excluded   # status is NOT an exclusion reason
+
+
+def test_degenerate_zero_composite_excluded_from_grid():
+    # §2.3: a constant-0 composite (a flat series → trend ~0) would feed the IC a
+    # constant-0 signal (Spearman None) → excluded from the grid under a
+    # composite-based reason, never emitted as a replay point.
+    series = _flat_series(300)
+    out = run_backtest(_fund(), series, minimum_observations=251, h=20, today="2099-01-01")
+    assert all(p.composite != 0.0 for p in out.points)
+    assert out.excluded.get("degenerate_zero_composite", 0) > 0
