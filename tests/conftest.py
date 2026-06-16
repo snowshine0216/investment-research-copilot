@@ -1,6 +1,7 @@
 from __future__ import annotations
 from pathlib import Path
 import pytest
+from hypothesis import settings, HealthCheck
 
 
 @pytest.fixture(autouse=True)
@@ -25,3 +26,19 @@ def tmp_repo(tmp_path: Path) -> Path:
     (tmp_path / "inputs").mkdir()
     (tmp_path / "config" / "universe").mkdir(parents=True)
     return tmp_path
+
+
+# --- Hypothesis determinism config (Monitor Eval M2, spec §3.4) ---------------
+# The global rule requires fast, deterministic tests. Register a derandomized
+# profile (no deadline, bounded max_examples — cheap for pure functions) and load
+# it at import time so every property run is reproducible and offline. Hypothesis
+# reads profiles from code, so there is no [tool.hypothesis] in pyproject.toml and
+# no new pytest marker (--strict-markers stays satisfied).
+settings.register_profile(
+    "monitor_deterministic",
+    derandomize=True,
+    deadline=None,
+    max_examples=150,
+    suppress_health_check=[HealthCheck.too_slow],
+)
+settings.load_profile("monitor_deterministic")

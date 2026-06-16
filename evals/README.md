@@ -71,7 +71,7 @@ CI's **live** job sets the env and expects `0/1/2` — a `3` there means the key
 
 ---
 
-## Monitor eval (M0 + M1 — landed)
+## Monitor eval (M0 + M1 + M2 — landed)
 
 The monitor vertical (`irc monitor`, ADR 0017) ships a per-fund **directional bias**
 (`ADD_BIAS | NEUTRAL | REDUCE_BIAS`) daily for the 7-fund Monitor set. The eval layer validates
@@ -131,6 +131,36 @@ the report — it publishes with a visible `caveated` badge. The report's **vali
 ([`monitor/eval/panel.py`](../src/irc/monitor/eval/panel.py)) shows each gating stage's `overall`
 + `ran_at` + badge counts so the gap is honest. Publishing a bias never implies it passed
 validation — the badge says which.
+
+### M2 — deterministic rigor (property/oracle suite + `deterministic_scoring` panel)
+
+M2 hardens the deterministic core **without adding an `irc eval` stage or a new gate** (spec: "no new
+eval registry stage, no additional gating stage"). Two deliverables:
+
+- **D1 — offline property + hybrid-oracle suite** (pytest, under [`tests/monitor/`](../tests/monitor/),
+  *not* an `irc eval` stage). A `hypothesis` (derandomized) suite over the six pure scorers
+  (`compute_signal`, `build_factor_scores`, `trend_score`, `valuation_state_score`, `heat_score`,
+  `aggregate_news_factor`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence,
+  band boundaries and reproducibility across the input space. An **independent oracle**
+  (`tests/monitor/_oracle.py`, test-only) is written **only** where a genuinely different formulation
+  exists (composite/renorm Σw′·s, gate predicate, band classifier, valuation/heat decision tables);
+  direct formula-transcriptions get properties only. (`aggregate_news_factor`'s value is the clamped
+  weighted **sum** `clamp(Σ wᵢ·impactᵢ·confᵢ)`, *not* a mean.)
+- **D2 — in-run `deterministic_scoring` panel row** ([`monitor/eval/determinism.py`](../src/irc/monitor/eval/determinism.py),
+  pure). On each `irc monitor` run it recomputes the **full** signal block from the persisted
+  `factor_scores` + `resolved` and diffs it against the recorded `signal` (a strict superset of M0's
+  four-field `oracle_signal_match`), catching stale or malformed derived metadata. It is
+  **panel-only**: never added to `GATING_STAGES_*`, never passed to `apply_eval_gate`. A missing
+  recorded key counts as a mismatch (FAIL); a recompute error degrades to a logged FAIL row at the edge
+  rather than crashing the brief.
+
+Panel changes (new `ValidationPanelRow` contract; `validation_panel_html` now renders **N rows**): the
+`monitor_signal` row reflects the **aggregated raw `signal_health`** (worst-of across funds), and the
+new `deterministic_scoring` row reports the recompute health. The **gate outcome** stays visible in the
+badge counts / `EVAL_GATED` render — publishing a bias never implies it passed validation.
+
+Also: the N/A reason codes are single-sourced as `KNOWN_NA_REASONS` in
+[`monitor/factors.py`](../src/irc/monitor/factors.py) (the producer), imported by `determinism.py`.
 
 ---
 
@@ -244,7 +274,10 @@ runners here are the thin I/O boundary.
   `EVAL_GATED`/validation panel + forward-ledger **writer**.
 - **M1 — LLM suites** ✅ synthetic corpora + pure scorers; `monitor_impact` / `monitor_narrative`
   `live_gated` runners.
-- **M2 — deterministic rigor** ⬜ property/oracle tests for `build_factor_scores` / `compute_signal`.
+- **M2 — deterministic rigor** ✅ `hypothesis` property + hybrid-oracle suite over the six pure scorers
+  (`tests/monitor/*_property.py`, `_oracle.py`) **plus** an in-run **panel-only** `deterministic_scoring`
+  health ([`monitor/eval/determinism.py`](../src/irc/monitor/eval/determinism.py)) that recomputes the
+  full signal block from the persisted trace and diffs it. No new `irc eval` stage, no new gate.
 - **M3 — backtest + forward scorer** ⬜ NAV replay → IC/hit-rate; ledger **scorer** joins realized
   forward return (consumes the M0 ledger).
 - **M4 — algorithm justification** ⬜ factor ablation + weight/band sensitivity + economic-rationale ADR.

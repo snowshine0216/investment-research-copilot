@@ -30,9 +30,16 @@ def _gate(badge="validated", suppressed=False, reason=""):
 
 def _render(view, gate):
     from irc.monitor.render_html import render_report
+    from irc.monitor.eval.determinism import build_panel_rows
+    from irc.monitor.eval.types import StageHealth
     prov = Provenance("1", "1", "1", "")
+    # Build panel rows from RAW healths: a clean-but-gated fund's signal health is
+    # PASS (divergence 1) — the gate outcome lives in badge_counts/EVAL-GATED.
+    sig_health = {"008986": StageHealth("monitor_signal", "PASS", ())}
+    det_health = {"008986": StageHealth("deterministic_scoring", "PASS", ())}
+    rows = build_panel_rows(sig_health, det_health, now=_NOW)
     return render_report((view,), prov, prior_signal=None, now=_NOW,
-                         gates={"008986": gate})
+                         gates={"008986": gate}, panel_rows=rows)
 
 
 def test_eval_gated_badge_rendered():
@@ -73,13 +80,14 @@ def test_render_report_backwards_compatible_without_gates():
     assert "ADD_BIAS" in html
 
 
-def test_validation_panel_overall_is_not_pass_when_fund_is_gated():
-    # A suppressed gate → panel overall must reflect FAIL, not always show PASS.
+def test_validation_panel_gate_outcome_visible_via_badge_when_fund_gated():
+    # Divergence 1 (spec §5/§8): the monitor_signal ROW now shows RAW signal_health
+    # (PASS for a clean fund), NOT the gate outcome. Gate-outcome visibility moves
+    # to the EVAL-GATED badge + badge_counts, which still render.
     html = _render(_view(), _gate(badge="gated", suppressed=True, reason="nav_quality FAIL"))
-    # The panel HTML must NOT contain the string '>PASS<' for the overall status
-    # (it should be FAIL since a gate is suppressed)
-    assert "EVAL-GATED" in html  # the badge is present
-    assert ">PASS<" not in html  # panel overall must not be 'PASS'
+    assert "EVAL-GATED" in html        # gate outcome still visible (badge)
+    assert "gated: 1" in html          # gate outcome still visible (badge_counts)
+    assert "Validation" in html        # panel still renders
 
 
 def test_validation_panel_overall_pass_when_all_validated():

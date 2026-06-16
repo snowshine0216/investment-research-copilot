@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor eval deterministic rigor (M2) (2026-06-16)
+
+- **D1 — offline property + hybrid-oracle suite** over the six pure scorers (`compute_signal`,
+  `build_factor_scores`, `trend_score`, `valuation_state_score`, `heat_score`,
+  `aggregate_news_factor`). A `hypothesis`-driven, derandomized suite (`tests/monitor/*_property.py`,
+  `tests/monitor/*_oracle.py`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate
+  equivalence, band boundaries and reproducibility across the valid input space, with independent
+  test-only reference impls in `tests/monitor/_oracle.py` only where a genuinely different
+  formulation exists (composite/renorm, gate predicate, band classifier, valuation/heat decision
+  tables). A derandomized hypothesis profile is registered in `tests/conftest.py`; no new pytest
+  marker. `aggregate_news_factor`'s value is asserted as the clamped weighted **sum**
+  (`clamp(Σ wᵢ·impactᵢ·confᵢ)`), not a mean.
+- **D2 — in-run `deterministic_scoring` panel row** (`src/irc/monitor/eval/determinism.py`, pure):
+  recomputes the full signal block from the persisted `factor_scores` + `resolved` and diffs it
+  against the recorded block (`recompute_signal_from_trace`/`diff_signal`/`deterministic_health`/
+  `aggregate_deterministic_health`), catching stale or malformed derived metadata that the M0
+  four-field oracle missed. It is **panel-only** — never added to `GATING_STAGES_*`, never passed to
+  `apply_eval_gate`. A missing recorded key now counts as a mismatch (FAIL); a recompute error
+  degrades to a logged FAIL row at the edge rather than crashing the brief.
+- **`KNOWN_NA_REASONS` single source**: the N/A reason codes + named constants now live in
+  `src/irc/monitor/factors.py` (the producer); `eval/determinism.py` imports them. A two-way
+  exhaustiveness test guards against drift.
+- **Panel data-flow made explicit**: new `ValidationPanelRow` contract; `validation_panel_html`
+  renders N rows; `_compute_gates` returns `(gates, signal_healths, deterministic_healths)` from one
+  per-fund projection. The `monitor_signal` row now reflects the aggregated raw `signal_health`
+  (worst-of), with gate outcome visible via `badge_counts`/`EVAL-GATED`.
+
 ### Fixed — eval-suite crash logging (2026-06-16)
 
 - `irc eval --all` now logs a per-stage runner crash via the module logger with a full traceback

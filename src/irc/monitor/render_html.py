@@ -8,7 +8,7 @@ from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
-from irc.monitor.eval.types import GateDecision, StageHealth
+from irc.monitor.eval.types import GateDecision, ValidationPanelRow
 
 _NO_CALL = "NO_CALL"
 _EVAL_GATED = "EVAL_GATED"
@@ -130,21 +130,22 @@ def _appendix(views: tuple[FundView, ...]) -> str:
     )
 
 
-def _panel(views: tuple[FundView, ...], gates: dict[str, GateDecision] | None, now: str) -> str:
-    if not gates:
-        return ""
+def _badge_counts(views: tuple[FundView, ...], gates: dict[str, GateDecision]) -> dict[str, int]:
     counts: dict[str, int] = {}
-    gate_list = [gates[v.fund_id] for v in views if v.fund_id in gates]
-    for g in gate_list:
-        counts[g.badge] = counts.get(g.badge, 0) + 1
-    if any(g.suppressed for g in gate_list):
-        overall = "FAIL"
-    elif any(g.badge == "caveated" for g in gate_list):
-        overall = "WARN"
-    else:
-        overall = "PASS"
-    health = StageHealth("monitor_signal", overall, ())
-    return validation_panel_html(stage_health=health, ran_at=now, badge_counts=counts)
+    for v in views:
+        g = gates.get(v.fund_id)
+        if g is not None:
+            counts[g.badge] = counts.get(g.badge, 0) + 1
+    return counts
+
+
+def _panel(
+    views: tuple[FundView, ...], gates: dict[str, GateDecision] | None,
+    panel_rows: tuple[ValidationPanelRow, ...],
+) -> str:
+    if not gates or not panel_rows:
+        return ""
+    return validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))
 
 
 def render_report(
@@ -154,6 +155,7 @@ def render_report(
     prior_signal: dict | None,
     now: str,
     gates: dict[str, GateDecision] | None = None,
+    panel_rows: tuple[ValidationPanelRow, ...] = (),
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -168,7 +170,7 @@ def render_report(
         + "</table>"
     )
     cards = "".join(_card(v, g.get(v.fund_id)) for v in views)
-    panel = _panel(views, gates, now)
+    panel = _panel(views, gates, panel_rows)
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
