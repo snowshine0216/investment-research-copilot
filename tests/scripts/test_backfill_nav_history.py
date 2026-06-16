@@ -20,6 +20,15 @@ def test_backfill_rows_from_trace_seeds_all_obs():
     assert all(r.source_run_date == "2026-06-16" for r in rows)
 
 
+def test_run_backfill_returns_1_on_corrupt_trace(tmp_path: Path):
+    """A corrupt (non-JSON) eval_trace.json should return 1, not raise."""
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    out.mkdir(parents=True)
+    (out / "eval_trace.json").write_text("THIS IS NOT JSON {{{", encoding="utf-8")
+    rc = run_backfill(tmp_path)
+    assert rc == 1
+
+
 def test_run_backfill_writes_and_is_idempotent_under_dedup(tmp_path: Path):
     out = tmp_path / "outputs" / "2026-06-16" / "monitor"
     out.mkdir(parents=True)

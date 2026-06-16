@@ -44,7 +44,8 @@ def parse_nav_history_lines(text: str) -> list[NavHistoryRow]:
                 source_run_date=obj["source_run_date"],
             ))
         except Exception:  # noqa: BLE001 — skip a truncated/corrupt line, never crash
-            _log.warning("skipping unparseable nav_history line: %r", line[:80])
+            _log.warning("skipping unparseable nav_history line: %r", line[:80],
+                         exc_info=True)
     return rows
 
 

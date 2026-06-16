@@ -41,11 +41,15 @@ def run_backfill(repo_root: Path) -> int:
     if trace_path is None:
         print("backfill: no eval_trace.json found under outputs/*/monitor/")
         return 1
-    trace = json.loads(trace_path.read_text(encoding="utf-8"))
-    run_date = trace.get("run_date") or trace_path.parent.parent.name
-    written_at = datetime.now(_TZ).isoformat()
-    rows = backfill_rows_from_trace(trace, source_run_date=run_date, written_at=written_at)
-    append_nav_history(repo_root / "data" / "monitor" / "nav_history.jsonl", rows)
+    try:
+        trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        run_date = trace.get("run_date") or trace_path.parent.parent.name
+        written_at = datetime.now(_TZ).isoformat()
+        rows = backfill_rows_from_trace(trace, source_run_date=run_date, written_at=written_at)
+        append_nav_history(repo_root / "data" / "monitor" / "nav_history.jsonl", rows)
+    except (json.JSONDecodeError, ValueError, OSError) as exc:
+        print(f"backfill: failed to process {trace_path}: {exc}")
+        return 1
     print(f"backfill: seeded {len(rows)} nav_history rows from {trace_path}")
     return 0
 

@@ -409,8 +409,7 @@ def _write_eval_artifacts(
 
 
 def _is_stale(artifact_date: str, today: str) -> bool:
-    from datetime import date as _date
-    return _date.fromisoformat(artifact_date) < _date.fromisoformat(today) - timedelta(
+    return date.fromisoformat(artifact_date) < date.fromisoformat(today) - timedelta(
         days=STALE_EVAL_DAYS)
 
 
@@ -419,7 +418,8 @@ def _load_details(root: Path, ref: str | None) -> dict:
         return {}
     try:
         return json.loads((root / ref).read_text(encoding="utf-8"))
-    except Exception:
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        _log.warning("could not load monitor_forward details %s", ref, exc_info=True)
         return {}
 
 
