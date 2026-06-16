@@ -3,9 +3,12 @@ There is no 'newest report for a stage' API in locator.py (artifact-set oriented
 so this adds one (roadmap §2.4)."""
 from __future__ import annotations
 import json
+import logging
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from evals._shared.report_schema import MetricReport, StageReport
+
+_log = logging.getLogger(__name__)
 
 _TZ = timezone(timedelta(hours=8))
 _DATE_LEN = 10
@@ -50,5 +53,9 @@ def latest_stage_report(
     for d in dates:
         report_path = outputs / d / "evals" / stage / "report.json"
         if report_path.is_file():
-            return _parse_report(report_path)
+            try:
+                return _parse_report(report_path)
+            except Exception:
+                _log.warning("corrupt report at %s, skipping", report_path, exc_info=True)
+                continue
     return None
