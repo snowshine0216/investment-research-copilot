@@ -54,6 +54,55 @@ def test_thin_ledger_warns_and_writes_report_and_details(tmp_path: Path):
     assert (out_dirs[0] / "details.json").is_file()
 
 
+# ── Fix 4: malformed ledger / scorer-invariant handling ──────────────────────
+
+def test_malformed_ledger_line_skipped_valid_runs(tmp_path: Path):
+    """A ledger with one bad line among valid lines: bad line skipped, run continues."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                         encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    good_line = _ledger_line(run_date, "a", run_date)
+    bad_line = "NOT_VALID_JSON{{{"
+    (md / "forward_ledger.jsonl").write_text(
+        bad_line + "\n" + good_line + "\n", encoding="utf-8")
+    # should not raise; bad line skipped, valid line processed
+    rc = run(tmp_path)
+    # rc can be WARN or PASS (thin data) but NOT an exception
+    assert rc in (EVAL_RC_WARN, 0), f"unexpected rc={rc}"
+
+
+def test_all_malformed_ledger_lines_returns_fail(tmp_path: Path):
+    """All lines malformed: runner writes FAIL report and returns rc 2."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                         encoding="utf-8")
+    (md / "forward_ledger.jsonl").write_text(
+        "BAD_JSON_LINE_1\nBAD_JSON_LINE_2\n", encoding="utf-8")
+    rc = run(tmp_path)
+    assert rc == EVAL_RC_FAIL
+
+
+def test_scorer_invariant_error_returns_fail(tmp_path: Path, monkeypatch):
+    """A ValueError from score_forward is caught → rc 2 FAIL, no traceback."""
+    import evals.monitor_forward.runner as runner_mod
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                         encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    (md / "forward_ledger.jsonl").write_text(
+        _ledger_line(run_date, "a", run_date) + "\n", encoding="utf-8")
+
+    def _raise(*_a, **_kw):
+        raise ValueError("scorer invariant violated")
+    monkeypatch.setattr(runner_mod, "score_forward", _raise)
+    rc = run(tmp_path)
+    assert rc == EVAL_RC_FAIL
+
+
 def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     md = tmp_path / "data" / "monitor"
     md.mkdir(parents=True)

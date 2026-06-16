@@ -63,10 +63,30 @@ def run(repo_root: Path) -> int:
         print(f"{_STAGE} eval: FAIL (no nav_history.jsonl)")
         return EVAL_RC_FAIL
 
-    ledger = [json.loads(ln) for ln in _read_lines(ledger_path)]
+    raw_lines = _read_lines(ledger_path)
+    ledger: list[dict] = []
+    for ln in raw_lines:
+        try:
+            ledger.append(json.loads(ln))
+        except json.JSONDecodeError:
+            _log.warning("skipping malformed forward_ledger line: %r", ln[:80])
+    if raw_lines and not ledger:
+        write_missing_input_report(repo_root, missing_input_report(
+            stage=_STAGE,
+            reason="forward_ledger.jsonl had lines but all were unparseable",
+            based_on_path=str(ledger_path)), date_str=today)
+        print(f"{_STAGE} eval: FAIL (all ledger lines malformed)")
+        return EVAL_RC_FAIL
     nav_by_fund = _nav_by_fund(nav_path.read_text(encoding="utf-8"))
-    # score_forward may raise ValueError on a scorer-invariant violation -> FAIL
-    forward_rows, _excl = score_forward(ledger, nav_by_fund, h=FORWARD_H, today=today)
+    try:
+        forward_rows, _excl = score_forward(ledger, nav_by_fund, h=FORWARD_H, today=today)
+    except ValueError as exc:
+        write_missing_input_report(repo_root, missing_input_report(
+            stage=_STAGE,
+            reason=f"score_forward scorer-invariant violated: {exc}",
+            based_on_path=str(ledger_path)), date_str=today)
+        print(f"{_STAGE} eval: FAIL (scorer invariant: {exc})")
+        return EVAL_RC_FAIL
 
     reports, details = build_metric_reports(
         forward_rows=forward_rows, retro_points=[], seed=20260616)
