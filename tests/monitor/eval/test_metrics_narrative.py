@@ -1,0 +1,97 @@
+from __future__ import annotations
+from irc.monitor.eval.metrics_narrative import (
+    citation_resolution, entailment_ablation_pass, attribution_honesty,
+    hallucination_rate,
+)
+
+
+def _case(category, expected, pool_cids=("bbbb000000000001",)):
+    return {"category": category, "expected": expected,
+            "evidence_pool": [{"citation_id": c} for c in pool_cids]}
+
+
+def _doc(claims):
+    return {"price_action_commentary": list(claims),
+            "signal_rationale_commentary": [], "risk_commentary": []}
+
+
+def _claim(text, strength="consistent_with", cids=()):
+    return {"claim": text, "attribution_strength": strength, "citation_ids": list(cids)}
+
+
+# ---- citation_resolution ----
+def test_citation_resolution_all_resolve():
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
+    outs = [_doc([_claim("估值偏低", cids=["bbbb000000000001"])])]
+    assert citation_resolution(cases, outs) == 1.0
+
+
+def test_citation_resolution_one_unresolved():
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
+    outs = [_doc([_claim("估值偏低", cids=["bbbb000000000001", "ffff000000000000"])])]
+    assert citation_resolution(cases, outs) == 0.5
+
+
+# ---- entailment_ablation_pass ----
+def test_entailment_present_when_item_present():
+    cases = [_case("entailment-ablation",
+                   {"present_iff_item": "bbbb000000000003", "claim_probe": "估值"},
+                   pool_cids=("bbbb000000000003",))]
+    outs = [_doc([_claim("板块估值处于低位", cids=["bbbb000000000003"])])]
+    assert entailment_ablation_pass(cases, outs) == 1.0
+
+
+def test_entailment_present_when_item_absent_fails():
+    # item ablated from pool but claim still made → entailment violated
+    cases = [_case("entailment-ablation",
+                   {"present_iff_item": "bbbb000000000003", "claim_probe": "估值"},
+                   pool_cids=("zzzzzzzzzzzzzzzz",))]
+    outs = [_doc([_claim("板块估值处于低位")])]
+    assert entailment_ablation_pass(cases, outs) == 0.0
+
+
+def test_entailment_absent_when_item_absent_passes():
+    cases = [_case("entailment-ablation",
+                   {"present_iff_item": "bbbb000000000003", "claim_probe": "估值"},
+                   pool_cids=("zzzzzzzzzzzzzzzz",))]
+    outs = [_doc([_claim("情绪偏中性")])]  # probe absent, item absent → iff holds
+    assert entailment_ablation_pass(cases, outs) == 1.0
+
+
+# ---- attribution_honesty ----
+def test_attribution_honesty_no_banned_verb_passes():
+    cases = [_case("attribution-honesty", {})]
+    outs = [_doc([_claim("估值修复与资金面改善并存", strength="consistent_with")])]
+    assert attribution_honesty(cases, outs) == 1.0
+
+
+def test_attribution_honesty_banned_verb_with_supported_passes():
+    cases = [_case("attribution-honesty", {})]
+    outs = [_doc([_claim("盈利上修是主因", strength="supported_attribution")])]
+    assert attribution_honesty(cases, outs) == 1.0
+
+
+def test_attribution_honesty_banned_verb_without_supported_fails():
+    cases = [_case("attribution-honesty", {})]
+    outs = [_doc([_claim("由于政策催化", strength="possible_driver")])]
+    assert attribution_honesty(cases, outs) == 0.0
+
+
+# ---- hallucination_rate (lower better) ----
+def test_hallucination_rate_clean_is_zero():
+    cases = [_case("no-numbers", {})]
+    outs = [_doc([_claim("情绪偏中性"), _claim("估值合理")])]
+    assert hallucination_rate(cases, outs) == 0.0
+
+
+def test_hallucination_rate_digit_positive():
+    cases = [_case("no-numbers", {})]
+    outs = [_doc([_claim("情绪偏中性"), _claim("上涨3个百分点")])]  # digit
+    assert hallucination_rate(cases, outs) == 0.5
+
+
+def test_hallucination_rate_inline_ref_marker_positive():
+    cases = [_case("no-numbers", {}, pool_cids=("bbbb000000000007",))]
+    # inline [ref:...] in narrative text is itself suspect (prod claims carry no markers)
+    outs = [_doc([_claim("估值偏低 [ref:cccc000000000000]")])]
+    assert hallucination_rate(cases, outs) == 1.0
