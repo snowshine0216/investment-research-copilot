@@ -48,7 +48,7 @@ def _buy_hold_delta(prepared: list[dict], signal_value: float) -> dict:
 def _hit_rate_report(name: str, prepared: list[dict], *, seed: int) -> tuple[MetricReport, dict]:
     value = hit_rate([r["pred"] for r in prepared], [r["fwd"] for r in prepared])
     eff_n = effective_n(prepared)
-    stat = lambda rs: hit_rate([r["pred"] for r in rs], [r["fwd"] for r in rs])  # noqa: E731
+    stat = lambda rs: hit_rate([r["label"] for r in rs], [r["fwd"] for r in rs])  # noqa: E731
     ci = block_bootstrap_ci(prepared, stat, seed=seed, b=BOOTSTRAP_B)
     rnd = random_null_delta(prepared, metric=stat, label_key="label",
                             signal_value=value, seed=seed + 1, b=BOOTSTRAP_B)
