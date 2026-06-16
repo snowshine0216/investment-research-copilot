@@ -103,3 +103,21 @@ def test_magnitude_band_pass_degraded_output_is_fail():
     cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5})]
     outs = [{}]  # degraded
     assert magnitude_band_pass(cases, outs) == 0.0
+
+
+# ---- Finding 6: magnitude_band_pass both-bounds and no-bounds ----
+
+def test_magnitude_band_pass_both_bounds_checked():
+    """Finding 6 [P1]: when both min_abs and max_abs present, BOTH must be checked.
+    The old code used `else` and silently ignored max_abs."""
+    cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5, "max_abs": 0.9})]
+    # impact=0.95 satisfies min_abs but violates max_abs → should FAIL
+    outs = [_out([{"impact": 0.95, "citation_ids": []}])]
+    assert magnitude_band_pass(cases, outs) == 0.0
+
+
+def test_magnitude_band_pass_both_bounds_within_range_passes():
+    """Finding 6: both bounds present and impact within range → PASS."""
+    cases = [_case("directional-strong", {"sign": "+", "min_abs": 0.5, "max_abs": 0.9})]
+    outs = [_out([{"impact": 0.7, "citation_ids": []}])]
+    assert magnitude_band_pass(cases, outs) == 1.0

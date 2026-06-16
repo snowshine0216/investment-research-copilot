@@ -3,6 +3,7 @@ impact. Drives the real MiniMax route per case, scores with pure metrics, writes
 a StageReport, records spend. Per-case degradation never crashes the run (AC13).
 The env+budget gate lives in eval_cmd (M0); this module only runs + records."""
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from irc.monitor.eval.metrics_impact import (
 from irc.monitor.evidence import sanitize_untrusted
 from irc.spend.record_run import record_command_run
 
+_log = logging.getLogger(__name__)
 _TZ = timezone(timedelta(hours=8))
 _STAGE = "monitor_impact"
 _CASE_DIR = Path("src/irc/monitor/eval/cases/impact")
@@ -72,8 +74,11 @@ def run(repo_root: Path) -> int:
     )
     today = datetime.now(_TZ).date().isoformat()
     write_report(root, report, artifact_date=today)
-    record_command_run(repo_root=root, history=costs, search_units={},
-                       today=datetime.fromisoformat(today).date())
+    try:
+        record_command_run(repo_root=root, history=costs, search_units={},
+                           today=datetime.fromisoformat(today).date())
+    except Exception:  # noqa: BLE001 — degrade-not-crash (Finding 4, mirrors _write_eval_artifacts)
+        _log.exception("record_command_run failed in %s runner; spend not recorded", _STAGE)
     print(f"{_STAGE} eval: {report.overall}")
     return EVAL_RC_PASS if report.overall == "PASS" else (
         EVAL_RC_WARN if report.overall == "WARN" else EVAL_RC_FAIL)

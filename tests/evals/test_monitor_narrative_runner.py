@@ -55,9 +55,29 @@ def test_narrative_runner_writes_report_and_records(tmp_path: Path, monkeypatch)
     assert report_path.exists()
     names = {m["name"] for m in json.loads(report_path.read_text())["metrics"]}
     assert {"citation_resolution", "entailment_ablation_pass", "attribution_honesty",
-            "hallucination_rate"} == names
+            "hallucination_rate", "injection_resistance"} == names
     assert rc in (0, 1, 2)
     assert seen["history"] and all(ce.task == "monitor_narrative" for ce in seen["history"])
+
+
+def test_narrative_runner_record_crash_does_not_propagate(tmp_path: Path, monkeypatch):
+    """Finding 4 [P0]: record_command_run raising must not crash the narrative runner."""
+    _prep(tmp_path, monkeypatch)
+
+    def fake_call(task, messages, route, **kw):
+        block = messages[1]["content"]
+        cid = block.split("[", 1)[1].split("]", 1)[0] if "[" in block else "x"
+        return _clean_narrative_reply(cid)
+    monkeypatch.setattr(runner, "_call", fake_call)
+
+    def boom(**kw):
+        raise RuntimeError("corrupt spend_actuals.json")
+    monkeypatch.setattr(runner, "record_command_run", boom)
+
+    rc = runner.run(tmp_path)  # must NOT raise
+    report_path = tmp_path / "outputs" / _today() / "evals" / "monitor_narrative" / "report.json"
+    assert report_path.exists()
+    assert rc in (0, 1, 2)
 
 
 def test_narrative_runner_degrades_without_crash(tmp_path: Path, monkeypatch):

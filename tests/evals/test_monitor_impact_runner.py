@@ -96,6 +96,32 @@ def test_runner_degrades_one_case_without_crash(tmp_path: Path, monkeypatch):
     assert rc in (0, 1, 2)
 
 
+def test_runner_record_command_run_crash_does_not_propagate(tmp_path: Path, monkeypatch):
+    """Finding 4 [P0]: record_command_run raising must not crash the runner.
+    The report is written; the exception is logged and swallowed."""
+    src = Path(__file__).resolve().parents[2] / "src/irc/monitor/eval/cases"
+    dst = tmp_path / "src/irc/monitor/eval/cases"
+    dst.parent.mkdir(parents=True)
+    import shutil
+    shutil.copytree(src, dst)
+    (tmp_path / "config").mkdir()
+    shutil.copy(Path(__file__).resolve().parents[2] / "config/llm.yaml",
+                tmp_path / "config/llm.yaml")
+    monkeypatch.setenv("MINIMAX_BASE_URL", "https://example.com")
+    monkeypatch.setenv("MINIMAX_API_KEY", "k")
+    monkeypatch.setenv("MINIMAX_MODEL", "MiniMax-Text-01")
+    monkeypatch.setattr(runner, "_call", _stub_perfect_call(None))
+
+    def boom(**kw):
+        raise RuntimeError("corrupt spend_actuals.json")
+    monkeypatch.setattr(runner, "record_command_run", boom)
+
+    rc = runner.run(tmp_path)  # must NOT raise
+    report_path = tmp_path / "outputs" / _today() / "evals" / "monitor_impact" / "report.json"
+    assert report_path.exists()
+    assert rc in (0, 1, 2)
+
+
 def test_runner_feeds_costentries_to_record_command_run(tmp_path: Path, monkeypatch):
     src = Path(__file__).resolve().parents[2] / "src/irc/monitor/eval/cases"
     dst = tmp_path / "src/irc/monitor/eval/cases"

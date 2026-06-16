@@ -2,6 +2,7 @@
 drive_case is the ONLY effectful function (calls the injected gateway `call`);
 cost_entry_from and build_stage_report are pure. Keeps each runner < 200 lines."""
 from __future__ import annotations
+import logging
 from datetime import datetime, timedelta, timezone
 
 from evals._shared.report_schema import MetricReport, StageReport
@@ -10,6 +11,7 @@ from irc.llm.cost_tracker import CostEntry
 from irc.llm._types import ChatResponse
 from irc.monitor.json_extract import extract_json
 
+_log = logging.getLogger(__name__)
 _TZ = timezone(timedelta(hours=8))
 
 
@@ -32,10 +34,13 @@ def drive_case(
     """EDGE: one real gateway call for one case. Returns (parsed_output, cost, ok).
     Transport error → ({}, None, False) (no billed call, §5). Parse error →
     ({}, cost, False) (the call WAS billed). The scorer treats {} as a
-    category failure, so a degraded case never crashes the run (AC13)."""
+    category failure, so a degraded case never crashes the run (AC13).
+    All swallowed errors are logged with exc_info (Finding 7)."""
     try:
         resp = call(task, messages, route, temperature=0, max_tokens=2048)
     except Exception:  # noqa: BLE001 — degrade per-case, never crash the suite
+        _log.warning("drive_case transport error for task=%s; degrading case", task,
+                     exc_info=True)
         return {}, None, False
     if resp is None or not hasattr(resp, "prompt_tokens"):
         return {}, None, False
@@ -43,6 +48,8 @@ def drive_case(
     try:
         return extract_json(resp.text), cost, True
     except Exception:  # noqa: BLE001 — unparseable output → category failure
+        _log.warning("drive_case parse error for task=%s; degrading case", task,
+                     exc_info=True)
         return {}, cost, False
 
 

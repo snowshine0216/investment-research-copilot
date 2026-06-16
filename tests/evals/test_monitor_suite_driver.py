@@ -1,4 +1,5 @@
 from __future__ import annotations
+import logging
 from evals.monitor_suite.driver import cost_entry_from, drive_case, build_stage_report
 from irc.llm._types import ChatResponse
 
@@ -48,6 +49,33 @@ def test_drive_case_degrades_on_unparseable_json():
     )
     assert ok is False and out == {}
     assert cost is not None      # the call WAS billed even though parse failed
+
+
+def test_drive_case_logs_transport_error(caplog):
+    """Finding 7 [P1]: transport errors must be logged with exc_info before degrading."""
+    def boom(task, messages, route, **kw):
+        raise RuntimeError("network down logged")
+    with caplog.at_level(logging.WARNING, logger="evals.monitor_suite.driver"):
+        out, cost, ok = drive_case(
+            task="monitor_impact", messages=[{"role": "user", "content": "x"}],
+            route=object(), call=boom, provider="minimax", model="m",
+        )
+    assert ok is False and out == {}
+    assert any("network down logged" in r.getMessage() or "network down logged" in str(r.exc_info)
+               for r in caplog.records), "transport error must be logged"
+
+
+def test_drive_case_logs_parse_error(caplog):
+    """Finding 7 [P1]: parse errors must be logged with exc_info before degrading."""
+    def junk(task, messages, route, **kw):
+        return _resp("totally not json {{{")
+    with caplog.at_level(logging.WARNING, logger="evals.monitor_suite.driver"):
+        out, cost, ok = drive_case(
+            task="monitor_impact", messages=[{"role": "user", "content": "x"}],
+            route=object(), call=junk, provider="minimax", model="m",
+        )
+    assert ok is False and out == {}
+    assert any(r.exc_info for r in caplog.records), "parse error must be logged with exc_info"
 
 
 def test_build_stage_report_overall_is_worst():
