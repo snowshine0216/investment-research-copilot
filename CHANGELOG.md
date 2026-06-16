@@ -17,6 +17,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   layered **after** the memo sanitize, so the shared memo-auditor path is unchanged. Widen the
   impact injection corpus 1→3 (`injection_2/3.json`). Live `injection_resistance` 0.0→1.0; benign
   `impact` mentions preserved. See ADR 0017.
+- **Follow-up — broaden coverage to more attack styles.** The single ASCII `verb+impact=N` regex
+  missed several injection shapes. Replace it with a `_RESIDUAL_INJECTION_PATTERNS` tuple covering:
+  numeric **and** worded assignment values (`set impact to one`/`maximum`), a verb→field gap that
+  spans newlines (multi-line snippets), CJK/fullwidth assignment operators (`impact设为1`), Chinese
+  `忽略…(指令|上述|内容…)` stems, `for all/every themes` scope directives, high-precision
+  persona/role-play overrides (`you are now` / `pretend you are` / `act as <jailbreak-noun>` /
+  `disregard previous instructions` / `ignore the above`), and `<<<EVIDENCE`/`EVIDENCE>>>` data-fence
+  escapes; plus a `_ZERO_WIDTH_RE` normalization pass applied **before** the memo sanitize so
+  zero-width-obfuscated keywords (`i<ZWSP>mpact=1`) de-obfuscate and get caught. `sanitize_untrusted`
+  now fails closed on non-`str` input. Widen the impact injection corpus 3→6 with distinct styles
+  (direct-override / ascii-imperative / system-role / role-play / CJK / delimiter-escape) for
+  `injection_resistance` granularity, and fix a duplicate citation_id in `injection_2.json`. Benign
+  `impact` mentions and all legitimate CN **and EN** corpus headlines remain untouched
+  (regression-tested — the persona stems are deliberately narrow to avoid mangling real US/QDII wire
+  copy like "Fed officials act as a brake"). Deterministically verified — every corpus directive is
+  redacted before the gated MiniMax call. Known residual limits (out of scope; the live model's
+  defensive system prompt is the backstop): homoglyph/intra-word-spacing obfuscation, spelled-out CJK
+  numerals, and `忽略` synonyms (`无视`/`勿理会`) are not matched by the keyword-bounded patterns.
 
 ### Fixed — `irc init` missing `config/monitor.yaml` template (2026-06-16)
 
