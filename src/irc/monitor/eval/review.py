@@ -3,6 +3,7 @@ random delta < 0 for >= K consecutive ISO-week reports → review flag. A None w
 (insufficient_data / missing details) breaks the streak — conservative, no false
 alarm. Never EVAL_GATED."""
 from __future__ import annotations
+from datetime import date
 from irc.monitor.eval.constants import REVIEW_TRIGGER_K
 
 
@@ -14,9 +15,6 @@ def review_trigger(
         return False
     recent = weekly_headline_random_deltas[-k:]
     return all(d is not None and d < 0 for d in recent)
-
-
-from datetime import date
 
 
 def _iso_week_key(artifact_date: str) -> tuple[int, int]:

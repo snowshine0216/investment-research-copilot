@@ -1,6 +1,14 @@
 # tests/monitor/eval/test_review.py
 from __future__ import annotations
-from irc.monitor.eval.review import review_trigger
+from collections import namedtuple
+from irc.monitor.eval.review import dedup_iso_weeks, review_trigger
+
+_Rep = namedtuple("_Rep", ["ran_at"])
+_Entry = namedtuple("_Entry", ["artifact_date", "report"])
+
+
+def _e(d, ran="T09:00"):
+    return _Entry(d, _Rep(d + ran))
 
 
 def test_fires_when_k_consecutive_weeks_below_random():
@@ -24,17 +32,6 @@ def test_too_few_weeks_does_not_fire():
 def test_uses_most_recent_k_only():
     # 5 entries; only the last K=4 matter; oldest positive is ignored
     assert review_trigger([0.5, -0.1, -0.2, -0.05, -0.3]) is True
-
-
-from collections import namedtuple
-from irc.monitor.eval.review import dedup_iso_weeks
-
-_Rep = namedtuple("_Rep", ["ran_at"])
-_Entry = namedtuple("_Entry", ["artifact_date", "report"])
-
-
-def _e(d, ran="T09:00"):
-    return _Entry(d, _Rep(d + ran))
 
 
 def test_four_reruns_same_iso_week_collapse_to_one():
