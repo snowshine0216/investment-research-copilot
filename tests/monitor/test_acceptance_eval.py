@@ -72,4 +72,8 @@ def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: 
     assert f["validation_badge"] == "gated"
     assert "older than" in f["gate"]["reason"]
     html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(encoding="utf-8")
+    # Divergence 1 (spec §5/§8): gate outcome stays visible via the EVAL-GATED badge
+    # and the badge tally, NOT via the monitor_signal row status.
     assert "EVAL-GATED" in html and "Validation" in html
+    assert "gated: 1" in html
+    assert "deterministic_scoring" in html   # the new panel row renders

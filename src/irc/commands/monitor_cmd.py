@@ -41,7 +41,8 @@ from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
-from irc.monitor.eval.types import FundTraceBundle, GateDecision
+from irc.monitor.eval.types import FundTraceBundle, GateDecision, ValidationPanelRow
+from irc.monitor.eval.determinism import deterministic_health, build_panel_rows
 from evals._shared.latest_report import latest_stage_report
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
@@ -307,11 +308,12 @@ def _machine_summary(views: list[FundView]) -> dict:
 
 
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
-                   gates: tuple[GateDecision, ...] = ()) -> None:
+                   gates: tuple[GateDecision, ...] = (),
+                   panel_rows: tuple[ValidationPanelRow, ...] = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
-                         gates=gate_map)
+                         gates=gate_map, panel_rows=panel_rows)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -347,13 +349,18 @@ def _suite_healths(root: Path, today: str, now: datetime) -> tuple:
 def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, root: Path, today: str,
-) -> tuple[GateDecision, ...]:
-    """Build each fund's trace projection, derive its monitor_signal health, append
-    the two run-global LLM-suite healths, and apply the M1 gate. The suite healths
-    are resolved once (run-global) — they are identical for every fund (OQ-E)."""
+) -> tuple[tuple[GateDecision, ...], dict, dict]:
+    """Build each fund's trace projection ONCE, derive its monitor_signal health AND
+    its deterministic_scoring health from that single projection, append the two
+    run-global LLM-suite healths, and apply the M1 gate. The suite healths are
+    resolved once (run-global) — identical for every fund (OQ-E). Returns
+    (gates, signal_healths, deterministic_healths); deterministic_scoring is
+    PANEL-ONLY and never gates (spec §4.3)."""
     now = datetime.now(timezone(timedelta(hours=8)))
     suite_healths = _suite_healths(root, today, now)
     gates: list[GateDecision] = []
+    signal_healths: dict = {}
+    deterministic_healths: dict = {}
     for fund, view, bundle in zip(funds, views, bundles):
         stub = GateDecision(fund.id, False, (), "validated", "")
         projection = build_eval_trace(
@@ -364,10 +371,12 @@ def _compute_gates(
             projection, minimum_observations=min_obs,
             stale_days=_NAV_STALE_DAYS, today=date.today(),
         )
+        signal_healths[fund.id] = signal_health
+        deterministic_healths[fund.id] = deterministic_health(fund.id, projection)
         health = (signal_health, *suite_healths)
         gates.append(apply_eval_gate(view.signal, health=health,
                                      gating_stages=GATING_STAGES_M1))
-    return tuple(gates)
+    return tuple(gates), signal_healths, deterministic_healths
 
 
 def _write_eval_artifacts(
@@ -485,14 +494,15 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         views.append(view)
         bundles.append(bundle)
         all_costs.extend(costs)
-    gates = _compute_gates(list(funds), views, bundles,
-                           min_obs=cfg.history.minimum_observations,
-                           root=root, today=_today)
+    gates, signal_healths, deterministic_healths = _compute_gates(
+        list(funds), views, bundles,
+        min_obs=cfg.history.minimum_observations, root=root, today=_today)
+    panel_rows = build_panel_rows(signal_healths, deterministic_healths, now=_now_iso())
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates, run_date=_today)
-    _write_outputs(out, views, prior, gates)
+    _write_outputs(out, views, prior, gates, panel_rows)
     record_command_run(
         repo_root=root,
         history=all_costs,
