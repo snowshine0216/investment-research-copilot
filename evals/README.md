@@ -71,19 +71,20 @@ CI's **live** job sets the env and expects `0/1/2` — a `3` there means the key
 
 ---
 
-## Monitor eval (M0 + M1 + M2 — landed)
+## Monitor eval (M0 + M1 + M2 + M3 — landed)
 
 The monitor vertical (`irc monitor`, ADR 0017) ships a per-fund **directional bias**
 (`ADD_BIAS | NEUTRAL | REDUCE_BIAS`) daily for the 7-fund Monitor set. The eval layer validates
 **process trust** ("does each stage do what it claims?") and starts the **forward track record**.
 
-Three registered stages:
+Four registered stages:
 
 | Stage | Lifecycle | Reads | What it checks |
 |---|---|---|---|
 | `monitor_signal` | `active` (green suite) | `outputs/<date>/monitor/eval_trace.json` | Deterministic core: oracle recompute of `compute_signal`, citation resolution, NAV completeness. |
 | `monitor_impact` | `live_gated` | `src/irc/monitor/eval/cases/impact/*.json` | LLM judgment quality on a synthetic corpus (MiniMax route). |
 | `monitor_narrative` | `live_gated` | `src/irc/monitor/eval/cases/narrative/*.json` | LLM groundedness / attribution honesty on a synthetic corpus. |
+| `monitor_forward` | `active`, `in_all_suite=False` (out of the green suite) | `data/monitor/{forward_ledger,nav_history}.jsonl` | Predictive validity (M3): retro backtest of the evidence-free composite + forward scorer of matured rows vs realized forward NAV. Informational — **never gates**. |
 
 ### Where the artifacts come from
 
@@ -98,8 +99,12 @@ Three registered stages:
   logging both the **raw** scoring verdict and the **published** state plus the
   `COALESCE(nav_acc, nav)` performance basis. This is the *track-record clock* — every un-logged
   day is forward evidence lost. Writer/reader in
-  [`monitor/eval/forward_log.py`](../src/irc/monitor/eval/forward_log.py); the M3 scorer (future)
-  joins each row to later NAV.
+  [`monitor/eval/forward_log.py`](../src/irc/monitor/eval/forward_log.py); the **M3 `monitor_forward`
+  scorer** joins each matured row to its realized forward NAV.
+- **`data/monitor/nav_history.jsonl`** — the authoritative dense NAV series (M3), producer-maintained
+  bounded-tail append + dedup-on-read (`latest_per_nav_date`); the outcome source the retro backtest
+  and forward scorer measure returns against (the run-sampled ledger is **not** the NAV source).
+  Pre-window history seeded once by [`scripts/backfill_nav_history.py`](../scripts/backfill_nav_history.py).
 
 Both writes are **degrade-not-crash**: if they fail the brief still renders.
 
@@ -161,6 +166,33 @@ badge counts / `EVAL_GATED` render — publishing a bias never implies it passed
 
 Also: the N/A reason codes are single-sourced as `KNOWN_NA_REASONS` in
 [`monitor/factors.py`](../src/irc/monitor/factors.py) (the producer), imported by `determinism.py`.
+
+### M3 — predictive-validity backtest (`monitor_forward`)
+
+M3 answers *does the bias predict forward NAV?* via a new **offline `irc eval monitor_forward` stage**
+(`active, in_all_suite=False` — runnable by name, **out of the green `--all`** so it stays cost-free and
+data-independent; not `live_gated`, no spend gate). It reads only persisted JSONL and is
+**informational — a FAIL/absent report never changes any fund's `published_state`**. Two halves:
+
+- **Retro backtest** ([`monitor/eval/backtest.py`](../src/irc/monitor/eval/backtest.py), pure) — replays
+  the **evidence-free sub-composite** (the real `compute_signal` with evidence legs N/A → trend-only,
+  weights renormalized) over `nav_history.jsonl` on a look-ahead-free replay clock: a **truncated input
+  window** `series[:as_of_idx+1]`, strict-`>` entry, and a grid floor sourced from the fund's
+  `minimum_observations` (config 251; degenerate constant-0 composites excluded). Validates the
+  **deterministic core**; scores a continuous composite, never a bias.
+- **Forward scorer** ([`monitor/eval/forward_score.py`](../src/irc/monitor/eval/forward_score.py), pure) —
+  `latest_per_key(forward_ledger)` → matured rows scored vs realized forward total return (H = 20 NAV
+  obs). Validates the **whole published signal**; accrues forward as the ledger matures.
+
+The runner ([`monitor_forward/runner.py`](monitor_forward/runner.py)) emits **three `MetricReport` rows**
+(`raw_composite_directional`, `publishable_bias_directional`, `rank_ic`) + a `details.json` sibling with
+clustered block-bootstrap CIs and three baselines (within-`run_date` permutation null, momentum from the
+`<= as_of_date` slice, buy-hold). **WARN-max** for statistical weakness; FAIL only on input-contract /
+scorer-invariant breaches (`bad_nav` is a row-level exclusion). The daily brief renders a pure
+predictive-validity panel + an ISO-week-deduped human-review trigger (never `EVAL_GATED`). Report-history
+is read via the new `StageReportEntry` / `list_stage_reports` API in
+[`_shared/latest_report.py`](_shared/latest_report.py). See
+[`CONTEXT.md` → "M3 predictive-validity backtest"](../CONTEXT.md).
 
 ---
 
@@ -256,6 +288,7 @@ evals/
 ├── monitor_signal/{runner,metrics}.py    # artifact eval (green suite)
 ├── monitor_impact/runner.py              # live_gated suite
 ├── monitor_narrative/runner.py           # live_gated suite
+├── monitor_forward/{runner,metrics}.py   # M3 backtest+forward scorer (active, out of green suite)
 ├── monitor_suite/driver.py               # shared drive_case + build_stage_report
 └── <other stages>/runner.py …            # data, scoring, memo, opportunity, …
 ```
@@ -278,8 +311,10 @@ runners here are the thin I/O boundary.
   (`tests/monitor/*_property.py`, `_oracle.py`) **plus** an in-run **panel-only** `deterministic_scoring`
   health ([`monitor/eval/determinism.py`](../src/irc/monitor/eval/determinism.py)) that recomputes the
   full signal block from the persisted trace and diffs it. No new `irc eval` stage, no new gate.
-- **M3 — backtest + forward scorer** ⬜ NAV replay → IC/hit-rate; ledger **scorer** joins realized
-  forward return (consumes the M0 ledger).
+- **M3 — backtest + forward scorer** ✅ `monitor_forward` stage (`active, in_all_suite=False`): retro
+  NAV replay of the evidence-free composite → IC/hit-rate, + a forward **scorer** joining each matured
+  ledger row to its realized forward return. Informational, never gates; clustered block-bootstrap CIs +
+  permutation/momentum/buy-hold baselines; daily-brief predictive-validity panel + review trigger.
 - **M4 — algorithm justification** ⬜ factor ablation + weight/band sensitivity + economic-rationale ADR.
 
 See the [roadmap](../docs/superpowers/specs/2026-06-16-monitor-eval-roadmap.md) for the full

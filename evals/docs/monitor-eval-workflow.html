@@ -77,7 +77,7 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">M0 + M1 + M2 eval layer · daily producer emits eval_trace + ledger &amp; applies the in-run gate · offline <code>irc eval</code> scores artifacts (green suite) and synthetic LLM corpora (live_gated) · M2 adds a property/oracle suite + a panel-only <code>deterministic_scoring</code> recompute row</p>
+      <p class="subtitle">M0 + M1 + M2 + M3 eval layer · daily producer emits eval_trace + ledger + nav_history &amp; applies the in-run gate · offline <code>irc eval</code> scores artifacts (green suite) and synthetic LLM corpora (live_gated) · M2 adds a property/oracle suite + a panel-only <code>deterministic_scoring</code> row · M3 adds the <code>monitor_forward</code> backtest + forward scorer (out of <code>--all</code>, never gates)</p>
     </div>
 
     <!-- Main Diagram -->
@@ -155,9 +155,9 @@
         <path d="M 996 700 L 616 700 L 616 281 L 602 281" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
         <text x="628" y="694" fill="#94a3b8" font-size="8">latest suite StageReport → resolve_health (14d staleness)</text>
 
-        <!-- ledger -> M3 future scorer (dashed) -->
-        <path d="M 300 800 L 360 800 L 360 872 L 900 872 L 900 906" fill="none" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
-        <text x="500" y="866" fill="#a78bfa" font-size="8">track-record clock → M3 forward scorer (future)</text>
+        <!-- ledger + nav_history -> M3 monitor_forward scorer (landed) -->
+        <path d="M 300 800 L 360 800 L 360 872 L 900 872 L 900 906" fill="none" stroke="#a78bfa" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+        <text x="426" y="866" fill="#a78bfa" font-size="8">track-record clock + nav_history → M3 monitor_forward scorer (landed)</text>
 
         <!-- ============================ NODES ============================ -->
         <!-- Zone 1: FundView -->
@@ -313,10 +313,10 @@
         <text x="650" y="941" fill="#94a3b8" font-size="8" text-anchor="middle">property/oracle suite · 6 pure scorers</text>
         <text x="650" y="953" fill="#94a3b8" font-size="8" text-anchor="middle">+ deterministic_scoring panel · no gate</text>
 
-        <rect x="780" y="906" width="268" height="58" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#475569" stroke-width="1.5" stroke-dasharray="5,4"/>
-        <text x="914" y="927" fill="#cbd5e1" font-size="10" font-weight="700" text-anchor="middle">M3 ◦ backtest + forward scorer</text>
-        <text x="914" y="941" fill="#64748b" font-size="8" text-anchor="middle">NAV replay → IC / hit-rate</text>
-        <text x="914" y="953" fill="#64748b" font-size="8" text-anchor="middle">ledger scorer joins realized return</text>
+        <rect x="780" y="906" width="268" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="914" y="927" fill="#34d399" font-size="10" font-weight="700" text-anchor="middle">M3 ✓ backtest + forward scorer</text>
+        <text x="914" y="941" fill="#94a3b8" font-size="8" text-anchor="middle">monitor_forward · retro replay + forward score</text>
+        <text x="914" y="953" fill="#94a3b8" font-size="8" text-anchor="middle">active · out of --all · never gates</text>
 
         <rect x="1060" y="906" width="264" height="58" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#475569" stroke-width="1.5" stroke-dasharray="5,4"/>
         <text x="1192" y="927" fill="#cbd5e1" font-size="10" font-weight="700" text-anchor="middle">M4 ◦ algorithm justification</text>
@@ -383,7 +383,7 @@
 
     <!-- Footer -->
     <p class="footer">
-      investment-research-copilot · monitor validation &amp; eval layer · M0 + M1 + M2 · ADR 0017 ·
+      investment-research-copilot · monitor validation &amp; eval layer · M0 + M1 + M2 + M3 · ADR 0017 ·
       <a href="../../docs/superpowers/specs/2026-06-16-monitor-eval-roadmap.md">monitor-eval-roadmap.md</a><br>
       producer workflow → companion <a href="../../docs/diagrams/monitor-workflow.html">monitor-workflow.html</a> · usage → <a href="../README.md">evals/README.md</a>
     </p>

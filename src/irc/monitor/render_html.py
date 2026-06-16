@@ -8,7 +8,8 @@ from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
-from irc.monitor.eval.types import GateDecision, ValidationPanelRow
+from irc.monitor.eval.predictive_panel import predictive_validity_panel_html
+from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictivePanelModel
 
 _NO_CALL = "NO_CALL"
 _EVAL_GATED = "EVAL_GATED"
@@ -47,6 +48,10 @@ _CSS = (
     ".validation-panel{margin:16px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px}"
     ".validation{border-collapse:collapse;font-size:13px;margin:4px 0}"
     ".validation th,.validation td{border:1px solid #d0d7de;padding:3px 6px}"
+    ".predictive-panel{margin:16px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px}"
+    ".predictive{border-collapse:collapse;font-size:13px;margin:4px 0}"
+    ".predictive th,.predictive td{border:1px solid #d0d7de;padding:3px 6px}"
+    ".review-flag{color:#cf222e;font-weight:600}"
     "</style>"
 )
 
@@ -156,6 +161,7 @@ def render_report(
     now: str,
     gates: dict[str, GateDecision] | None = None,
     panel_rows: tuple[ValidationPanelRow, ...] = (),
+    predictive_panel: PredictivePanelModel | None = None,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -171,8 +177,12 @@ def render_report(
     )
     cards = "".join(_card(v, g.get(v.fund_id)) for v in views)
     panel = _panel(views, gates, panel_rows)
+    predictive = (
+        predictive_validity_panel_html(model=predictive_panel)
+        if predictive_panel is not None else ""
+    )
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + summary + cards + panel + _appendix(views) + "</body></html>"
+        + header + summary + cards + panel + predictive + _appendix(views) + "</body></html>"
     )

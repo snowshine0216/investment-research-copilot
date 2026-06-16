@@ -34,6 +34,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   per-fund projection. The `monitor_signal` row now reflects the aggregated raw `signal_health`
   (worst-of), with gate outcome visible via `badge_counts`/`EVAL-GATED`.
 
+### Added — monitor eval predictive-validity backtest (M3) (2026-06-16)
+
+- New offline eval stage `monitor_forward` (`irc eval monitor_forward`) measuring whether the Monitor
+  signal predicts forward NAV, surfaced in the daily brief's validation panel and **never gating any
+  fund's published state** (informational; `active, in_all_suite=False` — excluded from the green
+  `--all` suite; no LLM/web/spend gate). Two halves under one stage: a **retro backtest** that replays
+  the evidence-free sub-composite (`compute_signal` with evidence legs N/A) over persisted NAV history
+  on a look-ahead-free replay clock (truncated input window `series[:as_of_idx+1]`, strict-`>` entry,
+  grid floor sourced from `minimum_observations`), and a **forward scorer** over the matured
+  `forward_ledger.jsonl` rows. Metrics: directional hit-rate (raw-composite + publishable-bias modes),
+  cross-sectional Rank-IC, with clustered block-bootstrap CIs and three baselines (within-`run_date`
+  permutation null, momentum from the `<= as_of_date` slice, buy-and-hold). WARN-max for statistical
+  weakness; FAIL reserved for input-contract / scorer-invariant breaches (`bad_nav` is a row exclusion).
+- New authoritative NAV series `data/monitor/nav_history.jsonl` — producer-maintained bounded-tail
+  append in `irc monitor` (dedup-on-read, total-order tiebreak), with a one-time backfill migration
+  (`scripts/backfill_nav_history.py`) seeding pre-window history from `eval_trace.json`.
+- Daily-brief predictive-validity panel (pure, no-JS, byte-stable) with a staleness caveat and an
+  ISO-week-deduped human-review trigger (fires when the headline publishable-bias random delta sits
+  below baseline for K consecutive weeks). `evals/_shared/latest_report.py` gains a `StageReportEntry`
+  wrapper + report-history API (`list_stage_reports`, `latest_stage_report_entry`); the existing
+  `latest_stage_report` is unchanged (M0/M1 back-compat).
+
 ### Fixed — eval-suite crash logging (2026-06-16)
 
 - `irc eval --all` now logs a per-stage runner crash via the module logger with a full traceback

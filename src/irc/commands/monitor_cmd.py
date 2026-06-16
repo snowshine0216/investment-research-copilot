@@ -41,9 +41,17 @@ from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
-from irc.monitor.eval.types import FundTraceBundle, GateDecision, StageHealth, ValidationPanelRow
+from irc.monitor.eval.nav_history import nav_history_append_rows, append_nav_history
+from irc.monitor.eval.constants import NAV_APPEND_DAYS, REVIEW_TRIGGER_K, STALE_EVAL_DAYS
+from irc.monitor.eval.types import (
+    FundTraceBundle, GateDecision, StageHealth, ValidationPanelRow,
+    PredictiveMetricView, PredictivePanelModel,
+)
 from irc.monitor.eval.determinism import deterministic_health, build_panel_rows
-from evals._shared.latest_report import latest_stage_report
+from irc.monitor.eval.review import dedup_iso_weeks, review_trigger
+from evals._shared.latest_report import (
+    latest_stage_report, latest_stage_report_entry, list_stage_reports,
+)
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -309,11 +317,13 @@ def _machine_summary(views: list[FundView]) -> dict:
 
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple[GateDecision, ...] = (),
-                   panel_rows: tuple[ValidationPanelRow, ...] = ()) -> None:
+                   panel_rows: tuple[ValidationPanelRow, ...] = (),
+                   predictive_panel: PredictivePanelModel | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
-                         gates=gate_map, panel_rows=panel_rows)
+                         gates=gate_map, panel_rows=panel_rows,
+                         predictive_panel=predictive_panel)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -420,6 +430,91 @@ def _write_eval_artifacts(
         append_ledger(root / "data" / "monitor" / "forward_ledger.jsonl", rows)
     except Exception:  # noqa: BLE001 — append_ledger already swallows, this guards ledger_row
         _log.warning("forward ledger write failed", exc_info=True)
+    _append_nav_history_for_views(root, views, run_date=run_date, written_at=written_at)
+
+
+def _is_stale(artifact_date: str, today: str) -> bool:
+    return date.fromisoformat(artifact_date) < date.fromisoformat(today) - timedelta(
+        days=STALE_EVAL_DAYS)
+
+
+def _load_details(root: Path, ref: str | None) -> dict:
+    if not ref:
+        return {}
+    try:
+        return json.loads((root / ref).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        _log.warning("could not load monitor_forward details %s", ref, exc_info=True)
+        return {}
+
+
+def _metric_view(m, details: dict) -> PredictiveMetricView:
+    md = details.get(m.name, {})
+    bd = md.get("baseline_deltas", {})
+
+    def _d(key):
+        e = bd.get(key)
+        return e.get("delta") if isinstance(e, dict) and "delta" in e else None
+
+    return PredictiveMetricView(
+        name=m.name, value=m.value, status=m.status, state=md.get("state", "ok"),
+        ci_low=md.get("ci_low", m.value), ci_high=md.get("ci_high", m.value),
+        random_delta=_d("random"), momentum_delta=_d("momentum"),
+        buy_hold_delta=_d("buy_hold"), n_observations=m.n_observations,
+    )
+
+
+def _headline_random_delta(root: Path, entry) -> float | None:
+    """Per-week headline scalar for the review trigger: the publishable_bias_directional
+    random delta. None when the headline row's state is insufficient_data/undefined,
+    details.json missing, or the random baseline is itself insufficient_data."""
+    rep = entry.report
+    hdr = next((m for m in rep.metrics if m.name == "publishable_bias_directional"), None)
+    if hdr is None:
+        return None
+    details = _load_details(root, hdr.details_ref)
+    md = details.get("publishable_bias_directional", {})
+    if md.get("state") in ("insufficient_data", "undefined"):
+        return None
+    rnd = md.get("baseline_deltas", {}).get("random", {})
+    return rnd.get("delta") if "delta" in rnd else None
+
+
+def _predictive_panel_model(root: Path, *, today: str) -> PredictivePanelModel:
+    entry = latest_stage_report_entry(root, "monitor_forward", today_iso=today)
+    if entry is None:
+        return PredictivePanelModel(present=False, stale=False, artifact_date=None,
+                                    metrics=(), review_flag=False)
+    details = _load_details(
+        root, next((m.details_ref for m in entry.report.metrics if m.details_ref), None))
+    metrics = tuple(_metric_view(m, details) for m in entry.report.metrics)
+    weeks = dedup_iso_weeks(
+        list_stage_reports(root, "monitor_forward", limit=REVIEW_TRIGGER_K * 4,
+                           today_iso=today),
+        k=REVIEW_TRIGGER_K)
+    weekly = [_headline_random_delta(root, e) for e in reversed(weeks)]  # chronological
+    return PredictivePanelModel(
+        present=True, stale=_is_stale(entry.artifact_date, today),
+        artifact_date=entry.artifact_date, metrics=metrics,
+        review_flag=review_trigger(weekly),
+    )
+
+
+def _append_nav_history_for_views(
+    root: Path, views: list[FundView], *, run_date: str, written_at: str,
+) -> None:
+    """EDGE: append each fund's bounded NAV tail to nav_history.jsonl. Bounded to
+    nav_date >= run_date - NAV_APPEND_DAYS. Swallows failures — never crash the brief."""
+    try:
+        rows: list = []
+        for v in views:
+            rows.extend(nav_history_append_rows(
+                fund_id=v.fund_id, acc_series=v.nav_series, run_date=run_date,
+                written_at=written_at, nav_append_days=NAV_APPEND_DAYS,
+            ))
+        append_nav_history(root / "data" / "monitor" / "nav_history.jsonl", rows)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("nav_history append failed", exc_info=True)
 
 
 # ── Main orchestration ────────────────────────────────────────────────────────
@@ -512,7 +607,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates, run_date=_today)
-    _write_outputs(out, views, prior, gates, panel_rows)
+    predictive_panel = _predictive_panel_model(root, today=_today)
+    _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
     record_command_run(
         repo_root=root,
         history=all_costs,
