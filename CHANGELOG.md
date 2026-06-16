@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — eval-suite crash logging (2026-06-16)
+
+- `irc eval --all` now logs a per-stage runner crash via the module logger with a full traceback
+  (`_log.exception` in `_run_active_suite`) instead of a bare `print` to stdout. In non-interactive
+  runs (launchd schedule, CI) a runner crash (e.g. malformed-trace `KeyError`, `ImportError`) is now
+  distinguishable from a normal stage FAIL and its stack trace is preserved via the
+  `src/irc/observability` structured-logging setup. Swallow-and-continue and the per-stage `rc=2` are
+  unchanged.
+
 ### Added — monitor eval LLM suites (M1) (2026-06-16)
 
 - Offline LLM-quality eval suites for the two MiniMax-routed monitor tasks. Synthetic/adversarial
