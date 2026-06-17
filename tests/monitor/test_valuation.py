@@ -297,3 +297,34 @@ def test_lookthrough_non_ashare_holding_is_na(tmp_path):
     assert res.cached is False
     assert res.reason == "valuation_no_anchor"
     con.close()
+
+
+def test_lookthrough_no_snapshot_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt7.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "161903", None)  # no cached snapshot written
+    res = resolve_valuation_state(_fund("161903", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None and res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_index_path_unchanged_by_lookthrough(tmp_path):
+    # Regression: a fund WITH tracked_index still takes the index path even when a
+    # monitor snapshot + stock valuations exist — _resolve dispatches on
+    # tracked_index, NOT on holdings.
+    con = duckdb.connect(str(tmp_path / "lt8.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "510300", "csi300")
+    _seed_monitor_snapshot(tmp_path, "510300", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519")
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    # Index path → mature rising PE → pct 1.0 → very_expensive (NOT the look-through).
+    assert res.cached is True
+    assert res.state == "very_expensive"
+    assert res.reason is None
+    con.close()
