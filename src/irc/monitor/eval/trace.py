@@ -54,6 +54,27 @@ def _max_gap_days(
     return max(deltas) if deltas else None
 
 
+def _missing_trading_days(
+    series: tuple[tuple[str, float], ...],
+    trading_days: frozenset[date] | None,
+    *, window: int = _RECENT_GAP_WINDOW,
+) -> int | None:
+    """Max number of SSE-open trading dates strictly inside any recent
+    inter-observation gap (spec §3.2). Holidays/weekends aren't in trading_days
+    so a holiday gap scores 0. None when the calendar is unavailable (→ gate
+    falls back to max_gap_days). <2 parsed observations → 0."""
+    if trading_days is None:
+        return None
+    recent = series[-window:] if window else series
+    dates = [p for d, _ in recent if (p := _parse(d)) is not None]
+    if len(dates) < 2:
+        return 0
+    return max(
+        sum(1 for td in trading_days if d0 < td < d1)
+        for d0, d1 in zip(dates, dates[1:])
+    )
+
+
 def _nav(view: FundView) -> dict:
     series = view.nav_series
     nav_acc = series[-1][1] if series else None
