@@ -183,3 +183,59 @@ def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
                                   con=con, root=tmp_path)
     assert res == ValuationResolution(None, False, "valuation_no_anchor")
     con.close()
+
+
+# ── Item 002: look-through branch (monitor ActiveFundSnapshot holdings) ────────
+
+from datetime import date as _date
+
+from irc.fundamentals.snapshot_cache import write_active_fund_cache
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
+
+def _seed_monitor_snapshot(root, fund_id, holdings, quarter="2026Q1"):
+    """Write a monitor ActiveFundSnapshot JSON under <root>/data via the real
+    cache writer. `holdings` is a list of (symbol, weight_pct). Mirrors the
+    constituent factor's load path: load_latest_active_fund_cached(id, root/'data')."""
+    analyses = tuple(
+        ConstituentAnalysis(
+            symbol=sym, name_cn="x", weight_pct=w,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+        for sym, w in holdings
+    )
+    snap = ActiveFundSnapshot(
+        fund_id=fund_id, source_report_date="2026-03-31",
+        source_report_quarter=quarter, cache_probed_at="",
+        constituent_analyses=analyses, failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(snap, root / "data")
+
+
+def _seed_stock_valuation(con, stock_code, n=200, pe0=18.0, pe_step=0.01, pb=2.0):
+    # n PE/PB points every 2 days → >120 pts spanning >180d → clears the PE gate.
+    base = _date(2025, 1, 1)
+    rows = [
+        (stock_code, _date.fromordinal(base.toordinal() + 2 * i),
+         pe0 + i * pe_step, pb, None, "2026-05-15 00:00:00", "eastmoney", "sv:r")
+        for i in range(n)
+    ]
+    con.executemany(
+        "INSERT INTO stock_valuation_history VALUES (?,?,?,?,?,?,?,?)", rows
+    )
+
+
+def test_lookthrough_sufficient_coverage_returns_state(tmp_path):
+    # 60% in one priced name clears the 0.50 NAV floor; 200 rising PE points clear
+    # the 120/180 maturity gate; latest PE is the max → percentile 1.0 → very_expensive.
+    con = duckdb.connect(str(tmp_path / "lt2.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "519069", None)
+    _seed_monitor_snapshot(tmp_path, "519069", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519")  # rising PE → latest is max → pct 1.0
+    res = resolve_valuation_state(_fund("519069", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.cached is True
+    assert res.state == "very_expensive"   # pct 1.0 → >=0.90 band
+    assert res.reason is None
+    con.close()

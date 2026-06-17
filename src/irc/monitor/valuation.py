@@ -19,7 +19,10 @@ from pathlib import Path
 
 import duckdb
 
-from irc.opportunity.inputs_loader import _index_valuation_metrics
+from irc.opportunity.inputs_loader import (
+    _index_valuation_metrics,
+    _stock_series_by_code,
+)
 from irc.opportunity.states import _band
 
 _log = logging.getLogger(__name__)
@@ -84,15 +87,30 @@ def _resolve_lookthrough(
 ) -> ValuationResolution:
     """Look-through branch (tracked_index is None, pure active funds).
 
-    STUB — item 002 fills this in: assemble the cached look-through inputs from
-    the monitor's already-loaded active-fund snapshot holdings + cached stock
-    valuations, call opportunity/lookthrough_valuation.fund_valuation_percentile,
-    then percentile_to_valuation_state. Until then, honest N/A (never fabricate).
-    Contract item 002 must preserve: return ValuationResolution(state, cached,
-    reason) where cached is True ONLY on a real percentile, reason is a
-    KNOWN_NA_REASONS member (valuation_no_anchor) on a miss, and the (con, fund_id,
-    root) inputs are sufficient (no opportunity output-file reads — ADR 0017)."""
-    return ValuationResolution(None, False, _NA_NO_ANCHOR)
+    Holdings come from the MONITOR's own cached ActiveFundSnapshot JSON
+    (load_latest_active_fund_cached under `root/'data'` — the exact source the
+    constituent factor uses); the PE/PB series come from the cached DuckDB
+    `stock_valuation_history` via `_stock_series_by_code`. Both are
+    monitor-consumed cached artifacts, NOT opportunity output files (ADR 0017);
+    neither needs the opportunity pipeline to have run. The coverage gate is
+    enforced INSIDE fund_valuation_percentile (None PE pct when covered NAV ratio
+    < floor or PE history immature) → None maps to honest N/A. Non-A-share
+    holdings (e.g. HK/US QDII lines) carry no stock_valuation_history rows → they
+    never match the A-share-keyed series → uncovered → honest N/A (spec §10)."""
+    # Function-local import to avoid a module-load cycle (lookthrough imports
+    # percentile_to_valuation_state from this module).
+    from irc.fundamentals.snapshot_cache import load_latest_active_fund_cached
+    from irc.monitor.lookthrough import lookthrough_valuation_state
+
+    snapshot = load_latest_active_fund_cached(fund_id, root / "data")
+    if snapshot is None or not snapshot.constituent_analyses:
+        return ValuationResolution(None, False, _NA_NO_ANCHOR)
+    codes = tuple(c.symbol for c in snapshot.constituent_analyses)
+    series = _stock_series_by_code(con, codes)
+    state = lookthrough_valuation_state(snapshot, series)
+    if state is None:
+        return ValuationResolution(None, False, _NA_NO_ANCHOR)
+    return ValuationResolution(state, True, None)
 
 
 def _resolve(
