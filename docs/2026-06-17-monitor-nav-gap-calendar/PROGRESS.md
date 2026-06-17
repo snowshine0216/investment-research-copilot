@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅⏭️ | ⏭️ | ✅ | ✅ `…001` | ✅ `126cefb` | ⚠️ [#160](https://github.com/snowshine0216/investment-research-copilot/pull/160) | ✅ | ✅ | ✅ | 🔄 | ⛔ |
+| 001 | ✅⏭️ | ⏭️ | ✅ | ✅ `…001` | ✅ `126cefb` | ✅ [#160](https://github.com/snowshine0216/investment-research-copilot/pull/160) | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `e22c6c8` |
 
 ## Notes
 
@@ -23,4 +23,5 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - CHANGELOG: new `[Unreleased]` entry (calendar-grounded check, supersedes #158 as fallback). No VERSION bump (project convention — accumulate under `[Unreleased]`).
 - verify: [items/001-verify.md](items/001-verify.md) — `Verdict: PASS` (`8377d18`). CLI `--help` loads with new module; behavioral script + §6 acceptance test (4/4) exercised; empty-calendar degrade confirmed.
 - pr-review: [items/001-pr-review.md](items/001-pr-review.md) — `Verdict: PASS-WITH-NITS` ([gh comment](https://github.com/snowshine0216/investment-research-copilot/pull/160#issuecomment-4727537416)). 2 nits; nit #1 (`_fetch_and_persist` annotation) FIXED `8ed63be`; nit #2 historical plan-doc, left.
-- ⚠️ **CONCURRENT-SESSION CONFLICT (2026-06-17 16:1x):** a second live autodev session in the MAIN worktree renamed my sub-branch → `prior-run-nav-gap-001`, cherry-picked a SUBSET of my commits to a new `claude/monitor-nav-gap-calendar-001` (missing the 3 ship-review fixes + all verdict files), and pushed it as PR #160's head (`6d22751`). My COMPLETE, tested tip is `recovery/nav-gap-001-complete` (`8ed63be`). User chose: stop the other session, then I force-push my complete version to PR #160 (lease-guarded on `6d22751`). Merge gate (⛔) held until the PR head is corrected. No local merge — protected/contested-base discipline.
+- ✅ **CONCURRENT-SESSION CONFLICT — RESOLVED (2026-06-17):** a second live autodev session in the MAIN worktree had renamed my sub-branch → `prior-run-nav-gap-001`, cherry-picked a SUBSET of my commits to a new `claude/monitor-nav-gap-calendar-001` (missing the 3 ship-review fixes + all verdict files), and pushed it as PR #160's head (`6d22751`). User stopped that session; I then lease-guarded force-pushed my COMPLETE tip (`ed31817`, preserved at `recovery/nav-gap-001-complete`) over the PR head, re-ran the full pre-merge gate, and squash-merged. The merged feature branch verifiably contains the empty-calendar fix (`trace.py: if not trading_days`), the raise-on-empty guard (`akshare_client.py`), and all verdict files.
+- merge: squash commit `e22c6c8` `feat(monitor): calendar-grounded nav_quality NAV-gap check (001) (#160)` on `claude/affectionate-greider-e105f6`. PR #160 MERGED.
