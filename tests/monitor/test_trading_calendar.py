@@ -59,3 +59,13 @@ def test_corrupt_cache_refetches(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(tc, "fetch_trade_calendar", lambda: (_dt.date(2026, 2, 13),))
     out = tc.load_trading_days(_dt.date(2026, 6, 17), root=tmp_path)
     assert out == frozenset({_dt.date(2026, 2, 13)})
+
+
+def test_empty_dates_cache_is_treated_as_miss_and_refetches(monkeypatch, tmp_path: Path):
+    """A cache with dates=[] must be treated as a cache miss and trigger a refetch,
+    not silently return an empty frozenset (spec §5: empty calendar = failure)."""
+    _write_cache(tmp_path, _dt.date.today().isoformat(), [])
+    fresh = (_dt.date(2026, 2, 13), _dt.date(2026, 2, 17))
+    monkeypatch.setattr(tc, "fetch_trade_calendar", lambda: fresh)
+    out = tc.load_trading_days(_dt.date.today(), root=tmp_path)
+    assert out == frozenset(fresh)

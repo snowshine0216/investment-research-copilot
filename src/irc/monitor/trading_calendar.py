@@ -23,14 +23,19 @@ def _cache_path(root: Path) -> Path:
 
 
 def _read_cache(path: Path, today: date) -> frozenset[date] | None:
-    """Return cached trading days iff the cache is present AND fetched_on >= today.
-    Returns None (→ caller refetches) on missing / stale / unparseable cache."""
+    """Return cached trading days iff the cache is present AND fetched_on >= today
+    AND the parsed set is non-empty.
+    Returns None (→ caller refetches) on missing / stale / unparseable / empty cache."""
     try:
         obj = json.loads(path.read_text(encoding="utf-8"))
         if date.fromisoformat(obj["fetched_on"]) < today:
             return None
-        return frozenset(date.fromisoformat(d) for d in obj["dates"])
-    except (OSError, ValueError, KeyError, TypeError):
+        days = frozenset(date.fromisoformat(d) for d in obj["dates"])
+        if not days:
+            return None
+        return days
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        _log.warning("trade_calendar cache unreadable (%s), refetching: %s", path, exc)
         return None
 
 
