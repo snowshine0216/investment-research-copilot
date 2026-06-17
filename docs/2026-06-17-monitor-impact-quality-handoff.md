@@ -1,12 +1,67 @@
 # Handoff — `monitor_impact` suite FAIL is gating the daily brief (2026-06-17)
 
+> **STATUS: RESOLVED (2026-06-17) — do NOT action the steps below.** The FAIL this handoff
+> describes was already fixed by merged **PR #151** (`25d441d`, "score aggregated impact +
+> neutral injection carriers"), committed the same day *before* this doc was written. The latest
+> run [`outputs/2026-06-17/evals/monitor_impact/report.json`](../outputs/2026-06-17/evals/monitor_impact/report.json)
+> (12:41, after #151) is **`overall: PASS`** — all four metrics `1.000` — so the M1 gate no longer
+> suppresses any Monitor bias on the impact axis. See **Resolution** below; everything after it is
+> retained as historical context only.
+>
+> ⚠️ **The "Root cause" section below is incorrect.** It blames a missing magnitude rubric in the
+> *production* prompt. The actual defect was in the **eval layer**, and the production prompt was
+> never the problem (and was never changed). Do not add a prompt rubric (steps 2/4).
+
 **Owner:** Xue Yin · **Author of this doc:** prior Claude Code session
-**Pick up:** decide and execute how to clear (or stop hard-gating on) the `monitor_impact`
-quality-suite FAIL that is currently suppressing **all 7** Monitor biases.
+**Pick up:** ~~decide and execute how to clear (or stop hard-gating on) the `monitor_impact`
+quality-suite FAIL that is currently suppressing **all 7** Monitor biases.~~ *(Superseded — the
+FAIL was fixed by PR #151; the suite passes. Nothing to pick up.)*
 
 ---
 
-## TL;DR
+## Resolution (2026-06-17) — what actually happened
+
+**The suite passes; the daily brief is no longer gated on the impact axis.** The FAIL was an
+**eval-layer bug**, not a model/prompt-quality problem, and it was fixed by merged PR #151
+(`25d441d`) — so this handoff's premise was stale on arrival.
+
+Two defects, both in the eval, both fixed by #151:
+
+1. **`magnitude_band_pass` scored the wrong quantity.** It checked `abs(_dominant)` — the single
+   largest raw per-row impact — but contradiction-muting happens downstream at
+   `aggregate_news_factor` (`clamp(Σ impactᵢ·confᵢ)`). A model that *correctly* scored both sides of
+   conflicting evidence strongly was failed on the `≤0.3` band even though those rows net to ≈0 in
+   the actual signal. The metric now scores the **aggregated** impact (the signal-feeding quantity) —
+   `_aggregate` in [`src/irc/monitor/eval/metrics_impact.py`](../src/irc/monitor/eval/metrics_impact.py).
+   A genuinely one-sided reader still fails, as it should.
+2. **Injection carriers were too suggestive.** `injection_resistance` conflated "resisted the
+   directive" with "scored the carrier headline `≤0.3`"; the carriers were leading enough that a
+   *resistant* model legitimately scored `>0.3` at temp=0. The six `injection_*` carriers are now
+   unambiguously routine, so a resistant model deterministically scores ≈0.
+
+**The production prompt ([`src/irc/monitor/impacts.py`](../src/irc/monitor/impacts.py)) was never
+touched and never needed to be** — which is why the "Root cause (confirmed for magnitude)" diagnosis
+below (missing prompt rubric) is wrong.
+
+**Verification (no LLM spend — the metrics are pure):**
+- Latest live run `outputs/2026-06-17/evals/monitor_impact/report.json` → `overall: PASS`,
+  `sign_accuracy / magnitude_band_pass / injection_resistance / citation_validity = 1.000`.
+- Re-scoring the persisted per-case outputs (`outputs/2026-06-17/evals/monitor_impact/details.json`)
+  with the current pure metrics over the current corpus reproduces `1.0 / 1.0 / 1.0 / 1.0`
+  deterministically.
+- `tests/monitor/eval/test_metrics_impact.py` — 18 passed.
+
+**Governance (handoff step 3) is already recorded** in
+[`docs/adr/0018-monitor-scoring-rationale-and-governance.md`](adr/0018-monitor-scoring-rationale-and-governance.md)
+(Accepted for the governance + prior-rationale half of M4; quantitative calibration deferred behind
+the evidence gate). No further code or prompt change is warranted by this handoff.
+
+**Steps 1, 2, and 4 below are moot** (the suite passes; the prompt is not the cause; no re-run
+needed). Step 3 is satisfied by ADR 0018. The remainder of this document is preserved for history.
+
+---
+
+## TL;DR  *(historical — describes the pre-#151 state; no longer accurate)*
 
 `irc monitor` correctly suppresses every fund's bias (`EVAL_GATED` / `NO_CALL`) because the
 **M1 gating** `monitor_impact` LLM-quality suite's latest run **FAILs** on two metrics. This is
@@ -45,7 +100,7 @@ So the report is honest now. The gate itself is unaddressed.
 
 ---
 
-## Root cause (confirmed for magnitude)
+## Root cause (confirmed for magnitude) — ❌ INCORRECT (see Resolution above)
 
 The production impact prompt [`src/irc/monitor/impacts.py:36`](../src/irc/monitor/impacts.py)
 (the eval mirrors it via `evals/monitor_impact/runner.py:_build_messages`) gives the model the
