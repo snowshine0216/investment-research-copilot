@@ -92,7 +92,7 @@ def test_fresh_fail_impact_gates_funds(tmp_path: Path):  # AC19
     view = _view(fund, sig)
     suite_healths, suite_rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              suite_healths=suite_healths)
+                                              suite_healths=suite_healths, trading_days=None)
     from irc.monitor.eval.gate import published_state
     assert gates[0].suppressed is True
     assert published_state(sig, gates[0]) == "EVAL_GATED"
@@ -109,7 +109,7 @@ def test_missing_suite_reports_fail_open(tmp_path: Path):  # AC20
     view = _view(fund, sig)
     suite_healths, _rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              suite_healths=suite_healths)
+                                              suite_healths=suite_healths, trading_days=None)
     assert gates[0].suppressed is False
     assert gates[0].badge == "caveated"  # Finding 1: missing report must be caveated, not validated
 
@@ -123,6 +123,6 @@ def test_no_call_precedence_when_status_not_ok(tmp_path: Path):  # AC19 NO_CALL 
     view = _view(fund, sig)
     suite_healths, _rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              suite_healths=suite_healths)
+                                              suite_healths=suite_healths, trading_days=None)
     from irc.monitor.eval.gate import published_state
     assert published_state(sig, gates[0]) == "NO_CALL"
