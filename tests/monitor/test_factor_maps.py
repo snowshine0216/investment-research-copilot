@@ -3,8 +3,8 @@ from irc.monitor.factor_maps import valuation_state_score, heat_score
 
 
 @pytest.mark.parametrize("state,expected", [
-    ("cheap", 1.0), ("fair_cheap", 0.5), ("fair", 0.0),
-    ("fair_expensive", -0.5), ("expensive", -1.0),
+    ("cheap", 1.0), ("reasonable_low", 0.5), ("fair", 0.0),
+    ("expensive", -0.5), ("very_expensive", -1.0),
 ])
 def test_valuation_map(state, expected):
     assert valuation_state_score(state) == expected

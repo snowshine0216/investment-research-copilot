@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 _VALUATION_MAP: dict[str, float] = {
-    "cheap": 1.0, "fair_cheap": 0.5, "fair": 0.0,
-    "fair_expensive": -0.5, "expensive": -1.0,
+    "cheap": 1.0, "reasonable_low": 0.5, "fair": 0.0,
+    "expensive": -0.5, "very_expensive": -1.0,
 }
 _RAPID_INFLOW_PCT = 20.0   # AUM/share QoQ Δ above this counts as a rapid inflow
 
