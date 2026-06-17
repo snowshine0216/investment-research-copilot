@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from evals._shared.missing_input import EVAL_RC_FAIL, EVAL_RC_PASS, EVAL_RC_WARN
-from evals._shared.report_paths import write_report
-from evals.monitor_suite.driver import build_stage_report, drive_case
+from evals._shared.report_paths import write_details, write_report
+from evals.monitor_suite.driver import build_case_details, build_stage_report, drive_case
 from irc.config_loader import load_yaml
 from irc.llm.gateway import call as _call, resolve_route
 from irc.llm.http_client import _resolve_model
@@ -74,6 +74,11 @@ def run(repo_root: Path) -> int:
     )
     today = datetime.now(_TZ).date().isoformat()
     write_report(root, report, artifact_date=today)
+    try:
+        write_details(root, _STAGE, artifact_date=today,
+                      details=build_case_details(cases, outputs))
+    except Exception:  # noqa: BLE001 — diagnostic side-artifact; never fail a valid eval run
+        _log.exception("write_details failed in %s runner; per-case details not written", _STAGE)
     try:
         record_command_run(repo_root=root, history=costs, search_units={},
                            today=datetime.fromisoformat(today).date())

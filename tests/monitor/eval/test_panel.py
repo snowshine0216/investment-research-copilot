@@ -36,3 +36,17 @@ def test_panel_renders_per_row_reasons():
     html = validation_panel_html(rows=rows, badge_counts={"gated": 1})
     assert "gap 7d" in html
     assert "159934: composite" in html
+
+
+def test_panel_badge_tally_appears_once_not_per_row():
+    # The badge tally is a run-global fund count, not a per-stage value — it must
+    # render ONCE at the panel level, not be repeated on every stage row (which read
+    # as if each stage carried that count).
+    rows = (_row("monitor_signal", "WARN", ("gap 11d",)),
+            _row("monitor_impact", "FAIL", ("magnitude_band_pass",)),
+            _row("monitor_narrative", "PASS"),
+            _row("deterministic_scoring", "PASS"))
+    html = validation_panel_html(rows=rows, badge_counts={"gated": 7})
+    assert html.count("gated: 7") == 1
+    # per-stage attribution (the gating stage + its reason) is still present
+    assert "monitor_impact" in html and "magnitude_band_pass" in html

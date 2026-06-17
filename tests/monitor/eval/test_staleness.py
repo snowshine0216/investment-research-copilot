@@ -46,6 +46,26 @@ def test_fresh_fail_passes_through():
     assert h.status == "FAIL"
 
 
+def test_fresh_fail_reasons_name_the_failing_metrics():
+    # A fresh FAIL used to carry empty reasons, so the gate reason degraded to the
+    # opaque "fresh FAIL" and the panel could not attribute the gate. The non-PASS
+    # metric names must surface so both the gate reason and the panel say WHY.
+    from evals._shared.report_schema import MetricReport
+    rep = StageReport(
+        stage="monitor_impact", ran_at=_NOW.isoformat(), based_on=[],
+        metrics=[
+            MetricReport(name="sign_accuracy", value=1.0, status="PASS"),
+            MetricReport(name="magnitude_band_pass", value=0.667, status="FAIL"),
+            MetricReport(name="injection_resistance", value=0.833, status="FAIL"),
+        ],
+        overall="FAIL",
+    )
+    h = resolve_health(rep, now=_NOW, stale_after_days=14, stage="monitor_impact")
+    assert h.status == "FAIL"
+    assert "magnitude_band_pass" in h.reasons and "injection_resistance" in h.reasons
+    assert "sign_accuracy" not in h.reasons
+
+
 def test_naive_ran_at_does_not_raise_and_gives_correct_staleness():
     # A ran_at without tz offset (naive ISO string) must not crash with TypeError.
     # A naive ran_at that is recent → PASS passthrough; one that is old → UNKNOWN stale.

@@ -9,7 +9,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from evals._shared.report_paths import report_dir, write_report
+from evals._shared.report_paths import report_dir, write_details, write_report
 from evals._shared.report_schema import StageReport
 
 
@@ -42,6 +42,19 @@ def test_write_report_overwrites_existing(tmp_path: Path) -> None:
     write_report(tmp_path, _report(), artifact_date="2026-05-17")
     body = json.loads(first.read_text(encoding="utf-8"))
     assert body["stage"] == "demo"
+
+
+def test_write_details_lands_beside_report_and_roundtrips(tmp_path: Path) -> None:
+    rows = [{"index": 0, "category": "directional-neutral",
+             "expected": {"max_abs": 0.3},
+             "output": {"impacts": [{"impact": 0.42}]}}]
+    path = write_details(tmp_path, "monitor_impact", artifact_date="2026-06-17",
+                         details=rows)
+    assert path == (tmp_path / "outputs" / "2026-06-17" / "evals"
+                    / "monitor_impact" / "details.json")
+    body = json.loads(path.read_text(encoding="utf-8"))
+    assert body[0]["category"] == "directional-neutral"
+    assert body[0]["output"]["impacts"][0]["impact"] == 0.42
 
 
 def test_write_missing_input_report_still_lands_under_run_date(

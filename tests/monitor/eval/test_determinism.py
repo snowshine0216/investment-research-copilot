@@ -203,6 +203,38 @@ def test_build_panel_rows_unknown_status_does_not_raise():
     assert rows["monitor_signal"].status != "PASS"
 
 
+def test_build_panel_rows_includes_gating_suite_rows_in_order():
+    """The gating LLM-suite stages must appear as panel rows (with their real ran_at
+    and the failing-metric reasons), grouped with monitor_signal before the
+    panel-only deterministic_scoring row — so a reader can see WHICH stage gated."""
+    from irc.monitor.eval.types import StageHealth, ValidationPanelRow
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "WARN", ("gap 11d",))}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    suite = (
+        ValidationPanelRow("monitor_impact", "FAIL", "2026-06-16T19:14:51+08:00",
+                           ("magnitude_band_pass", "injection_resistance")),
+        ValidationPanelRow("monitor_narrative", "UNKNOWN", "—", ("absent",)),
+    )
+    rows = build_panel_rows(sig, det, now="t", suite_rows=suite)
+    assert [r.stage for r in rows] == [
+        "monitor_signal", "monitor_impact", "monitor_narrative", "deterministic_scoring",
+    ]
+    impact = next(r for r in rows if r.stage == "monitor_impact")
+    assert impact.status == "FAIL" and impact.ran_at == "2026-06-16T19:14:51+08:00"
+    assert "magnitude_band_pass" in impact.reasons
+
+
+def test_build_panel_rows_suite_rows_default_empty_is_backward_compatible():
+    from irc.monitor.eval.types import StageHealth
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "PASS", ())}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    assert [r.stage for r in build_panel_rows(sig, det, now="t")] == [
+        "monitor_signal", "deterministic_scoring",
+    ]
+
+
 def test_aggregate_unknown_status_does_not_raise():
     """aggregate_deterministic_health must not KeyError when a per-fund health
     carries a non-PASS/FAIL status (e.g. 'UNKNOWN'). _safe_status maps it to

@@ -24,4 +24,5 @@ def resolve_health(
         ran_at = ran_at.replace(tzinfo=now.tzinfo)
     if (now - ran_at).days > stale_after_days:
         return StageHealth(report.stage, "UNKNOWN", ("stale",))
-    return StageHealth(report.stage, report.overall, ())  # type: ignore[arg-type]
+    failing = tuple(m.name for m in report.metrics if m.status in ("FAIL", "WARN"))
+    return StageHealth(report.stage, report.overall, failing)  # type: ignore[arg-type]

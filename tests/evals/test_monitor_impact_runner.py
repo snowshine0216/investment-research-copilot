@@ -66,6 +66,12 @@ def test_runner_writes_report_and_records_spend(tmp_path: Path, monkeypatch):
     # spend recorded: one CostEntry per case driven
     assert recorded["calls"] >= 1
     assert recorded["tasks"] == {"monitor_impact"}
+    # per-case diagnostic details land beside the report (one row per case, raw output)
+    details_path = tmp_path / "outputs" / _today() / "evals" / "monitor_impact" / "details.json"
+    assert details_path.exists()
+    details = json.loads(details_path.read_text(encoding="utf-8"))
+    assert len(details) == report["metrics"][0]["n_observations"]  # one row per case
+    assert {"index", "category", "expected", "output"} <= set(details[0])
 
 
 def test_runner_degrades_one_case_without_crash(tmp_path: Path, monkeypatch):
@@ -119,6 +125,34 @@ def test_runner_record_command_run_crash_does_not_propagate(tmp_path: Path, monk
     rc = runner.run(tmp_path)  # must NOT raise
     report_path = tmp_path / "outputs" / _today() / "evals" / "monitor_impact" / "report.json"
     assert report_path.exists()
+    assert rc in (0, 1, 2)
+
+
+def test_runner_details_write_crash_does_not_propagate(tmp_path: Path, monkeypatch):
+    """A failure writing the diagnostic details.json must NOT crash an eval whose
+    report.json was already written — details is a side-artifact, not the verdict.
+    Mirrors the record_command_run degrade-not-crash contract."""
+    src = Path(__file__).resolve().parents[2] / "src/irc/monitor/eval/cases"
+    dst = tmp_path / "src/irc/monitor/eval/cases"
+    dst.parent.mkdir(parents=True)
+    import shutil
+    shutil.copytree(src, dst)
+    (tmp_path / "config").mkdir()
+    shutil.copy(Path(__file__).resolve().parents[2] / "config/llm.yaml",
+                tmp_path / "config/llm.yaml")
+    monkeypatch.setenv("MINIMAX_BASE_URL", "https://example.com")
+    monkeypatch.setenv("MINIMAX_API_KEY", "k")
+    monkeypatch.setenv("MINIMAX_MODEL", "MiniMax-Text-01")
+    monkeypatch.setattr(runner, "_call", _stub_perfect_call(None))
+    monkeypatch.setattr(runner, "record_command_run", lambda **kw: None)
+
+    def boom(*a, **kw):
+        raise RuntimeError("disk full writing details.json")
+    monkeypatch.setattr(runner, "write_details", boom)
+
+    rc = runner.run(tmp_path)  # must NOT raise
+    report_path = tmp_path / "outputs" / _today() / "evals" / "monitor_impact" / "report.json"
+    assert report_path.exists()  # the verdict survived the details failure
     assert rc in (0, 1, 2)
 
 
