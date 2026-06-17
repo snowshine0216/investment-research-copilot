@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import pytest
 import duckdb
+from datetime import date as _date
 
 from irc.data.duckdb_helper import ensure_schema
+from irc.fundamentals.snapshot_cache import write_active_fund_cache
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 from irc.monitor.types import MonitorFund
 from irc.monitor.valuation import (
     ValuationResolution,
@@ -182,4 +185,144 @@ def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
     res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
                                   con=con, root=tmp_path)
     assert res == ValuationResolution(None, False, "valuation_no_anchor")
+    con.close()
+
+
+# ── Item 002: look-through branch (monitor ActiveFundSnapshot holdings) ────────
+
+
+def _seed_monitor_snapshot(root, fund_id, holdings, quarter="2026Q1"):
+    """Write a monitor ActiveFundSnapshot JSON under <root>/data via the real
+    cache writer. `holdings` is a list of (symbol, weight_pct). Mirrors the
+    constituent factor's load path: load_latest_active_fund_cached(id, root/'data')."""
+    analyses = tuple(
+        ConstituentAnalysis(
+            symbol=sym, name_cn="x", weight_pct=w,
+            evidence=(), failure_reasons=(), one_line_view="",
+        )
+        for sym, w in holdings
+    )
+    snap = ActiveFundSnapshot(
+        fund_id=fund_id, source_report_date="2026-03-31",
+        source_report_quarter=quarter, cache_probed_at="",
+        constituent_analyses=analyses, failure_reasons_by_symbol={},
+    )
+    write_active_fund_cache(snap, root / "data")
+
+
+def _seed_stock_valuation(con, stock_code, n=200, pe0=18.0, pe_step=0.01, pb=2.0):
+    # n PE/PB points every 2 days → >120 pts spanning >180d → clears the PE gate.
+    base = _date(2025, 1, 1)
+    rows = [
+        (stock_code, _date.fromordinal(base.toordinal() + 2 * i),
+         pe0 + i * pe_step, pb, None, "2026-05-15 00:00:00", "eastmoney", "sv:r")
+        for i in range(n)
+    ]
+    con.executemany(
+        "INSERT INTO stock_valuation_history VALUES (?,?,?,?,?,?,?,?)", rows
+    )
+
+
+def test_lookthrough_sufficient_coverage_returns_state(tmp_path):
+    # 60% in one priced name clears the 0.50 NAV floor; 200 rising PE points clear
+    # the 120/180 maturity gate; latest PE is the max → percentile 1.0 → very_expensive.
+    con = duckdb.connect(str(tmp_path / "lt2.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "519069", None)
+    _seed_monitor_snapshot(tmp_path, "519069", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519")  # rising PE → latest is max → pct 1.0
+    res = resolve_valuation_state(_fund("519069", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.cached is True
+    assert res.state == "very_expensive"   # pct 1.0 → >=0.90 band
+    assert res.reason is None
+    con.close()
+
+
+def test_lookthrough_coverage_below_floor_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt3.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "260112", None)
+    _seed_monitor_snapshot(tmp_path, "260112", [("600519", 30.0)])
+    _seed_stock_valuation(con, "600519")
+    res = resolve_valuation_state(_fund("260112", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_lookthrough_low_percentile_is_cheap(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt4.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "006533", None)
+    _seed_monitor_snapshot(tmp_path, "006533", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519", pe0=40.0, pe_step=-0.1)  # descending PE
+    res = resolve_valuation_state(_fund("006533", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.cached is True
+    assert res.state == "cheap"   # pct ~0.0 → <0.20 band
+    assert res.reason is None
+    con.close()
+
+
+def test_lookthrough_holdings_but_no_stock_valuations_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt5.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "000083", None)
+    _seed_monitor_snapshot(tmp_path, "000083", [("600519", 60.0)])
+    # NO stock_valuation_history rows → no priced holdings → coverage 0.0 → N/A.
+    res = resolve_valuation_state(_fund("000083", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_lookthrough_non_ashare_holding_is_na(tmp_path):
+    # A QDII-style HK holding (5-digit code) never matches the A-share-keyed
+    # stock_valuation_history → uncovered → honest N/A (spec §10 accepted risk).
+    con = duckdb.connect(str(tmp_path / "lt6.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "519770", None)
+    _seed_monitor_snapshot(tmp_path, "519770", [("00700", 60.0)])  # HK Tencent
+    _seed_stock_valuation(con, "600519")  # unrelated A-share series present
+    res = resolve_valuation_state(_fund("519770", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_lookthrough_no_snapshot_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt7.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "161903", None)  # no cached snapshot written
+    res = resolve_valuation_state(_fund("161903", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None and res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_index_path_unchanged_by_lookthrough(tmp_path):
+    # Regression: a fund WITH tracked_index still takes the index path even when a
+    # monitor snapshot + stock valuations exist — _resolve dispatches on
+    # tracked_index, NOT on holdings.
+    con = duckdb.connect(str(tmp_path / "lt8.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "510300", "csi300")
+    _seed_monitor_snapshot(tmp_path, "510300", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519")
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    # Index path → mature rising PE → pct 1.0 → very_expensive (NOT the look-through).
+    assert res.cached is True
+    assert res.state == "very_expensive"
+    assert res.reason is None
     con.close()
