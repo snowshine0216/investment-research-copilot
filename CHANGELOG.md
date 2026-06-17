@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor `heat` factor: restriction leg (2026-06-17)
+
+- **Lights up the previously-dark `heat` (crowding) factor** in `irc monitor` for all eligible
+  funds via the **restriction leg** (限购 / 申购状态). New `src/irc/monitor/heat_fetch.py`:
+  `fetch_purchase_table` makes ONE market-wide `ak.fund_purchase_em()` call per run (lazy akshare
+  import, CN endpoint direct — no proxy); pure `parse_purchase_status` (restricted when 申购状态 ∉
+  `{开放申购}` or 日累计限定金额 < 1e8; absent/unparseable/missing-column → None) and
+  `heat_inputs_for` → `(restricted, None)`. Wired into the monitor command edge (fetched once,
+  threaded per-fund). `heat_score` unchanged: `restricted` → −0.5 (crowded), else +0.3 (calm),
+  `None` → `heat_no_data`.
+- **Availability contract (no silent failure):** a failed/empty fetch returns `None` (never raises)
+  → honest `heat_no_data` for every fund, with a structured log. Schema drift (renamed AkShare
+  columns) is now surfaced: the edge logs a warning and returns `None` rather than nulling heat
+  silently. Never a fabricated score.
+- **AUM-Δ leg deferred** (`aum_delta_pct` always `None`): no per-fund live QoQ AUM source exists
+  (`fund_scale_change_em` is aggregate-only), so the overheated −1.0 tier cannot fire yet (TODOS).
+  Also fixes an item-001 test-scope regression (a `_process_fund` monkeypatch lambda in
+  `tests/commands/` that didn't accept the new `con`/`purchase_table` kwargs).
+
 ### Added — monitor `valuation` factor: index-anchored path + unified 5-state vocabulary (2026-06-17)
 
 - **Wires the previously-dark `valuation` factor** in `irc monitor` for funds whose `tracked_index`
