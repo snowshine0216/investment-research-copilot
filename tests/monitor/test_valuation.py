@@ -239,3 +239,17 @@ def test_lookthrough_sufficient_coverage_returns_state(tmp_path):
     assert res.state == "very_expensive"   # pct 1.0 → >=0.90 band
     assert res.reason is None
     con.close()
+
+
+def test_lookthrough_coverage_below_floor_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt3.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "260112", None)
+    _seed_monitor_snapshot(tmp_path, "260112", [("600519", 30.0)])
+    _seed_stock_valuation(con, "600519")
+    res = resolve_valuation_state(_fund("260112", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
