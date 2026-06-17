@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor `valuation` factor: index-anchored path + unified 5-state vocabulary (2026-06-17)
+
+- **Wires the previously-dark `valuation` factor** in `irc monitor` for funds whose `tracked_index`
+  resolves to a real `_INDEX_VALUATION_KEYS` member. New pure `monitor/valuation.py`:
+  `resolve_valuation_state(fund, *, con, root)` dispatches by `tracked_index` — the index-anchored
+  branch reuses the opportunity layer's pure `_index_valuation_metrics` (PE-percentile) on cached
+  DuckDB tables, then maps via the shared `opportunity/states._band` thresholds (DRY); the
+  look-through branch is an honest N/A stub (filled by a later slice). Cache-read only — no new
+  network calls; ADR 0017 evidence isolation preserved (opportunity *pure functions* on
+  monitor-loaded cached tables, never opportunity output files).
+- **Unifies `monitor/factor_maps._VALUATION_MAP`** onto the opportunity layer's five states
+  (`cheap/reasonable_low/fair/expensive/very_expensive`), replacing the lossy
+  `fair_cheap/fair_expensive` keys — one valuation vocabulary, one source of truth. Unrecognized
+  state → `valuation_unknown_state` (unchanged contract).
+- **Command edge** (`monitor_cmd.py`) opens the cached `data/local.duckdb` once (guarded — degrades
+  to N/A, never crashes the brief, on an absent/unreadable/partial DB), threads it through
+  `_process_fund`, and feeds real `valuation_state`/`valuation_cached`. Connection closed via
+  `try/finally`.
+- **Honest degradation:** any DuckDB read error (e.g. a partial DB missing a table) → `valuation_no_anchor`
+  with a logged warning, never a propagated crash. `gold`/`qdii_global` valuation stays
+  `profile_ineligible`; no new N/A reason codes; eval determinism unchanged. Known gap: `009225`
+  (`china_internet`) is not yet an index-valuation key → ships honest N/A (documented follow-up).
+
 ### Changed — monitor `nav_quality`: NAV-gap caveat now grounded in the real CN trading calendar (2026-06-17)
 
 - **Supersedes the calendar-day heuristic below with ground truth.** The prior fix measured gaps in
