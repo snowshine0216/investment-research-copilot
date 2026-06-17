@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor `signal_consistency`: composite vs Σcontribution rounding artifact (2026-06-17)
+
+- The in-run structural oracle `signal_consistency` (`src/irc/monitor/eval/structural.py`) compared
+  `composite` against a **full-precision** `Σcontribution` with `_EPS = 1e-9`. But `composite` is
+  `round(Σcontribution, 4)` by contract (`signal.py` / `types.py`: "C, rounded 4dp") while the
+  individual `contribution` values stay full-precision, so the invariant could *never* hold to
+  `1e-9` — every real run tripped "composite != Σcontribution" (diff ~2–5e-5) and `EVAL_GATED` all
+  7 Monitor funds' biases for a pure rounding artifact. Fix: round `Σcontribution` to the same 4dp
+  before comparing (`_COMPOSITE_DP = 4`). Genuine mismatches (off by ≫5e-5) still FAIL. After the
+  fix all 7 funds read `signal_consistency: PASS`; `monitor_signal` overall is WARN on the separate,
+  legitimate `gap 11–14d` NAV-lag flag (fail-open allow + `caveated` badge), no longer suppressed.
+  TDD red→green; regression test in `tests/monitor/eval/test_structural.py`.
+
 ### Fixed — `data` eval: business-day freshness + maintained (source,table) pairs (2026-06-16)
 
 - The `data` eval graded staleness in **calendar** days, so a Friday close evaluated the following

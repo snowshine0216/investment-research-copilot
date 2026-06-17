@@ -6,6 +6,7 @@ from irc.monitor.eval.types import StageHealth
 from evals._shared.status import worst_status
 
 _EPS = 1e-9
+_COMPOSITE_DP = 4   # composite is round(Σcontribution, 4) — see signal.py / types.py
 _WARN_GAP_DAYS = 5
 
 
@@ -19,7 +20,9 @@ def _parse_date(s: str) -> date | None:
 def signal_consistency(t: dict) -> StageHealth:
     sig = t["signal"]
     contribs = sig.get("contributions", [])
-    sum_contrib = sum(c.get("contribution", 0.0) for c in contribs)
+    # composite is round(Σcontribution, 4) by contract (signal.py / types.py: "C, rounded
+    # 4dp") while contributions stay full-precision — compare at that same precision.
+    sum_contrib = round(sum(c.get("contribution", 0.0) for c in contribs), _COMPOSITE_DP)
     sum_renorm = sum(c.get("renorm_weight", 0.0) for c in contribs)
     reasons: list[str] = []
     if abs(sig.get("composite", 0.0) - sum_contrib) >= _EPS:

@@ -37,6 +37,21 @@ def test_signal_consistency_fail_when_composite_diverges_from_contributions():
     assert signal_consistency(t).status == "FAIL"
 
 
+def test_signal_consistency_pass_when_composite_is_4dp_rounding_of_contributions():
+    # signal.py rounds composite to 4dp by contract (types.py: "C, rounded 4dp"),
+    # while individual contributions stay full-precision. The oracle must compare at
+    # the same precision, else every real run FAILs on a ~2e-5 rounding artifact.
+    t = _good_fund()
+    t["signal"]["composite"] = -0.1549  # == round(Σcontribution, 4)
+    t["signal"]["contributions"] = [
+        {"name": "trend", "renorm_weight": 0.5625, "value": -0.773,
+         "contribution": -0.43492133172990466, "confidence": 1.0},
+        {"name": "macro_tilt", "renorm_weight": 0.43749999999999994, "value": 0.64,
+         "contribution": 0.2799999999999999, "confidence": 0.7},
+    ]
+    assert signal_consistency(t).status == "PASS"
+
+
 def test_signal_consistency_fail_when_renorm_weights_not_unit():
     t = _good_fund()
     t["signal"]["contributions"][0]["renorm_weight"] = 0.5  # Σ != 1
