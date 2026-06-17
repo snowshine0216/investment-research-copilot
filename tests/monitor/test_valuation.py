@@ -253,3 +253,17 @@ def test_lookthrough_coverage_below_floor_is_na(tmp_path):
     assert res.cached is False
     assert res.reason == "valuation_no_anchor"
     con.close()
+
+
+def test_lookthrough_low_percentile_is_cheap(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt4.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "006533", None)
+    _seed_monitor_snapshot(tmp_path, "006533", [("600519", 60.0)])
+    _seed_stock_valuation(con, "600519", pe0=40.0, pe_step=-0.1)  # descending PE
+    res = resolve_valuation_state(_fund("006533", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.cached is True
+    assert res.state == "cheap"   # pct ~0.0 → <0.20 band
+    assert res.reason is None
+    con.close()
