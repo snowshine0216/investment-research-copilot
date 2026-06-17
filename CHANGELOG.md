@@ -107,6 +107,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Closes the documented v2.1 open item "constituent symbol-keying can vary run-to-run". TDD;
   new `tests/monitor/test_constituent_match.py` + cases in `tests/commands/test_monitor_constituent.py`.
 
+### Added — monitor `valuation` factor: look-through path for pure active funds (2026-06-17)
+
+- **Lights up the look-through `valuation` factor** in `irc monitor` for the 6 pure active funds
+  (`active_cn_equity`, `tracked_index is None`). `monitor/valuation._resolve_lookthrough` now
+  assembles holdings from the **monitor's own cached `ActiveFundSnapshot`**
+  (`load_latest_active_fund_cached` under `data/` — the same source the constituent factor uses),
+  joins them to the cached DuckDB `stock_valuation_history` PE/PB series via the opportunity pure
+  reader `_stock_series_by_code`, and reuses the pure `fund_valuation_percentile`
+  (`coverage_floor=0.50`, `pb_uses_pe_gate=False`) → `percentile_to_valuation_state`. New pure
+  helper `monitor/lookthrough.py` holds the snapshot→percentile→state math (no I/O). Cache-read
+  only — no new network calls; ADR 0017 evidence isolation preserved (monitor-consumed cached
+  artifacts, never opportunity output files, no pipeline dependency).
+- **Honest degradation:** empty/absent snapshot, coverage below the 0.50 NAV floor, immature PE
+  history, or non-A-share (HK/US QDII) holdings → `valuation_no_anchor` (surfaced, never
+  fabricated). No new N/A reason codes; eval determinism unchanged.
+- **Known residual coverage gap (see TODOS.md):** look-through depends on `stock_valuation_history`
+  coverage of a fund's constituents, which today is populated only for watchlist-overlapping
+  A-shares (no dedicated monitor-constituent stock-valuation ingest exists — adding one is a
+  non-goal of this spec). Funds without overlap honestly ship `valuation_no_anchor`.
+
 ### Added — monitor set expanded to 10 funds: 交银择优回报 (519770) + 博时中证有色金属矿业主题指数A (018132) + 万家行业优选 (161903) (2026-06-17)
 
 - **Three funds added to the `irc monitor` set** in `config/monitor.yaml` (and the `irc init`

@@ -46,6 +46,7 @@ Known gaps and deferred work. Updated after v0.5.0.0 ship (2026-05-11).
 
 ## Coverage gaps
 
+- [ ] **Monitor look-through valuation coverage gap (item 002)**: look-through `valuation` for the 6 pure active funds depends on `stock_valuation_history` coverage of their *constituents*. Today that table is populated only for **watchlist-overlapping A-shares** (`irc fundamentals snapshot` enumerates `fund_holdings.holding_ticker` via `_discover_ashare_codes`); there is NO dedicated monitor-constituent stock-valuation ingest. So a monitor fund whose top A-share holdings don't overlap the discovered watchlist ships `valuation_no_anchor` (honest N/A), and HK/US (QDII) holdings never match. **Follow-up (non-goal of this spec):** add a monitor-constituent stock-valuation ingest keyed off `ActiveFundSnapshot` symbols so the look-through lights up regardless of watchlist overlap.
 - [ ] `config_loader._resolve_schema` — `KeyError` path when schema is not registered (100% happy-path only)
 - [ ] `settings.py` — `OPENROUTER_API_KEY` missing path
 - [ ] `schemas/triggers.py` — invalid comparator branch (~50% coverage)
