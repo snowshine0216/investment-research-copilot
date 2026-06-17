@@ -1,7 +1,7 @@
 # MASTER-PLAN — Monitor `nav_quality` calendar-grounded NAV-gap check
 
 **Mode:** spec
-**Project type:** non-web
+Project type: non-web
 **PR shape:** A
 **Feature branch:** `claude/affectionate-greider-e105f6` (current, non-protected; item PR lands here)
 **Base for final roll-up PR:** `main` (Phase 3 opens feature → main PR, **not merged** — left for the user)

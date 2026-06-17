@@ -1,7 +1,9 @@
 from __future__ import annotations
 import datetime as _dt
 import json
-from irc.monitor.eval.trace import build_eval_trace, dedup_by_citation_id, _max_gap_days
+from irc.monitor.eval.trace import (
+    build_eval_trace, dedup_by_citation_id, _max_gap_days, _missing_trading_days,
+)
 from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M0
 from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.types import FundTraceBundle
@@ -86,7 +88,7 @@ def test_per_fund_schema_keys():
                       "impacts", "narrative", "gate", "published_state", "validation_badge"}
     assert set(f["resolved"]) == {"analysis_profile", "weights", "bands", "minimum_confidence"}
     assert set(f["nav"]) == {"as_of_date", "latest_unit_nav", "nav_acc", "acc_series",
-                             "obs_count", "max_gap_days"}
+                             "obs_count", "max_gap_days", "missing_trading_days"}
 
 
 def test_round_trip_json_serializable():
@@ -190,3 +192,71 @@ def test_gate_and_published_state_serialized():
     assert f["validation_badge"] == "validated"
     # status==ok, not suppressed → published_state is the bias
     assert f["published_state"] == "ADD_BIAS"
+
+
+def _cn_cal(*iso: str):
+    return frozenset(_dt.date.fromisoformat(d) for d in iso)
+
+
+def test_missing_trading_days_none_calendar_returns_none():
+    series = (("2026-06-15", 1.0), ("2026-06-16", 1.0))
+    assert _missing_trading_days(series, None) is None
+
+
+def test_missing_trading_days_fewer_than_two_obs_is_zero():
+    assert _missing_trading_days((("2026-06-16", 1.0),), _cn_cal("2026-06-16")) == 0
+    assert _missing_trading_days((), _cn_cal("2026-06-16")) == 0
+
+
+def test_missing_trading_days_holiday_gap_counts_zero():
+    # Series jumps across a closure; NONE of the in-between days are trading days,
+    # so the fund missed zero open sessions.
+    series = (("2026-02-13", 1.0), ("2026-02-23", 1.0))   # Spring-Festival hole
+    cal = _cn_cal("2026-02-13", "2026-02-23")             # closure days absent
+    assert _missing_trading_days(series, cal) == 0
+
+
+def test_missing_trading_days_real_interior_miss_counts():
+    # The fund skipped 2026-02-17 and 2026-02-18, both of which the market was open.
+    series = (("2026-02-16", 1.0), ("2026-02-19", 1.0))
+    cal = _cn_cal("2026-02-16", "2026-02-17", "2026-02-18", "2026-02-19")
+    assert _missing_trading_days(series, cal) == 2
+
+
+def test_missing_trading_days_empty_calendar_returns_none():
+    """An empty frozenset is treated the same as None: unavailable calendar → fallback."""
+    series = (("2026-06-15", 1.0), ("2026-06-16", 1.0))
+    assert _missing_trading_days(series, frozenset()) is None
+
+
+def test_missing_trading_days_respects_recent_window():
+    # An ancient outage (3 missed trading days) sits outside the recent window of
+    # 20 obs and must be ignored; only the daily-cadence tail is scored.
+    cal_days = [_dt.date(2026, 5, 1) + _dt.timedelta(days=i) for i in range(40)]
+    cal = frozenset(cal_days)
+    # obs 0 then a 4-day jump (3 interior trading days missed), then 25 daily obs.
+    old = (("2026-05-01", 1.0), ("2026-05-05", 1.0))
+    recent = tuple((d.isoformat(), 1.0) for d in cal_days[4:29])   # 25 consecutive
+    assert _missing_trading_days(old + recent, cal) == 0
+
+
+def test_nav_missing_trading_days_threaded_from_calendar():
+    cal = frozenset(_dt.date.fromisoformat(d) for d in
+                    ("2026-06-15", "2026-06-16"))
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16", trading_days=cal)
+    nav = t["funds"]["008986"]["nav"]
+    # _good_view's series is consecutive trading days → no missed open sessions.
+    assert nav["missing_trading_days"] == 0
+
+
+def test_nav_missing_trading_days_is_none_without_calendar():
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16")
+    assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
+
+
+def test_schema_version_is_2():
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16")
+    assert t["schema_version"] == "2"

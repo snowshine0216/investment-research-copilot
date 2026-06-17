@@ -137,3 +137,44 @@ def test_monitor_signal_health_pass_on_good_fund():
     t = _good_fund()
     t["nav"]["as_of_date"] = _TODAY.isoformat()
     assert monitor_signal_health(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+def test_nav_quality_warn_when_two_missing_trading_days():
+    t = _good_fund()
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    t["nav"]["missing_trading_days"] = 2
+    t["nav"]["max_gap_days"] = 3   # fallback would PASS — calendar branch must dominate
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "WARN"
+
+
+def test_nav_quality_pass_when_one_missing_trading_day():
+    t = _good_fund()
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    t["nav"]["missing_trading_days"] = 1
+    t["nav"]["max_gap_days"] = 99  # fallback would WARN — calendar branch must dominate
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+def test_nav_quality_pass_when_zero_missing_trading_days_over_holiday():
+    # A Spring-Festival closure: big max_gap_days but zero missed open sessions.
+    t = _good_fund()
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    t["nav"]["missing_trading_days"] = 0
+    t["nav"]["max_gap_days"] = 11
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+def test_nav_quality_falls_back_to_max_gap_when_calendar_absent_warn():
+    t = _good_fund()
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    t["nav"]["missing_trading_days"] = None
+    t["nav"]["max_gap_days"] = 9   # > _WARN_GAP_DAYS=8 → WARN
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "WARN"
+
+
+def test_nav_quality_falls_back_to_max_gap_when_calendar_absent_pass():
+    t = _good_fund()
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    t["nav"]["missing_trading_days"] = None
+    t["nav"]["max_gap_days"] = 7   # <= 8 → PASS
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
