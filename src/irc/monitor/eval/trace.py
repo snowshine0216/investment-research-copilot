@@ -32,11 +32,22 @@ def _parse(d: str) -> date | None:
         return None
 
 
-def _max_gap_days(series: tuple[tuple[str, float], ...]) -> int | None:
-    if len(series) < 2:
+# Trailing-activity probe window. The signal's own lookback is up to a year
+# (returns.py _WINDOWS max 250), and a year ALWAYS contains a ~11d Spring-Festival
+# and National-Day closure — so a full-series gap can never pass for a CN fund.
+# We instead measure only the most recent ~month, asking "is the fund still
+# reporting NAV on a daily cadence?" — ancient holidays fall out of scope.
+_RECENT_GAP_WINDOW = 20
+
+
+def _max_gap_days(
+    series: tuple[tuple[str, float], ...], *, window: int = _RECENT_GAP_WINDOW,
+) -> int | None:
+    recent = series[-window:] if window else series
+    if len(recent) < 2:
         return None
     deltas: list[int] = []
-    for (d0, _), (d1, _) in zip(series, series[1:]):
+    for (d0, _), (d1, _) in zip(recent, recent[1:]):
         a, b = _parse(d0), _parse(d1)
         if a is not None and b is not None:
             deltas.append((b - a).days)

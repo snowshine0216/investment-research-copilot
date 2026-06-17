@@ -100,7 +100,16 @@ def test_nav_quality_fail_when_as_of_older_than_stale_days():
     assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "FAIL"
 
 
-def test_nav_quality_warn_on_single_gap_over_five_days():
+def test_nav_quality_pass_on_minor_holiday_gap():
+    # A Labour-Day / Dragon-Boat-sized closure (~7 cal days) must NOT caveat — these
+    # are routine CN market holidays, not data problems.
+    t = _good_fund()
+    t["nav"]["max_gap_days"] = 7
+    t["nav"]["as_of_date"] = _TODAY.isoformat()
+    assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+def test_nav_quality_warn_on_single_gap_over_eight_days():
     t = _good_fund()
     t["nav"]["max_gap_days"] = 9
     t["nav"]["as_of_date"] = _TODAY.isoformat()
