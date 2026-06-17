@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id  | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅⏭️ | ⏭️ | ✅ | ✅ `…001` | ✅ `126cefb` | ✅ | 🔄 | ⏳ | ✅ | ⏳ | 🔄 | ⏳ |
+| 001 | ✅⏭️ | ⏭️ | ✅ | ✅ `…001` | ✅ `126cefb` | ✅ | ✅ [#160](https://github.com/snowshine0216/investment-research-copilot/pull/160) | ⏳ | ✅ | ⏳ | 🔄 | ⏳ |
 
 ## Notes
 
