@@ -89,3 +89,50 @@ def test_code_zero_pad_match():
     # Defensive: an int-typed code column still matches the 6-digit id.
     t = _table([{"基金代码": 83, "申购状态": "开放申购", "日累计限定金额": 1e11}])
     assert parse_purchase_status(t, "000083") is False
+
+
+# ── fetch_purchase_table: never raises, returns None on failure ───────────────
+
+def test_fetch_returns_table_from_injected_fetch():
+    t = _table([{"基金代码": "000083", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    out = fetch_purchase_table(fetch=lambda: t)
+    assert out is t
+
+
+def test_fetch_returns_none_when_fetch_raises():
+    def _boom():
+        raise RuntimeError("network down")
+    assert fetch_purchase_table(fetch=_boom) is None
+
+
+def test_fetch_returns_none_on_empty_frame():
+    assert fetch_purchase_table(fetch=lambda: _table([])) is None
+
+
+def test_fetch_returns_none_on_non_dataframe():
+    assert fetch_purchase_table(fetch=lambda: "not a frame") is None
+
+
+# ── heat_inputs_for: always aum_delta_pct=None; restricted threads parse result ─
+
+def test_heat_inputs_for_open_fund():
+    t = _table([{"基金代码": "000083", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    restricted, aum = heat_inputs_for("000083", purchase_table=t)
+    assert restricted is False and aum is None
+
+
+def test_heat_inputs_for_restricted_fund():
+    t = _table([{"基金代码": "006533", "申购状态": "限大额", "日累计限定金额": 1e5}])
+    restricted, aum = heat_inputs_for("006533", purchase_table=t)
+    assert restricted is True and aum is None
+
+
+def test_heat_inputs_for_none_table_yields_none_restricted():
+    restricted, aum = heat_inputs_for("000083", purchase_table=None)
+    assert restricted is None and aum is None
+
+
+def test_heat_inputs_for_absent_fund_yields_none_restricted():
+    t = _table([{"基金代码": "000083", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    restricted, aum = heat_inputs_for("999999", purchase_table=t)
+    assert restricted is None and aum is None
