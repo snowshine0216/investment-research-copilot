@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor `nav_quality`: NAV-gap caveat now grounded in the real CN trading calendar (2026-06-17)
+
+- **Supersedes the PR #158 calendar-day heuristic (entry below), keeping it as the degraded fallback.**
+  That fix leaned on two magic numbers (`_RECENT_GAP_WINDOW`, `_WARN_GAP_DAYS = 8`) that *proxied* the
+  holiday calendar and left a residual: a run in the ~4 weeks **after** Spring Festival / National Day
+  still saw the big closure inside the window and WARNed. That residual is now **closed**.
+- **`monitor_signal` now consults a real SSE trading calendar.** `data.akshare_client.fetch_trade_calendar`
+  (AkShare `tool_trade_date_hist_sina`) feeds a once-per-calendar-day cache
+  (`data/monitor/trade_calendar.json`) via the new `monitor.trading_calendar.load_trading_days`. The
+  pure metric `trace._missing_trading_days` counts only *trading days the SSE was actually open* inside
+  each recent inter-observation gap; `structural.nav_quality` WARNs only when a fund missed `≥ 2`
+  consecutive open days (`_MISSING_TRADING_WARN`). A holiday gap scores `0` → `validated`, including a
+  run dated the day **after** the holiday.
+- **One CN calendar covers all 10 monitor funds** — the QDII funds publish unit NAV on every CN trading
+  day (empirically verified), so no per-market calendars and no QDII special-casing (spec §2).
+- **Degrades safely:** any calendar fetch/parse failure — including an empty/garbage AkShare frame —
+  yields calendar `None`, and the gate falls back to the PR #158 `max_gap_days > 8` heuristic, so #158
+  is retained, not wasted. Gate stays fail-open (WARN → `caveated`, never `EVAL_GATED`).
+  `eval_trace.json` gains `missing_trading_days`; `schema_version` bumped `"1"` → `"2"`. TDD; new
+  `tests/monitor/test_trading_calendar.py` + a Spring-Festival acceptance test. Governance recorded in
+  [ADR 0018 "D3"](docs/adr/0018-monitor-scoring-rationale-and-governance.md).
+
 ### Fixed — monitor `nav_quality`: the NAV-gap caveat no longer fires on Chinese market holidays (2026-06-17)
 
 - **`irc monitor` was marking every fund `⚠ caveated`, permanently, for a benign reason.** The
