@@ -44,9 +44,19 @@ end-to-end (smallest, no network).
 4. Wire at `monitor_cmd.py:578`: replace `valuation_state=None, valuation_cached=False` with
    `val = resolve_valuation_state(fund, con=con, root=root)` →
    `valuation_state=val.state, valuation_cached=val.cached`.
-5. After this slice: `009225` shows a real valuation factor (when cache present); look-through
-   active funds still show `valuation_no_anchor` (filled by 002); `gold`/`qdii_global` stay
+5. After this slice: a fund whose `tracked_index` is a real `_INDEX_VALUATION_KEYS` member
+   (e.g. `csi300`) shows a real valuation factor (when cache present); look-through active funds
+   still show `valuation_no_anchor` (filled by 002); `gold`/`qdii_global` stay
    `profile_ineligible`.
+   - ~~`009225` shows a real valuation factor (when cache present)~~ — **corrected at plan time
+     (grounding):** `009225`'s tracked index `china_internet` is NOT in `_INDEX_VALUATION_KEYS`
+     (it's a QDII-US display name, not a recognized index-valuation key), so `009225` honestly
+     ships `valuation_no_anchor` even with cache. This is consistent with spec §4.1's
+     "Miss / immature history → N/A" path and the non-goal "no new valuation fetch path." The
+     wiring+map is proven end-to-end via `csi300`; a regression test
+     (`test_china_internet_anchor_is_na_documented_gap`) locks the gap. Lighting `009225`
+     specifically is a documented follow-up (add `china_internet` to the index-valuation key set
+     with a data source) — out of scope for slice 1.
 
 ## Reuse boundary (§4)
 

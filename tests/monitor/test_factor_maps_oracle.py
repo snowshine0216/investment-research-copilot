@@ -8,7 +8,7 @@ from hypothesis import given, strategies as st
 from irc.monitor.factor_maps import valuation_state_score, heat_score
 from tests.monitor import _oracle
 
-_KNOWN_STATES = ("cheap", "fair_cheap", "fair", "fair_expensive", "expensive")
+_KNOWN_STATES = ("cheap", "reasonable_low", "fair", "expensive", "very_expensive")
 
 
 @given(state=st.sampled_from(_KNOWN_STATES + ("???", "", "unknown")))
