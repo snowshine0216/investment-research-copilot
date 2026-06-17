@@ -9,7 +9,7 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "1"
+_SCHEMA_VERSION = "2"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -54,7 +54,29 @@ def _max_gap_days(
     return max(deltas) if deltas else None
 
 
-def _nav(view: FundView) -> dict:
+def _missing_trading_days(
+    series: tuple[tuple[str, float], ...],
+    trading_days: frozenset[date] | None,
+    *, window: int = _RECENT_GAP_WINDOW,
+) -> int | None:
+    """Max number of SSE-open trading dates strictly inside any recent
+    inter-observation gap (spec §3.2). Holidays/weekends aren't in trading_days
+    so a holiday gap scores 0. None when the calendar is unavailable OR empty (→
+    gate falls back to max_gap_days; an empty set must never score 0-for-every-gap
+    and yield a false PASS). <2 parsed observations → 0."""
+    if not trading_days:           # None or empty frozenset → degrade to fallback
+        return None
+    recent = series[-window:] if window else series
+    dates = [p for d, _ in recent if (p := _parse(d)) is not None]
+    if len(dates) < 2:
+        return 0
+    return max(
+        sum(1 for td in trading_days if d0 < td < d1)
+        for d0, d1 in zip(dates, dates[1:])
+    )
+
+
+def _nav(view: FundView, trading_days: frozenset[date] | None) -> dict:
     series = view.nav_series
     nav_acc = series[-1][1] if series else None
     return {
@@ -64,6 +86,7 @@ def _nav(view: FundView) -> dict:
         "acc_series": [list(pt) for pt in series],
         "obs_count": len(series),
         "max_gap_days": _max_gap_days(series),
+        "missing_trading_days": _missing_trading_days(series, trading_days),
     }
 
 
@@ -102,11 +125,11 @@ def _narrative(narr) -> dict:
 
 
 def _fund_entry(fund: MonitorFund, view: FundView, gate: GateDecision,
-                bundle: FundTraceBundle) -> dict:
+                bundle: FundTraceBundle, trading_days: frozenset[date] | None) -> dict:
     return {
         "resolved": {"analysis_profile": fund.analysis_profile, "weights": dict(fund.weights),
                      "bands": dict(fund.bands), "minimum_confidence": fund.minimum_confidence},
-        "nav": _nav(view),
+        "nav": _nav(view, trading_days),
         "evidence_pool": dedup_by_citation_id(view.evidence_pool + bundle.constituent_pool),
         "factor_scores": [{"name": s.name, "value": s.value, "eligible": s.eligible,
                            "reason": s.reason, "confidence": s.confidence}
@@ -124,11 +147,12 @@ def _fund_entry(fund: MonitorFund, view: FundView, gate: GateDecision,
 def build_eval_trace(
     items: tuple[tuple[MonitorFund, FundView, GateDecision, FundTraceBundle], ...],
     *, engine_version: str, run_date: str,
+    trading_days: frozenset[date] | None = None,
 ) -> dict:
     return {
         "schema_version": _SCHEMA_VERSION,
         "engine_version": engine_version,
         "run_date": run_date,
-        "funds": {fund.id: _fund_entry(fund, view, gate, bundle)
+        "funds": {fund.id: _fund_entry(fund, view, gate, bundle, trading_days)
                   for fund, view, gate, bundle in items},
     }

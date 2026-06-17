@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 import contextlib
+from datetime import date
 from functools import lru_cache
 import logging
 import os
@@ -618,3 +619,23 @@ def fetch_qdii_premium_pct(symbol: str) -> float | None:
         return -(float(raw)) / 100.0
     except (TypeError, ValueError):
         return None
+
+
+def fetch_trade_calendar() -> tuple[date, ...]:
+    """SSE trade-date history via AkShare ``tool_trade_date_hist_sina``.
+
+    Returns the full list of Shanghai-exchange trading dates, sorted ascending,
+    as a ``tuple[date, ...]``. The frame carries one ``trade_date`` column whose
+    cells are ``datetime.date`` (newer AkShare) or ISO ``YYYY-MM-DD`` strings
+    (older); both are coerced. This is the ONLY new AkShare import site for the
+    monitor calendar (spec §3.1)."""
+    df = _ak_call("tool_trade_date_hist_sina")
+    parsed = pd.to_datetime(df["trade_date"]).dt.date
+    days = tuple(sorted(d for d in parsed if pd.notna(d)))
+    if not days:
+        # An empty / all-null frame would otherwise be cached as a valid "today"
+        # calendar, making _missing_trading_days score 0 for every gap → a false
+        # nav_quality PASS (the exact failure this feature exists to prevent).
+        # Raise so the loader degrades to None and the gate falls back instead.
+        raise ValueError("tool_trade_date_hist_sina returned no trade dates")
+    return days
