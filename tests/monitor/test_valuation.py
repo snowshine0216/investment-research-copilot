@@ -267,3 +267,33 @@ def test_lookthrough_low_percentile_is_cheap(tmp_path):
     assert res.state == "cheap"   # pct ~0.0 → <0.20 band
     assert res.reason is None
     con.close()
+
+
+def test_lookthrough_holdings_but_no_stock_valuations_is_na(tmp_path):
+    con = duckdb.connect(str(tmp_path / "lt5.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "000083", None)
+    _seed_monitor_snapshot(tmp_path, "000083", [("600519", 60.0)])
+    # NO stock_valuation_history rows → no priced holdings → coverage 0.0 → N/A.
+    res = resolve_valuation_state(_fund("000083", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
+
+
+def test_lookthrough_non_ashare_holding_is_na(tmp_path):
+    # A QDII-style HK holding (5-digit code) never matches the A-share-keyed
+    # stock_valuation_history → uncovered → honest N/A (spec §10 accepted risk).
+    con = duckdb.connect(str(tmp_path / "lt6.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "519770", None)
+    _seed_monitor_snapshot(tmp_path, "519770", [("00700", 60.0)])  # HK Tencent
+    _seed_stock_valuation(con, "600519")  # unrelated A-share series present
+    res = resolve_valuation_state(_fund("519770", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    con.close()
