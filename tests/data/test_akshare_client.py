@@ -19,6 +19,7 @@ from irc.data.akshare_client import (
     fetch_fund_metadata,
     fetch_fund_nav_history,
     fetch_macro_series_akshare,
+    fetch_trade_calendar,
     FundNotFound,
 )
 
@@ -846,3 +847,42 @@ def test_fetch_qdii_premium_pct_live() -> None:
             assert -1.0 < v < 1.0, f"premium {v!r} outside ±100% sanity bound"
     finally:
         _fetch_full_etf_spot_table.cache_clear()
+
+
+def test_fetch_trade_calendar_returns_sorted_date_tuple() -> None:
+    import datetime as _dt
+    # AkShare's tool_trade_date_hist_sina returns a single `trade_date` column;
+    # provide it out of order and as date objects to prove we sort + coerce.
+    fake = pd.DataFrame({"trade_date": [
+        _dt.date(2026, 2, 17), _dt.date(2026, 2, 13), _dt.date(2026, 2, 16),
+    ]})
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_trade_calendar()
+    assert mocked.call_args[0][0] == "tool_trade_date_hist_sina"
+    assert out == (_dt.date(2026, 2, 13), _dt.date(2026, 2, 16), _dt.date(2026, 2, 17))
+
+
+def test_fetch_trade_calendar_coerces_iso_strings() -> None:
+    import datetime as _dt
+    fake = pd.DataFrame({"trade_date": ["2026-02-16", "2026-02-13"]})
+    with patch("irc.data.akshare_client._ak_call") as mocked:
+        mocked.return_value = fake
+        out = fetch_trade_calendar()
+    assert out == (_dt.date(2026, 2, 13), _dt.date(2026, 2, 16))
+
+
+@pytest.mark.live_akshare
+@pytest.mark.skipif(
+    _os_live.environ.get("IRC_RUN_LIVE_AKSHARE") != "1",
+    reason="double-gated: set IRC_RUN_LIVE_AKSHARE=1 to hit AkShare",
+)
+def test_fetch_trade_calendar_live_is_sorted_and_contains_known_holidays() -> None:
+    import datetime as _dt
+    from irc.data.akshare_client import fetch_trade_calendar
+    cal = fetch_trade_calendar()
+    assert len(cal) > 1000
+    assert list(cal) == sorted(cal)
+    cal_set = set(cal)
+    # 2026-02-16 is inside the CN Spring-Festival closure → not a trading day.
+    assert _dt.date(2026, 2, 16) not in cal_set
