@@ -25,3 +25,5 @@ funds:
   - { id: "006533", name_cn: 易方达科融混合, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, geopolitics], constituent_news: true }
   - { id: "009225", name_cn: 天弘中证美互联网QDII, market: cn_off_exchange, analysis_profile: qdii_china_us_internet, themes: [us_monetary, geopolitics, cn_equity_property_policy], constituent_news: true }
   - { id: "000083", name_cn: 汇添富消费行业混合, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+  - { id: "519770", name_cn: 交银择优回报, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+  - { id: "018132", name_cn: 博时中证有色金属矿业主题指数A, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [global_growth, geopolitics, cn_equity_property_policy], constituent_news: true }

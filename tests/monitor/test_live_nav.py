@@ -35,7 +35,8 @@ pytestmark = [
     ),
 ]
 
-_MONITOR_IDS = ["008986", "270023", "519069", "260112", "006533", "009225", "000083"]
+_MONITOR_IDS = ["008986", "270023", "519069", "260112", "006533", "009225", "000083",
+                "519770", "018132"]
 
 # §12.6 minimum threshold from spec / config/monitor.yaml
 _MINIMUM_OBSERVATIONS = 251
