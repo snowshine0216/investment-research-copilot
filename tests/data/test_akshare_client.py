@@ -872,6 +872,19 @@ def test_fetch_trade_calendar_coerces_iso_strings() -> None:
     assert out == (_dt.date(2026, 2, 13), _dt.date(2026, 2, 16))
 
 
+def test_fetch_trade_calendar_raises_on_empty_frame() -> None:
+    # An empty / all-null frame must raise (not return ()), so the loader degrades
+    # to None and the gate falls back rather than caching a false empty calendar.
+    with patch("irc.data.akshare_client._ak_call",
+               return_value=pd.DataFrame({"trade_date": []})):
+        with pytest.raises(ValueError):
+            fetch_trade_calendar()
+    with patch("irc.data.akshare_client._ak_call",
+               return_value=pd.DataFrame({"trade_date": [pd.NaT, pd.NaT]})):
+        with pytest.raises(ValueError):
+            fetch_trade_calendar()
+
+
 @pytest.mark.live_akshare
 @pytest.mark.skipif(
     _os_live.environ.get("IRC_RUN_LIVE_AKSHARE") != "1",

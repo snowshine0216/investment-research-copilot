@@ -631,4 +631,11 @@ def fetch_trade_calendar() -> tuple[date, ...]:
     monitor calendar (spec §3.1)."""
     df = _ak_call("tool_trade_date_hist_sina")
     parsed = pd.to_datetime(df["trade_date"]).dt.date
-    return tuple(sorted(parsed))
+    days = tuple(sorted(d for d in parsed if pd.notna(d)))
+    if not days:
+        # An empty / all-null frame would otherwise be cached as a valid "today"
+        # calendar, making _missing_trading_days score 0 for every gap → a false
+        # nav_quality PASS (the exact failure this feature exists to prevent).
+        # Raise so the loader degrades to None and the gate falls back instead.
+        raise ValueError("tool_trade_date_hist_sina returned no trade dates")
+    return days

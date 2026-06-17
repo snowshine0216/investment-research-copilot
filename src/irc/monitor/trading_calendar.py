@@ -29,7 +29,11 @@ def _read_cache(path: Path, today: date) -> frozenset[date] | None:
         obj = json.loads(path.read_text(encoding="utf-8"))
         if date.fromisoformat(obj["fetched_on"]) < today:
             return None
-        return frozenset(date.fromisoformat(d) for d in obj["dates"])
+        days = frozenset(date.fromisoformat(d) for d in obj["dates"])
+        # An empty cache must never be served as a valid empty calendar (which
+        # would bypass the None→fallback path and yield a false PASS). Treat it
+        # as a miss → caller refetches; if that also fails, it degrades to None.
+        return days or None
     except (OSError, ValueError, KeyError, TypeError):
         return None
 

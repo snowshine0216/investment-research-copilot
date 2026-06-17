@@ -59,3 +59,24 @@ def test_corrupt_cache_refetches(monkeypatch, tmp_path: Path):
     monkeypatch.setattr(tc, "fetch_trade_calendar", lambda: (_dt.date(2026, 2, 13),))
     out = tc.load_trading_days(_dt.date(2026, 6, 17), root=tmp_path)
     assert out == frozenset({_dt.date(2026, 2, 13)})
+
+
+def test_empty_cached_dates_does_not_serve_empty_calendar(monkeypatch, tmp_path: Path):
+    # A same-day cache with an empty `dates` list must NOT be served as a valid
+    # empty calendar (which would make every fund falsely PASS); it refetches.
+    _write_cache(tmp_path, "2026-06-17", [])
+    monkeypatch.setattr(tc, "fetch_trade_calendar", lambda: (_dt.date(2026, 2, 13),))
+    out = tc.load_trading_days(_dt.date(2026, 6, 17), root=tmp_path)
+    assert out == frozenset({_dt.date(2026, 2, 13)})
+
+
+def test_empty_cache_and_empty_fetch_degrades_to_none(monkeypatch, tmp_path: Path):
+    # Empty cache + an upstream with no trade dates (raises) → None → gate falls back.
+    _write_cache(tmp_path, "2026-06-17", [])
+
+    def _empty():
+        raise ValueError("no trade dates")
+
+    monkeypatch.setattr(tc, "fetch_trade_calendar", _empty)
+    out = tc.load_trading_days(_dt.date(2026, 6, 17), root=tmp_path)
+    assert out is None
