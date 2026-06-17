@@ -48,8 +48,8 @@ def _patch(monkeypatch, funds, views):
     monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: None)
     it = iter(views)
     monkeypatch.setattr(monitor_cmd, "_process_fund",
-                        lambda fund, cfg, root, llm: (next(it), [],
-                                                      FundTraceBundle(fund.id, (), (), ())))
+                        lambda fund, cfg, root, llm, **kw: (next(it), [],
+                                                             FundTraceBundle(fund.id, (), (), ())))
 
 
 def test_eval_trace_emitted_and_ledger_uses_coalesce_basis(monkeypatch, tmp_path: Path):

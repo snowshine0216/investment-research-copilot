@@ -3,9 +3,7 @@ from __future__ import annotations
 from datetime import date
 
 import duckdb
-import pytest
 
-from irc.commands import monitor_cmd
 from irc.data.duckdb_helper import ensure_schema
 from irc.monitor.types import MonitorFund
 
