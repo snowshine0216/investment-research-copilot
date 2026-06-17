@@ -95,3 +95,42 @@ def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: 
     assert "EVAL-GATED" in html and "Validation" in html
     assert "gated: 1" in html
     assert "deterministic_scoring" in html   # the new panel row renders
+
+
+def test_acceptance_spring_festival_run_day_after_holiday_validates():
+    import datetime as _dt
+    from irc.monitor.eval.structural import nav_quality
+    from irc.monitor.eval.trace import build_eval_trace
+    from irc.monitor.eval.types import GateDecision
+
+    # CN Spring-Festival 2026: market closed 2026-02-16..2026-02-20 inclusive.
+    # The fund publishes on every trading day around it; the run is dated
+    # 2026-02-23 — the FIRST trading day AFTER the holiday (the #158 residual).
+    closed = {_dt.date(2026, 2, d) for d in range(16, 21)}
+    weekends = {_dt.date(2026, 2, 14), _dt.date(2026, 2, 15),
+                _dt.date(2026, 2, 21), _dt.date(2026, 2, 22)}
+    cal = frozenset(
+        _dt.date(2026, 2, d) for d in range(2, 24)
+    ) - closed - weekends
+    # NAV series: trading days only, last point is the run date (day after holiday).
+    series = tuple((d.isoformat(), 1.0) for d in sorted(cal))
+
+    fund = _fund("008986")
+    view = FundView(
+        fund_id="008986", name_cn="测试", latest_nav=1.0, as_of_date="2026-02-23",
+        nav_series=series, signal=_signal("008986"),
+        narrative=NarrativeDoc("008986", (), (), (), "ok"), evidence_pool=(),
+        return_table={}, factor_freshness={}, missing_factor_reasons=(), factor_scores=())
+    stub = GateDecision("008986", False, (), "validated", "")
+    projection = build_eval_trace(
+        ((fund, view, stub, FundTraceBundle("008986", (), (), ())),),
+        engine_version="1", run_date="2026-02-23", trading_days=cal,
+    )["funds"]["008986"]
+
+    assert projection["nav"]["missing_trading_days"] == 0
+    # max_gap_days across the closure would be ~9 cal days → the #158 fallback
+    # WOULD have WARNed; the calendar branch must validate instead.
+    assert projection["nav"]["max_gap_days"] > 8
+    health = nav_quality(projection, minimum_observations=2, stale_days=400,
+                         today=_dt.date(2026, 2, 23))
+    assert health.status == "PASS"
