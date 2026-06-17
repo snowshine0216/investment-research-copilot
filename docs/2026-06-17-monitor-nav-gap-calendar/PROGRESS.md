@@ -6,7 +6,7 @@ Feature branch: `autodev/monitor-nav-gap-calendar-feature` (off `main`)
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ `6d22751` | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ `6d22751` | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped · ⛔ refused
 
@@ -27,6 +27,9 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
   (local-only). **Independent verification (this run):** `ruff` changed-files = All checks passed;
   focused new/patched tests = 120 passed, 2 skipped; full `tests/monitor/` + akshare_client = 525
   passed, 12 skipped. Item HEAD `6d22751`.
+- **001-drift** ✅ — `items/001-drift.md` `Verdict: PASS` (commit `bd57ffb`). Sonnet read the actual
+  `feature...item` diff lines: 35 plan steps verified, 0 unimplemented, 0 functional scope creep;
+  1 inline plan amendment (`repo_root`→`root` naming) + 2 accepted additive items.
 
 ## Evidence cells
 
