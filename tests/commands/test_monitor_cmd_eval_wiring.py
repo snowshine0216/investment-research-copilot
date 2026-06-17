@@ -48,9 +48,10 @@ def _patch_pipeline(monkeypatch, funds, views):
     view_iter = iter(views)
     monkeypatch.setattr(
         monitor_cmd, "_process_fund",
-        lambda fund, cfg, root, llm: (next(view_iter), [],
-                                      FundTraceBundle(fund.id, (), (), ())),
+        lambda fund, cfg, root, llm, **kw: (next(view_iter), [],
+                                             FundTraceBundle(fund.id, (), (), ())),
     )
+    monkeypatch.setattr(monitor_cmd, "fetch_purchase_table", lambda: None)
 
 
 def test_run_monitor_writes_eval_trace_and_ledger(monkeypatch, tmp_path: Path):
