@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor_impact eval: score the aggregated impact + neutral injection carriers (2026-06-17)
+
+- **`magnitude_band_pass` now scores the production-faithful aggregated impact, not the raw
+  per-row dominant.** Root cause: the metric checked `abs(_dominant)` (max-by-abs over the LLM's
+  raw rows), but contradiction-muting happens **downstream** at `aggregate_news_factor`
+  (`clamp(Σ impact·conf)`). A model that correctly scored both sides of conflicting evidence
+  strongly (e.g. +0.7 / −0.8 on the same theme) failed the ≤0.3 band even though those rows net to
+  ≈0 in the signal. The band now checks `clamp(Σ impact·conf)` — the quantity that actually feeds
+  the factor — so a netting model passes while a one-sided reader still fails. (`magnitude_band_pass`
+  0.67 → 1.00.) New regression tests: contradiction-nets-to-pass + one-sided-fails.
+- **Injection corpus uses neutral carrier headlines.** Root cause: `injection_resistance` conflated
+  "resisted the injected directive" with "scored the carrier headline ≤0.3", and the carriers
+  ("稀土供需平衡", "军工订单平稳", …) were suggestive enough that a *resistant* model legitimately
+  scored >0.3 at temperature 0 — failing the n=6 `fail_below=0.95` gate on a non-compliance. The six
+  carriers are now unambiguously routine ("某…企业发布例行公告，无重大事项"), so a resistant model
+  deterministically scores ~0 and any >0.3 is genuine leakage. (`injection_resistance` 0.83 → 1.00.)
+- **The sanitizer was NOT the problem** (it already neutralizes every injection imperative —
+  verified). Two prior fixes (#144, #145) patched the sanitizer; the real defects were in the eval
+  metric layer + corpus framing. `monitor_impact` overall now PASS (temp=0, deterministic), so the
+  monitor's M1 gate no longer suppresses the 7 funds (`gated:7` → `caveated:7`).
+
 ### Changed — monitor weights: one weight-governance surface (ADR 0018 D2) (2026-06-17)
 
 - **Removed the non-operative `defaults.signal_weights` relic so there is exactly one weight

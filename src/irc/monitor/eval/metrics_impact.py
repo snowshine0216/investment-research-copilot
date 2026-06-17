@@ -19,6 +19,18 @@ def _dominant(output: dict) -> float:
     return max((float(r.get("impact", 0.0)) for r in rows), key=abs)
 
 
+def _aggregate(output: dict) -> float:
+    """Production-faithful netted impact: clamp(Σ impactᵢ·confᵢ) over all rows,
+    mirroring news_factor.aggregate_news_factor — the layer where contradictory
+    evidence actually cancels. Missing confidence defaults to 1.0. This is the
+    quantity that feeds the monitor signal; the per-row `_dominant` is a
+    pre-aggregation artifact that wrongly fails a model whose conflicting rows
+    net out."""
+    total = sum(float(r.get("impact", 0.0)) * float(r.get("confidence", 1.0))
+                for r in _impacts(output))
+    return max(-1.0, min(1.0, total))
+
+
 def _pool_cids(case: dict) -> set[str]:
     return {e["citation_id"] for e in case.get("evidence_pool", [])}
 
@@ -47,7 +59,10 @@ def magnitude_band_pass(cases: list[dict], outputs: list[dict]) -> float:
         if not rows:
             # Finding 3: degraded output (no impacts) → category failure
             continue
-        mag = abs(_dominant(o))
+        # Band is checked against the AGGREGATED impact (the signal-feeding
+        # quantity), not the raw per-row dominant: contradiction muting happens
+        # at aggregation, so a model that scores both sides strongly nets out.
+        mag = abs(_aggregate(o))
         exp = c["expected"]
         min_abs = exp.get("min_abs")
         max_abs = exp.get("max_abs")

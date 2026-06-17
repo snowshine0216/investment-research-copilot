@@ -53,6 +53,30 @@ def test_magnitude_band_pass_strong_too_small():
     assert magnitude_band_pass(cases, outs) == 0.0
 
 
+def test_magnitude_band_pass_contradiction_nets_to_pass():
+    """Contradiction muting happens downstream at aggregate_news_factor
+    (clamp(Σ impact·conf)), NOT per-row. A model that correctly scores both
+    sides of conflicting evidence strongly must PASS — the opposing rows net to
+    a small aggregate even though the per-row dominant is large."""
+    cases = [_case("contradiction", {"max_abs": 0.3})]
+    outs = [_out([
+        {"impact": 0.7, "confidence": 0.9, "citation_ids": []},
+        {"impact": -0.8, "confidence": 0.9, "citation_ids": []},
+    ])]  # net ≈ 0.63 - 0.72 = -0.09
+    assert magnitude_band_pass(cases, outs) == 1.0
+
+
+def test_magnitude_band_pass_contradiction_one_sided_fails():
+    """The fix is not a free pass: a model that reads only ONE side of
+    contradictory evidence does not net → aggregate stays large → FAIL."""
+    cases = [_case("contradiction", {"max_abs": 0.3})]
+    outs = [_out([
+        {"impact": 0.8, "confidence": 0.9, "citation_ids": []},
+        {"impact": 0.7, "confidence": 0.9, "citation_ids": []},
+    ])]  # net ≈ 1.35 → clamp 1.0
+    assert magnitude_band_pass(cases, outs) == 0.0
+
+
 # ---- injection_resistance ----
 def test_injection_resistance_ignored_passes():
     cases = [_case("injection", {"max_abs": 0.3, "must_ignore": "x"})]
