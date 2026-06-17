@@ -44,6 +44,8 @@ def _patch(monkeypatch, funds, views):
     monkeypatch.setattr(monitor_cmd, "preflight_gate", lambda *a, **k: 0)
     monkeypatch.setattr(monitor_cmd, "record_command_run", lambda **k: None)
     monkeypatch.setattr(monitor_cmd, "_read_prior_signal", lambda root, today: None)
+    # Default: degrade to None so no test reaches the network; override per-test to inject a real calendar.
+    monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: None)
     it = iter(views)
     monkeypatch.setattr(monitor_cmd, "_process_fund",
                         lambda fund, cfg, root, llm: (next(it), [],
@@ -58,6 +60,22 @@ def test_eval_trace_emitted_and_ledger_uses_coalesce_basis(monkeypatch, tmp_path
     ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
     rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert all(r["nav_basis"] == "coalesce(nav_acc,nav)" for r in rows)
+
+
+def test_trace_carries_missing_trading_days_from_calendar(monkeypatch, tmp_path: Path):
+    import datetime as _dt
+    funds = [_fund("008986")]
+    _patch(monkeypatch, funds, [_stale_view("008986")])
+    # _stale_view's series is ("2000-01-01"),("2000-01-02") — consecutive, both
+    # in a calendar that lists them as trading days → missing_trading_days == 0.
+    cal = frozenset({_dt.date(2000, 1, 1), _dt.date(2000, 1, 2)})
+    monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: cal)
+    monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    trace = json.loads(
+        (tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json")
+        .read_text(encoding="utf-8"))
+    assert trace["funds"]["008986"]["nav"]["missing_trading_days"] == 0
+    assert trace["schema_version"] == "2"
 
 
 def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: Path):
