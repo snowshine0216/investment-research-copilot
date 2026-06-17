@@ -630,13 +630,15 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
-    for fund in funds:
-        view, costs, bundle = _process_fund(fund, cfg, root, llm_config, con=con)
-        views.append(view)
-        bundles.append(bundle)
-        all_costs.extend(costs)
-    if con is not None:
-        con.close()
+    try:
+        for fund in funds:
+            view, costs, bundle = _process_fund(fund, cfg, root, llm_config, con=con)
+            views.append(view)
+            bundles.append(bundle)
+            all_costs.extend(costs)
+    finally:
+        if con is not None:
+            con.close()
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)

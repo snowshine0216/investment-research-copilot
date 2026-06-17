@@ -156,3 +156,30 @@ def test_unknown_fund_no_instrument_row_is_na(tmp_path):
     assert res.state is None and res.cached is False
     assert res.reason == "valuation_no_anchor"
     con.close()
+
+
+# Fix 1 regression tests: resolve_valuation_state must never raise on a DuckDB read error.
+
+
+def test_missing_instruments_table_degrades_to_na(tmp_path):
+    """A DB with NO instruments table → CatalogException must degrade to N/A, not raise."""
+    con = duckdb.connect(str(tmp_path / "empty.duckdb"))
+    # Intentionally do NOT call ensure_schema — instruments table is absent.
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res == ValuationResolution(None, False, "valuation_no_anchor")
+    con.close()
+
+
+def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
+    """instruments present + tracked_index set, but index_valuation_history absent →
+    must degrade to N/A, not raise."""
+    con = duckdb.connect(str(tmp_path / "partial.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "510300", "csi300")
+    # Drop index_valuation_history to simulate a partial / pre-migration DB.
+    con.execute("DROP TABLE index_valuation_history")
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res == ValuationResolution(None, False, "valuation_no_anchor")
+    con.close()

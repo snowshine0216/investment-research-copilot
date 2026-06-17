@@ -12,6 +12,7 @@ an honest N/A stub filled in by item 002 (see `_resolve_lookthrough`).
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,8 @@ import duckdb
 
 from irc.opportunity.inputs_loader import _index_valuation_metrics
 from irc.opportunity.states import _band
+
+_log = logging.getLogger(__name__)
 
 _NA_NO_ANCHOR = "valuation_no_anchor"
 
@@ -92,13 +95,28 @@ def _resolve_lookthrough(
     return ValuationResolution(None, False, _NA_NO_ANCHOR)
 
 
+def _resolve(
+    fund, *, con: duckdb.DuckDBPyConnection, root: Path
+) -> ValuationResolution:
+    """Inner dispatch — may raise on DuckDB read errors."""
+    tracked_index = _tracked_index_for_fund(con, fund.id)
+    if tracked_index is not None:
+        return _resolve_index(con, tracked_index)
+    return _resolve_lookthrough(con, fund.id, root)
+
+
 def resolve_valuation_state(
     fund, *, con: duckdb.DuckDBPyConnection, root: Path
 ) -> ValuationResolution:
     """PURE-ish dispatch (cached reads only): index path when the fund has a
     tracked_index, else the look-through stub. Never raises on a data miss —
     degrades to an honest N/A so the brief never crashes."""
-    tracked_index = _tracked_index_for_fund(con, fund.id)
-    if tracked_index is not None:
-        return _resolve_index(con, tracked_index)
-    return _resolve_lookthrough(con, fund.id, root)
+    try:
+        return _resolve(fund, con=con, root=root)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning(
+            "resolve_valuation_state: DuckDB read error for %s; valuation → N/A",
+            fund.id,
+            exc_info=True,
+        )
+        return ValuationResolution(None, False, _NA_NO_ANCHOR)
