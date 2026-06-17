@@ -38,7 +38,7 @@ def _read_cache(path: Path, today: date) -> frozenset[date] | None:
         return None
 
 
-def _fetch_and_persist(path: Path, today: date) -> frozenset[date] | None:
+def _fetch_and_persist(path: Path, today: date) -> frozenset[date]:
     dates = sorted(fetch_trade_calendar())
     atomic_write_text(path, json.dumps(
         {"fetched_on": today.isoformat(), "dates": [d.isoformat() for d in dates]}))
