@@ -23,6 +23,7 @@ from irc.fundamentals.snapshot_cache import (
 from irc.fundamentals.types import ActiveFundSnapshot, FundLevelSnapshot
 from irc.io_utils import atomic_write_text
 from irc.llm.gateway import call as llm_call
+from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
 from irc.monitor.fetch import NavFetchResult, nav_series_for
@@ -201,18 +202,25 @@ def build_constituent_pool(fund_id: str, *, root: Path) -> tuple:
 def _make_constituent_rows(
     impacts: ImpactsResult, top_holdings: tuple,
 ) -> tuple:
-    """Map gather_impacts result back to ImpactRows keyed by holding symbol."""
+    """Map gather_impacts result back to ImpactRows keyed by holding symbol.
+
+    Robust to LLM symbol-keying drift (exchange suffix / whitespace / case /
+    leading zeros / name_cn) via match_impact_to_holding. Unmatched keys are
+    logged at WARNING (no silent drop) so future keying drift stays visible."""
     symbol_to_weight = {h.symbol: h.weight_pct for h in top_holdings}
-    rows = []
-    for imp in impacts.impacts:
-        if imp.key in symbol_to_weight:
-            rows.append(ImpactRow(
-                imp.key,
-                weight=symbol_to_weight[imp.key],
-                impact=imp.impact,
-                confidence=imp.confidence,
-            ))
-    return tuple(rows)
+    best, unmatched = select_impacts_by_holding(impacts.impacts, top_holdings)
+    if unmatched:
+        _log.warning(
+            "monitor constituent: dropped %d unmatched impact key(s) for %s: %s "
+            "(holdings: %s)",
+            len(unmatched), impacts.fund_id, list(unmatched),
+            [h.symbol for h in top_holdings],
+        )
+    return tuple(
+        ImpactRow(symbol, weight=symbol_to_weight[symbol],
+                  impact=imp.impact, confidence=imp.confidence)
+        for symbol, imp in best.items()
+    )
 
 
 # ── Orchestration helpers ─────────────────────────────────────────────────────
