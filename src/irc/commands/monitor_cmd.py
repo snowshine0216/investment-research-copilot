@@ -41,6 +41,7 @@ from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M1, published_s
 from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
+from irc.monitor.trading_calendar import load_trading_days
 from irc.monitor.eval.forward_log import append_ledger, ledger_row
 from irc.monitor.eval.nav_history import nav_history_append_rows, append_nav_history
 from irc.monitor.eval.constants import NAV_APPEND_DAYS, REVIEW_TRIGGER_K, STALE_EVAL_DAYS
@@ -378,6 +379,7 @@ def _suite_eval(root: Path, today: str, now: datetime) -> tuple[tuple, tuple]:
 def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, suite_healths: tuple[StageHealth, ...],
+    trading_days: frozenset[date] | None,
 ) -> tuple[tuple[GateDecision, ...], dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
@@ -392,7 +394,7 @@ def _compute_gates(
         stub = GateDecision(fund.id, False, (), "validated", "")
         projection = build_eval_trace(
             ((fund, view, stub, bundle),), engine_version=_ENGINE_VERSION,
-            run_date="",
+            run_date="", trading_days=trading_days,
         )["funds"][fund.id]
         signal_health = monitor_signal_health(
             projection, minimum_observations=min_obs,
@@ -419,13 +421,14 @@ def _compute_gates(
 def _write_eval_artifacts(
     out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
+    trading_days: frozenset[date] | None,
 ) -> None:
     """EDGE: serialize eval_trace.json + append the forward ledger. Failures are
     logged and swallowed — the brief must still render."""
     try:
         trace = build_eval_trace(
             tuple(zip(funds, views, gates, bundles)),
-            engine_version=_ENGINE_VERSION, run_date=run_date,
+            engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -617,16 +620,19 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         bundles.append(bundle)
         all_costs.extend(costs)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
+    trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
     gates, signal_healths, deterministic_healths = _compute_gates(
         list(funds), views, bundles,
-        min_obs=cfg.history.minimum_observations, suite_healths=suite_healths)
+        min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
+        trading_days=trading_days)
     panel_rows = build_panel_rows(signal_healths, deterministic_healths,
                                   now=_now_iso(), suite_rows=suite_rows)
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
-    _write_eval_artifacts(out, root, list(funds), views, bundles, gates, run_date=_today)
+    _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
+                          run_date=_today, trading_days=trading_days)
     predictive_panel = _predictive_panel_model(root, today=_today)
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
     record_command_run(

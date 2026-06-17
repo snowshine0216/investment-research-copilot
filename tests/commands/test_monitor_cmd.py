@@ -49,6 +49,8 @@ def _patch_edges(monkeypatch):
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
     # Stub load_yaml so run_monitor doesn't need a real config/llm.yaml on disk
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
+    # Degrade calendar to None so no test reaches AkShare network
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
     ev = make_evidence_item("Reuters", "yields", "2026-06-15", "https://r", "008986")
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(
@@ -174,6 +176,8 @@ def test_real_gather_path_empty_pool_degrades_gracefully(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    # Degrade calendar to None so no test reaches AkShare network
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
     # Return empty pool — no monkeypatch on gather_impacts / gather_narrative
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
 
@@ -204,6 +208,8 @@ def test_monitor_json_contains_impacts_status_degraded(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    # Degrade calendar to None so no test reaches AkShare network
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
 
     rc = run_monitor(repo_root=str(tmp_path), today="2026-06-15")
@@ -274,6 +280,8 @@ def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _make_llm_config())
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    # Degrade calendar to None so no test reaches AkShare network
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
 
     class _FakeResp:
         def __init__(self, text):
