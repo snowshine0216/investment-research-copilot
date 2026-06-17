@@ -39,29 +39,37 @@ withheld until the evidence gate in *Consequences* is met. Publishing a bias tod
 *design is a reasoned prior*, never that it is empirically validated; the daily report's
 predictive-validity panel and the M3 review trigger keep that gap visible.
 
-### D2 — Single operative weight source; the config default block is non-operative
+### D2 — Two governed weight surfaces; the config default block removed
 
-The **operative** weight vector for each fund is `profiles.py` `PROFILES[profile].weights`,
-overlaid by an optional per-fund `signal_weights` override
-([resolve.py](../../src/irc/monitor/resolve.py) `default_weights` → `compose_weights`). The
-`config/monitor.yaml` `defaults.signal_weights` block is **not read for weights** — `resolve.py`
-consumes the config `defaults` only for `signal_bands` and `minimum_confidence`. It is therefore
-**stale / non-operative** and (e.g.) declares gold at `0.30/0.20/0.15/0.20/0.15` while the
-operative gold vector is `trend 0.45 / macro_tilt 0.35 / heat 0.20`.
+Weights come from exactly two human-editable surfaces, **both now governed**:
 
-**Decision:** `profiles.py` is the **sole governance surface** for weights. The reconciliation
-landed (2026-06-17): the non-operative `config/monitor.yaml` `defaults.signal_weights` block and
-its `MonitorDefaults.signal_weights` schema field were removed, so there is no longer a second
-human-editable weight surface to silently mislead a future maintainer. *(Pre-removal, that stale
-block — described above — was the single largest governance hazard the ADR recorded; the
-description is preserved here as the rationale for the deletion.)*
+1. **Per-profile base vectors** — `profiles.py` `PROFILES[profile].weights`, the default weight
+   vector per analysis profile. The primary governance surface.
+2. **Optional per-fund override** — `MonitorFundConfig.signal_weights` in `config/monitor.yaml`,
+   overlaid on the base vector ([resolve.py](../../src/irc/monitor/resolve.py) `default_weights` →
+   `compose_weights`). This is an **explicitly governed second surface**, not a free-for-all:
+   `resolve.py` validates every override at config-load time (`_validate_override`) so it can only
+   reweight factors the profile can **structurally fill** (`eligible_factors`), never go
+   **negative**, and the composed vector must still **sum to 1.0** (`weights_sum_ok`) — otherwise a
+   `ValueError` aborts the run. None of the seven funds currently carries an override, but the
+   capability is governed rather than latent.
+
+The earlier `config/monitor.yaml` `defaults.signal_weights` block was a **third, non-operative**
+surface — `resolve.py` never read it for weights (only `signal_bands` and `minimum_confidence`), so
+it silently diverged (it declared gold at `0.30/0.20/0.15/0.20/0.15` while the operative gold vector
+is `trend 0.45 / macro_tilt 0.35 / heat 0.20`). **Decision — reconciliation landed (2026-06-17):**
+that block, its `MonitorDefaults.signal_weights` schema field, and the template copy were removed,
+so no silent third surface remains. Editing weights anywhere but the two governed surfaces above has
+no effect.
 
 ### D3 — Per-factor economic priors
 
 Weights below are the **operative per-profile vectors** (`profiles.py`), shown to make the priors
 concrete; every number is **provisional** under D1. Eligibility (which profiles can fill a factor)
 is structural — a profile never allocates weight to a factor it cannot fill, so a coverage-gate
-miss is always a real evidence gap (ADR 0017 / roadmap §3).
+miss is always a real evidence gap (ADR 0017 / roadmap §3). This invariant is **enforced**, not
+merely assumed: a per-fund override that reweights a profile-ineligible factor is rejected at
+config-load time (D2).
 
 | Factor | Family (`_FAMILY_OF`) | Economic prior | Operative weights | Eligible profiles |
 |---|---|---|---|---|
@@ -117,8 +125,8 @@ publish gate and bands encode these priors:
 - *Rejected — one weight vector across all profiles* (the shape implied by the config
   `defaults.signal_weights` block). Profile eligibility is structural: a single vector would
   allocate weight to factors a profile cannot fill, defeating the "coverage miss = real evidence
-  gap" invariant. Per-profile vectors in `profiles.py` are correct; the config block is the relic
-  (D2).
+  gap" invariant. Per-profile vectors in `profiles.py` are correct; the config block was the relic,
+  since removed (D2).
 - *Rejected — defer the whole of M4 until data accrues.* The governance posture (D1) and the
   source-of-truth hazard (D2) are real **today** and cheap to get wrong; recording them now
   prevents silent weight edits and premature "the model is validated" claims while Block C waits.
@@ -147,9 +155,12 @@ publish gate and bands encode these priors:
   underperformance of the headline metric versus its random baseline fires the M3 **human-review
   trigger** (panel flag), which prompts a human to revisit these priors — it never suppresses a
   bias (`EVAL_GATED` is reserved for fresh structural/LLM FAILs, roadmap §5).
-- **Reconciled — the two weight surfaces are now one (D2).** *Resolved 2026-06-17.* The
+- **Reconciled — two governed weight surfaces, no silent third (D2).** *Resolved 2026-06-17.* The
   non-operative `config/monitor.yaml` `defaults.signal_weights` block (and the matching template
-  copy) and its `MonitorDefaults.signal_weights` schema field were deleted, leaving `profiles.py`
-  — overlaid by the per-fund `MonitorFundConfig.signal_weights` override — as the **sole**
-  weight-governance surface. There is no longer a config weight block to edit by mistake;
-  `resolve.py` still reads the config `defaults` only for `signal_bands` and `minimum_confidence`.
+  copy) and its `MonitorDefaults.signal_weights` schema field were deleted. The two surviving
+  surfaces — `profiles.py` per-profile base vectors and the per-fund
+  `MonitorFundConfig.signal_weights` override — are both governed: `resolve.py._validate_override`
+  rejects, at config-load time, any override that reweights a profile-ineligible factor or goes
+  negative, and `weights_sum_ok` still enforces sum-to-1.0. There is no longer a config weight
+  block to edit by mistake; `resolve.py` reads the config `defaults` only for `signal_bands` and
+  `minimum_confidence`.

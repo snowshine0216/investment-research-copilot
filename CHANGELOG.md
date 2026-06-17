@@ -16,10 +16,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never read for weights, and had drifted out of sync (it implied gold `0.30/0.20/0.15/0.20/0.15`
   vs the operative `trend 0.45 / macro_tilt 0.35 / heat 0.20`). Deleted the block from
   `config/monitor.yaml` + the template copy and the matching `MonitorDefaults.signal_weights` schema
-  field, leaving `profiles.py` as the sole governance surface; the per-fund override is untouched.
+  field, leaving `profiles.py` (overlaid by the per-fund override) as the governance surface.
   ADR 0018 D2 + its "Open tech debt" consequence updated to "Reconciled". TDD; regression guard in
   `tests/schemas/test_monitor.py`. Also lands ADR 0018 + the M3 backtest spec (previously untracked;
   restores main's dangling doc links).
+
+### Changed — monitor weights: govern + validate the per-fund override surface (ADR 0018 D2) (2026-06-17)
+
+- **The per-fund `signal_weights` override is now a validated governance surface, not a latent
+  hole.** `resolve.py._validate_override` rejects, at config-load time, any override that reweights
+  a factor the profile cannot structurally fill (e.g. gold → `valuation`) or carries a negative
+  weight; `weights_sum_ok` still enforces sum-to-1.0. Previously `compose_weights` accepted
+  arbitrary override keys and only the final sum was checked, so a fund could silently spend weight
+  on a profile-ineligible factor (dead weight against the coverage-gate invariant). ADR 0018 D2
+  reframed from "sole surface" to **two governed surfaces** (per-profile base vectors + the
+  validated override); D3's eligibility invariant marked *enforced, not assumed*; the
+  `config/monitor.yaml` + template headers clarified that factor weights live in `profiles.py`, not
+  the config. TDD; regression guards in `tests/monitor/test_resolve.py`
+  (ineligible-key + negative-weight rejection).
 
 ### Changed — monitor validation panel: attribute the gate + persist per-case eval details (2026-06-17)
 

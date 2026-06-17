@@ -62,9 +62,10 @@ def test_default_bands_are_plus_minus_040():
 
 
 def test_defaults_has_no_signal_weights_surface():
-    # ADR 0018 D2: profiles.py is the SOLE weight-governance surface. The
+    # ADR 0018 D2: weights live on exactly two governed surfaces — profiles.py
+    # per-profile base vectors + the validated per-fund override. The
     # non-operative `defaults.signal_weights` relic (never read by resolve.py,
-    # out of sync with profiles.py) was removed so there is exactly one surface.
+    # out of sync with profiles.py) was removed so no silent third surface remains.
     assert "signal_weights" not in MonitorDefaults.model_fields
 
 
