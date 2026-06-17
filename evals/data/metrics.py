@@ -1,10 +1,33 @@
 from __future__ import annotations
-from datetime import date
+from datetime import date, timedelta
 import duckdb
 
 
-def freshness_per_source(con: duckdb.DuckDBPyConnection, source: str) -> dict[str, int]:
-    """For each table, days since most recent record from given source."""
+def business_days_elapsed(latest: date, today: date) -> int:
+    """Trading-day staleness: count Mon–Fri days strictly after ``latest`` up to
+    and including ``today``. Market data is not published on weekends, so a
+    Friday close evaluated the following Tuesday is 2 trading days old, not 4
+    calendar days — counting calendar days false-flags every Mon/Tue run.
+    (Public holidays are not modelled; this is intentionally conservative —
+    it never under-counts staleness.)"""
+    if today <= latest:
+        return 0
+    days = 0
+    cursor = latest + timedelta(days=1)
+    while cursor <= today:
+        if cursor.weekday() < 5:  # Mon=0 .. Fri=4
+            days += 1
+        cursor += timedelta(days=1)
+    return days
+
+
+def freshness_per_source(
+    con: duckdb.DuckDBPyConnection, source: str, *, today: date | None = None,
+) -> dict[str, int]:
+    """For each table, trading days since the most recent record from ``source``.
+
+    ``today`` is injectable for deterministic tests; defaults to ``date.today()``."""
+    anchor = today or date.today()
     out: dict[str, int] = {}
     for tbl in ("prices", "nav_history", "macro_series"):
         row = con.execute(
@@ -14,8 +37,7 @@ def freshness_per_source(con: duckdb.DuckDBPyConnection, source: str) -> dict[st
         latest = row[0] if row else None
         if latest is None:
             continue
-        age = (date.today() - latest).days
-        out[tbl] = age
+        out[tbl] = business_days_elapsed(latest, anchor)
     return out
 
 

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — `data` eval: business-day freshness + maintained (source,table) pairs (2026-06-16)
+
+- The `data` eval graded staleness in **calendar** days, so a Friday close evaluated the following
+  Monday/Tuesday false-WARNed (4 calendar days) even though only 2 trading days had elapsed. Add a
+  pure `business_days_elapsed` (counts Mon–Fri; holidays not modelled — intentionally conservative,
+  never under-counts) and make `today` injectable in `freshness_per_source` for deterministic tests.
+- The eval also graded `(_source='openbb', prices)` — dead 2023 seed data with no live writer (the
+  pipeline writes prices only via akshare, since `_PRICE_HISTORY_MARKETS={"cn_on_exchange"}` and US
+  is QDII-proxy now), a permanent false FAIL. Restrict grading to `MAINTAINED_FRESHNESS_PAIRS` =
+  {(akshare,prices), (akshare,nav_history), (openbb,macro_series)} via a pure
+  `build_freshness_metrics` in the runner. `data` eval FAIL→PASS. Not a threshold loosening — both
+  are correctness fixes. TDD red→green; see `docs/eval-remediation-2026-06-16.md`.
+
 ### Fixed — monitor injection defense: residual output-forcing imperatives (2026-06-16)
 
 - `sanitize_untrusted` (`src/irc/monitor/evidence.py`) delegated entirely to the shared memo
