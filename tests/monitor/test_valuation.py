@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import pytest
 import duckdb
+from datetime import date as _date
 
 from irc.data.duckdb_helper import ensure_schema
+from irc.fundamentals.snapshot_cache import write_active_fund_cache
+from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 from irc.monitor.types import MonitorFund
 from irc.monitor.valuation import (
     ValuationResolution,
@@ -186,11 +189,6 @@ def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
 
 
 # ── Item 002: look-through branch (monitor ActiveFundSnapshot holdings) ────────
-
-from datetime import date as _date
-
-from irc.fundamentals.snapshot_cache import write_active_fund_cache
-from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 
 
 def _seed_monitor_snapshot(root, fund_id, holdings, quarter="2026Q1"):
