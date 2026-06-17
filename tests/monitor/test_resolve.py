@@ -41,3 +41,34 @@ def test_override_breaking_sum_raises():
     })
     with pytest.raises(ValueError, match="sum"):
         resolve_funds(bad)
+
+
+def test_override_onto_profile_ineligible_factor_raises():
+    # valuation is NOT eligible for the gold profile; the override spends weight on
+    # it while still summing to 1.0, so only the eligibility guard can catch it (ADR 0018 D2).
+    bad = MonitorConfig.model_validate({
+        "schema_version": 1,
+        "defaults": {"signal_bands": {"buy": 0.4, "sell": -0.4}},
+        "funds": [{"id": "008986", "name_cn": "金", "market": "cn_off_exchange",
+                   "analysis_profile": "gold", "themes": ["gold_drivers", "geopolitics"],
+                   "constituent_news": False,
+                   "signal_weights": {"trend": 0.45, "macro_tilt": 0.35, "heat": 0.0,
+                                      "valuation": 0.20}}],
+    })
+    with pytest.raises(ValueError, match="eligible"):
+        resolve_funds(bad)
+
+
+def test_override_negative_weight_raises():
+    # Sums to 1.0 but spends negative weight on an eligible factor → rejected.
+    bad = MonitorConfig.model_validate({
+        "schema_version": 1,
+        "defaults": {"signal_bands": {"buy": 0.4, "sell": -0.4}},
+        "funds": [{"id": "519069", "name_cn": "x", "market": "cn_off_exchange",
+                   "analysis_profile": "active_cn_equity", "themes": ["cn_monetary", "geopolitics"],
+                   "constituent_news": True,
+                   "signal_weights": {"trend": -0.10, "valuation": 0.40, "heat": 0.15,
+                                      "macro_tilt": 0.25, "constituent": 0.30}}],
+    })
+    with pytest.raises(ValueError, match="negative"):
+        resolve_funds(bad)

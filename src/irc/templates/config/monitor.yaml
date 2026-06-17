@@ -1,4 +1,7 @@
-# config/monitor.yaml — SOLE source of truth for `irc monitor`.
+# config/monitor.yaml — source of truth for `irc monitor` RUNTIME CONFIG (funds, themes,
+# bands, confidence). Factor WEIGHTS are NOT governed here: they live in
+# src/irc/monitor/profiles.py (per-profile vectors) + an optional per-fund `signal_weights`
+# override below, validated at load time. See ADR 0018 D2.
 schema_version: 1
 
 history:
