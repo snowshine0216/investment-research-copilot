@@ -1,6 +1,6 @@
 import pytest
 from pydantic import ValidationError
-from irc.schemas.monitor import MonitorConfig, compose_weights, weights_sum_ok
+from irc.schemas.monitor import MonitorConfig, MonitorDefaults, compose_weights, weights_sum_ok
 
 _MIN = {
     "schema_version": 1,
@@ -59,6 +59,22 @@ def test_default_bands_are_plus_minus_040():
     # defaults supplied by config/monitor.yaml in real runs; schema default is empty
     # so an explicit-bands fund validates. Here assert the validator path tolerates absence.
     assert cfg.defaults.signal_bands == {}
+
+
+def test_defaults_has_no_signal_weights_surface():
+    # ADR 0018 D2: profiles.py is the SOLE weight-governance surface. The
+    # non-operative `defaults.signal_weights` relic (never read by resolve.py,
+    # out of sync with profiles.py) was removed so there is exactly one surface.
+    assert "signal_weights" not in MonitorDefaults.model_fields
+
+
+def test_per_fund_signal_weights_override_remains_operative():
+    # Guard against over-deletion: the *per-fund* override is operative
+    # (composed in resolve.py) and must survive the defaults-relic removal.
+    cfg = MonitorConfig.model_validate(
+        {**_MIN, "funds": [{**_MIN["funds"][0], "signal_weights": {"trend": 0.9}}]}
+    )
+    assert cfg.funds[0].signal_weights == {"trend": 0.9}
 
 
 def test_compose_overlays_override_on_default():

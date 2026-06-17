@@ -7,12 +7,8 @@ history:
 
 defaults:
   return_windows: [5, 20, 60, 120, 250]
-  signal_weights:
-    trend: 0.30
-    valuation: 0.20
-    heat: 0.15
-    macro_tilt: 0.20
-    constituent: 0.15
+  # Weights live in src/irc/monitor/profiles.py (per-profile vectors), overlaid by
+  # an optional per-fund `signal_weights` on a fund below — NOT here. See ADR 0018 D2.
   signal_bands:
     buy: 0.40
     sell: -0.40

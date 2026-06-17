@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor weights: one weight-governance surface (ADR 0018 D2) (2026-06-17)
+
+- **Removed the non-operative `defaults.signal_weights` relic so there is exactly one weight
+  surface.** `resolve.py` resolves each fund's weights from `profiles.py` `PROFILES[profile].weights`
+  (overlaid by the optional per-fund `signal_weights` override) and reads `config/monitor.yaml`
+  `defaults` only for `signal_bands` / `minimum_confidence` — the `defaults.signal_weights` block was
+  never read for weights, and had drifted out of sync (it implied gold `0.30/0.20/0.15/0.20/0.15`
+  vs the operative `trend 0.45 / macro_tilt 0.35 / heat 0.20`). Deleted the block from
+  `config/monitor.yaml` + the template copy and the matching `MonitorDefaults.signal_weights` schema
+  field, leaving `profiles.py` as the sole governance surface; the per-fund override is untouched.
+  ADR 0018 D2 + its "Open tech debt" consequence updated to "Reconciled". TDD; regression guard in
+  `tests/schemas/test_monitor.py`. Also lands ADR 0018 + the M3 backtest spec (previously untracked;
+  restores main's dangling doc links).
+
 ### Changed — monitor validation panel: attribute the gate + persist per-case eval details (2026-06-17)
 
 - **Gate cause is now visible + correctly attributed.** The validation panel rendered only
