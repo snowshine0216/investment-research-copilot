@@ -630,5 +630,8 @@ def fetch_trade_calendar() -> tuple[date, ...]:
     (older); both are coerced. This is the ONLY new AkShare import site for the
     monitor calendar (spec §3.1)."""
     df = _ak_call("tool_trade_date_hist_sina")
-    parsed = pd.to_datetime(df["trade_date"]).dt.date
-    return tuple(sorted(parsed))
+    parsed = pd.to_datetime(df["trade_date"], errors="coerce").dropna().dt.date
+    result = tuple(sorted(parsed))
+    if not result:
+        raise ValueError("trade calendar empty — AkShare returned no parseable dates")
+    return result

@@ -61,9 +61,9 @@ def _missing_trading_days(
 ) -> int | None:
     """Max number of SSE-open trading dates strictly inside any recent
     inter-observation gap (spec §3.2). Holidays/weekends aren't in trading_days
-    so a holiday gap scores 0. None when the calendar is unavailable (→ gate
-    falls back to max_gap_days). <2 parsed observations → 0."""
-    if trading_days is None:
+    so a holiday gap scores 0. None when the calendar is unavailable or empty (→
+    gate falls back to max_gap_days). <2 parsed observations → 0."""
+    if not trading_days:
         return None
     recent = series[-window:] if window else series
     dates = [p for d, _ in recent if (p := _parse(d)) is not None]

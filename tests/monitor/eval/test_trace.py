@@ -223,6 +223,12 @@ def test_missing_trading_days_real_interior_miss_counts():
     assert _missing_trading_days(series, cal) == 2
 
 
+def test_missing_trading_days_empty_calendar_returns_none():
+    """An empty frozenset is treated the same as None: unavailable calendar → fallback."""
+    series = (("2026-06-15", 1.0), ("2026-06-16", 1.0))
+    assert _missing_trading_days(series, frozenset()) is None
+
+
 def test_missing_trading_days_respects_recent_window():
     # An ancient outage (3 missed trading days) sits outside the recent window of
     # 20 obs and must be ignored; only the daily-cadence tail is scored.
