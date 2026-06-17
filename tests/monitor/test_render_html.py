@@ -48,6 +48,24 @@ def _prov():
                       spend_summary="minimax: est 0.02")
 
 
+def test_report_has_lean_disclaimer_and_legend():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    # bias is a research lean — not a tradable buy/sell order, not advice
+    assert "研究参考" in html and "非买卖指令" in html
+    assert "不构成投资建议" in html
+    # legend decodes the badges + validation chips
+    assert "ADD_BIAS=偏多" in html
+    assert "caveated" in html
+    # the explainer sits above the per-fund cards
+    assert html.index("非买卖指令") < html.index('class="fund-card"')
+
+
+def test_disclaimer_banner_is_static_and_carries_no_javascript():
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    assert '<aside class="explainer">' in html
+    assert "<script" not in html.lower()
+
+
 def test_every_fund_has_summary_row_and_card():
     html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
     assert html.count('class="fund-card"') == 1

@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor report clarity: directional bias framed as a research lean, not a buy/sell order (2026-06-17)
+
+- **`irc monitor` report.html now states up-front that a directional bias is a research lean, not a tradable order.**
+  A static, no-JS explainer banner sits above the summary: *方向性倾向 = 研究参考信号，非买卖指令*,
+  *本监控不读取持仓 / 权重 / 估值，不构成投资建议*, plus a legend decoding the bias badges
+  (`ADD_BIAS=偏多 · NEUTRAL=中性 · REDUCE_BIAS=偏空`) and the validation chips (`✓ validated` / `⚠ caveated`).
+- **Reworded the per-fund verdict clause** that previously read `（≥ 买入阈值）→ ADD_BIAS`. The "buy/sell
+  threshold" wording contradicted the contract that a bias is *never an executable portfolio action*
+  (CONTEXT.md). It now reads `（落在偏多带）→ ADD_BIAS（偏多倾向）` — neutral lean language, no trade verb.
+  Same for REDUCE (`偏空带 / 偏空倾向`) and NEUTRAL (`中性`).
+- Renderer stays pure / byte-stable / no-JS. TDD; `tests/monitor/test_render_html.py` +
+  `test_render_cards.py` updated, golden `tests/monitor/golden/report.html` regenerated.
+
 ### Fixed — monitor constituent factor: robust LLM impact-key → holding matching (2026-06-17)
 
 - **`irc monitor` active-equity funds no longer flap to `insufficient_evidence` run-to-run.**

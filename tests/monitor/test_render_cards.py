@@ -17,12 +17,16 @@ def _narr(sig=(), risk=(), pa=(), status="ok"):
 def test_ok_add_bias_clause_states_band_relationship():
     html = verdict_block_html(_rec(bias="ADD_BIAS", c=0.5563), _narr())
     assert "0.5563" in html
-    assert "买入阈值" in html and "ADD_BIAS" in html
+    assert "偏多带" in html and "ADD_BIAS" in html
+    assert "偏多倾向" in html              # neutral bias gloss, not a trade verb
+    assert "买入阈值" not in html          # no executable buy-order wording
 
 
 def test_ok_reduce_bias_clause():
     html = verdict_block_html(_rec(bias="REDUCE_BIAS", c=-0.6), _narr())
-    assert "卖出阈值" in html and "REDUCE_BIAS" in html
+    assert "偏空带" in html and "REDUCE_BIAS" in html
+    assert "偏空倾向" in html
+    assert "卖出阈值" not in html
 
 
 def test_ok_neutral_clause_says_dead_band():

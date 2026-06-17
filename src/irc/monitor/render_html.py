@@ -52,7 +52,27 @@ _CSS = (
     ".predictive{border-collapse:collapse;font-size:13px;margin:4px 0}"
     ".predictive th,.predictive td{border:1px solid #d0d7de;padding:3px 6px}"
     ".review-flag{color:#cf222e;font-weight:600}"
+    ".explainer{margin:8px 0;padding:8px 10px;border:1px solid #d0d7de;"
+    "border-left:4px solid #0969da;border-radius:6px;background:#ddf4ff;"
+    "font-size:13px;line-height:1.55}"
+    ".explainer .legend{display:block;margin-top:4px;color:#57606a}"
+    ".explainer .legend-en{display:block;margin-top:2px;color:#8c959f;font-size:12px}"
     "</style>"
+)
+
+# Static, deterministic explainer: a directional bias is a research lean, never an
+# executable portfolio action (CONTEXT.md). Decodes the bias badges + validation chips.
+_EXPLAINER = (
+    '<aside class="explainer">'
+    '<b>方向性倾向 = 研究参考信号，非买卖指令。</b>'
+    '本监控不读取持仓 / 权重 / 估值，<b>不构成投资建议</b>。'
+    '<span class="legend">'
+    'ADD_BIAS=偏多 · NEUTRAL=中性 · REDUCE_BIAS=偏空　|　'
+    '✓ validated 全项校验通过 · ⚠ caveated 有保留（存在 WARN/UNKNOWN，无新 FAIL）'
+    '</span>'
+    '<span class="legend-en">Directional bias is a research lean, '
+    'not a buy/sell order and not investment advice.</span>'
+    '</aside>'
 )
 
 
@@ -184,5 +204,6 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + summary + cards + panel + predictive + _appendix(views) + "</body></html>"
+        + header + _EXPLAINER + summary + cards + panel + predictive
+        + _appendix(views) + "</body></html>"
     )

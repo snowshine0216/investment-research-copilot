@@ -4,9 +4,17 @@ from irc.monitor.types import Claim, NarrativeDoc, SignalRecord
 from irc.monitor.render_factors import divergence_caveat
 
 _BAND_PHRASE = {
-    "ADD_BIAS": "≥ 买入阈值",
-    "REDUCE_BIAS": "≤ 卖出阈值",
+    "ADD_BIAS": "落在偏多带",
+    "REDUCE_BIAS": "落在偏空带",
     "NEUTRAL": "落在中性带内",
+}
+
+# Bias is a research lean, never an executable order (CONTEXT.md): gloss it in
+# neutral lean language, never with a trade verb (买入/卖出).
+_BIAS_GLOSS = {
+    "ADD_BIAS": "偏多倾向",
+    "REDUCE_BIAS": "偏空倾向",
+    "NEUTRAL": "中性",
 }
 
 
@@ -17,10 +25,12 @@ def _claim_html(claim: Claim) -> str:
 
 
 def _ok_clause(rec: SignalRecord) -> str:
-    rel = _BAND_PHRASE.get(rec.bias or "NEUTRAL", "落在中性带内")
+    bias = rec.bias or "NEUTRAL"
+    rel = _BAND_PHRASE.get(bias, "落在中性带内")
+    gloss = _BIAS_GLOSS.get(bias, "中性")
     return (
         f'综合分 C = {rec.composite:.4f}（{rel}）→ '
-        f'<b>{escape(rec.bias)}</b>'
+        f'<b>{escape(rec.bias)}</b>（{gloss}）'
     )
 
 
