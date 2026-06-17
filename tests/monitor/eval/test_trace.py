@@ -203,6 +203,13 @@ def test_missing_trading_days_none_calendar_returns_none():
     assert _missing_trading_days(series, None) is None
 
 
+def test_missing_trading_days_empty_calendar_returns_none():
+    # An empty frozenset must degrade to None (→ max_gap_days fallback), never
+    # score 0-for-every-gap and yield a false nav_quality PASS.
+    series = (("2026-06-15", 1.0), ("2026-06-30", 1.0))
+    assert _missing_trading_days(series, frozenset()) is None
+
+
 def test_missing_trading_days_fewer_than_two_obs_is_zero():
     assert _missing_trading_days((("2026-06-16", 1.0),), _cn_cal("2026-06-16")) == 0
     assert _missing_trading_days((), _cn_cal("2026-06-16")) == 0
