@@ -7,19 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added — monitor set expanded to 9 funds: 交银择优回报 (519770) + 博时中证有色金属矿业主题指数A (018132) (2026-06-17)
+### Added — monitor set expanded to 10 funds: 交银择优回报 (519770) + 博时中证有色金属矿业主题指数A (018132) + 万家行业优选 (161903) (2026-06-17)
 
-- **Two funds added to the `irc monitor` set** in `config/monitor.yaml` (and the `irc init`
-  template `src/irc/templates/config/monitor.yaml`, kept in sync), taking the set from 7 → 9.
+- **Three funds added to the `irc monitor` set** in `config/monitor.yaml` (and the `irc init`
+  template `src/irc/templates/config/monitor.yaml`, kept in sync), taking the set from 7 → 10.
   - `519770` 交银择优回报 → `active_cn_equity` profile, themes `[cn_monetary, cn_equity_property_policy]`
     — mirrors the other domestic active-equity funds (519069 / 000083).
   - `018132` 博时中证有色金属矿业主题指数A → `active_cn_equity` profile (the only CN-equity profile
     in the `AnalysisProfile` enum; the fund is a passive sector index, so it look-throughs via the
     active-fund snapshot), themes `[global_growth, geopolitics, cn_equity_property_policy]` (commodity-
     relevant, since there is no metals theme seed).
+  - `161903` 万家行业优选 → `active_cn_equity` profile, themes `[cn_monetary, cn_equity_property_policy]`
+    — domestic active-equity fund, same pattern as 519069 / 000083 / 519770.
 - `irc/monitor/usage.py` already sizes the LLM budget by `len(cfg.funds)`, so no per-fund call-budget
   change was needed. The gated live-NAV coverage test (`tests/monitor/test_live_nav.py`) was extended
-  to assert both new funds clear the 251-observation minimum.
+  to assert all new funds clear the 251-observation minimum.
 
 ### Fixed — monitor_impact eval: score the aggregated impact + neutral injection carriers (2026-06-17)
 
