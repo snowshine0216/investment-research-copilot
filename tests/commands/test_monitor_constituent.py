@@ -210,6 +210,78 @@ def test_make_constituent_rows_skips_unknown_symbols() -> None:
     assert rows[0].key == "300750"
 
 
+def _impacts_result(fund_id: str, *impacts):
+    from irc.monitor.impacts import ImpactsResult
+    return ImpactsResult(fund_id=fund_id, impacts=tuple(impacts), status="ok",
+                         cost_entries=())
+
+
+def test_make_constituent_rows_matches_exchange_suffixed_key() -> None:
+    """LLM returns '300750.SZ' but the holding symbol is bare '300750'."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    holdings = (_make_holding("300750", "宁德时代", 6.8, "519069"),)
+    impacts = _impacts_result("519069", ValidatedImpact("300750.SZ", 0.5, 0.9, ()))
+    rows = mc._make_constituent_rows(impacts, holdings)
+    assert len(rows) == 1
+    assert rows[0].key == "300750"
+    assert rows[0].weight == pytest.approx(6.8)
+    assert rows[0].impact == pytest.approx(0.5)
+
+
+def test_make_constituent_rows_matches_name_cn_fallback() -> None:
+    """LLM keys an impact by the company name instead of the code."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    holdings = (_make_holding("600519", "贵州茅台", 5.2, "519069"),)
+    impacts = _impacts_result("519069", ValidatedImpact("贵州茅台", -0.3, 0.8, ()))
+    rows = mc._make_constituent_rows(impacts, holdings)
+    assert len(rows) == 1
+    assert rows[0].key == "600519"
+    assert rows[0].weight == pytest.approx(5.2)
+
+
+def test_make_constituent_rows_no_double_count_keeps_highest_confidence() -> None:
+    """Two impacts resolving to one holding → one row, highest confidence wins."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    holdings = (_make_holding("300750", "宁德时代", 6.8, "519069"),)
+    impacts = _impacts_result(
+        "519069",
+        ValidatedImpact("300750", 0.2, 0.6, ()),
+        ValidatedImpact("300750.SZ", -0.7, 0.95, ()),
+    )
+    rows = mc._make_constituent_rows(impacts, holdings)
+    assert len(rows) == 1
+    assert rows[0].confidence == pytest.approx(0.95)
+    assert rows[0].impact == pytest.approx(-0.7)
+
+
+def test_make_constituent_rows_logs_unmatched_key(caplog) -> None:
+    """An unmatched impact key is dropped AND logged at WARNING with context."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    holdings = (_make_holding("300750", "宁德时代", 6.8, "519069"),)
+    impacts = _impacts_result(
+        "519069",
+        ValidatedImpact("300750", 0.5, 0.9, ()),
+        ValidatedImpact("UNKNOWNCO", 0.8, 0.8, ()),
+    )
+    with caplog.at_level(logging.WARNING, logger="irc.commands.monitor_cmd"):
+        rows = mc._make_constituent_rows(impacts, holdings)
+
+    assert len(rows) == 1
+    msg = caplog.text
+    assert "UNKNOWNCO" in msg          # the unmatched key
+    assert "519069" in msg             # the fund id
+    assert "300750" in msg             # the available holding symbols
+
+
 # ── _process_fund constituent wiring ─────────────────────────────────────────
 
 

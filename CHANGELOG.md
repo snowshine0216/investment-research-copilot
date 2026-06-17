@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor constituent factor: robust LLM impact-key → holding matching (2026-06-17)
+
+- **`irc monitor` active-equity funds no longer flap to `insufficient_evidence` run-to-run.**
+  Root cause: `_make_constituent_rows` mapped the `monitor_impact` LLM's impact keys back to snapshot
+  holdings with **exact string equality only**. When the model returned a non-byte-identical key
+  (`"300750.SZ"` vs holding `"300750"`, a whitespace/case/leading-zero variant, or the company
+  `name_cn` instead of the code), every impact silently failed the `in` check, `constituent_rows`
+  came back empty, and the `constituent` factor went N/A. For the `active_cn_equity` profile that
+  drops coverage from 3 families/0.65 weight to 2/0.50 — below the gate → `insufficient_evidence`
+  (observed: 006533 failed 3/3 runs; 161903 2/2; 018132 / 519770 flapped pass→fail).
+- **New pure matcher** `src/irc/monitor/constituent_match.py`
+  (`match_impact_to_holding` + `select_impacts_by_holding`): normalizes both sides (strips
+  `.SZ`/`.SH`/`.BJ`/`.SS` exchange suffixes, whitespace, case; strips leading zeros only for all-digit
+  codes), falls back to `name_cn`, and never double-counts — each impact maps to ≤1 holding, each
+  holding keeps its highest-confidence impact.
+- **No more silent drops:** an impact key that matches no holding is now logged at WARNING with the
+  `fund_id`, the unmatched key, and the available holding symbols, so future keying drift is visible.
+- Closes the documented v2.1 open item "constituent symbol-keying can vary run-to-run". TDD;
+  new `tests/monitor/test_constituent_match.py` + cases in `tests/commands/test_monitor_constituent.py`.
+
 ### Added — monitor set expanded to 10 funds: 交银择优回报 (519770) + 博时中证有色金属矿业主题指数A (018132) + 万家行业优选 (161903) (2026-06-17)
 
 - **Three funds added to the `irc monitor` set** in `config/monitor.yaml` (and the `irc init`
