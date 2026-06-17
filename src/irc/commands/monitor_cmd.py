@@ -346,28 +346,37 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
 # ── Eval wiring helpers ───────────────────────────────────────────────────────
 
 
-def _suite_healths(root: Path, today: str, now: datetime) -> tuple:
+def _suite_eval(root: Path, today: str, now: datetime) -> tuple[tuple, tuple]:
     """EDGE-read: resolve the two LLM-suite StageHealths ONCE per run (run-global,
-    OQ-E). Missing/SKIPPED/stale → UNKNOWN → caveated (fail-open)."""
-    return tuple(
-        resolve_health(latest_stage_report(root, stage, today_iso=today),
-                       now=now, stale_after_days=STALE_AFTER_DAYS, stage=stage)
-        for stage in ("monitor_impact", "monitor_narrative")
-    )
+    OQ-E) AND build their display panel rows from the SAME report read. The suite
+    stages gate (GATING_STAGES_M1) but were previously invisible in the panel, so a
+    gate they caused looked mis-attributed to monitor_signal. Missing/SKIPPED/stale →
+    UNKNOWN → caveated (fail-open). Returns (healths, panel_rows)."""
+    healths: list[StageHealth] = []
+    rows: list[ValidationPanelRow] = []
+    for stage in ("monitor_impact", "monitor_narrative"):
+        report = latest_stage_report(root, stage, today_iso=today)
+        health = resolve_health(report, now=now, stale_after_days=STALE_AFTER_DAYS,
+                                stage=stage)
+        healths.append(health)
+        rows.append(ValidationPanelRow(
+            stage=stage, status=health.status,
+            ran_at=report.ran_at if report is not None else "—",
+            reasons=health.reasons,
+        ))
+    return tuple(healths), tuple(rows)
 
 
 def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
-    *, min_obs: int, root: Path, today: str,
+    *, min_obs: int, suite_healths: tuple[StageHealth, ...],
 ) -> tuple[tuple[GateDecision, ...], dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
-    run-global LLM-suite healths, and apply the M1 gate. The suite healths are
-    resolved once (run-global) — identical for every fund (OQ-E). Returns
+    run-global LLM-suite healths (resolved once at the edge — identical for every
+    fund, OQ-E), and apply the M1 gate. Returns
     (gates, signal_healths, deterministic_healths); deterministic_scoring is
     PANEL-ONLY and never gates (spec §4.3)."""
-    now = datetime.now(timezone(timedelta(hours=8)))
-    suite_healths = _suite_healths(root, today, now)
     gates: list[GateDecision] = []
     signal_healths: dict = {}
     deterministic_healths: dict = {}
@@ -599,10 +608,13 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         views.append(view)
         bundles.append(bundle)
         all_costs.extend(costs)
+    now_dt = datetime.now(timezone(timedelta(hours=8)))
+    suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
     gates, signal_healths, deterministic_healths = _compute_gates(
         list(funds), views, bundles,
-        min_obs=cfg.history.minimum_observations, root=root, today=_today)
-    panel_rows = build_panel_rows(signal_healths, deterministic_healths, now=_now_iso())
+        min_obs=cfg.history.minimum_observations, suite_healths=suite_healths)
+    panel_rows = build_panel_rows(signal_healths, deterministic_healths,
+                                  now=_now_iso(), suite_rows=suite_rows)
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)

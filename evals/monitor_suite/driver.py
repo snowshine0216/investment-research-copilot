@@ -53,6 +53,19 @@ def drive_case(
         return {}, cost, False
 
 
+def build_case_details(cases, outputs) -> list[dict]:
+    """Pure: per-case diagnostic rows so a metric FAIL is explainable from the
+    artifact — which case (index + category), its expected band, and the RAW model
+    output. The aggregate StageReport only carries metric fractions; without this a
+    FAIL (e.g. magnitude_band_pass=0.667) can't be traced to a case without re-running.
+    Inputs (evidence_pool/messages_seed) are intentionally not echoed."""
+    return [
+        {"index": i, "category": c.get("category"),
+         "expected": c.get("expected", {}), "output": o}
+        for i, (c, o) in enumerate(zip(cases, outputs))
+    ]
+
+
 def build_stage_report(
     *, stage: str, named_values, n: int, based_on: list[str],
 ) -> StageReport:

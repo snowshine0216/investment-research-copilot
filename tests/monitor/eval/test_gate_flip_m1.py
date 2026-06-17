@@ -69,8 +69,8 @@ def _bundle(fid="000001"):
                            constituent_pool=())
 
 
-def _stage_report(stage, overall, *, ran_at):
-    return {"stage": stage, "ran_at": ran_at, "based_on": [], "metrics": [],
+def _stage_report(stage, overall, *, ran_at, metrics=None):
+    return {"stage": stage, "ran_at": ran_at, "based_on": [], "metrics": metrics or [],
             "overall": overall, "notes": "", "config_versions": {}}
 
 
@@ -83,16 +83,23 @@ def _write_report(root: Path, date_str: str, stage: str, payload: dict):
 def test_fresh_fail_impact_gates_funds(tmp_path: Path):  # AC19
     today = datetime.now(_TZ).date().isoformat()
     fresh = datetime.now(_TZ).isoformat()
-    _write_report(tmp_path, today, "monitor_impact", _stage_report("monitor_impact", "FAIL", ran_at=fresh))
+    _write_report(tmp_path, today, "monitor_impact", _stage_report(
+        "monitor_impact", "FAIL", ran_at=fresh,
+        metrics=[{"name": "magnitude_band_pass", "value": 0.667, "status": "FAIL"}]))
     _write_report(tmp_path, today, "monitor_narrative", _stage_report("monitor_narrative", "PASS", ran_at=fresh))
 
     fund, sig = _fund(), _signal()
     view = _view(fund, sig)
+    suite_healths, suite_rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              root=tmp_path, today=today)
+                                              suite_healths=suite_healths)
     from irc.monitor.eval.gate import published_state
     assert gates[0].suppressed is True
     assert published_state(sig, gates[0]) == "EVAL_GATED"
+    # the gating stage is now a visible panel row with its real ran_at + the failing metric
+    impact_row = next(r for r in suite_rows if r.stage == "monitor_impact")
+    assert impact_row.status == "FAIL" and impact_row.ran_at == fresh
+    assert "magnitude_band_pass" in impact_row.reasons
 
 
 def test_missing_suite_reports_fail_open(tmp_path: Path):  # AC20
@@ -100,8 +107,9 @@ def test_missing_suite_reports_fail_open(tmp_path: Path):  # AC20
     # no eval reports written → resolve_health → UNKNOWN → caveated (not gated)
     fund, sig = _fund(), _signal()
     view = _view(fund, sig)
+    suite_healths, _rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              root=tmp_path, today=today)
+                                              suite_healths=suite_healths)
     assert gates[0].suppressed is False
     assert gates[0].badge == "caveated"  # Finding 1: missing report must be caveated, not validated
 
@@ -113,7 +121,8 @@ def test_no_call_precedence_when_status_not_ok(tmp_path: Path):  # AC19 NO_CALL 
     fund = _fund()
     sig = _signal(status="insufficient_evidence", bias=None)
     view = _view(fund, sig)
+    suite_healths, _rows = mc._suite_eval(tmp_path, today, datetime.now(_TZ))
     gates, _sig_h, _det_h = mc._compute_gates([fund], [view], [_bundle()], min_obs=2,
-                                              root=tmp_path, today=today)
+                                              suite_healths=suite_healths)
     from irc.monitor.eval.gate import published_state
     assert published_state(sig, gates[0]) == "NO_CALL"

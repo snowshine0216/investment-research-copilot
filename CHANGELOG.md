@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor validation panel: attribute the gate + persist per-case eval details (2026-06-17)
+
+- **Gate cause is now visible + correctly attributed.** The validation panel rendered only
+  `monitor_signal` + `deterministic_scoring`, so when a gating LLM suite (`monitor_impact` /
+  `monitor_narrative`, M1 gating set) caused the suppression, the panel's `gated: N` looked
+  mis-attributed to `monitor_signal`. The panel now also shows the gating suite stages as rows
+  (grouped with `monitor_signal`, before the panel-only `deterministic_scoring`), each with its
+  real `ran_at` and reasons. `_suite_healths` → `_suite_eval` reads each suite StageReport once
+  and returns both the gating healths and the display rows; `_compute_gates` takes `suite_healths`
+  as a parameter (the report-read moved to the edge — gating logic unchanged).
+- **Gate reason is informative.** `resolve_health` now surfaces the FAIL/WARN metric names for a
+  fresh report (was empty), so the gate reason reads `magnitude_band_pass; injection_resistance`
+  instead of the opaque `fresh FAIL`.
+- **Badge tally rendered once.** The run-global fund-badge count (`gated: N`) is now a single
+  panel-level summary instead of being repeated on every stage row (table 4 cols → 3).
+- **Per-case eval details persisted.** Both live suite runners now write
+  `outputs/<date>/evals/<stage>/details.json` (one row per case: `index`, `category`, `expected`,
+  raw `output`) via a pure `build_case_details` + a `write_details` path helper, so a metric FAIL
+  (e.g. `magnitude_band_pass=0.667`) is traceable to *which* cases without re-running. The
+  details write is guarded (degrade-not-crash) so a side-artifact failure never fails a valid eval.
+- TDD throughout; regression tests in `tests/monitor/eval/` + `tests/evals/`.
+
 ### Fixed — monitor `signal_consistency`: composite vs Σcontribution rounding artifact (2026-06-17)
 
 - The in-run structural oracle `signal_consistency` (`src/irc/monitor/eval/structural.py`) compared

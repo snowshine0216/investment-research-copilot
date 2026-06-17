@@ -32,3 +32,20 @@ def write_report(
     out = out_dir / "report.json"
     atomic_write_text(out, json.dumps(report_to_dict(report), ensure_ascii=False, indent=2))
     return out
+
+
+def write_details(
+    repo_root: Path,
+    stage: str,
+    *,
+    artifact_date: str,
+    details: list,
+) -> Path:
+    """Write per-case diagnostic rows to ``…/evals/<stage>/details.json`` beside the
+    StageReport, so a metric FAIL can be traced to a case without re-running."""
+    out_dir = report_dir(repo_root, stage, artifact_date)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / "details.json"
+    # default=str: details echoes raw model output — never let an exotic value raise.
+    atomic_write_text(out, json.dumps(details, ensure_ascii=False, indent=2, default=str))
+    return out

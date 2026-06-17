@@ -1,6 +1,8 @@
 from __future__ import annotations
 import logging
-from evals.monitor_suite.driver import cost_entry_from, drive_case, build_stage_report
+from evals.monitor_suite.driver import (
+    build_case_details, build_stage_report, cost_entry_from, drive_case,
+)
 from irc.llm._types import ChatResponse
 
 
@@ -76,6 +78,29 @@ def test_drive_case_logs_parse_error(caplog):
         )
     assert ok is False and out == {}
     assert any(r.exc_info for r in caplog.records), "parse error must be logged with exc_info"
+
+
+def test_build_case_details_pairs_cases_with_outputs():
+    # Per-case diagnostic rows so a metric FAIL (e.g. magnitude_band_pass) is
+    # explainable from the artifact: which case, its expected band, and the raw output.
+    cases = [
+        {"category": "directional-neutral", "expected": {"max_abs": 0.3},
+         "messages_seed": {"fund_id": "x"}, "evidence_pool": []},
+        {"category": "directional-strong", "expected": {"min_abs": 0.5, "sign": "+"},
+         "messages_seed": {}, "evidence_pool": []},
+    ]
+    outputs = [
+        {"impacts": [{"impact": 0.42, "citation_ids": []}]},   # out of the <=0.3 band
+        {"impacts": [{"impact": 0.7, "citation_ids": []}]},
+    ]
+    details = build_case_details(cases, outputs)
+    assert len(details) == 2
+    assert details[0]["index"] == 0 and details[0]["category"] == "directional-neutral"
+    assert details[0]["expected"] == {"max_abs": 0.3}
+    assert details[0]["output"] == {"impacts": [{"impact": 0.42, "citation_ids": []}]}
+    assert details[1]["output"]["impacts"][0]["impact"] == 0.7
+    # inputs (evidence/messages) are NOT echoed — only what's needed to diagnose
+    assert "evidence_pool" not in details[0] and "messages_seed" not in details[0]
 
 
 def test_build_stage_report_overall_is_worst():

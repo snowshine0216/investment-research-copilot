@@ -158,10 +158,15 @@ def _row(stage: str, healths: dict, now: str) -> ValidationPanelRow:
 
 def build_panel_rows(
     signal_healths: dict, deterministic_healths: dict, *, now: str,
+    suite_rows: tuple[ValidationPanelRow, ...] = (),
 ) -> tuple[ValidationPanelRow, ...]:
-    """Both panel rows from the per-fund healths. monitor_signal reflects RAW
-    signal_health worst-of (divergence 1); deterministic_scoring is panel-only."""
+    """Panel rows from the per-fund healths plus the run-global gating LLM-suite
+    rows. monitor_signal reflects RAW signal_health worst-of (divergence 1); the
+    suite rows (monitor_impact/monitor_narrative — built at the edge with their real
+    ran_at) are grouped with it because they gate; deterministic_scoring is panel-only
+    and comes last."""
     return (
         _row("monitor_signal", signal_healths, now),
+        *suite_rows,
         _row("deterministic_scoring", deterministic_healths, now),
     )
