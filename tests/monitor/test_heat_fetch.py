@@ -136,3 +136,37 @@ def test_heat_inputs_for_absent_fund_yields_none_restricted():
     t = _table([{"基金代码": "000083", "申购状态": "开放申购", "日累计限定金额": 1e11}])
     restricted, aum = heat_inputs_for("999999", purchase_table=t)
     assert restricted is None and aum is None
+
+
+# ── integration with the existing (untouched) heat_score via build_factor_scores ─
+
+def _heat_score_for(profile, restricted, aum):
+    from irc.monitor.factors import FactorInputs, build_factor_scores
+    inp = FactorInputs(
+        acc_nav=(), minimum_observations=251,
+        valuation_state=None, valuation_cached=False,
+        restricted=restricted, aum_delta_pct=aum,
+        macro_rows=(), constituent_rows=(),
+    )
+    return {s.name: s for s in build_factor_scores(profile, inp)}["heat"]
+
+
+def test_restricted_true_yields_eligible_crowded_heat():
+    s = _heat_score_for("active_cn_equity", restricted=True, aum=None)
+    assert s.eligible is True and s.value == -0.5
+
+
+def test_restricted_false_yields_eligible_calm_heat():
+    s = _heat_score_for("active_cn_equity", restricted=False, aum=None)
+    assert s.eligible is True and s.value == 0.3
+
+
+def test_restricted_none_yields_heat_no_data():
+    s = _heat_score_for("active_cn_equity", restricted=None, aum=None)
+    assert s.eligible is False and s.reason == "heat_no_data"
+
+
+def test_gold_profile_heat_still_eligible_when_restricted():
+    # gold's weight vector includes heat (spec §3 table) → an eligible crowded score.
+    s = _heat_score_for("gold", restricted=True, aum=None)
+    assert s.eligible is True and s.value == -0.5
