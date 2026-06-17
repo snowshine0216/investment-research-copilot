@@ -38,8 +38,11 @@ class MonitorHistoryConfig(FrozenModel):
 
 
 class MonitorDefaults(FrozenModel):
+    # Weights are NOT a config default: the sole weight-governance surface is
+    # profiles.py `PROFILES[profile].weights` (overlaid by the per-fund
+    # `MonitorFundConfig.signal_weights` override). resolve.py reads these
+    # defaults only for `signal_bands` and `minimum_confidence`. See ADR 0018 D2.
     return_windows: tuple[int, ...] = (5, 20, 60, 120, 250)
-    signal_weights: dict[str, float] = Field(default_factory=dict)
     signal_bands: dict[str, float] = Field(default_factory=dict)
     minimum_confidence: float = Field(default=0.50, ge=0.0, le=1.0)
 
