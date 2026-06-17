@@ -91,6 +91,37 @@ def test_code_zero_pad_match():
     assert parse_purchase_status(t, "000083") is False
 
 
+# ── fetch_purchase_table: schema-drift observability ─────────────────────────
+
+def test_fetch_returns_none_on_missing_status_column(caplog):
+    """Schema drift: table has rows but 申购状态 is absent → None + WARNING logged."""
+    import logging
+    t = _table([{"基金代码": "000083", "日累计限定金额": 1e11}])
+    with caplog.at_level(logging.WARNING):
+        result = fetch_purchase_table(fetch=lambda: t)
+    assert result is None
+    assert "fund_purchase_em schema drift" in caplog.text
+    assert "申购状态" in caplog.text
+
+
+def test_fetch_returns_none_on_missing_code_column(caplog):
+    """Schema drift: table has rows but 基金代码 is absent → None + WARNING logged."""
+    import logging
+    t = _table([{"申购状态": "开放申购", "日累计限定金额": 1e11}])
+    with caplog.at_level(logging.WARNING):
+        result = fetch_purchase_table(fetch=lambda: t)
+    assert result is None
+    assert "fund_purchase_em schema drift" in caplog.text
+    assert "基金代码" in caplog.text
+
+
+def test_fetch_returns_table_when_required_columns_present():
+    """Happy path: both required columns present → returns the DataFrame unchanged."""
+    t = _table([{"基金代码": "000083", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    result = fetch_purchase_table(fetch=lambda: t)
+    assert result is t
+
+
 # ── fetch_purchase_table: never raises, returns None on failure ───────────────
 
 def test_fetch_returns_table_from_injected_fetch():

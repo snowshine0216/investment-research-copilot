@@ -83,11 +83,20 @@ def heat_inputs_for(
     return parse_purchase_status(purchase_table, fund_id), None
 
 
+def _has_required_columns(table: pd.DataFrame) -> bool:
+    """True iff both required columns (_CODE_COL, _STATUS_COL) are in the table."""
+    return _CODE_COL in table.columns and _STATUS_COL in table.columns
+
+
 def fetch_purchase_table(fetch=None) -> pd.DataFrame | None:
     """EDGE: ONE network call per run → the market-wide purchase table, or None on
     ANY failure (never raises — spec §5.3). `fetch` is injectable for tests; the
     default lazy-imports akshare (house pattern: no module-top akshare). CN endpoint
-    is DIRECT (no IRC_HTTPS_PROXY)."""
+    is DIRECT (no IRC_HTTPS_PROXY).
+
+    Schema-drift observability (spec §10): if required columns are missing after a
+    valid non-empty fetch, logs a structured WARNING and returns None — unambiguous
+    vs. empty/fetch-fail cases, which also log."""
     if fetch is None:
         import akshare as ak  # local import — house pattern, avoids akshare at module load
         fetch = ak.fund_purchase_em
@@ -98,5 +107,12 @@ def fetch_purchase_table(fetch=None) -> pd.DataFrame | None:
         return None
     if not isinstance(table, pd.DataFrame) or table.empty:
         _log.warning("fetch_purchase_table: empty/invalid purchase table")
+        return None
+    if not _has_required_columns(table):
+        missing = [c for c in (_CODE_COL, _STATUS_COL) if c not in table.columns]
+        _log.warning(
+            "fetch_purchase_table: fund_purchase_em schema drift — missing columns: %s",
+            missing,
+        )
         return None
     return table
