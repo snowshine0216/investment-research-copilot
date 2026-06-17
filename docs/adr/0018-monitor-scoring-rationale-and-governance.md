@@ -164,3 +164,17 @@ publish gate and bands encode these priors:
   negative, and `weights_sum_ok` still enforces sum-to-1.0. There is no longer a config weight
   block to edit by mistake; `resolve.py` reads the config `defaults` only for `signal_bands` and
   `minimum_confidence`.
+- **`nav_quality` gap rule is a recent-activity probe, not a full-history scan (D3).** *Resolved
+  2026-06-17.* The `monitor_signal` structural-health stage caveats a fund on a NAV cadence gap.
+  As originally written it scanned the **entire** acc-NAV series (up to the signal's 250-trading-day
+  lookback) and warned on any inter-observation gap `> 5` calendar days — but a CN-fund year
+  **always** contains an ~11-day Spring-Festival and National-Day closure, so the check could never
+  pass and **every** fund was permanently `caveated`, voiding the badge's signal value (a real
+  recent data gap was indistinguishable from the lunar calendar). Two governed changes restore it:
+  (1) `trace._max_gap_days` measures only the most recent `_RECENT_GAP_WINDOW = 20` observations
+  (≈1 month) — "is the fund still reporting on a daily cadence?" — so ancient holidays fall out of
+  scope; (2) `structural._WARN_GAP_DAYS` 5 → 8 tolerates routine minor closures (Labour Day /
+  Dragon Boat / New Year ≈ ≤7 cal days). The two big closures still WARN for the ≤~4 weeks they sit
+  inside the window — a rare, brief, honest residual, not a permanent caveat. The gate stays
+  **fail-open** (WARN → `caveated`, never `EVAL_GATED`); only fresh structural/LLM **FAIL**s
+  suppress a bias.

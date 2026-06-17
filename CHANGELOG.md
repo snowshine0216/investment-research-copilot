@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor `nav_quality`: the NAV-gap caveat no longer fires on Chinese market holidays (2026-06-17)
+
+- **`irc monitor` was marking every fund `⚠ caveated`, permanently, for a benign reason.** The
+  `monitor_signal` structural-health stage caveats a fund on a NAV cadence gap, but
+  `trace._max_gap_days` scanned the **entire** acc-NAV series (up to the signal's 250-trading-day
+  lookback) and warned on any inter-observation gap `> 5` calendar days. A CN-fund year *always*
+  contains an ~11-day Spring-Festival and National-Day-Golden-Week closure, so the check could
+  **never** pass — all funds were caveated forever, voiding the badge's signal value (a real recent
+  data gap was indistinguishable from the lunar calendar). Biases themselves were never suppressed
+  (`caveated` is fail-open), so the impact was a worthless badge, not a wrong call.
+- **Two changes restore it:** (1) `trace._max_gap_days` now measures only the most recent
+  `_RECENT_GAP_WINDOW = 20` observations (≈1 month) — "is the fund still reporting NAV on a daily
+  cadence?" — so ancient holidays fall out of scope; (2) `structural._WARN_GAP_DAYS` 5 → 8 tolerates
+  routine minor closures (Labour Day / Dragon Boat / New Year ≈ ≤7 cal days). The two big closures
+  still WARN for the ≤~4 weeks they sit inside the window — a rare, brief, honest residual. A genuine
+  recent multi-day data hole still surfaces.
+- Verified end-to-end against today's real NAV: all 10 monitor funds flip `caveated → validated`.
+  Gate stays fail-open (WARN → `caveated`, never `EVAL_GATED`). Governance recorded in
+  [ADR 0018 "D3"](docs/adr/0018-monitor-scoring-rationale-and-governance.md). TDD;
+  `tests/monitor/eval/test_trace.py` + `test_structural.py` updated.
+
 ### Changed — monitor report clarity: directional bias framed as a research lean, not a buy/sell order (2026-06-17)
 
 - **`irc monitor` report.html now states up-front that a directional bias is a research lean, not a tradable order.**

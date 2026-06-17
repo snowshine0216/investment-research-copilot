@@ -7,7 +7,11 @@ from evals._shared.status import worst_status
 
 _EPS = 1e-9
 _COMPOSITE_DP = 4   # composite is round(Σcontribution, 4) — see signal.py / types.py
-_WARN_GAP_DAYS = 5
+# Tolerate routine CN minor-holiday closures (Labour Day / Dragon Boat / New Year ≈
+# ≤7 cal days). The two big closures (Spring Festival, National Day ≈ 11d) still WARN
+# if they land inside the recent gap window (trace._RECENT_GAP_WINDOW) — a rare, brief
+# residual, not the former permanent caveat. See ADR 0018.
+_WARN_GAP_DAYS = 8
 
 
 def _parse_date(s: str) -> date | None:

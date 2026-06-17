@@ -1,6 +1,7 @@
 from __future__ import annotations
+import datetime as _dt
 import json
-from irc.monitor.eval.trace import build_eval_trace, dedup_by_citation_id
+from irc.monitor.eval.trace import build_eval_trace, dedup_by_citation_id, _max_gap_days
 from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M0
 from irc.monitor.eval.structural import monitor_signal_health
 from irc.monitor.eval.types import FundTraceBundle
@@ -111,6 +112,26 @@ def test_good_nav_fields_computed():
     nav = t["funds"]["008986"]["nav"]
     assert nav["nav_acc"] == 2.5 and nav["obs_count"] == 2
     assert nav["max_gap_days"] == 1
+
+
+def test_max_gap_days_ignores_gaps_older_than_recent_window():
+    # An 11-day Spring-Festival/Golden-Week hole sits early in a multi-year series;
+    # the trailing-activity probe must ignore it (it is the lunar calendar, not a
+    # data outage) and report only the recent daily cadence.
+    old = (("2026-01-01", 1.0), ("2026-01-12", 1.0))   # 11d holiday gap
+    base = _dt.date(2026, 5, 1)
+    recent = tuple(((base + _dt.timedelta(days=i)).isoformat(), 1.0) for i in range(25))
+    assert _max_gap_days(old + recent) <= 5
+
+
+def test_max_gap_days_flags_a_recent_hole():
+    # A genuine recent outage (fund stopped reporting for 10 days) IS inside the
+    # window and must still surface.
+    base = _dt.date(2026, 5, 1)
+    head = tuple(((base + _dt.timedelta(days=i)).isoformat(), 1.0) for i in range(18))
+    # head ends 2026-05-18; jump 10 days, then resume daily — a single recent hole.
+    tail = (("2026-05-28", 1.0), ("2026-05-29", 1.0))
+    assert _max_gap_days(head + tail) == 10
 
 
 def test_dedup_by_citation_id_merges_overlap():
