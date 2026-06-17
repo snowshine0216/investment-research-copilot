@@ -88,7 +88,7 @@ def test_per_fund_schema_keys():
                       "impacts", "narrative", "gate", "published_state", "validation_badge"}
     assert set(f["resolved"]) == {"analysis_profile", "weights", "bands", "minimum_confidence"}
     assert set(f["nav"]) == {"as_of_date", "latest_unit_nav", "nav_acc", "acc_series",
-                             "obs_count", "max_gap_days"}
+                             "obs_count", "max_gap_days", "missing_trading_days"}
 
 
 def test_round_trip_json_serializable():
@@ -232,3 +232,25 @@ def test_missing_trading_days_respects_recent_window():
     old = (("2026-05-01", 1.0), ("2026-05-05", 1.0))
     recent = tuple((d.isoformat(), 1.0) for d in cal_days[4:29])   # 25 consecutive
     assert _missing_trading_days(old + recent, cal) == 0
+
+
+def test_nav_missing_trading_days_threaded_from_calendar():
+    cal = frozenset(_dt.date.fromisoformat(d) for d in
+                    ("2026-06-15", "2026-06-16"))
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16", trading_days=cal)
+    nav = t["funds"]["008986"]["nav"]
+    # _good_view's series is consecutive trading days → no missed open sessions.
+    assert nav["missing_trading_days"] == 0
+
+
+def test_nav_missing_trading_days_is_none_without_calendar():
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16")
+    assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
+
+
+def test_schema_version_is_2():
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="1", run_date="2026-06-16")
+    assert t["schema_version"] == "2"
