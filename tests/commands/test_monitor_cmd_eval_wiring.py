@@ -44,6 +44,7 @@ def _patch_pipeline(monkeypatch, funds, views):
     monkeypatch.setattr(monitor_cmd, "preflight_gate", lambda *a, **k: 0)
     monkeypatch.setattr(monitor_cmd, "record_command_run", lambda **k: None)
     monkeypatch.setattr(monitor_cmd, "_read_prior_signal", lambda root, today: None)
+    monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: None)
     view_iter = iter(views)
     monkeypatch.setattr(
         monitor_cmd, "_process_fund",
@@ -91,8 +92,10 @@ def test_compute_gates_degrades_to_fail_on_recompute_error(monkeypatch, tmp_path
     # Patch build_eval_trace so the projection for 159934 lacks 'signal'.
     real_build_eval_trace = monitor_cmd.build_eval_trace
 
-    def patched_build_eval_trace(items, *, engine_version, run_date):
-        result = real_build_eval_trace(items, engine_version=engine_version, run_date=run_date)
+    def patched_build_eval_trace(items, *, engine_version, run_date, trading_days=None):
+        result = real_build_eval_trace(
+            items, engine_version=engine_version, run_date=run_date, trading_days=trading_days,
+        )
         # Remove 'resolved' from 159934's projection to trigger a KeyError in
         # deterministic_health (recompute_signal_from_trace reads trace_fund["resolved"]).
         # monitor_signal_health does NOT read 'resolved', so only deterministic_health
