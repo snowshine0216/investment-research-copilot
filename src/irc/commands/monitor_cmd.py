@@ -14,6 +14,7 @@ from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
 from irc.data.duckdb_helper import connect
+from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for
 from irc.monitor.valuation import resolve_valuation_state
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -543,7 +544,7 @@ def _append_nav_history_for_views(
 
 
 def _process_fund(
-    fund: MonitorFund, cfg, root: Path, llm_config, *, con=None,
+    fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
@@ -583,13 +584,15 @@ def _process_fund(
     else:
         val = ValuationResolution(None, False, "valuation_no_anchor")
 
+    restricted, aum_delta_pct = heat_inputs_for(fund.id, purchase_table=purchase_table)
+
     inp = FactorInputs(
         acc_nav=nav.acc_series if nav else (),
         minimum_observations=cfg.history.minimum_observations,
         valuation_state=val.state,
         valuation_cached=val.cached,
-        restricted=None,
-        aum_delta_pct=None,
+        restricted=restricted,
+        aum_delta_pct=aum_delta_pct,
         macro_rows=macro_rows,
         constituent_rows=constituent_rows,
     )
@@ -627,12 +630,17 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         except Exception:  # noqa: BLE001 — degrade, never crash the brief
             _log.warning("valuation DB open failed; valuation → N/A", exc_info=True)
             con = None
+    purchase_table = fetch_purchase_table()  # ONE akshare call/run; None on failure → heat_no_data
+    if purchase_table is None:
+        _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
     try:
         for fund in funds:
-            view, costs, bundle = _process_fund(fund, cfg, root, llm_config, con=con)
+            view, costs, bundle = _process_fund(
+                fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
+            )
             views.append(view)
             bundles.append(bundle)
             all_costs.extend(costs)
