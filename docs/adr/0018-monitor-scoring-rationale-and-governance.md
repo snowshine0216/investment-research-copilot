@@ -178,3 +178,19 @@ publish gate and bands encode these priors:
   inside the window — a rare, brief, honest residual, not a permanent caveat. The gate stays
   **fail-open** (WARN → `caveated`, never `EVAL_GATED`); only fresh structural/LLM **FAIL**s
   suppress a bias.
+
+  **Superseded 2026-06-17 (calendar-grounded successor).** The two magic numbers
+  above (`_RECENT_GAP_WINDOW`, `_WARN_GAP_DAYS`) *proxied* the holiday calendar
+  rather than knowing it, and left a residual: a run in the ~4 weeks **after**
+  Spring Festival / National Day still saw the big closure inside the window and
+  WARNed. That residual is now **closed**. `trace._missing_trading_days` consults a
+  real CN (SSE) trading calendar (`fetch_trade_calendar` → cached
+  `data/monitor/trade_calendar.json` via `monitor/trading_calendar.load_trading_days`)
+  and counts only *trading days the market was actually open* inside each recent
+  gap; `structural.nav_quality` WARNs when `missing_trading_days >= _MISSING_TRADING_WARN = 2`.
+  `_RECENT_GAP_WINDOW` (now relevance-scoping, not holiday-dodging) and the
+  `_WARN_GAP_DAYS = 8` heuristic survive **only** as the degraded fallback when the
+  calendar is unavailable (`missing_trading_days is None`), so #158 is not wasted.
+  The gate stays fail-open. `eval_trace.json` gains `missing_trading_days`;
+  `schema_version` bumped `"1"` → `"2"`. See
+  `docs/2026-06-17-monitor-nav-gap-calendar/items/001-spec.md`.
