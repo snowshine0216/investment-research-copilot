@@ -12,6 +12,11 @@ _COMPOSITE_DP = 4   # composite is round(Σcontribution, 4) — see signal.py / 
 # if they land inside the recent gap window (trace._RECENT_GAP_WINDOW) — a rare, brief
 # residual, not the former permanent caveat. See ADR 0018.
 _WARN_GAP_DAYS = 8
+# Calendar-grounded gap rule (spec §3.3): WARN only when the fund missed >=2
+# consecutive SSE-open trading days (a single isolated miss is a transient
+# publish/AkShare glitch, tolerated). _WARN_GAP_DAYS above survives only as the
+# degraded fallback when the calendar is unavailable. See ADR 0018 D3.
+_MISSING_TRADING_WARN = 2
 
 
 def _parse_date(s: str) -> date | None:
@@ -79,7 +84,12 @@ def nav_quality(
     _today = today if today is not None else date.today()
     if parsed is not None and (_today - parsed).days > stale_days:
         return StageHealth("nav_quality", "FAIL", (f"as_of older than {stale_days}d",))
+    missing = nav.get("missing_trading_days")
     gap = nav.get("max_gap_days")
+    if missing is not None:
+        if missing >= _MISSING_TRADING_WARN:
+            return StageHealth("nav_quality", "WARN", (f"missed {missing} trading days",))
+        return StageHealth("nav_quality", "PASS", ())
     if gap is not None and gap > _WARN_GAP_DAYS:
         return StageHealth("nav_quality", "WARN", (f"gap {gap}d",))
     return StageHealth("nav_quality", "PASS", ())
