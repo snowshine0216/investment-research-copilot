@@ -20,11 +20,11 @@
 |---|---|
 | D1 | **Both surfaces.** Flow + per-stock valuation (a) drive the bias *and* (b) render a per-fund drill-down report. Plus an eval. |
 | D2 | **Drive the bias** by adding a dedicated `flow` factor — NOT folded into `heat` (heat/crowding is *bearish* on inflow; flow must be *bullish* on inflow — opposite sign). |
-| D3 | **Flow signal = 主力净流入净占比** (main-money net-inflow % of turnover), 5d & 20d windows, via `ak.stock_individual_fund_flow`. A-share only. |
+| D3 | **Flow signal = 主力净流入净占比** (main-money net-inflow % of turnover), 5d & 20d windows, via `ak.stock_individual_fund_flow`. A-share only. **Unit = percent-points** (akshare parses the EastMoney column via `pd.to_numeric` with NO `/100`; `12.34` means 12.34%). All flow_pct fields, bands, and tests are in percent-points — never ratio. |
 | D4 | **Report = per-fund drill-down** (top-5 holdings board + roll-up to bias), embedded in the brief *and* written as a standalone `drilldown.html`. |
 | D5 | **Aggregation = holding-weight-weighted, renormalized over covered top holdings**: `flow_value = Σ(wᵢ·sᵢ) / Σ(wᵢ)`. Bigger positions dominate; result stays on the full [−1,+1] scale. |
 | D6 | **Coverage floor 0.50.** If covered top-holding weight / total top-holding weight < 0.50 → `flow_no_coverage` (honest N/A), mirroring the valuation factor's 0.50 covered-NAV gate. |
-| D7 | **Flow thresholds (净占比 → score):** `≥ +3% → +1.0`, `+1…+3% → +0.5`, `−1…+1% → 0.0`, `−3…−1% → −0.5`, `≤ −3% → −1.0`. |
+| D7 | **Flow thresholds (净占比 → score), percent-point units:** `flow_pct ≥ 3.0 → +1.0`, `1.0…3.0 → +0.5`, `−1.0…1.0 → 0.0`, `−3.0…−1.0 → −0.5`, `≤ −3.0 → −1.0`. (A ratio-unit value like `0.03` lands in the `−1.0…1.0` deadband → `0.0`, the canary for a 100× inversion.) |
 | D8 | **Weights (`active_cn_equity`):** trend `.25`, valuation `.20`, **flow `.15`**, heat `.10`, macro_tilt `.15`, constituent `.15`. Other profiles unchanged. |
 
 ## 3. Scope
@@ -52,23 +52,36 @@ The pure core (`holding_metrics`, `factor_maps.flow_score`, `factors._flow`, ren
 ## 5. Components
 
 ### 5.A `flow_fetch.py` (EDGE + pure parse) — Slice 1
-Mirrors `heat_fetch.py`'s contract: never raises, degrades to None.
+Mirrors `heat_fetch.py`'s contract: never raises, degrades to None. The in-memory type is **parsed rows, never a DataFrame** (so the on-disk form is byte-stable).
 
-- `fetch_flow_series(symbols, *, cache_dir, today, fetch=None) -> dict[str, pd.DataFrame|None]`
-  - For each unique 6-digit A-share symbol: load from per-day cache `data/monitor/fund_flow/<today>.json` if present; else `ak.stock_individual_fund_flow(stock=symbol, market=_market_of(symbol))`, parse to a `{date, main_net_pct}` series, cache it. CN endpoint stays **DIRECT** (no `IRC_HTTPS_PROXY`) per the project proxy rule.
-  - `_market_of(symbol)`: `6*`→`sh`, `0*/3*`→`sz`, `8*/4*`→`bj`. Non-A-share symbols (HK/US lines) are skipped → never fetched → no series → uncovered.
-  - One `try/except` per symbol → miss yields `None` (→ `flow_no_data` for that stock). A whole-market akshare outage degrades every stock to N/A, never a wrong number.
-- `parse_main_net_pct(df) -> tuple[tuple[str, float], ...]`: pure; extracts `(date, 主力净流入-净占比)` rows, column-name-tolerant (unexpected shape → empty → N/A, never a fabricated value).
+- `FlowSeries` = `tuple[tuple[str, float], ...]` — `(date_iso, main_net_pct)` rows, **percent-point units** (D3), sorted ascending by date.
+- `fetch_flow_series(symbols, *, cache_dir, today, fetch=None) -> dict[str, FlowSeries | None]`
+  - For each unique 6-digit A-share symbol: load from the per-day cache if present; else `ak.stock_individual_fund_flow(stock=symbol, market=_market_of(symbol))`, run `parse_main_net_pct`, then write the cache. CN endpoint stays **DIRECT** (no `IRC_HTTPS_PROXY`) per the project proxy rule.
+  - `_market_of(symbol)`: `6*`→`sh`, `0*/3*`→`sz`, `8*/4*`→`bj`. Non-A-share symbols (HK/US lines) are skipped → never fetched → `None` → uncovered.
+  - One `try/except` per symbol → fetch failure yields `None` (→ `flow_no_data`). A whole-market akshare outage degrades every stock to N/A, never a wrong number.
+- `parse_main_net_pct(df) -> FlowSeries`: pure; extracts `(date, 主力净流入-净占比)` rows, column-name-tolerant; rows with a non-numeric/NaN 净占比 are dropped (unexpected shape → empty → N/A, never a fabricated value). No `/100` (units are already percent-points).
+- **Cache schema** (`data/monitor/fund_flow/<today>.json`) — explicit, deterministic, miss-recording:
+  ```json
+  {
+    "<symbol>": {"status": "ok",   "rows": [{"date": "2026-06-17", "main_net_pct": 1.23}, ...]},
+    "<symbol>": {"status": "miss", "rows": []}
+  }
+  ```
+  Symbols sorted; each `rows` array sorted ascending by `date`; `main_net_pct` rounded to 4dp. `status:"miss"` records a confirmed fetch failure so a re-run does not re-hit a dead symbol (and re-renders are stable). The loader maps `"ok"`→`FlowSeries`, `"miss"`→`None`.
 
 Caching is **idempotent within a day** so `--resume` and the standalone `drilldown.html` re-render never re-fetch. ~15–25 unique symbols/run (deduped across the 7 funds). Free endpoint → no spend-gate impact.
 
 ### 5.B `holding_metrics.py` (PURE) — Slice 1
-- `HoldingMetric` (frozen): `symbol, name, weight_pct, pe, pb, pe_percentile, valuation_state, flow_pct_5d, flow_pct_20d, flow_score, flow_reason`.
+- `HoldingMetric` (frozen): `symbol, name, weight_pct, pe, pb, pe_percentile, valuation_state, valuation_reason, flow_pct_5d, flow_pct_20d, flow_score, flow_reason`. (`valuation_reason` ∈ {`None`, `pe_not_positive`, `pe_immature`, `no_series`}; `flow_reason` ∈ {`None`, `flow_no_data`}.)
 - `FlowAggregate` (frozen): `value: float|None, reason: str|None, covered_weight_ratio: float`.
 - `per_stock_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]`:
-  - PE/PB/percentile/state per code reuse the opportunity `MetricSeries` already loaded for valuation — **no new valuation fetch**.
-  - `flow_pct_5d` / `flow_pct_20d` = mean of the last 5 / last 20 daily 主力净占比 rows (pure). Blended `flow_pct = 0.4·5d + 0.6·20d` (steadier 20d favored; blend weights are named constants).
-  - `flow_score = flow_band(flow_pct)` (D7). Missing series → `flow_score=None, flow_reason="flow_no_data"`.
+  - **Valuation (per-stock — a NEW computation, distinct from the fund aggregate).** `fund_valuation_percentile` returns only fund-level `MetricCoverage`; it does NOT expose per-stock percentile/state. So `per_stock_valuation(code, MetricSeries)` is defined here, reusing the *same primitives* the fund path uses (no new fetch — it consumes the `MetricSeries.points` already loaded for the valuation factor):
+    - `pe` / `pb` = the **latest** point's value (most recent date with a non-null value for that metric), shown raw even when negative/zero.
+    - `pe_percentile` = `self_history_percentile` over the code's own **strictly-positive** PE sub-series, gated by `_pe_series_is_mature` (the 120/180-day maturity gate). Immature history OR no positive PE point → `pe_percentile=None`.
+    - `valuation_state` = `percentile_to_valuation_state(pe_percentile)` → `None` when percentile is `None`. **Negative/zero PE** ⇒ no positive metric ⇒ percentile `None` ⇒ state `None` (board shows the raw negative PE with state `—`, reason `pe_not_positive` / `pe_immature`). PB is reported raw (no percentile) as context only.
+    - This per-stock percentile is each stock vs. **its own** history — it is NOT and need not equal the fund-aggregate percentile (which is a portfolio-earnings-yield series); the two answer different questions and both appear in the report.
+  - `flow_pct_5d` / `flow_pct_20d` = mean of the last 5 / last 20 daily 主力净占比 rows, **percent-points** (pure). Blended `flow_pct = 0.4·5d + 0.6·20d` (steadier 20d favored; blend weights are named constants). A series with <5 (resp. <20) rows uses what it has; an empty series → `None`.
+  - `flow_score = flow_band(flow_pct)` (D7, percent-point bands). `None` series → `flow_score=None, flow_reason="flow_no_data"`.
 - `aggregate_flow(metrics) -> FlowAggregate`: `Σ(wᵢ·sᵢ)/Σ(wᵢ)` over holdings with a non-None `flow_score`; `covered_weight_ratio = Σ covered wᵢ / Σ all top-holding wᵢ`. **Zero covered holdings** (nothing fetched) → `value=None, reason="flow_no_data"`. **Covered but ratio < `_COVERAGE_FLOOR (0.50)`** → `value=None, reason="flow_no_coverage"`. Else `value=Σwᵢsᵢ/Σwᵢ, reason=None`. (`_flow` in §5.C maps each reason to its matching N/A.)
 
 ### 5.C Flow factor + scoring — Slice 3
@@ -98,10 +111,14 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 - **Determinism** (`eval/determinism.py`): flow factor + `holding_metrics` reproduce identically on cached re-run; recognize the new factor name and N/A reasons (it already imports `KNOWN_NA_REASONS`).
 - **Coverage/health** (free, in `eval monitor_signal`): per-fund flow coverage % and PE/PB coverage %, plus `flow_no_data`/`flow_no_coverage` tallies — so you see exactly where the drill-down has data.
 - **Reconciliation oracle** (`eval/structural.py`): assert the board's per-stock `Σ(wᵢ·sᵢ)/Σ(wᵢ)` over covered rows equals the `flow` factor value (to 4dp) — proves the methodology is *correct*, not merely displayed.
-- **Predictive** (existing M3 forward scorer): no new code — the newly-grounded bias automatically enters `forward_ledger.jsonl`; the forward scorer measures whether `ADD_BIAS`/`REDUCE_BIAS` now predict forward returns. The ultimate test of "does flow make add-bias behave like a buy signal."
+- **Predictive — forward-eval population isolation (REQUIRED, not free).** The new factor + reweight change the bias semantics, so v1 (pre-flow) and v2 (post-flow) ledger rows must NOT be pooled into one metric. Today nothing reads `manifest_versions.engine`: `runner.py` passes every parsed ledger row to `score_forward`, and `score_forward`/`prefilter_ledger` ignore the field. The engine bump (§5.F) is **necessary but not sufficient**; this contract makes it effective:
+  - `score_forward(..., target_engine: str | None = None)`: when `target_engine` is set, a row whose `manifest_versions.engine != target_engine` is excluded **before** the maturity join and counted under a new exclusion reason `engine_mismatch` in the returned `excl` dict. (Rows missing the field count as a sentinel `"0"`/legacy engine — also excluded when a target is set.)
+  - `runner.py`: compute `target_engine = _target_engine(ledger)` = the **max engine version present** in the ledger (deterministic, self-configuring — no external config; a deliberate rollback is out of scope), pass it to `score_forward`, and write the per-engine excluded counts into `details.json` (`excluded_by_engine`). The headline metrics are then computed on the target-engine population only.
+  - **Tests:** a ledger mixing engine `"1"` and `"2"` rows → only `"2"` rows reach `forward_rows`; `excl["engine_mismatch"]` equals the `"1"`-row count; `details.json.excluded_by_engine` reports it. A single-engine ledger is unaffected (back-compat: `target_engine=None` preserves today's no-filter behavior).
+  - Once isolated, the forward scorer measures whether v2 `ADD_BIAS`/`REDUCE_BIAS` predict forward returns — the ultimate test of "does flow make add-bias behave like a buy signal."
 
 ### 5.F Versioning
-- Bump `_ENGINE_VERSION` `"1" → "2"` in `monitor_cmd.py`: the composite/bias semantics change (new factor + reweight), so the forward scorer must not blend pre-flow and post-flow biases under one engine id. (Open for review — see §8.)
+- Bump `_ENGINE_VERSION` `"1" → "2"` in `monitor_cmd.py` (**mandatory**): the composite/bias semantics change (new factor + reweight). This tags new ledger rows so the §5.E `target_engine` filter can isolate them. The bump **alone is not sufficient** — without the §5.E reader/runner filter, the tag is never read and populations still pool. Both ship together in Slice 4.
 
 ## 6. Invariants & constraints (must hold)
 
@@ -113,16 +130,17 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 
 ## 7. Slice plan (TDD, red→green→refactor each)
 
-1. **Data layer** — `flow_fetch.py` (edge + cache) + `holding_metrics.py` (pure metrics + aggregate + coverage gate). No bias impact. Tests: parse tolerance, window means, aggregation math, coverage floor, market-prefix routing.
-2. **Report** — `render_drilldown.py` + `FundView.holding_metrics` + `monitor_cmd` wiring to build metrics and write `drilldown.html` + embed in card. *You see the data before it moves any bias.* Tests: board rows, N/A rendering, roll-up reconciliation, standalone page.
-3. **Flow factor → bias** — `factor_maps.flow_score`, `factors._flow` + `FactorInputs.flow`, `profiles` eligible+weights, `signal` family + `valuation_flow_conflict`, `CANONICAL_FACTOR_ORDER`. Tests: bands, eligibility per profile, N/A reasons, renorm/composite, divergence, weight-vector sums to 1.0.
-4. **Eval** — trace schema 2→3 + `holding_metrics` block, determinism recognition, coverage health, reconciliation oracle, engine_version bump. Tests: schema shape, determinism re-run, reconciliation equality.
+1. **Data layer** — `flow_fetch.py` (edge + cache, parsed-row JSON schema §5.A) + `holding_metrics.py` (pure: per-stock valuation §5.B + flow windows + aggregate + coverage gate). No bias impact. Tests: parse tolerance, **flow-unit boundaries at `1.0`, `3.0`, `0.01`, `0.03`** (percent-point vs ratio canary), cache round-trip (ok + miss records, sorted/4dp), window means with short series, per-stock percentile maturity gate + negative/zero-PE → state `None`, aggregation math, coverage floor, market-prefix routing.
+2. **Report** — `render_drilldown.py` + `FundView.holding_metrics` + `monitor_cmd` wiring to build metrics and write `drilldown.html` + embed in card. *You see the data before it moves any bias.* Tests: board rows, N/A rendering (incl. `pe_not_positive`/`pe_immature`), roll-up reconciliation, standalone page.
+3. **Flow factor → bias** — `factor_maps.flow_score`, `factors._flow` + `FactorInputs.flow`, `profiles` eligible+weights, `signal` family + `valuation_flow_conflict`, `CANONICAL_FACTOR_ORDER`. Tests: bands (percent-point), eligibility per profile, N/A reasons (`flow_no_data` vs `flow_no_coverage`), renorm/composite, divergence, weight-vector sums to 1.0.
+4. **Eval + versioning** — trace schema 2→3 + `holding_metrics` block, determinism recognition, coverage health, reconciliation oracle, **engine_version bump `1→2` + `score_forward(target_engine=…)` filter + `runner._target_engine` + `details.json.excluded_by_engine` (§5.E/§5.F)**. Tests: schema shape, determinism re-run, reconciliation equality, **mixed-engine ledger → only target-engine rows scored + `engine_mismatch` count correct + single-engine back-compat**.
 
 Ship as one feature branch (matches #166's multi-slice single-PR pattern).
 
 ## 8. Open questions / for review
 
-- **§5.F engine_version bump** — bump to `"2"` (recommended, keeps forward-eval honest) vs stay `"1"` (preserves a continuous forward-ledger series across the change). Confirm on review.
+- **Engine bump + isolation — DECIDED (review #1, P0).** `_ENGINE_VERSION → "2"` is mandatory AND paired with the §5.E `target_engine` reader/runner filter; the bump alone does not isolate populations because nothing reads `manifest_versions.engine` today. The deliberate alternative of keeping `"1"` for a continuous series is rejected — it would pool incomparable pre/post-flow biases into one metric.
+- **Target-engine policy** — the runner targets the max engine version present in the ledger (self-configuring, no config). A deliberate engine *rollback* is out of scope; if ever needed, add an explicit `--engine` override then.
 - Flow blend weights (`0.4·5d + 0.6·20d`) and the coverage floor (`0.50`) are named constants; promote to `config/monitor.yaml` only if you later want to tune them per-run.
 
 ## 9. Out of scope (YAGNI)
