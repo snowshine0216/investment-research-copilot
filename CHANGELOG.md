@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor `heat` factor: restriction leg (2026-06-17)
+
+- **Lights up the previously-dark `heat` (crowding) factor** in `irc monitor` for all eligible
+  funds via the **restriction leg** (限购 / 申购状态). New `src/irc/monitor/heat_fetch.py`:
+  `fetch_purchase_table` makes ONE market-wide `ak.fund_purchase_em()` call per run (lazy akshare
+  import, CN endpoint direct — no proxy); pure `parse_purchase_status` (restricted when 申购状态 ∉
+  `{开放申购}` or 日累计限定金额 < 1e8; absent/unparseable/missing-column → None) and
+  `heat_inputs_for` → `(restricted, None)`. Wired into the monitor command edge (fetched once,
+  threaded per-fund). `heat_score` unchanged: `restricted` → −0.5 (crowded), else +0.3 (calm),
+  `None` → `heat_no_data`.
+- **Availability contract (no silent failure):** a failed/empty fetch returns `None` (never raises)
+  → honest `heat_no_data` for every fund, with a structured log. Schema drift (renamed AkShare
+  columns) is now surfaced: the edge logs a warning and returns `None` rather than nulling heat
+  silently. Never a fabricated score.
+- **AUM-Δ leg deferred** (`aum_delta_pct` always `None`): no per-fund live QoQ AUM source exists
+  (`fund_scale_change_em` is aggregate-only), so the overheated −1.0 tier cannot fire yet (TODOS).
+  Also fixes an item-001 test-scope regression (a `_process_fund` monkeypatch lambda in
+  `tests/commands/` that didn't accept the new `con`/`purchase_table` kwargs).
+
+### Added — monitor `valuation` factor: index-anchored path + unified 5-state vocabulary (2026-06-17)
+
+- **Wires the previously-dark `valuation` factor** in `irc monitor` for funds whose `tracked_index`
+  resolves to a real `_INDEX_VALUATION_KEYS` member. New pure `monitor/valuation.py`:
+  `resolve_valuation_state(fund, *, con, root)` dispatches by `tracked_index` — the index-anchored
+  branch reuses the opportunity layer's pure `_index_valuation_metrics` (PE-percentile) on cached
+  DuckDB tables, then maps via the shared `opportunity/states._band` thresholds (DRY); the
+  look-through branch is an honest N/A stub (filled by a later slice). Cache-read only — no new
+  network calls; ADR 0017 evidence isolation preserved (opportunity *pure functions* on
+  monitor-loaded cached tables, never opportunity output files).
+- **Unifies `monitor/factor_maps._VALUATION_MAP`** onto the opportunity layer's five states
+  (`cheap/reasonable_low/fair/expensive/very_expensive`), replacing the lossy
+  `fair_cheap/fair_expensive` keys — one valuation vocabulary, one source of truth. Unrecognized
+  state → `valuation_unknown_state` (unchanged contract).
+- **Command edge** (`monitor_cmd.py`) opens the cached `data/local.duckdb` once (guarded — degrades
+  to N/A, never crashes the brief, on an absent/unreadable/partial DB), threads it through
+  `_process_fund`, and feeds real `valuation_state`/`valuation_cached`. Connection closed via
+  `try/finally`.
+- **Honest degradation:** any DuckDB read error (e.g. a partial DB missing a table) → `valuation_no_anchor`
+  with a logged warning, never a propagated crash. `gold`/`qdii_global` valuation stays
+  `profile_ineligible`; no new N/A reason codes; eval determinism unchanged. Known gap: `009225`
+  (`china_internet`) is not yet an index-valuation key → ships honest N/A (documented follow-up).
+
 ### Changed — monitor `nav_quality`: NAV-gap caveat now grounded in the real CN trading calendar (2026-06-17)
 
 - **Supersedes the calendar-day heuristic below with ground truth.** The prior fix measured gaps in
@@ -83,6 +125,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `fund_id`, the unmatched key, and the available holding symbols, so future keying drift is visible.
 - Closes the documented v2.1 open item "constituent symbol-keying can vary run-to-run". TDD;
   new `tests/monitor/test_constituent_match.py` + cases in `tests/commands/test_monitor_constituent.py`.
+
+### Added — monitor `valuation` factor: look-through path for pure active funds (2026-06-17)
+
+- **Lights up the look-through `valuation` factor** in `irc monitor` for the 6 pure active funds
+  (`active_cn_equity`, `tracked_index is None`). `monitor/valuation._resolve_lookthrough` now
+  assembles holdings from the **monitor's own cached `ActiveFundSnapshot`**
+  (`load_latest_active_fund_cached` under `data/` — the same source the constituent factor uses),
+  joins them to the cached DuckDB `stock_valuation_history` PE/PB series via the opportunity pure
+  reader `_stock_series_by_code`, and reuses the pure `fund_valuation_percentile`
+  (`coverage_floor=0.50`, `pb_uses_pe_gate=False`) → `percentile_to_valuation_state`. New pure
+  helper `monitor/lookthrough.py` holds the snapshot→percentile→state math (no I/O). Cache-read
+  only — no new network calls; ADR 0017 evidence isolation preserved (monitor-consumed cached
+  artifacts, never opportunity output files, no pipeline dependency).
+- **Honest degradation:** empty/absent snapshot, coverage below the 0.50 NAV floor, immature PE
+  history, or non-A-share (HK/US QDII) holdings → `valuation_no_anchor` (surfaced, never
+  fabricated). No new N/A reason codes; eval determinism unchanged.
+- **Known residual coverage gap (see TODOS.md):** look-through depends on `stock_valuation_history`
+  coverage of a fund's constituents, which today is populated only for watchlist-overlapping
+  A-shares (no dedicated monitor-constituent stock-valuation ingest exists — adding one is a
+  non-goal of this spec). Funds without overlap honestly ship `valuation_no_anchor`.
 
 ### Added — monitor set expanded to 10 funds: 交银择优回报 (519770) + 博时中证有色金属矿业主题指数A (018132) + 万家行业优选 (161903) (2026-06-17)
 

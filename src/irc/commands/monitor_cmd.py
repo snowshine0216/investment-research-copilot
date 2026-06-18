@@ -13,6 +13,9 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
+from irc.data.duckdb_helper import connect
+from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for
+from irc.monitor.valuation import resolve_valuation_state
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
     load_latest_active_fund_cached,
@@ -541,7 +544,7 @@ def _append_nav_history_for_views(
 
 
 def _process_fund(
-    fund: MonitorFund, cfg, root: Path, llm_config,
+    fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
@@ -575,13 +578,21 @@ def _process_fund(
             cost_history.extend(const_impacts_result.cost_entries)
             constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
 
+    from irc.monitor.valuation import ValuationResolution
+    if con is not None:
+        val = resolve_valuation_state(fund, con=con, root=root)
+    else:
+        val = ValuationResolution(None, False, "valuation_no_anchor")
+
+    restricted, aum_delta_pct = heat_inputs_for(fund.id, purchase_table=purchase_table)
+
     inp = FactorInputs(
         acc_nav=nav.acc_series if nav else (),
         minimum_observations=cfg.history.minimum_observations,
-        valuation_state=None,
-        valuation_cached=False,
-        restricted=None,
-        aum_delta_pct=None,
+        valuation_state=val.state,
+        valuation_cached=val.cached,
+        restricted=restricted,
+        aum_delta_pct=aum_delta_pct,
         macro_rows=macro_rows,
         constituent_rows=constituent_rows,
     )
@@ -611,14 +622,31 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     cfg = load_monitor_config(root)
     funds = resolve_funds(cfg)
     llm_config = load_yaml(root / "config/llm.yaml", root)
+    con = None
+    db_path = root / "data" / "local.duckdb"
+    if db_path.exists():
+        try:
+            con = connect(db_path)
+        except Exception:  # noqa: BLE001 — degrade, never crash the brief
+            _log.warning("valuation DB open failed; valuation → N/A", exc_info=True)
+            con = None
+    purchase_table = fetch_purchase_table()  # ONE akshare call/run; None on failure → heat_no_data
+    if purchase_table is None:
+        _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
-    for fund in funds:
-        view, costs, bundle = _process_fund(fund, cfg, root, llm_config)
-        views.append(view)
-        bundles.append(bundle)
-        all_costs.extend(costs)
+    try:
+        for fund in funds:
+            view, costs, bundle = _process_fund(
+                fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
+            )
+            views.append(view)
+            bundles.append(bundle)
+            all_costs.extend(costs)
+    finally:
+        if con is not None:
+            con.close()
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)

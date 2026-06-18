@@ -68,13 +68,13 @@ def valuation_oracle(state: str):
     """Re-expressed as an explicit if-ladder instead of a dict lookup."""
     if state == "cheap":
         return 1.0
-    if state == "fair_cheap":
+    if state == "reasonable_low":
         return 0.5
     if state == "fair":
         return 0.0
-    if state == "fair_expensive":
-        return -0.5
     if state == "expensive":
+        return -0.5
+    if state == "very_expensive":
         return -1.0
     return None
 
