@@ -68,3 +68,43 @@ def test_valuation_present_when_cached_state():
 def test_heat_na_when_no_data():
     s = _by_name(build_factor_scores("gold", _inputs()))["heat"]
     assert s.eligible is False and s.reason == "heat_no_data"
+
+
+# ── _flow tests ───────────────────────────────────────────────────────────────
+from irc.monitor.factors import _flow  # noqa: E402
+from irc.monitor.holding_metrics import FlowAggregate  # noqa: E402
+
+
+def _inp(flow=None):
+    return FactorInputs(
+        acc_nav=_nav(300), minimum_observations=251,
+        valuation_state=None, valuation_cached=False,
+        restricted=None, aum_delta_pct=None,
+        macro_rows=(), constituent_rows=(), flow=flow,
+    )
+
+
+def test_flow_profile_ineligible_on_gold():
+    s = _flow("gold", _inp(FlowAggregate(0.5, None, 1.0)))
+    assert not s.eligible and s.reason == "profile_ineligible"
+
+
+def test_flow_none_input_is_flow_no_data():
+    s = _flow("active_cn_equity", _inp(None))
+    assert not s.eligible and s.reason == "flow_no_data"
+
+
+def test_flow_no_coverage_when_value_none():
+    s = _flow("active_cn_equity", _inp(FlowAggregate(None, "flow_no_coverage", 0.25)))
+    assert not s.eligible and s.reason == "flow_no_coverage"
+
+
+def test_flow_present_value_passes_through():
+    s = _flow("active_cn_equity", _inp(FlowAggregate(0.625, None, 1.0)))
+    assert s.eligible and s.value == 0.625
+
+
+def test_build_factor_scores_now_has_six_factors():
+    scores = build_factor_scores("active_cn_equity", _inp(FlowAggregate(0.5, None, 1.0)))
+    assert [s.name for s in scores] == ["trend", "valuation", "heat", "macro_tilt",
+                                        "constituent", "flow"]
