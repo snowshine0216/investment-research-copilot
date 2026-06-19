@@ -178,3 +178,37 @@ def test_nav_quality_falls_back_to_max_gap_when_calendar_absent_pass():
     t["nav"]["missing_trading_days"] = None
     t["nav"]["max_gap_days"] = 7   # <= 8 → PASS
     assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+# --- Task 4.3: flow_reconciliation oracle ---
+
+from irc.monitor.eval.structural import flow_reconciliation
+
+
+def _trace_fund(rows, agg_value, flow_factor_value):
+    return {
+        "holding_metrics": {"rows": rows, "aggregate": {"value": agg_value,
+                                                        "reason": None,
+                                                        "covered_weight_ratio": 1.0}},
+        "signal": {"contributions": [{"name": "flow", "value": flow_factor_value}]},
+    }
+
+
+def test_flow_reconciliation_passes_when_board_matches_factor():
+    rows = [{"weight_pct": 30.0, "flow_score": 1.0},
+            {"weight_pct": 10.0, "flow_score": -0.5}]
+    t = _trace_fund(rows, 0.625, 0.625)   # (30*1 + 10*-0.5)/40
+    assert flow_reconciliation(t).status == "PASS"
+
+
+def test_flow_reconciliation_fails_on_mismatch():
+    rows = [{"weight_pct": 30.0, "flow_score": 1.0}]
+    t = _trace_fund(rows, 1.0, 0.5)   # factor value disagrees with board
+    assert flow_reconciliation(t).status == "FAIL"
+
+
+def test_flow_reconciliation_na_factor_is_pass():
+    # no flow contribution (factor N/A) → nothing to reconcile → PASS.
+    t = {"holding_metrics": {"rows": [], "aggregate": {"value": None}},
+         "signal": {"contributions": []}}
+    assert flow_reconciliation(t).status == "PASS"

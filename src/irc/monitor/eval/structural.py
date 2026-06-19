@@ -107,3 +107,32 @@ def monitor_signal_health(
     overall = worst_status([p.status for p in parts])  # only PASS/WARN/FAIL here (no UNKNOWN)
     reasons = tuple(r for p in parts for r in p.reasons)
     return StageHealth(stage="monitor_signal", status=overall, reasons=reasons)
+
+
+def _board_flow_value(rows: list[dict]) -> float | None:
+    covered = [r for r in rows if r.get("flow_score") is not None]
+    cw = sum(r["weight_pct"] for r in covered)
+    if cw <= 0.0:
+        return None
+    return sum(r["weight_pct"] * r["flow_score"] for r in covered) / cw
+
+
+def _flow_factor_value(t: dict) -> float | None:
+    for c in t.get("signal", {}).get("contributions", []):
+        if c.get("name") == "flow":
+            return c.get("value")
+    return None
+
+
+def flow_reconciliation(t: dict) -> StageHealth:
+    """PURE: the board's Σ(wᵢ·sᵢ)/Σ(wᵢ) over covered rows must equal the flow factor
+    value (4dp). No flow contribution → nothing to reconcile → PASS (§5.E).
+    Panel-only — NOT added to any GATING_STAGES list (mirrors deterministic_health)."""
+    factor_value = _flow_factor_value(t)
+    if factor_value is None:
+        return StageHealth("flow_reconciliation", "PASS", ())
+    board_value = _board_flow_value(t.get("holding_metrics", {}).get("rows", []))
+    if board_value is None or abs(round(board_value, 4) - round(factor_value, 4)) >= _EPS:
+        return StageHealth("flow_reconciliation", "FAIL",
+                           (f"board {board_value} != factor {factor_value}",))
+    return StageHealth("flow_reconciliation", "PASS", ())
