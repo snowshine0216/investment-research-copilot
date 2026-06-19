@@ -24,8 +24,19 @@ def test_qdii_global_excludes_valuation_keeps_constituent():
 
 def test_active_cn_equity_full_vector():
     assert set(eligible_factors("active_cn_equity")) == {
-        "trend", "valuation", "heat", "macro_tilt", "constituent"
+        "trend", "valuation", "flow", "heat", "macro_tilt", "constituent"
     }
+
+
+def test_active_cn_equity_flow_weight_is_d8():
+    w = default_weights("active_cn_equity")
+    assert w == {"trend": 0.25, "valuation": 0.20, "flow": 0.15,
+                 "heat": 0.10, "macro_tilt": 0.15, "constituent": 0.15}
+
+
+def test_only_active_cn_equity_has_flow():
+    for profile in ("gold", "qdii_global", "qdii_china_us_internet"):
+        assert "flow" not in eligible_factors(profile)
 
 
 def test_qdii_china_us_internet_valuation_eligible():

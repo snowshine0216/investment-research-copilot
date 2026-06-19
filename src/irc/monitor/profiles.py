@@ -28,9 +28,9 @@ PROFILES: dict[str, ProfileSpec] = {
     ),
     "active_cn_equity": ProfileSpec(
         lookthrough="active_fund",
-        eligible=("trend", "valuation", "heat", "macro_tilt", "constituent"),
-        weights={"trend": 0.30, "valuation": 0.20, "heat": 0.15,
-                 "macro_tilt": 0.20, "constituent": 0.15},
+        eligible=("trend", "valuation", "flow", "heat", "macro_tilt", "constituent"),
+        weights={"trend": 0.25, "valuation": 0.20, "flow": 0.15,
+                 "heat": 0.10, "macro_tilt": 0.15, "constituent": 0.15},
     ),
     "qdii_china_us_internet": ProfileSpec(
         lookthrough="fund_level",
