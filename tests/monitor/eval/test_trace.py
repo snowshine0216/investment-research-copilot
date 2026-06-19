@@ -257,7 +257,7 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_2():
+def test_schema_version_is_3():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
-                         engine_version="1", run_date="2026-06-16")
-    assert t["schema_version"] == "2"
+                         engine_version="2", run_date="2026-06-19")
+    assert t["schema_version"] == "3"

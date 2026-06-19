@@ -67,7 +67,7 @@ from irc.spend.record_run import record_command_run
 from irc.commands.spend_cmd import preflight_gate
 
 _log = logging.getLogger(__name__)
-_ENGINE_VERSION = "1"
+_ENGINE_VERSION = "2"
 _NAV_STALE_DAYS = 7
 
 

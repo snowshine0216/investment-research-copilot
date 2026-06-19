@@ -9,7 +9,7 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
