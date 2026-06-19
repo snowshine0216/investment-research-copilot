@@ -159,8 +159,8 @@ def _row(stage: str, healths: dict, now: str) -> ValidationPanelRow:
 def build_panel_rows(
     signal_healths: dict, deterministic_healths: dict, *, now: str,
     suite_rows: tuple[ValidationPanelRow, ...] = (),
-    flow_reconciliation_healths: dict = {},  # noqa: B006 — intentional: empty sentinel
-    flow_coverage_healths: dict = {},        # noqa: B006 — intentional: empty sentinel
+    flow_reconciliation_healths: dict | None = None,
+    flow_coverage_healths: dict | None = None,
 ) -> tuple[ValidationPanelRow, ...]:
     """Panel rows from the per-fund healths plus the run-global gating LLM-suite
     rows. monitor_signal reflects RAW signal_health worst-of (divergence 1); the

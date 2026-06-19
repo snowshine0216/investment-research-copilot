@@ -447,7 +447,7 @@ def _compute_gates(
                 "flow_reconciliation failed for %s: %r", fund.id, exc, exc_info=True,
             )
             flow_recon_healths[fund.id] = StageHealth(
-                stage="flow_reconciliation", status="PASS",
+                stage="flow_reconciliation", status="WARN",
                 reasons=(f"{fund.id}: reconciliation_error: {exc!r}",),
             )
         try:
@@ -457,7 +457,7 @@ def _compute_gates(
                 "flow_coverage_health failed for %s: %r", fund.id, exc, exc_info=True,
             )
             flow_cov_healths[fund.id] = StageHealth(
-                stage="flow_coverage", status="PASS",
+                stage="flow_coverage", status="WARN",
                 reasons=(f"{fund.id}: coverage_error: {exc!r}",),
             )
         health = (signal_health, *suite_healths)
@@ -656,6 +656,7 @@ def _process_fund(
         aum_delta_pct=aum_delta_pct,
         macro_rows=macro_rows,
         constituent_rows=constituent_rows,
+        flow=aggregate_flow(holding_metrics) if holding_metrics else None,
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)

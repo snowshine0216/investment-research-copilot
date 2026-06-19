@@ -53,7 +53,7 @@ def _target_engine(ledger: list[dict]) -> str | None:
     versions = {_row_engine(r) for r in ledger}
     if not versions:
         return None
-    return max(versions, key=int)
+    return max(versions, key=lambda v: int(v) if str(v).isdigit() else 0)
 
 
 def _build_retro_points(repo_root: Path, nav_by_fund: dict[str, list[dict]],

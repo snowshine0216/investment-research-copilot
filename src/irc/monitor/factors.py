@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from irc.monitor.profiles import eligible_factors
 from irc.monitor.trend import trend_score
 from irc.monitor.factor_maps import valuation_state_score, heat_score
-from irc.monitor.holding_metrics import FlowAggregate
+from irc.monitor.holding_metrics import FlowAggregate, _NA_FLOW_NO_DATA, _NA_FLOW_NO_COVERAGE
 from irc.monitor.news_factor import ImpactRow, aggregate_news_factor
 from irc.monitor.types import FactorScore
 
@@ -18,9 +18,6 @@ _NA_HEAT_NO_DATA = "heat_no_data"
 _NA_MACRO_INSUFFICIENT_FAMILIES = "macro_insufficient_families"
 _NA_MACRO_EMPTY_POOL = "macro_empty_pool"
 _NA_CONSTITUENT_NO_COVERAGE = "constituent_no_coverage"
-_NA_FLOW_NO_DATA = "flow_no_data"
-_NA_FLOW_NO_COVERAGE = "flow_no_coverage"
-
 KNOWN_NA_REASONS: frozenset[str] = frozenset({
     _NA_PROFILE_INELIGIBLE,
     _NA_TREND_INSUFFICIENT_HISTORY,
