@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 ## Evidence cells
 
@@ -20,8 +20,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
   - Slice 2 report → PASS (no bias leak, ADR 0015 held, golden regen legit)
   - Slice 3 flow→bias → PASS (4 locked flips correct + 2 consequential test updates legit; `compute_signal` byte-identical)
   - Slice 4 eval+versioning → PASS (2 locked flips; numeric `_target_engine` `["9","10"]→"10"`; reconciliation oracle panel-only; CHANGELOG `[Unreleased]`, VERSION unchanged `0.9.3`)
-  - Integration gate: `639 passed, 12 skipped` (live-gated) across `tests/monitor/ tests/monitor/eval/ tests/commands/test_monitor_cmd*`; ruff clean on feature surface.
-- **001 drift** 🔄 — plan↔diff drift check
+  - **Post-drift gap closure** `77f3a84` — drift surfaced that spec §5.E's flow-coverage-health tally was absent AND `flow_reconciliation` (defined+tested) was never wired into the eval panel (dead code). Closed both: added `flow_coverage_health` + wired both flow rows into `build_panel_rows` (panel-only, non-gating, back-compat). The oracle now actually runs in `eval monitor_signal`.
+  - Integration gate: `651 passed, 12 skipped` (live-gated) across `tests/monitor/ tests/monitor/eval/ tests/commands/test_monitor_cmd*`; ruff clean on feature surface.
+- **001 drift** ✅ [items/001-drift.md](items/001-drift.md) `4d19f65` — Verdict PASS, 22/22 plan tasks present, all 6 locked flips correct. One finding (§5.E coverage health) re-classified from "accepted/deferred" to **CLOSED** (`77f3a84`) since the oracle was load-bearing and unwired.
+- **001 ship** 🔄 — `/ship` sub-branch PR + docs + inline review
 
 ## Notes
 
