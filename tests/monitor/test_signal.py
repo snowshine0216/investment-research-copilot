@@ -104,3 +104,30 @@ def test_reproducible_same_inputs_same_record():
     scores = (_fs("trend", 0.6), _fs("macro_tilt", 0.5),
               _fs("heat", None, eligible=False, reason="heat_no_data"))
     assert compute_signal(fund, scores) == compute_signal(fund, scores)
+
+
+# ── flow factor signal tests ───────────────────────────────────────────────────
+from irc.monitor.signal import _divergence, _FAMILY_OF, present_families  # noqa: E402
+
+
+def test_flow_family_is_capital_flow():
+    assert _FAMILY_OF["flow"] == "capital-flow"
+
+
+def _s(name, value):
+    return FactorScore(name, value, True, "", 1.0)
+
+
+def test_valuation_flow_conflict_cheap_but_outflow():
+    present = (_s("valuation", 1.0), _s("flow", -0.5))
+    assert "valuation_flow_conflict" in _divergence(present)
+
+
+def test_valuation_flow_conflict_expensive_but_inflow():
+    present = (_s("valuation", -1.0), _s("flow", 0.5))
+    assert "valuation_flow_conflict" in _divergence(present)
+
+
+def test_no_conflict_when_aligned():
+    present = (_s("valuation", 1.0), _s("flow", 0.5))  # cheap + inflow → aligned
+    assert "valuation_flow_conflict" not in _divergence(present)

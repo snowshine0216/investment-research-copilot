@@ -5,6 +5,7 @@ from irc.monitor.types import FactorContribution, FactorScore, MonitorFund, Sign
 _FAMILY_OF = {
     "trend": "price-momentum", "valuation": "valuation",
     "heat": "crowding", "macro_tilt": "news", "constituent": "news",
+    "flow": "capital-flow",
 }
 _MIN_FAMILIES = 2
 _MIN_AVAILABLE_WEIGHT = 0.60
@@ -49,6 +50,11 @@ def _divergence(present: tuple[FactorScore, ...]) -> tuple[str, ...]:
         (t > 0) != (m > 0) and abs(t) >= _DIVERGE and abs(m) >= _DIVERGE
     ):
         codes.append("trend_macro_conflict")
+    f = by.get("flow")
+    if v is not None and f is not None and (
+        (v >= _DIVERGE and f <= -_DIVERGE) or (v <= -_DIVERGE and f >= _DIVERGE)
+    ):
+        codes.append("valuation_flow_conflict")
     vals = [s.value for s in present]
     if len(vals) >= 2 and (statistics.pstdev(vals) >= 0.5 or (
         any(x > 0 for x in vals) and any(x < 0 for x in vals)
