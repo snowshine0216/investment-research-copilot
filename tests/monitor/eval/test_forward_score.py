@@ -117,3 +117,22 @@ def test_target_engine_none_is_back_compat_no_filter():
     rows = [_ledger_row("1"), _ledger_row("2")]
     fwd_none, excl_none = score_forward(rows, {"a": _nav(40)}, h=20, today="2026-12-31")
     assert "engine_mismatch" not in excl_none  # no filtering when target is None
+
+
+# --- Task 4.5: _target_engine numeric max ---
+
+from evals.monitor_forward.runner import _target_engine
+
+
+def test_target_engine_is_numeric_max_not_lexicographic():
+    ledger = [{"manifest_versions": {"engine": "9"}},
+              {"manifest_versions": {"engine": "10"}}]
+    assert _target_engine(ledger) == "10"  # numeric: 10 > 9 (lexicographic would pick "9")
+
+
+def test_target_engine_missing_field_is_legacy_zero():
+    assert _target_engine([{}, {"manifest_versions": {"engine": "2"}}]) == "2"
+
+
+def test_target_engine_empty_ledger_is_none():
+    assert _target_engine([]) is None

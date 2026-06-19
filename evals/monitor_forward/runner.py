@@ -20,7 +20,7 @@ from irc.config_loader import load_monitor_config
 from irc.io_utils import atomic_write_text
 from irc.monitor.eval.backtest import run_backtest
 from irc.monitor.eval.constants import FORWARD_H
-from irc.monitor.eval.forward_score import score_forward
+from irc.monitor.eval.forward_score import score_forward, _row_engine
 from irc.monitor.eval.nav_history import parse_nav_history_lines, latest_per_nav_date
 from irc.monitor.resolve import resolve_funds
 from evals.monitor_forward.metrics import build_metric_reports
@@ -45,6 +45,15 @@ def _nav_by_fund(text: str) -> dict[str, list[dict]]:
         by_fund[r.fund_id].append({"fund_id": r.fund_id, "nav_date": r.nav_date,
                                    "nav_acc": r.nav_acc})
     return by_fund
+
+
+def _target_engine(ledger: list[dict]) -> str | None:
+    """Max engine version present, compared NUMERICALLY (not lexicographically).
+    Missing field → legacy '0'. Empty ledger → None (no filter; back-compat)."""
+    versions = {_row_engine(r) for r in ledger}
+    if not versions:
+        return None
+    return max(versions, key=int)
 
 
 def _build_retro_points(repo_root: Path, nav_by_fund: dict[str, list[dict]],
@@ -123,8 +132,10 @@ def run(repo_root: Path) -> int:
         print(f"{_STAGE} eval: FAIL (all ledger lines malformed)")
         return EVAL_RC_FAIL
     nav_by_fund = _nav_by_fund(nav_path.read_text(encoding="utf-8"))
+    target_engine = _target_engine(ledger)
     try:
-        forward_rows, _excl = score_forward(ledger, nav_by_fund, h=FORWARD_H, today=today)
+        forward_rows, _excl = score_forward(ledger, nav_by_fund, h=FORWARD_H, today=today,
+                                            target_engine=target_engine)
     except ValueError as exc:
         write_missing_input_report(repo_root, missing_input_report(
             stage=_STAGE,
@@ -145,6 +156,8 @@ def run(repo_root: Path) -> int:
         forward_rows=forward_rows, retro_points=retro_points,
         seed=20260616, momentum_by_key=momentum_by_key)
     details["forward_excluded"] = _excl
+    details["excluded_by_engine"] = {"target_engine": target_engine,
+                                     "engine_mismatch": _excl.get("engine_mismatch", 0)}
 
     # write details.json sibling, then point each MetricReport at the repo-relative path
     out_dir = report_dir(repo_root, _STAGE, today)
