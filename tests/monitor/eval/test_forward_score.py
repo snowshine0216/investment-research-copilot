@@ -86,3 +86,34 @@ def test_score_forward_stores_from_latest_nav_diagnostic():
     rows, _ = score_forward(ledger, {"a": nav}, h=20, today="2099-01-01")
     assert isinstance(rows[0], ForwardRow)
     assert rows[0].from_latest_nav == rows[0].from_latest_nav  # finite, present
+
+
+# --- Task 4.4: target_engine filter ---
+
+def _ledger_row(engine, fund="a", run="2026-01-10", as_of="2026-01-09"):
+    return {"run_date": run, "fund_id": fund, "nav_acc": 1.0, "as_of_date": as_of,
+            "raw_status": "ok", "raw_composite": 0.2, "raw_bias": "ADD_BIAS",
+            "manifest_versions": {"engine": engine}}
+
+
+def test_target_engine_excludes_other_engines():
+    rows = [_ledger_row("1"), _ledger_row("2")]
+    nav = {"a": _nav(40)}
+    fwd, excl = score_forward(rows, nav, h=20, today="2026-12-31", target_engine="2")
+    # only engine-2 row survives (both have same run/as_of so both would mature given enough nav)
+    assert excl.get("engine_mismatch") == 1               # the engine-1 row excluded
+
+
+def test_missing_engine_field_counts_as_legacy_and_excluded():
+    rows = [{"run_date": "2026-01-10", "fund_id": "a", "nav_acc": 1.0,
+             "as_of_date": "2026-01-09", "raw_status": "ok", "raw_composite": 0.2,
+             "raw_bias": "ADD_BIAS"}]  # no manifest_versions
+    fwd, excl = score_forward(rows, {"a": _nav(40)}, h=20, today="2026-12-31",
+                              target_engine="2")
+    assert excl.get("engine_mismatch") == 1
+
+
+def test_target_engine_none_is_back_compat_no_filter():
+    rows = [_ledger_row("1"), _ledger_row("2")]
+    fwd_none, excl_none = score_forward(rows, {"a": _nav(40)}, h=20, today="2026-12-31")
+    assert "engine_mismatch" not in excl_none  # no filtering when target is None

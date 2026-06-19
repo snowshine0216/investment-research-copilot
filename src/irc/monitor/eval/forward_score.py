@@ -50,6 +50,30 @@ def prefilter_ledger(rows: list[dict]) -> tuple[list[dict], dict[str, int]]:
     return kept, excl
 
 
+_LEGACY_ENGINE = "0"
+
+
+def _row_engine(r: dict) -> str:
+    mv = r.get("manifest_versions") or {}
+    return str(mv.get("engine", _LEGACY_ENGINE))
+
+
+def _filter_engine(
+    rows: list[dict], target_engine: str | None,
+) -> tuple[list[dict], dict[str, int]]:
+    """When target_engine is set, drop rows whose engine != target (missing → legacy
+    '0'); count drops under engine_mismatch. None → no-op (back-compat)."""
+    if target_engine is None:
+        return rows, {}
+    kept, n = [], 0
+    for r in rows:
+        if _row_engine(r) == target_engine:
+            kept.append(r)
+        else:
+            n += 1
+    return kept, ({"engine_mismatch": n} if n else {})
+
+
 def _series_for(nav_rows: list[dict]) -> tuple[tuple[str, float], ...]:
     return tuple((r["nav_date"], float(r["nav_acc"])) for r in nav_rows)
 
@@ -68,11 +92,14 @@ def _from_latest_nav(series, run_date, outcome_idx) -> float:
 
 def score_forward(
     ledger_rows: list[dict], nav_by_fund: dict[str, list[dict]],
-    *, h: int, today: str,
+    *, h: int, today: str, target_engine: str | None = None,
 ) -> tuple[list[ForwardRow], dict[str, int]]:
-    """Pre-filter → maturity join (anchor=run_date, strict >) → ForwardRows.
-    Excluded reasons accumulate (null_signal_nav, no_entry_obs, not_matured, bad_nav)."""
-    kept, excl = prefilter_ledger(ledger_rows)
+    """Pre-filter → engine filter → maturity join (anchor=run_date, strict >) → ForwardRows.
+    Excluded reasons accumulate (engine_mismatch, null_signal_nav, no_entry_obs, not_matured,
+    bad_nav). target_engine=None preserves today's no-filter behavior (back-compat)."""
+    eng_kept, eng_excl = _filter_engine(ledger_rows, target_engine)
+    kept, excl = prefilter_ledger(eng_kept)
+    excl = {**eng_excl, **excl}
     out: list[ForwardRow] = []
     for r in kept:
         nav_rows = nav_by_fund.get(r["fund_id"], [])
