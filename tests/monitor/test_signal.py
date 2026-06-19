@@ -107,7 +107,7 @@ def test_reproducible_same_inputs_same_record():
 
 
 # ── flow factor signal tests ───────────────────────────────────────────────────
-from irc.monitor.signal import _divergence, _FAMILY_OF, present_families  # noqa: E402
+from irc.monitor.signal import _divergence, _FAMILY_OF  # noqa: E402
 
 
 def test_flow_family_is_capital_flow():

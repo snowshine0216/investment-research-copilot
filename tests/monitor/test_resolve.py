@@ -11,7 +11,9 @@ _CFG = MonitorConfig.model_validate({
          "constituent_news": False},
         {"id": "519069", "name_cn": "价值", "market": "cn_off_exchange",
          "analysis_profile": "active_cn_equity", "themes": ["cn_monetary", "cn_equity_property_policy"],
-         "constituent_news": True, "signal_weights": {"trend": 0.40, "valuation": 0.10}},
+         # D8 base: trend=.25, val=.20, flow=.15, heat=.10, macro=.15, const=.15.
+         # Override boosts trend +.05, val -.05 → net delta 0 → sum stays 1.0.
+         "constituent_news": True, "signal_weights": {"trend": 0.30, "valuation": 0.15}},
     ],
 })
 
@@ -27,7 +29,7 @@ def test_gold_gets_profile_default_vector():
 def test_override_composes_and_still_sums_to_one():
     funds = resolve_funds(_CFG)
     eq = funds[1]
-    assert eq.weights["trend"] == 0.40 and eq.weights["valuation"] == 0.10
+    assert eq.weights["trend"] == 0.30 and eq.weights["valuation"] == 0.15
     assert abs(sum(eq.weights.values()) - 1.0) <= 1e-6
 
 
