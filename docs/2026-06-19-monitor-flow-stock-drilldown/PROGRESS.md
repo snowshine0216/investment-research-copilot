@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏳ | ✅ | ⏳ | ⏳ | ⏳ |
 
 ## Evidence cells
 
@@ -23,7 +23,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
   - **Post-drift gap closure** `77f3a84` — drift surfaced that spec §5.E's flow-coverage-health tally was absent AND `flow_reconciliation` (defined+tested) was never wired into the eval panel (dead code). Closed both: added `flow_coverage_health` + wired both flow rows into `build_panel_rows` (panel-only, non-gating, back-compat). The oracle now actually runs in `eval monitor_signal`.
   - Integration gate: `651 passed, 12 skipped` (live-gated) across `tests/monitor/ tests/monitor/eval/ tests/commands/test_monitor_cmd*`; ruff clean on feature surface.
 - **001 drift** ✅ [items/001-drift.md](items/001-drift.md) `4d19f65` — Verdict PASS, 22/22 plan tasks present, all 6 locked flips correct. One finding (§5.E coverage health) re-classified from "accepted/deferred" to **CLOSED** (`77f3a84`) since the oracle was load-bearing and unwired.
-- **001 ship** 🔄 — `/ship` sub-branch PR + docs + inline review
+- **001 ship** ✅ [PR #167](https://github.com/snowshine0216/investment-research-copilot/pull/167) (`claude/monitor-flow-stock-drilldown-001` → `monitor-flow-stock-drilldown`) — [items/001-ship.md](items/001-ship.md). VERSION bump skipped (project convention).
+- **001 review** ✅ [items/001-review.md](items/001-review.md) — PASS-WITH-NITS. /ship steps 8+9 found **2 P0** (flow dead-wired in the composite; fake-PASS health fallback) + 3 P1 — ALL fixed pre-PR (`f7f63f7`+`6964785`), re-verified closed. The P0 flow-wiring is the headline catch.
+- **001 verify** 🔄 — `/verify` entry-point smoke (non-web XOR)
+- **001 pr-review** 🔄 — `/code-review` on PR #167
 
 ## Notes
 
