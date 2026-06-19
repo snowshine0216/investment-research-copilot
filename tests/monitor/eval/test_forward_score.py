@@ -3,6 +3,7 @@ from datetime import date, timedelta
 from irc.monitor.eval.forward_score import (
     prefilter_ledger, score_forward, ForwardRow,
 )
+from evals.monitor_forward.runner import _target_engine
 
 
 def _nav(n, fund="a", start="2026-01-01", base=1.0, step=0.001):
@@ -120,8 +121,6 @@ def test_target_engine_none_is_back_compat_no_filter():
 
 
 # --- Task 4.5: _target_engine numeric max ---
-
-from evals.monitor_forward.runner import _target_engine
 
 
 def test_target_engine_is_numeric_max_not_lexicographic():

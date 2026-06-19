@@ -2,6 +2,7 @@ from __future__ import annotations
 import datetime as _dt
 from irc.monitor.eval.structural import (
     signal_consistency, citation_integrity, nav_quality, monitor_signal_health,
+    flow_reconciliation,
 )
 
 _TODAY = _dt.date(2026, 6, 16)
@@ -181,8 +182,6 @@ def test_nav_quality_falls_back_to_max_gap_when_calendar_absent_pass():
 
 
 # --- Task 4.3: flow_reconciliation oracle ---
-
-from irc.monitor.eval.structural import flow_reconciliation
 
 
 def _trace_fund(rows, agg_value, flow_factor_value):
