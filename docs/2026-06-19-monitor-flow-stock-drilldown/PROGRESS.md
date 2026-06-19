@@ -35,3 +35,14 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - Single IN-scope item (N=1). The spec's 4 TDD slices become plan tasks under `items/001-plan.md`.
 - QA column omitted — non-web project uses `/verify` (XOR).
 - Final landing: Phase 3 opens `monitor-flow-stock-drilldown → main` PR, left OPEN for the user (protected base, no opt-in).
+
+## Final status — RUN COMPLETE (2026-06-19)
+
+- **Items merged:** 1 / 1 (item 001 → [PR #167](https://github.com/snowshine0216/investment-research-copilot/pull/167) squash `25a082b` into the feature branch).
+- **Items SKIPPED / BLOCKED:** none.
+- **Phase 3:** workflow-completeness audit PASS (all required verdict files present; non-web XOR correct; grill absent-OK in spec mode); merged-branch sanity 664 passed / 12 skipped, ruff clean, `irc monitor --help` wired; doc-sync PASS ([doc-sync.md](doc-sync.md) — README + CLAUDE.md updated to note `drilldown.html` + the flow factor); run-level verify = item verify (N=1, already PASS).
+- **Headline:** the /ship pre-landing review caught a P0 — the flow factor was computed but never fed into the composite (`FactorInputs` built without `flow=`), so flow never moved the bias. Fixed pre-PR + a regression test added that drives the real command path. Without that catch the feature would have shipped cosmetically dark.
+- **Feature branch:** `monitor-flow-stock-drilldown`
+- **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/168
+- **Merged into protected branch:** no — PR #168 left OPEN for user review (the protected-base guardrail held; no merge-to-main opt-in was given).
+- **Follow-ups:** (1) surface the forward-eval engine-drop count as an explicit eval-report WARN (currently recorded in `details.json.excluded_by_engine`, non-silent); (2) staged veto-class work — dual-track valuation + False-Cheap guard, conflict hard-suppression, flow-reversal guard (spec §9, own future spec).
