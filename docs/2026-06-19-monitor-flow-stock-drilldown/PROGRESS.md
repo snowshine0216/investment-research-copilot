@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ⏳ | ✅ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 |
 
 ## Evidence cells
 
@@ -25,8 +25,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 drift** ✅ [items/001-drift.md](items/001-drift.md) `4d19f65` — Verdict PASS, 22/22 plan tasks present, all 6 locked flips correct. One finding (§5.E coverage health) re-classified from "accepted/deferred" to **CLOSED** (`77f3a84`) since the oracle was load-bearing and unwired.
 - **001 ship** ✅ [PR #167](https://github.com/snowshine0216/investment-research-copilot/pull/167) (`claude/monitor-flow-stock-drilldown-001` → `monitor-flow-stock-drilldown`) — [items/001-ship.md](items/001-ship.md). VERSION bump skipped (project convention).
 - **001 review** ✅ [items/001-review.md](items/001-review.md) — PASS-WITH-NITS. /ship steps 8+9 found **2 P0** (flow dead-wired in the composite; fake-PASS health fallback) + 3 P1 — ALL fixed pre-PR (`f7f63f7`+`6964785`), re-verified closed. The P0 flow-wiring is the headline catch.
-- **001 verify** 🔄 — `/verify` entry-point smoke (non-web XOR)
-- **001 pr-review** 🔄 — `/code-review` on PR #167
+- **001 verify** ✅ [items/001-verify.md](items/001-verify.md) `9be402d` — PASS. All 6 acceptance criteria observed via real pure-core smoke: **flow drives the bias** (composite Δ=0.0124 with-vs-without flow, flow FactorScore eligible value=0.75); percent-point bands + ratio canary; board/roll-up render (lean language, no 买入/卖出); reconciliation oracle has teeth (PASS on match, FAIL on mismatch); engine isolation (`engine_mismatch:2`, numeric `["9","10"]→"10"`); schema "3".
+- **001 pr-review** ✅ [items/001-pr-review.md](items/001-pr-review.md) `4abeb2d` — PASS-WITH-NITS. [/code-review comment](https://github.com/snowshine0216/investment-research-copilot/pull/167#issuecomment-4748752911): 3 nits, **0 blockers, 0 latent bugs**. Nits = cross-module private imports (`_NA_FLOW_NO_DATA`, `_stock_series_by_code`, `_pe_series_is_mature`); #2/#3 pre-existing codebase convention.
+- **001 fix** ✅ 0 rounds — all 3 post-ship verdicts PASS/PASS-WITH-NITS; no blockers/latent bugs to triage. (The 2 P0s were already fixed in the ship phase, pre-PR.) 3 cosmetic nits accepted (consistent with the codebase's established cross-package private-import convention; promoting to public would be out-of-scope churn in the opportunity package).
+- **001 merge** 🔄 — pre-merge gate → squash into feature branch
 
 ## Notes
 
