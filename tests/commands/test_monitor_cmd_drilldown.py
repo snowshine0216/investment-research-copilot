@@ -1,5 +1,4 @@
 from __future__ import annotations
-from pathlib import Path
 from irc.monitor.holding_metrics import build_holding_metrics, HoldingMetric
 
 

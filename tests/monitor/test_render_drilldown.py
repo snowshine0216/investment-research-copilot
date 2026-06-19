@@ -1,6 +1,12 @@
 from __future__ import annotations
-from irc.monitor.holding_metrics import HoldingMetric
-from irc.monitor.render_drilldown import holdings_board_html
+
+from irc.monitor.holding_metrics import FlowAggregate, HoldingMetric
+from irc.monitor.render_drilldown import (
+    drilldown_page_html,
+    flow_rollup_html,
+    holdings_board_html,
+)
+from irc.monitor.types import FactorContribution, SignalRecord
 
 
 def _m(symbol, weight, **kw):
@@ -36,10 +42,6 @@ def test_board_rows_sorted_by_weight_desc():
 
 # ── Task 2.3: flow_rollup_html ────────────────────────────────────────────────
 
-from irc.monitor.holding_metrics import FlowAggregate
-from irc.monitor.render_drilldown import flow_rollup_html
-from irc.monitor.types import SignalRecord, FactorContribution
-
 
 def _sig(composite=0.3):
     return SignalRecord(fund_id="x", status="ok", bias="ADD_BIAS", composite=composite,
@@ -73,8 +75,6 @@ def test_rollup_has_no_imperative_trade_language():
 
 
 # ── Task 2.4: drilldown_page_html ────────────────────────────────────────────
-
-from irc.monitor.render_drilldown import drilldown_page_html
 
 
 def test_drilldown_page_is_self_contained_html_per_fund():

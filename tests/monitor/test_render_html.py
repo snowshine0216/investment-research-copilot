@@ -1,10 +1,13 @@
+import dataclasses
 import re
-from irc.monitor.types import (
-    SignalRecord, FactorContribution, NarrativeDoc, Claim, EvidenceItem, FactorScore,
-)
-from irc.monitor.evidence import make_evidence_item
+
+from irc.monitor.holding_metrics import HoldingMetric
+from irc.monitor.render_html import _card, _flow_outage_note, render_report
 from irc.monitor.render_types import FundView, Provenance
-from irc.monitor.render_html import render_report
+from irc.monitor.evidence import make_evidence_item
+from irc.monitor.types import (
+    Claim, EvidenceItem, FactorContribution, FactorScore, NarrativeDoc, SignalRecord,
+)
 
 _NOW = "2026-06-15T09:00:00+08:00"
 
@@ -197,11 +200,6 @@ def test_no_call_card_keeps_gate_clause_and_no_neutral_label():
 
 
 # ── Task 2.5: drilldown card embed + flow-outage header note ─────────────────
-
-import dataclasses
-from irc.monitor.render_html import _flow_outage_note
-from irc.monitor.render_html import _card
-from irc.monitor.holding_metrics import HoldingMetric
 
 
 def _hm(score, reason=None):
