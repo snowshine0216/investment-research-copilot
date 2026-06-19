@@ -2,12 +2,13 @@ from __future__ import annotations
 from html import escape
 from irc.monitor.types import FactorContribution, FactorScore, SignalRecord
 
-CANONICAL_FACTOR_ORDER = ("trend", "valuation", "heat", "macro_tilt", "constituent")
+CANONICAL_FACTOR_ORDER = ("trend", "valuation", "flow", "heat", "macro_tilt", "constituent")
 
 _DIVERGENCE_CAVEATS = {
     "trend_valuation_conflict": "趋势与估值背离：价格动能与估值方向相反",
     "trend_macro_conflict": "趋势与宏观背离：价格动能与宏观信号方向相反",
     "low_factor_agreement": "因子分歧较大：各因子方向/强度不一致",
+    "valuation_flow_conflict": "估值与资金流背离：便宜但资金流出 / 偏贵但资金流入",
 }
 
 

@@ -5,7 +5,15 @@ from irc.monitor.render_factors import (
 
 
 def test_canonical_order_is_locked():
-    assert CANONICAL_FACTOR_ORDER == ("trend", "valuation", "heat", "macro_tilt", "constituent")
+    assert CANONICAL_FACTOR_ORDER == (
+        "trend", "valuation", "flow", "heat", "macro_tilt", "constituent"
+    )
+
+
+def test_valuation_flow_conflict_caveat_is_exact():
+    assert divergence_caveat("valuation_flow_conflict") == (
+        "估值与资金流背离：便宜但资金流出 / 偏贵但资金流入"
+    )
 
 
 def test_divergence_map_strings_are_exact():

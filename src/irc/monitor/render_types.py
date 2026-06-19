@@ -1,6 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from irc.monitor.types import EvidenceItem, FactorScore, NarrativeDoc, SignalRecord
+from irc.monitor.holding_metrics import HoldingMetric
 
 
 @dataclass(frozen=True)
@@ -26,3 +27,4 @@ class FundView:
     missing_factor_reasons: tuple[str, ...]
     factor_scores: tuple[FactorScore, ...] = ()
     impacts_status: str = "ok"   # mirrors impacts.status; surfaced so schema/provider errors aren't silently dropped
+    holding_metrics: tuple[HoldingMetric, ...] = ()  # per-stock drill-down (Slice 2+)

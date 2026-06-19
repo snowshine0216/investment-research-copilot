@@ -13,6 +13,7 @@ _MIN_AVAILABLE_WEIGHT = 0.60
 _FAMILY_OF = {
     "trend": "price-momentum", "valuation": "valuation",
     "heat": "crowding", "macro_tilt": "news", "constituent": "news",
+    "flow": "capital-flow",
 }
 
 

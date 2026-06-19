@@ -1,10 +1,13 @@
+import dataclasses
 import re
-from irc.monitor.types import (
-    SignalRecord, FactorContribution, NarrativeDoc, Claim, EvidenceItem, FactorScore,
-)
-from irc.monitor.evidence import make_evidence_item
+
+from irc.monitor.holding_metrics import HoldingMetric
+from irc.monitor.render_html import _card, _flow_outage_note, render_report
 from irc.monitor.render_types import FundView, Provenance
-from irc.monitor.render_html import render_report
+from irc.monitor.evidence import make_evidence_item
+from irc.monitor.types import (
+    Claim, EvidenceItem, FactorContribution, FactorScore, NarrativeDoc, SignalRecord,
+)
 
 _NOW = "2026-06-15T09:00:00+08:00"
 
@@ -194,3 +197,55 @@ def test_no_call_card_keeps_gate_clause_and_no_neutral_label():
     assert "NO_CALL" in html
     # NO_CALL ≠ NEUTRAL: the verdict clause must not assert a NEUTRAL call
     assert "落在中性带内" not in html
+
+
+# ── Task 2.5: drilldown card embed + flow-outage header note ─────────────────
+
+
+def _hm(score, reason=None):
+    return HoldingMetric("600519", "贵州茅台", 12.0, 30.0, 8.0, 0.8, "expensive",
+                         None, 4.0, 3.5, score, reason)
+
+
+def _view_with_metrics(holding_metrics=()):
+    """Build a FundView with given holding_metrics, extending the base _view()."""
+    return dataclasses.replace(_view(), holding_metrics=holding_metrics)
+
+
+def _view_with_factor_na(factor_name: str, na_reason: str):
+    """Build a FundView where the named factor is N/A with the given reason."""
+    v = _view()
+    # Replace factor_scores to include the named factor as N/A
+    existing = {s.name: s for s in v.factor_scores}
+    existing[factor_name] = FactorScore(factor_name, None, False, na_reason, 1.0)
+    return dataclasses.replace(v, factor_scores=tuple(existing.values()))
+
+
+def _view_with_factor_present(factor_name: str):
+    """Build a FundView where the named factor is present (eligible=True)."""
+    v = _view()
+    existing = {s.name: s for s in v.factor_scores}
+    existing[factor_name] = FactorScore(factor_name, 0.5, True, "", 1.0)
+    return dataclasses.replace(v, factor_scores=tuple(existing.values()))
+
+
+def test_card_embeds_board_when_metrics_present():
+    view = _view_with_metrics(holding_metrics=(_hm(1.0),))
+    html = _card(view, None)
+    assert "holdings-board" in html
+    assert "600519" in html
+
+
+def test_flow_outage_note_only_when_set_wide_collapse():
+    # both eligible funds lost flow → note present.
+    collapsed = (
+        _view_with_factor_na("flow", "flow_no_data"),
+        _view_with_factor_na("flow", "flow_no_coverage"),
+    )
+    assert "资金流数据今日不可用" in _flow_outage_note(collapsed)
+    # at least one fund has a present flow factor → no note.
+    mixed = (_view_with_factor_present("flow"), _view_with_factor_na("flow", "flow_no_data"))
+    assert _flow_outage_note(mixed) == ""
+    # no flow-eligible fund at all (all profile_ineligible) → no note (not an outage).
+    none_eligible = (_view_with_factor_na("flow", "profile_ineligible"),)
+    assert _flow_outage_note(none_eligible) == ""

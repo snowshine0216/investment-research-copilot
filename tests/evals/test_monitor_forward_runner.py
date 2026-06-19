@@ -214,6 +214,21 @@ def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
     assert len(report["metrics"]) == 3, f"expected 3 metrics; got {len(report['metrics'])}"
 
 
+# ── Finding 3: _target_engine must not crash on non-numeric string versions ───
+
+def test_target_engine_non_numeric_string_does_not_crash():
+    """FINDING 3 (RED): _target_engine crashes when manifest_versions.engine is a
+    non-numeric string like 'alpha', because max(versions, key=int) calls int('alpha').
+    After the fix, non-numeric versions are treated as legacy '0' and the function
+    returns gracefully."""
+    import evals.monitor_forward.runner as runner_mod
+    # Ledger row whose manifest_versions.engine is non-numeric → triggers the bug
+    row = {"manifest_versions": {"engine": "alpha"}}
+    # Should not raise; result is some string value
+    result = runner_mod._target_engine([row])
+    assert result is not None
+
+
 def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     md = tmp_path / "data" / "monitor"
     md.mkdir(parents=True)

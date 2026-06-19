@@ -2,6 +2,7 @@ from __future__ import annotations
 import datetime as _dt
 from irc.monitor.eval.structural import (
     signal_consistency, citation_integrity, nav_quality, monitor_signal_health,
+    flow_reconciliation, flow_coverage_health,
 )
 
 _TODAY = _dt.date(2026, 6, 16)
@@ -178,3 +179,129 @@ def test_nav_quality_falls_back_to_max_gap_when_calendar_absent_pass():
     t["nav"]["missing_trading_days"] = None
     t["nav"]["max_gap_days"] = 7   # <= 8 → PASS
     assert nav_quality(t, minimum_observations=2, stale_days=7, today=_TODAY).status == "PASS"
+
+
+# --- Task 4.3: flow_reconciliation oracle ---
+
+
+def _trace_fund(rows, agg_value, flow_factor_value):
+    return {
+        "holding_metrics": {"rows": rows, "aggregate": {"value": agg_value,
+                                                        "reason": None,
+                                                        "covered_weight_ratio": 1.0}},
+        "signal": {"contributions": [{"name": "flow", "value": flow_factor_value}]},
+    }
+
+
+def test_flow_reconciliation_passes_when_board_matches_factor():
+    rows = [{"weight_pct": 30.0, "flow_score": 1.0},
+            {"weight_pct": 10.0, "flow_score": -0.5}]
+    t = _trace_fund(rows, 0.625, 0.625)   # (30*1 + 10*-0.5)/40
+    assert flow_reconciliation(t).status == "PASS"
+
+
+def test_flow_reconciliation_fails_on_mismatch():
+    rows = [{"weight_pct": 30.0, "flow_score": 1.0}]
+    t = _trace_fund(rows, 1.0, 0.5)   # factor value disagrees with board
+    assert flow_reconciliation(t).status == "FAIL"
+
+
+def test_flow_reconciliation_na_factor_is_pass():
+    # no flow contribution (factor N/A) → nothing to reconcile → PASS.
+    t = {"holding_metrics": {"rows": [], "aggregate": {"value": None}},
+         "signal": {"contributions": []}}
+    assert flow_reconciliation(t).status == "PASS"
+
+
+# --- Task 4.3 (gap §5.E): flow_coverage_health ---
+
+
+def _coverage_trace(rows, covered_weight_ratio=None, aggregate_reason=None):
+    """Helper: build a minimal holding_metrics trace for coverage tests."""
+    agg = {"value": 0.5, "reason": aggregate_reason}
+    if covered_weight_ratio is not None:
+        agg["covered_weight_ratio"] = covered_weight_ratio
+    return {"holding_metrics": {"rows": rows, "aggregate": agg}}
+
+
+def test_flow_coverage_health_status_always_pass():
+    """Status must always be PASS — this is observability, not a gate."""
+    rows = [
+        {"weight_pct": 30.0, "flow_score": 0.5, "flow_reason": None,
+         "pe_percentile": 0.4, "pb": 1.2, "valuation_reason": "low"},
+        {"weight_pct": 20.0, "flow_score": None, "flow_reason": "flow_no_data",
+         "pe_percentile": None, "pb": None, "valuation_reason": "pe_no_data"},
+    ]
+    h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=0.6))
+    assert h.status == "PASS"
+
+
+def test_flow_coverage_health_stage_name():
+    h = flow_coverage_health(_coverage_trace([]))
+    assert h.stage == "flow_coverage"
+
+
+def test_flow_coverage_health_flow_cover_reason_from_aggregate():
+    """flow_cover comes from aggregate.covered_weight_ratio when present."""
+    rows = [{"weight_pct": 50.0, "flow_score": 0.5, "flow_reason": None,
+             "pe_percentile": 0.3, "pb": 1.0, "valuation_reason": "ok"}]
+    h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=0.75))
+    assert any("flow_cover 0.75" in r for r in h.reasons)
+
+
+def test_flow_coverage_health_pe_cover_reason():
+    """pe_cover = fraction of rows with pe_percentile not None."""
+    rows = [
+        {"weight_pct": 40.0, "flow_score": 0.5, "flow_reason": None,
+         "pe_percentile": 0.6, "pb": 1.5, "valuation_reason": "ok"},
+        {"weight_pct": 60.0, "flow_score": 0.3, "flow_reason": None,
+         "pe_percentile": None, "pb": 2.0, "valuation_reason": "pb_only"},
+    ]
+    h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=1.0))
+    assert any("pe_cover 0.5" in r for r in h.reasons)
+
+
+def test_flow_coverage_health_flow_no_data_tally():
+    """Count rows where flow_reason == 'flow_no_data'."""
+    rows = [
+        {"weight_pct": 30.0, "flow_score": None, "flow_reason": "flow_no_data",
+         "pe_percentile": None, "pb": None, "valuation_reason": ""},
+        {"weight_pct": 30.0, "flow_score": None, "flow_reason": "flow_no_data",
+         "pe_percentile": None, "pb": None, "valuation_reason": ""},
+        {"weight_pct": 40.0, "flow_score": 0.5, "flow_reason": None,
+         "pe_percentile": 0.4, "pb": 1.0, "valuation_reason": "ok"},
+    ]
+    h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=0.4))
+    assert any("flow_no_data 2" in r for r in h.reasons)
+
+
+def test_flow_coverage_health_flow_no_coverage_tally_from_aggregate_reason():
+    """flow_no_coverage count is 1 when aggregate.reason == 'flow_no_coverage'."""
+    rows = [{"weight_pct": 100.0, "flow_score": None, "flow_reason": "flow_no_data",
+             "pe_percentile": None, "pb": None, "valuation_reason": ""}]
+    h = flow_coverage_health(
+        _coverage_trace(rows, covered_weight_ratio=0.0,
+                        aggregate_reason="flow_no_coverage")
+    )
+    assert any("flow_no_coverage 1" in r for r in h.reasons)
+
+
+def test_flow_coverage_health_empty_trace_is_pass_no_raise():
+    """Empty/missing holding_metrics → PASS with no crash."""
+    h = flow_coverage_health({})
+    assert h.status == "PASS"
+    h2 = flow_coverage_health({"holding_metrics": {}})
+    assert h2.status == "PASS"
+
+
+def test_flow_coverage_health_flow_cover_fallback_when_no_ratio_key():
+    """When covered_weight_ratio absent, fall back to fraction of rows with flow_score."""
+    rows = [
+        {"weight_pct": 50.0, "flow_score": 1.0, "flow_reason": None,
+         "pe_percentile": 0.5, "pb": 1.0, "valuation_reason": "ok"},
+        {"weight_pct": 50.0, "flow_score": None, "flow_reason": "flow_no_data",
+         "pe_percentile": None, "pb": None, "valuation_reason": ""},
+    ]
+    # covered_weight_ratio NOT in aggregate
+    h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=None))
+    assert any("flow_cover 0.5" in r for r in h.reasons)

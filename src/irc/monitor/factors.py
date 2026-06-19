@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from irc.monitor.profiles import eligible_factors
 from irc.monitor.trend import trend_score
 from irc.monitor.factor_maps import valuation_state_score, heat_score
+from irc.monitor.holding_metrics import FlowAggregate, _NA_FLOW_NO_DATA, _NA_FLOW_NO_COVERAGE
 from irc.monitor.news_factor import ImpactRow, aggregate_news_factor
 from irc.monitor.types import FactorScore
 
@@ -17,7 +18,6 @@ _NA_HEAT_NO_DATA = "heat_no_data"
 _NA_MACRO_INSUFFICIENT_FAMILIES = "macro_insufficient_families"
 _NA_MACRO_EMPTY_POOL = "macro_empty_pool"
 _NA_CONSTITUENT_NO_COVERAGE = "constituent_no_coverage"
-
 KNOWN_NA_REASONS: frozenset[str] = frozenset({
     _NA_PROFILE_INELIGIBLE,
     _NA_TREND_INSUFFICIENT_HISTORY,
@@ -27,6 +27,8 @@ KNOWN_NA_REASONS: frozenset[str] = frozenset({
     _NA_MACRO_INSUFFICIENT_FAMILIES,
     _NA_MACRO_EMPTY_POOL,
     _NA_CONSTITUENT_NO_COVERAGE,
+    _NA_FLOW_NO_DATA,
+    _NA_FLOW_NO_COVERAGE,
 })
 
 _MACRO_MIN_FAMILIES = 2
@@ -42,6 +44,7 @@ class FactorInputs:
     aum_delta_pct: float | None
     macro_rows: tuple[ImpactRow, ...]
     constituent_rows: tuple[ImpactRow, ...]
+    flow: FlowAggregate | None = None
 
 
 def _na(name: str, reason: str) -> FactorScore:
@@ -97,9 +100,19 @@ def _constituent(profile: str, inp: FactorInputs) -> FactorScore:
     return FactorScore("constituent", value, True, "", conf)
 
 
+def _flow(profile: str, inp: FactorInputs) -> FactorScore:
+    if "flow" not in eligible_factors(profile):
+        return _na("flow", _NA_PROFILE_INELIGIBLE)
+    if inp.flow is None or inp.flow.reason == _NA_FLOW_NO_DATA:
+        return _na("flow", _NA_FLOW_NO_DATA)
+    if inp.flow.value is None:
+        return _na("flow", _NA_FLOW_NO_COVERAGE)
+    return FactorScore("flow", inp.flow.value, True, "", 1.0)
+
+
 def build_factor_scores(profile: str, inp: FactorInputs) -> tuple[FactorScore, ...]:
-    """Pure: one fund's inputs → the five FactorScores (eligible or N/A + reason)."""
+    """Pure: one fund's inputs → the six FactorScores (eligible or N/A + reason)."""
     return (
         _trend(inp), _valuation(profile, inp), _heat(profile, inp),
-        _macro(profile, inp), _constituent(profile, inp),
+        _macro(profile, inp), _constituent(profile, inp), _flow(profile, inp),
     )
