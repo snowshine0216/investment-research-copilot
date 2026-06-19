@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+from irc.monitor.holding_metrics import flow_band as flow_score  # noqa: F401
+
+# D7 band thresholds (percent-points), documented here for the factor layer.
+# Single source of truth is holding_metrics.flow_band; flow_score re-exports it.
+_FLOW_BANDS = ((3.0, 1.0), (1.0, 0.5), (-1.0, 0.0), (-3.0, -0.5), (-1e18, -1.0))
+
 _VALUATION_MAP: dict[str, float] = {
     "cheap": 1.0, "reasonable_low": 0.5, "fair": 0.0,
     "expensive": -0.5, "very_expensive": -1.0,
