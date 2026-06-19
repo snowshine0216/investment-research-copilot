@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor capital-flow factor + per-stock drill-down (ADR 0019) (2026-06-19)
+
+- **Monitor capital-flow factor + per-stock drill-down (ADR 0019).** New `flow`
+  factor on `active_cn_equity` (主力净流入净占比, 5d/20d blended, percent-points,
+  bullish-on-inflow, holding-weight-renormalized over the top-5 with a 0.50
+  coverage floor); per-stock PB/PE board + flow roll-up embedded in `report.html`
+  and written as standalone `drilldown.html`. Eval: trace schema 2→3 with a
+  `holding_metrics` block, a board↔factor reconciliation oracle, and forward-eval
+  population isolation (`_ENGINE_VERSION` 1→2 + `score_forward(target_engine)` +
+  `runner._target_engine` numeric-max + `details.json.excluded_by_engine`). New
+  non-caveating N/A reasons `flow_no_data` / `flow_no_coverage`.
+
 ### Added — monitor `heat` factor: restriction leg (2026-06-17)
 
 - **Lights up the previously-dark `heat` (crowding) factor** in `irc monitor` for all eligible
