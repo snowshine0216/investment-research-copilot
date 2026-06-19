@@ -76,7 +76,7 @@ def test_trace_carries_missing_trading_days_from_calendar(monkeypatch, tmp_path:
         (tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json")
         .read_text(encoding="utf-8"))
     assert trace["funds"]["008986"]["nav"]["missing_trading_days"] == 0
-    assert trace["schema_version"] == "2"
+    assert trace["schema_version"] == "3"
 
 
 def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: Path):

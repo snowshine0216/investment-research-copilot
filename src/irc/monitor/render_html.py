@@ -5,6 +5,8 @@ from irc.monitor.render_cards import (
     narrative_sections_html, risk_block_html, verdict_block_html,
 )
 from irc.monitor.render_factors import factor_table_html, returns_table_html
+from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
+from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
@@ -57,6 +59,12 @@ _CSS = (
     "font-size:13px;line-height:1.55}"
     ".explainer .legend{display:block;margin-top:4px;color:#57606a}"
     ".explainer .legend-en{display:block;margin-top:2px;color:#8c959f;font-size:12px}"
+    ".holdings-board{border-collapse:collapse;font-size:13px;margin:8px 0;width:100%}"
+    ".holdings-board th,.holdings-board td{border:1px solid #d0d7de;padding:3px 6px;text-align:right}"
+    ".holdings-board th:nth-child(-n+3),.holdings-board td:nth-child(-n+3){text-align:left}"
+    ".na-reason{color:#8c959f;font-size:11px}"
+    ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
+    ".flow-outage{margin:8px 0;padding:6px 8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:6px}"
     "</style>"
 )
 
@@ -70,10 +78,46 @@ _EXPLAINER = (
     'ADD_BIAS=偏多 · NEUTRAL=中性 · REDUCE_BIAS=偏空　|　'
     '✓ validated 全项校验通过 · ⚠ caveated 有保留（存在 WARN/UNKNOWN，无新 FAIL）'
     '</span>'
+    '<span class="legend">估值 + 资金流 → 倾向（偏多/偏空），仍为研究参考、非买卖指令</span>'
     '<span class="legend-en">Directional bias is a research lean, '
     'not a buy/sell order and not investment advice.</span>'
     '</aside>'
 )
+
+
+def _drilldown_block(view: FundView) -> str:
+    if not view.holding_metrics:
+        return ""
+    agg = aggregate_flow(view.holding_metrics)
+    return (holdings_board_html(view.holding_metrics)
+            + flow_rollup_html(view.holding_metrics, agg, view.signal))
+
+
+def _flow_eligible(view: FundView) -> bool:
+    """A fund is flow-eligible iff its flow factor is present OR N/A for a
+    data/coverage reason (NOT profile_ineligible)."""
+    for s in view.factor_scores:
+        if s.name == "flow":
+            return s.reason != "profile_ineligible"
+    return False
+
+
+def _flow_present(view: FundView) -> bool:
+    return any(s.name == "flow" and s.eligible for s in view.factor_scores)
+
+
+def _flow_outage_note(views: tuple[FundView, ...]) -> str:
+    """PURE: ONE run-level header line iff set-wide flow coverage collapses — every
+    flow-eligible fund lost its flow leg (0 usable). No flow-eligible fund → "" (not
+    an outage). Driven by factor N/A reasons, not a side effect. Per-fund N/A stays
+    non-caveating (KNOWN_NA_REASONS)."""
+    eligible = [v for v in views if _flow_eligible(v)]
+    if not eligible:
+        return ""
+    if any(_flow_present(v) for v in eligible):
+        return ""
+    return ('<div class="flow-outage">⚠ 资金流数据今日不可用——倾向回退至五因子 '
+            "(flow unavailable today; lean fell back to 5-factor)</div>")
 
 
 def _badge(view: FundView, gate: GateDecision | None) -> str:
@@ -129,6 +173,7 @@ def _card(view: FundView, gate: GateDecision | None) -> str:
         f"{chart}"
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
+        f"{_drilldown_block(view)}"
         f"{narrative_sections_html(view.narrative)}"
         f"{risk_block_html(view.signal, view.narrative)}"
         "</section>"
@@ -197,6 +242,7 @@ def render_report(
     )
     cards = "".join(_card(v, g.get(v.fund_id)) for v in views)
     panel = _panel(views, gates, panel_rows)
+    outage_note = _flow_outage_note(views)
     predictive = (
         predictive_validity_panel_html(model=predictive_panel)
         if predictive_panel is not None else ""
@@ -204,6 +250,6 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + _EXPLAINER + summary + cards + panel + predictive
+        + header + outage_note + _EXPLAINER + summary + cards + panel + predictive
         + _appendix(views) + "</body></html>"
     )

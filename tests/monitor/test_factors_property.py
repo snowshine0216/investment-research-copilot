@@ -11,7 +11,7 @@ from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import PROFILES, eligible_factors
 
 _PROFILES = tuple(PROFILES.keys())
-_FACTOR_NAMES = ("trend", "valuation", "heat", "macro_tilt", "constituent")
+_FACTOR_NAMES = ("trend", "valuation", "heat", "macro_tilt", "constituent", "flow")
 
 
 def _nav(n):
@@ -69,6 +69,6 @@ def test_ineligible_factors_are_profile_ineligible(profile, inp):
 
 
 @given(profile=st.sampled_from(_PROFILES), inp=_inputs())
-def test_all_five_factor_names_present_exactly_once(profile, inp):
+def test_all_six_factor_names_present_exactly_once(profile, inp):
     names = [s.name for s in build_factor_scores(profile, inp)]
     assert names == list(_FACTOR_NAMES)

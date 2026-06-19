@@ -37,7 +37,7 @@ uv run irc decision                  # decision report
 uv run irc ask "..."                 # grounded Q&A over today's outputs
 uv run irc universe build-cn-funds   # monthly: regenerate config/universe/cn_funds.generated.yaml
 uv run irc fundamentals snapshot --target all --top-n 10  # quarterly: refresh constituent filings/broker reports
-uv run irc monitor                   # daily brief for the 7-fund Monitor set → outputs/<date>/monitor/{report.html,eval_trace.json}; appends data/monitor/forward_ledger.jsonl
+uv run irc monitor                   # daily brief for the 7-fund Monitor set → outputs/<date>/monitor/{report.html,drilldown.html,eval_trace.json}; appends data/monitor/forward_ledger.jsonl. active_cn_equity funds get a capital-flow factor + per-stock PB/PE+flow drill-down (ADR 0019).
 uv run irc monitor snapshot          # quarterly: typed per-fund constituent snapshot refresh for the Monitor set
 uv run irc eval monitor_signal       # free in-run health + oracle eval over eval_trace.json (part of `irc eval --all`)
 IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact   # live_gated LLM-quality suite (SKIPPED rc 3 without the env; out of --all; budgeted by the eval-live spend gate). Same for monitor_narrative.

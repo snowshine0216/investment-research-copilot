@@ -5,11 +5,12 @@ from __future__ import annotations
 from datetime import date
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.types import FundTraceBundle, GateDecision
+from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "2"
+_SCHEMA_VERSION = "3"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -124,6 +125,21 @@ def _narrative(narr) -> dict:
             "risk": _claims(narr.risk_commentary)}
 
 
+def _holding_metrics(view: FundView) -> dict:
+    metrics = view.holding_metrics
+    agg = aggregate_flow(metrics)
+    return {
+        "rows": [{"symbol": m.symbol, "name": m.name, "weight_pct": m.weight_pct,
+                  "pe": m.pe, "pb": m.pb, "pe_percentile": m.pe_percentile,
+                  "valuation_state": m.valuation_state, "valuation_reason": m.valuation_reason,
+                  "flow_pct_5d": m.flow_pct_5d, "flow_pct_20d": m.flow_pct_20d,
+                  "flow_score": m.flow_score, "flow_reason": m.flow_reason}
+                 for m in metrics],
+        "aggregate": {"value": agg.value, "reason": agg.reason,
+                      "covered_weight_ratio": agg.covered_weight_ratio},
+    }
+
+
 def _fund_entry(fund: MonitorFund, view: FundView, gate: GateDecision,
                 bundle: FundTraceBundle, trading_days: frozenset[date] | None) -> dict:
     return {
@@ -141,6 +157,7 @@ def _fund_entry(fund: MonitorFund, view: FundView, gate: GateDecision,
                  "reason": gate.reason},
         "published_state": published_state(view.signal, gate),
         "validation_badge": gate.badge,
+        "holding_metrics": _holding_metrics(view),
     }
 
 

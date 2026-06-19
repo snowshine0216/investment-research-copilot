@@ -107,3 +107,61 @@ def monitor_signal_health(
     overall = worst_status([p.status for p in parts])  # only PASS/WARN/FAIL here (no UNKNOWN)
     reasons = tuple(r for p in parts for r in p.reasons)
     return StageHealth(stage="monitor_signal", status=overall, reasons=reasons)
+
+
+def _board_flow_value(rows: list[dict]) -> float | None:
+    covered = [r for r in rows if r.get("flow_score") is not None]
+    cw = sum(r["weight_pct"] for r in covered)
+    if cw <= 0.0:
+        return None
+    return sum(r["weight_pct"] * r["flow_score"] for r in covered) / cw
+
+
+def _flow_factor_value(t: dict) -> float | None:
+    for c in t.get("signal", {}).get("contributions", []):
+        if c.get("name") == "flow":
+            return c.get("value")
+    return None
+
+
+def flow_reconciliation(t: dict) -> StageHealth:
+    """PURE: the board's Σ(wᵢ·sᵢ)/Σ(wᵢ) over covered rows must equal the flow factor
+    value (4dp). No flow contribution → nothing to reconcile → PASS (§5.E).
+    Panel-only — NOT added to any GATING_STAGES list (mirrors deterministic_health)."""
+    factor_value = _flow_factor_value(t)
+    if factor_value is None:
+        return StageHealth("flow_reconciliation", "PASS", ())
+    board_value = _board_flow_value(t.get("holding_metrics", {}).get("rows", []))
+    if board_value is None or abs(round(board_value, 4) - round(factor_value, 4)) >= _EPS:
+        return StageHealth("flow_reconciliation", "FAIL",
+                           (f"board {board_value} != factor {factor_value}",))
+    return StageHealth("flow_reconciliation", "PASS", ())
+
+
+def flow_coverage_health(t: dict) -> StageHealth:
+    """PURE informational coverage tally over holding_metrics (§5.E, panel-only).
+    Status always PASS — observability, never a gate. Surfaces:
+      flow_cover <ratio>  — from aggregate.covered_weight_ratio or row-fraction fallback.
+      pe_cover <ratio>    — fraction of rows with pe_percentile not None.
+      flow_no_data <n>    — count of rows where flow_reason == 'flow_no_data'.
+      flow_no_coverage <0|1> — 1 when aggregate.reason == 'flow_no_coverage'.
+    Empty/missing holding_metrics → PASS with no reasons, never raises."""
+    hm = t.get("holding_metrics") or {}
+    rows = hm.get("rows") or []
+    agg = hm.get("aggregate") or {}
+    if not rows and not agg:
+        return StageHealth("flow_coverage", "PASS", ())
+    n = len(rows)
+    ratio = agg.get("covered_weight_ratio")
+    if ratio is None and n > 0:
+        ratio = sum(1 for r in rows if r.get("flow_score") is not None) / n
+    pe_cov = (sum(1 for r in rows if r.get("pe_percentile") is not None) / n) if n > 0 else 0.0
+    no_data = sum(1 for r in rows if r.get("flow_reason") == "flow_no_data")
+    no_cov = 1 if agg.get("reason") == "flow_no_coverage" else 0
+    reasons: list[str] = []
+    if ratio is not None:
+        reasons.append(f"flow_cover {round(ratio, 2)}")
+    reasons.append(f"pe_cover {round(pe_cov, 2)}")
+    reasons.append(f"flow_no_data {no_data}")
+    reasons.append(f"flow_no_coverage {no_cov}")
+    return StageHealth("flow_coverage", "PASS", tuple(reasons))

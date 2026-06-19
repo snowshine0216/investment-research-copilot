@@ -1,4 +1,5 @@
 from __future__ import annotations
+import dataclasses
 import datetime as _dt
 import json
 from irc.monitor.eval.trace import (
@@ -85,7 +86,8 @@ def test_per_fund_schema_keys():
                          engine_version="1", run_date="2026-06-16")
     f = t["funds"]["008986"]
     assert set(f) == {"resolved", "nav", "evidence_pool", "factor_scores", "signal",
-                      "impacts", "narrative", "gate", "published_state", "validation_badge"}
+                      "impacts", "narrative", "gate", "published_state", "validation_badge",
+                      "holding_metrics"}
     assert set(f["resolved"]) == {"analysis_profile", "weights", "bands", "minimum_confidence"}
     assert set(f["nav"]) == {"as_of_date", "latest_unit_nav", "nav_acc", "acc_series",
                              "obs_count", "max_gap_days", "missing_trading_days"}
@@ -257,7 +259,25 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_2():
+def test_schema_version_is_3():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
-                         engine_version="1", run_date="2026-06-16")
-    assert t["schema_version"] == "2"
+                         engine_version="2", run_date="2026-06-19")
+    assert t["schema_version"] == "3"
+
+
+def test_trace_emits_holding_metrics_block():
+    from irc.monitor.holding_metrics import HoldingMetric
+    hm = HoldingMetric("600519", "贵州茅台", 12.0, 30.0, 8.0, 0.8, "expensive",
+                       None, 4.0, 3.5, 1.0, None)
+    view = _good_view()
+    view = dataclasses.replace(view, holding_metrics=(hm,))
+    fund = _fund("519069", profile="active_cn_equity")
+    bundle = FundTraceBundle("519069", (), (), ())
+    gate = apply_eval_gate(view.signal, health=(), gating_stages=GATING_STAGES_M0)
+    t = build_eval_trace(((fund, view, gate, bundle),), engine_version="2",
+                         run_date="2026-06-19")
+    block = t["funds"]["519069"]["holding_metrics"]
+    assert block["rows"][0]["symbol"] == "600519"
+    assert block["rows"][0]["flow_score"] == 1.0
+    assert block["aggregate"]["value"] == 1.0
+    assert block["aggregate"]["covered_weight_ratio"] == 1.0

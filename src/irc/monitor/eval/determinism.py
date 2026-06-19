@@ -159,14 +159,23 @@ def _row(stage: str, healths: dict, now: str) -> ValidationPanelRow:
 def build_panel_rows(
     signal_healths: dict, deterministic_healths: dict, *, now: str,
     suite_rows: tuple[ValidationPanelRow, ...] = (),
+    flow_reconciliation_healths: dict | None = None,
+    flow_coverage_healths: dict | None = None,
 ) -> tuple[ValidationPanelRow, ...]:
     """Panel rows from the per-fund healths plus the run-global gating LLM-suite
     rows. monitor_signal reflects RAW signal_health worst-of (divergence 1); the
     suite rows (monitor_impact/monitor_narrative — built at the edge with their real
     ran_at) are grouped with it because they gate; deterministic_scoring is panel-only
-    and comes last."""
+    and comes after; flow_reconciliation + flow_coverage are panel-only (§5.E) and
+    trail deterministic_scoring. Default empty dicts → rows omitted (back-compat)."""
+    flow_rows: tuple[ValidationPanelRow, ...] = ()
+    if flow_reconciliation_healths:
+        flow_rows += (_row("flow_reconciliation", flow_reconciliation_healths, now),)
+    if flow_coverage_healths:
+        flow_rows += (_row("flow_coverage", flow_coverage_healths, now),)
     return (
         _row("monitor_signal", signal_healths, now),
         *suite_rows,
         _row("deterministic_scoring", deterministic_healths, now),
+        *flow_rows,
     )
