@@ -29,6 +29,9 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
+from irc.monitor.flow_fetch import fetch_flow_series
+from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow
+from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
 from irc.monitor.narrative import gather_narrative
@@ -246,6 +249,8 @@ def _make_view(
     narr_doc: NarrativeDoc,
     pool: tuple,
     impacts_status: str = "ok",
+    *,
+    holding_metrics: tuple = (),
 ) -> FundView:
     return FundView(
         fund_id=fund.id,
@@ -263,6 +268,7 @@ def _make_view(
         ),
         factor_scores=tuple(scores),
         impacts_status=impacts_status,
+        holding_metrics=holding_metrics,
     )
 
 
@@ -353,6 +359,20 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
         out / "monitor.json",
         json.dumps(_machine_summary(views), indent=2, sort_keys=True),
     )
+
+
+def _write_drilldown(out: Path, views: tuple) -> None:
+    """EDGE: write drilldown.html when any fund has holding_metrics (atomic write)."""
+    dd_views = tuple(
+        (v.fund_id, v.name_cn, v.holding_metrics, aggregate_flow(v.holding_metrics), v.signal)
+        for v in views if v.holding_metrics
+    )
+    if not dd_views:
+        return
+    try:
+        atomic_write_text(out / "drilldown.html", drilldown_page_html(dd_views))
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("drilldown.html write failed", exc_info=True)
 
 
 # ── Eval wiring helpers ───────────────────────────────────────────────────────
@@ -545,9 +565,11 @@ def _append_nav_history_for_views(
 
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
+    today: str | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
+    from irc.opportunity.inputs_loader import _stock_series_by_code
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
     impacts = gather_impacts(
@@ -560,6 +582,7 @@ def _process_fund(
     constituent_rows: tuple = ()
     const_impacts_result = None
     const_pool: tuple = ()
+    holding_metrics: tuple = ()
     profile_spec = PROFILES.get(fund.analysis_profile)
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
@@ -577,6 +600,19 @@ def _process_fund(
             )
             cost_history.extend(const_impacts_result.cost_entries)
             constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
+        if top_holdings and today is not None:
+            symbols = tuple(h.symbol for h in top_holdings)
+            try:
+                flow_series = fetch_flow_series(
+                    symbols,
+                    cache_dir=root / "data" / "monitor" / "fund_flow",
+                    today=today,
+                )
+            except Exception:  # noqa: BLE001 — degrade gracefully, never crash the brief
+                _log.warning("flow_fetch failed for %s", fund.id, exc_info=True)
+                flow_series = {s: None for s in symbols}
+            series_by_code = _stock_series_by_code(con, symbols) if con is not None else {}
+            holding_metrics = build_holding_metrics(top_holdings, series_by_code, flow_series)
 
     from irc.monitor.valuation import ValuationResolution
     if con is not None:
@@ -602,7 +638,8 @@ def _process_fund(
         fund_id=fund.id, pool=pool, route=llm_config, call=llm_call,
     )
     cost_history.extend(narr.cost_entries)
-    view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status)
+    view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status,
+                      holding_metrics=holding_metrics)
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -640,6 +677,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         for fund in funds:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
+                today=_today,
             )
             views.append(view)
             bundles.append(bundle)
@@ -663,6 +701,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                           run_date=_today, trading_days=trading_days)
     predictive_panel = _predictive_panel_model(root, today=_today)
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
+    _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,
         history=all_costs,

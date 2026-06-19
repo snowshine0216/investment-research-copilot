@@ -154,6 +154,13 @@ class FlowAggregate:
     covered_weight_ratio: float
 
 
+def build_holding_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]:
+    """Pure assembly entry called from the edge (monitor_cmd). Identical to
+    per_stock_metrics — named so the command imports one stable name. Effects
+    (fetch_flow_series, _stock_series_by_code) stay in monitor_cmd."""
+    return per_stock_metrics(top_holdings, series_by_code, flow_series_by_code)
+
+
 def aggregate_flow(metrics: tuple[HoldingMetric, ...]) -> FlowAggregate:
     """Pure: Σ(wᵢ·sᵢ)/Σ(wᵢ) over holdings with a non-None flow_score, renormalized
     over covered top holdings (D5). covered_weight_ratio = Σ covered wᵢ / Σ all wᵢ.
