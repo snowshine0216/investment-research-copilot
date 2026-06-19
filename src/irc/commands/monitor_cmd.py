@@ -44,7 +44,9 @@ from irc.monitor.resolve import resolve_funds
 from irc.monitor.signal import compute_signal
 from irc.monitor.snapshot_targets import target_for_fund
 from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M1, published_state
-from irc.monitor.eval.structural import monitor_signal_health
+from irc.monitor.eval.structural import (
+    monitor_signal_health, flow_reconciliation, flow_coverage_health,
+)
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.trading_calendar import load_trading_days
@@ -403,16 +405,19 @@ def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, suite_healths: tuple[StageHealth, ...],
     trading_days: frozenset[date] | None,
-) -> tuple[tuple[GateDecision, ...], dict, dict]:
+) -> tuple[tuple[GateDecision, ...], dict, dict, dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
     run-global LLM-suite healths (resolved once at the edge — identical for every
-    fund, OQ-E), and apply the M1 gate. Returns
-    (gates, signal_healths, deterministic_healths); deterministic_scoring is
-    PANEL-ONLY and never gates (spec §4.3)."""
+    fund, OQ-E), and apply the M1 gate. Also computes flow_reconciliation and
+    flow_coverage healths (panel-only, §5.E — never gate). Returns
+    (gates, signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths);
+    the two flow dicts are PANEL-ONLY and never passed to apply_eval_gate."""
     gates: list[GateDecision] = []
     signal_healths: dict = {}
     deterministic_healths: dict = {}
+    flow_recon_healths: dict = {}
+    flow_cov_healths: dict = {}
     for fund, view, bundle in zip(funds, views, bundles):
         stub = GateDecision(fund.id, False, (), "validated", "")
         projection = build_eval_trace(
@@ -435,10 +440,30 @@ def _compute_gates(
                 status="FAIL",
                 reasons=(f"{fund.id}: recompute_error: {exc!r}",),
             )
+        try:
+            flow_recon_healths[fund.id] = flow_reconciliation(projection)
+        except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
+            _log.warning(
+                "flow_reconciliation failed for %s: %r", fund.id, exc, exc_info=True,
+            )
+            flow_recon_healths[fund.id] = StageHealth(
+                stage="flow_reconciliation", status="PASS",
+                reasons=(f"{fund.id}: reconciliation_error: {exc!r}",),
+            )
+        try:
+            flow_cov_healths[fund.id] = flow_coverage_health(projection)
+        except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
+            _log.warning(
+                "flow_coverage_health failed for %s: %r", fund.id, exc, exc_info=True,
+            )
+            flow_cov_healths[fund.id] = StageHealth(
+                stage="flow_coverage", status="PASS",
+                reasons=(f"{fund.id}: coverage_error: {exc!r}",),
+            )
         health = (signal_health, *suite_healths)
         gates.append(apply_eval_gate(view.signal, health=health,
                                      gating_stages=GATING_STAGES_M1))
-    return tuple(gates), signal_healths, deterministic_healths
+    return tuple(gates), signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths
 
 
 def _write_eval_artifacts(
@@ -688,12 +713,17 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
-    gates, signal_healths, deterministic_healths = _compute_gates(
-        list(funds), views, bundles,
-        min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
-        trading_days=trading_days)
-    panel_rows = build_panel_rows(signal_healths, deterministic_healths,
-                                  now=_now_iso(), suite_rows=suite_rows)
+    gates, signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths = (
+        _compute_gates(
+            list(funds), views, bundles,
+            min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
+            trading_days=trading_days)
+    )
+    panel_rows = build_panel_rows(
+        signal_healths, deterministic_healths, now=_now_iso(), suite_rows=suite_rows,
+        flow_reconciliation_healths=flow_recon_healths,
+        flow_coverage_healths=flow_cov_healths,
+    )
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)

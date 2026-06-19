@@ -264,3 +264,63 @@ def test_validation_panel_row_is_frozen_dataclass():
     except Exception:
         raised = True
     assert raised
+
+
+# ── §5.E gap: flow_reconciliation + flow_coverage wired into panel (panel-only) ─
+
+
+def test_build_panel_rows_includes_flow_rows_after_deterministic_scoring():
+    """With non-empty flow_reconciliation_healths + flow_coverage_healths, both
+    'flow_reconciliation' and 'flow_coverage' panel rows must appear AFTER
+    'deterministic_scoring'."""
+    from irc.monitor.eval.types import StageHealth
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "PASS", ())}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    recon = {"A": StageHealth("flow_reconciliation", "PASS", ())}
+    cov = {"A": StageHealth("flow_coverage", "PASS", ("flow_cover 0.80",))}
+    rows = build_panel_rows(sig, det, now="t",
+                            flow_reconciliation_healths=recon,
+                            flow_coverage_healths=cov)
+    stages = [r.stage for r in rows]
+    assert "flow_reconciliation" in stages
+    assert "flow_coverage" in stages
+    det_idx = stages.index("deterministic_scoring")
+    assert stages.index("flow_reconciliation") > det_idx
+    assert stages.index("flow_coverage") > det_idx
+
+
+def test_build_panel_rows_flow_rows_carry_reasons():
+    """flow_coverage row must surface the coverage reasons from the per-fund health."""
+    from irc.monitor.eval.types import StageHealth
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "PASS", ())}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    recon = {"A": StageHealth("flow_reconciliation", "FAIL", ("board 0.3 != factor 0.5",))}
+    cov = {"A": StageHealth("flow_coverage", "PASS", ("flow_cover 0.60", "pe_cover 0.40"))}
+    rows = {r.stage: r for r in build_panel_rows(sig, det, now="t",
+                                                  flow_reconciliation_healths=recon,
+                                                  flow_coverage_healths=cov)}
+    assert "board 0.3 != factor 0.5" in rows["flow_reconciliation"].reasons
+    assert "flow_cover 0.60" in rows["flow_coverage"].reasons
+
+
+def test_build_panel_rows_default_empty_flow_dicts_is_backward_compatible():
+    """Default empty dicts → no flow rows; existing callers (no kwargs) stay green."""
+    from irc.monitor.eval.types import StageHealth
+    from irc.monitor.eval.determinism import build_panel_rows
+    sig = {"A": StageHealth("monitor_signal", "PASS", ())}
+    det = {"A": StageHealth("deterministic_scoring", "PASS", ())}
+    stages = [r.stage for r in build_panel_rows(sig, det, now="t")]
+    assert "flow_reconciliation" not in stages
+    assert "flow_coverage" not in stages
+
+
+def test_flow_stages_not_in_gating_stages():
+    """flow_reconciliation and flow_coverage must NEVER appear in GATING_STAGES_M0
+    or GATING_STAGES_M1 — they are panel-only and must not affect apply_eval_gate."""
+    from irc.monitor.eval.gate import GATING_STAGES_M0, GATING_STAGES_M1
+    assert "flow_reconciliation" not in GATING_STAGES_M0
+    assert "flow_reconciliation" not in GATING_STAGES_M1
+    assert "flow_coverage" not in GATING_STAGES_M0
+    assert "flow_coverage" not in GATING_STAGES_M1

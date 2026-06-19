@@ -2290,6 +2290,14 @@ git add src/irc/monitor/eval/structural.py tests/monitor/eval/test_structural.py
 git commit -m "feat(monitor): flow_reconciliation oracle (board == factor value, 4dp)"
 ```
 
+> **§5.E gap CLOSED (2026-06-19):** `flow_coverage_health(t) → StageHealth` added to `structural.py`
+> (PASS-always, surfaces `flow_cover`, `pe_cover`, `flow_no_data`, `flow_no_coverage` reasons;
+> empty trace → PASS no-raise). Both `flow_reconciliation` and `flow_coverage` wired into
+> `build_panel_rows` as new defaulted keyword params (back-compat) and emitted AFTER
+> `deterministic_scoring`. `_compute_gates` now returns 5-tuple; production caller updated.
+> `test_gate_flip_m1.py` (3 callers) updated for the 5-tuple. Neither stage added to any
+> `GATING_STAGES_*` (panel-only invariant tested). 639→651 passed, ruff clean.
+
 ---
 
 ### Task 4.4: `forward_score.score_forward(target_engine=…)` + `engine_mismatch`
