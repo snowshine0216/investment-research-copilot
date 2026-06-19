@@ -29,7 +29,7 @@
 
 ## 3. Scope
 
-- **In:** the 7 `active_cn_equity` funds (519069, 260112, 006533, 000083, 519770, 018132, 161903). Flow + per-stock board apply to these (look-through holdings are A-shares).
+- **In:** the 7 `active_cn_equity` funds (519069, 260112, 006533, 000083, 519770, 018132, 161903). Flow + per-stock board apply to these (look-through holdings are A-shares). **Note `018132`** (博时中证有色金属矿业主题指数A) is an *index-tracking* product on the `active_cn_equity` profile: its valuation resolves via the index branch (`_resolve_index`), and its look-through holdings may be absent/partial → flow legitimately degrades to `flow_no_coverage`/`flow_no_data` (honest N/A, not a bug). Index-profiled active funds showing flow N/A is expected.
 - **Out (N/A by profile):** gold (008986), qdii_global (270023), qdii_china_us_internet (009225) — no A-share constituents → `flow` is `profile_ineligible` (no weight allocated, no board). Their weight vectors and biases are untouched.
 - **Out of scope:** Northbound (北向) flow (stock-level daily disclosure discontinued by exchanges Aug 2024); per-fund AUM-Δ (still no live QoQ source — unchanged from #166); intraday flow.
 
@@ -42,12 +42,12 @@ stock_valuation_history (DB) ─┼─▶ holding_metrics.py (PURE)
   PE/PB per code              │     per-stock HoldingMetric[] (PE/PB/pct + flow windows + flow score)
 fund_flow/<date>.json (cache)─┘     + FlowAggregate (Σwᵢsᵢ/Σwᵢ over covered, coverage gate)
         ▲                                   │
-flow_fetch.py (EDGE, one fetch/run,         ├─▶ factors._flow → FactorScore → compute_signal → bias
-  cached per day; never raises)             ├─▶ render_drilldown.py → board + roll-up (card + drilldown.html)
-                                            └─▶ eval/trace.py → holding_metrics block (schema 3) → determinism + coverage + reconciliation evals
+flow_fetch.py (EDGE, ~15-25 calls/run        ├─▶ factors._flow → FactorScore → compute_signal → bias
+  = one call/A-share symbol, cached/day;     ├─▶ render_drilldown.py → board + roll-up (card + drilldown.html)
+  never raises)                              └─▶ eval/trace.py → holding_metrics block (schema 3) → determinism + coverage + reconciliation evals
 ```
 
-The pure core (`holding_metrics`, `factor_maps.flow_score`, `factors._flow`, renderers) takes already-loaded inputs. The only effects are `flow_fetch` (network, edge) and the cached DuckDB reads the valuation path already does.
+The pure core (`holding_metrics`, `factor_maps.flow_score`, `factors._flow`, renderers) takes already-loaded inputs. The only effects are `flow_fetch` (network, edge) and the cached DuckDB reads the valuation path already does. **Fetch cost** (corrects the diagram vs. `heat_fetch`): unlike `fund_purchase_em` (one market-wide call), `stock_individual_fund_flow` has no batch variant — flow is ~15-25 **sequential** per-symbol CN calls/run (deduped, cached per day). Free endpoint (no spend gate), but add light pacing between calls given prior akshare/CN rate-limit exposure (cf. legulegu rate-limiting in project history); a rate-limited symbol degrades to `flow_no_data`, never a crash.
 
 ## 5. Components
 
@@ -86,14 +86,14 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 
 ### 5.C Flow factor + scoring — Slice 3
 - `factor_maps.flow_score(flow_pct) -> float|None`: D7 bands as a pure step function; constants `_FLOW_BANDS`.
-- `factors.py`: `FactorInputs` gains `flow: FlowAggregate | None`. New `_flow(profile, inp)`:
+- `factors.py`: `FactorInputs` gains **`flow: FlowAggregate | None = None`** — trailing AND defaulted. This is mandatory: `FactorInputs` is constructed without a flow leg in production at `eval/backtest.py:33` (the M0 evidence-free composite — retro backtest has no flow data and must stay flow-N/A) and in 4 test sites; a non-defaulted field breaks them. New `_flow(profile, inp)`:
   - `"flow" not in eligible_factors(profile)` → `_na("flow", _NA_PROFILE_INELIGIBLE)`.
   - `inp.flow is None or inp.flow.reason == "flow_no_data"` (no covered holdings had data) → `_na("flow", _NA_FLOW_NO_DATA)`.
   - `inp.flow.value is None` (below coverage floor) → `_na("flow", _NA_FLOW_NO_COVERAGE)`.
   - else `FactorScore("flow", inp.flow.value, True, "", 1.0)`.
   - Add `_NA_FLOW_NO_DATA = "flow_no_data"`, `_NA_FLOW_NO_COVERAGE = "flow_no_coverage"` to the `_NA_*` constants and `KNOWN_NA_REASONS`. `build_factor_scores` appends `_flow(...)` (6 factors now).
 - `profiles.py`: add `"flow"` to `active_cn_equity.eligible`; set the D8 weight vector. **A profile never allocates weight to a factor it can't structurally fill** (invariant kept) — flow weight exists only on `active_cn_equity`.
-- `signal.py`: `_FAMILY_OF["flow"] = "capital-flow"` (new family → richer `present_families`, helps clear `_MIN_FAMILIES`). Add divergence code **`valuation_flow_conflict`**: cheap valuation (`v ≥ _DIVERGE`) with outflow (`f ≤ −_DIVERGE`), or expensive (`v ≤ −_DIVERGE`) with inflow (`f ≥ _DIVERGE`) — the central honesty check on the "buy/sell" thesis.
+- `signal.py`: `_FAMILY_OF["flow"] = "capital-flow"` (new family → richer `present_families`, helps clear `_MIN_FAMILIES`). Add divergence code **`valuation_flow_conflict`**: cheap valuation (`v ≥ _DIVERGE`) with outflow (`f ≤ −_DIVERGE`), or expensive (`v ≤ −_DIVERGE`) with inflow (`f ≥ _DIVERGE`) — the central honesty check on the "buy/sell" thesis. **Also update the parallel test oracle `tests/monitor/_oracle.py:13` `_FAMILY_OF`** (a second copy; `gate_predicate_ok` does a bare `_FAMILY_OF[name]` lookup → `KeyError` on a present flow factor if not updated — the project's "test-scope on signature changes" trap).
 - `render_factors.CANONICAL_FACTOR_ORDER` → `("trend", "valuation", "flow", "heat", "macro_tilt", "constituent")`.
 - `compute_signal` is **unchanged** — the new factor flows through automatically (renorm weights, composite, bands → bias).
 
@@ -102,6 +102,7 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
   - `holdings_board_html(metrics)`: a table — `# · symbol · name · weight% · PB · PE · PE-pct · 估值 state · 5d净占比 · 20d净占比 · flow score`. N/A cells show `—` + reason. Rows sorted by weight desc.
   - `flow_rollup_html(metrics, agg, signal)`: the reconciliation line — `flow factor = Σ(wᵢ·sᵢ)/Σ(wᵢ) = <value> (covered <ratio>%)`, then how `valuation` + `flow` contributions land in `C` → bias. This is the "dig to the bottom" methodology made explicit.
   - `drilldown_page_html(views)`: full-page wrapper for the standalone artifact (reuses the board + roll-up components, shared CSS).
+- `render_factors._DIVERGENCE_CAVEATS` gains `"valuation_flow_conflict": "估值与资金流背离：便宜但资金流出 / 偏贵但资金流入"` — without it `divergence_caveat` falls through to `escape(code)` and the user sees the raw English code, inconsistent with the other three caveats and the "legible methodology" goal.
 - `render_types.FundView` gains `holding_metrics: tuple[HoldingMetric, ...]`.
 - `render_html._card` embeds `holdings_board_html` + `flow_rollup_html` for funds that have metrics (after the factor table). Add flow badge/CSS; extend `_EXPLAINER` to name the flow leg (估值 + 资金流 → 倾向; still 非买卖指令).
 - `monitor_cmd.run_monitor` writes `outputs/<date>/monitor/drilldown.html` (atomic `.tmp.{pid}→os.replace`).
@@ -113,7 +114,7 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 - **Reconciliation oracle** (`eval/structural.py`): assert the board's per-stock `Σ(wᵢ·sᵢ)/Σ(wᵢ)` over covered rows equals the `flow` factor value (to 4dp) — proves the methodology is *correct*, not merely displayed.
 - **Predictive — forward-eval population isolation (REQUIRED, not free).** The new factor + reweight change the bias semantics, so v1 (pre-flow) and v2 (post-flow) ledger rows must NOT be pooled into one metric. Today nothing reads `manifest_versions.engine`: `runner.py` passes every parsed ledger row to `score_forward`, and `score_forward`/`prefilter_ledger` ignore the field. The engine bump (§5.F) is **necessary but not sufficient**; this contract makes it effective:
   - `score_forward(..., target_engine: str | None = None)`: when `target_engine` is set, a row whose `manifest_versions.engine != target_engine` is excluded **before** the maturity join and counted under a new exclusion reason `engine_mismatch` in the returned `excl` dict. (Rows missing the field count as a sentinel `"0"`/legacy engine — also excluded when a target is set.)
-  - `runner.py`: compute `target_engine = _target_engine(ledger)` = the **max engine version present** in the ledger (deterministic, self-configuring — no external config; a deliberate rollback is out of scope), pass it to `score_forward`, and write the per-engine excluded counts into `details.json` (`excluded_by_engine`). The headline metrics are then computed on the target-engine population only.
+  - `runner.py`: compute `target_engine = _target_engine(ledger)` = the **max engine version present** in the ledger — compared **numerically** (`max(versions, key=int)`), NOT lexicographically, so a future `"10"` beats `"9"` (harmless at `"1"→"2"` but a latent trap if string-compared). Deterministic, self-configuring — no external config; a deliberate rollback is out of scope. Pass it to `score_forward`, and write the per-engine excluded counts into `details.json` alongside the existing `forward_excluded` key (new `excluded_by_engine`). Headline metrics are then computed on the target-engine population only.
   - **Tests:** a ledger mixing engine `"1"` and `"2"` rows → only `"2"` rows reach `forward_rows`; `excl["engine_mismatch"]` equals the `"1"`-row count; `details.json.excluded_by_engine` reports it. A single-engine ledger is unaffected (back-compat: `target_engine=None` preserves today's no-filter behavior).
   - Once isolated, the forward scorer measures whether v2 `ADD_BIAS`/`REDUCE_BIAS` predict forward returns — the ultimate test of "does flow make add-bias behave like a buy signal."
 
@@ -136,6 +137,21 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 4. **Eval + versioning** — trace schema 2→3 + `holding_metrics` block, determinism recognition, coverage health, reconciliation oracle, **engine_version bump `1→2` + `score_forward(target_engine=…)` filter + `runner._target_engine` + `details.json.excluded_by_engine` (§5.E/§5.F)**. Tests: schema shape, determinism re-run, reconciliation equality, **mixed-engine ledger → only target-engine rows scored + `engine_mismatch` count correct + single-engine back-compat**.
 
 Ship as one feature branch (matches #166's multi-slice single-PR pattern).
+
+### 7.1 Locked tests that MUST be updated (exact-equality assertions — review #2, P0)
+
+Adding the `flow` factor, two N/A reasons, and the schema bump trips these locked tests. Under TDD each is a deliberate red→green update — naming them prevents an implementer from "preserving" an assertion that is supposed to change:
+
+| Test | Asserts today | Update (slice) |
+|---|---|---|
+| `tests/monitor/test_known_na_reasons.py` (`_EXPECTED` + the "eight codes" test) | `KNOWN_NA_REASONS` == exactly 8 codes | add `flow_no_data`, `flow_no_coverage` → 10 (slice 3) |
+| `tests/monitor/test_profiles.py::test_active_cn_equity_full_vector` | eligible == exactly the 5 | add `flow` → 6 (slice 3) |
+| `tests/monitor/test_render_factors.py::test_canonical_order_is_locked` | `CANONICAL_FACTOR_ORDER` == the 5-tuple | insert `flow` after `valuation` → 6-tuple (slice 3) |
+| `tests/monitor/_oracle.py::_FAMILY_OF` (test oracle, not a test but consumed by oracle tests) | 5 factor→family entries | add `flow → capital-flow` (slice 3) |
+| `tests/monitor/test_acceptance_eval.py:79` | `trace["schema_version"] == "2"` | → `"3"` (slice 4) |
+| `tests/monitor/eval/test_trace.py::test_schema_version_is_2` | `== "2"` | → `"3"` (rename + value, slice 4) |
+
+Plus regression-check (no change expected, but run them): the 5 `FactorInputs(` construction sites (`eval/backtest.py`, `tests/monitor/test_factors.py`, `test_heat_fetch.py`, `test_factors_property.py`, `test_valuation_wiring.py`) stay green **because** `flow` defaults to `None` (§5.C). Per the project "test scope on signature changes" rule, run `tests/monitor/`, `tests/monitor/eval/`, and `tests/commands/` — not just the mirror dir.
 
 ## 8. Open questions / for review
 
