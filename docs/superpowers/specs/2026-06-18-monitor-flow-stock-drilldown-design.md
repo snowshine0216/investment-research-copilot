@@ -105,6 +105,7 @@ Caching is **idempotent within a day** so `--resume` and the standalone `drilldo
 - `render_factors._DIVERGENCE_CAVEATS` gains `"valuation_flow_conflict": "估值与资金流背离：便宜但资金流出 / 偏贵但资金流入"` — without it `divergence_caveat` falls through to `escape(code)` and the user sees the raw English code, inconsistent with the other three caveats and the "legible methodology" goal.
 - `render_types.FundView` gains `holding_metrics: tuple[HoldingMetric, ...]`.
 - `render_html._card` embeds `holdings_board_html` + `flow_rollup_html` for funds that have metrics (after the factor table). Add flow badge/CSS; extend `_EXPLAINER` to name the flow leg (估值 + 资金流 → 倾向; still 非买卖指令).
+- **Broad-outage header note (grill 2026-06-18).** `render_report` emits ONE run-level header line — *"⚠ 资金流数据今日不可用——倾向回退至五因子 (flow unavailable today; lean fell back to 5-factor)"* — **only when set-wide flow coverage collapses** (0 of the flow-eligible funds got a usable flow leg). This keeps the silent renorm-to-5-factor revert visible without per-fund caveats. It is **non-gating** and driven by the coverage-health count (§5.E); per-fund `flow_no_data`/`flow_no_coverage` stay non-caveating (consistent with the `KNOWN_NA_REASONS` contract — routine partial gaps must not caveat). Pure: the flag is computed from the views' factor N/A reasons, not a side effect.
 - `monitor_cmd.run_monitor` writes `outputs/<date>/monitor/drilldown.html` (atomic `.tmp.{pid}→os.replace`).
 
 ### 5.E Eval — Slice 4
