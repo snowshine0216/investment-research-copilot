@@ -172,8 +172,12 @@ A focused daily brief on the fixed 7-fund **Monitor set** defined in
 For each fund the brief shows current unit NAV + as-of date, an accumulated-NAV
 trend chart, a directional bias (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or
 `NO_CALL` when evidence is insufficient), and a causal MiniMax narrative explaining
-why the price moved and why the current bias holds. Output is a self-contained HTML
-report at `outputs/<date>/monitor/report.html`.
+why the price moved and why the current bias holds. For `active_cn_equity` funds the
+brief also grounds the bias bottom-up with a **capital-flow factor** (主力净流入净占比,
+5d/20d blended) and a per-stock **PB/PE + flow drill-down board** over the top-5
+holdings (ADR 0019). Output is a self-contained HTML report at
+`outputs/<date>/monitor/report.html`, plus a standalone per-fund drill-down at
+`outputs/<date>/monitor/drilldown.html`.
 
 ```bash
 uv run irc monitor                          # run the daily brief (reads config/monitor.yaml)
