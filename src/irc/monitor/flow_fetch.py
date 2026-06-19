@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from pathlib import Path
 
@@ -135,7 +136,6 @@ def _write_cache(cache_dir: Path, today: str, by_symbol: dict[str, FlowSeries | 
     cache_dir.mkdir(parents=True, exist_ok=True)
     payload = _cache_payload(by_symbol)
     text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-    import os
     tmp = _cache_path(cache_dir, today).with_suffix(f".tmp.{os.getpid()}")
     tmp.write_text(text, encoding="utf-8")
     os.replace(tmp, _cache_path(cache_dir, today))
