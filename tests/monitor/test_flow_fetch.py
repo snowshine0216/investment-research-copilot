@@ -120,7 +120,7 @@ def test_fetch_dedups_symbols_and_writes_cache(tmp_path):
 
     out = fetch_flow_series(
         ("600519", "600519", "000001"),  # duplicate 600519
-        cache_dir=tmp_path, today="2026-06-16", fetch=fake_fetch,
+        cache_dir=tmp_path, today="2026-06-16", fetch=fake_fetch, sleep=lambda _: None,
     )
     assert calls == ["600519", "000001"]  # deduped, ordered
     assert out["600519"] == (("2026-06-16", 5.0),)
@@ -135,8 +135,10 @@ def test_fetch_is_idempotent_within_a_day_no_refetch(tmp_path):
         calls.append(stock)
         return _fake_df(5.0)
 
-    fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16", fetch=fake_fetch)
-    fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16", fetch=fake_fetch)
+    fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                      fetch=fake_fetch, sleep=lambda _: None)
+    fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                      fetch=fake_fetch, sleep=lambda _: None)
     assert calls == ["600519"]  # second call served from cache
 
 
@@ -144,7 +146,8 @@ def test_fetch_failure_degrades_to_miss_never_raises(tmp_path):
     def boom(*, stock, market):
         raise RuntimeError("rate limited")
 
-    out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16", fetch=boom)
+    out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                            fetch=boom, sleep=lambda _: None)
     assert out["600519"] is None  # flow_no_data, never a crash
     cache = _json.loads((tmp_path / "2026-06-16.json").read_text())
     assert cache["600519"] == {"status": "miss", "rows": []}
