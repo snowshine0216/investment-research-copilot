@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 ## Evidence cells
 
@@ -14,7 +14,14 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001 grill** ⏭️ — user-grilled; ADR 0019 + CONTEXT flow glossary committed on this branch (orchestrator must not auto-invoke)
 - **001 plan** ✅ — Opus `superpowers:writing-plans` → [items/001-plan.md](items/001-plan.md) (commit `e6bb084`, 24 tasks / 4 slices, all 6 locked-test flips explicit)
 - **001 branch** ✅ `claude/monitor-flow-stock-drilldown-001` (off feature tip `e6bb084`)
-- **001 impl** 🔄 — `superpowers:subagent-driven-development`, 24 tasks / 4 slices
+- **001 impl** ✅ `ed4883d` (HEAD) — `superpowers:subagent-driven-development`; 5 implementer dispatches (Slice 1a flow_fetch, 1b holding_metrics, 2 report, 3 flow→bias, 4 eval+versioning), each with an independent spec-then-quality review:
+  - Slice 1a `flow_fetch` → PASS-WITH-NITS (sleep nit fixed `36b0147`)
+  - Slice 1b `holding_metrics` → PASS (imports confirmed real: `opportunity/lookthrough_valuation.py` + `returns.py`)
+  - Slice 2 report → PASS (no bias leak, ADR 0015 held, golden regen legit)
+  - Slice 3 flow→bias → PASS (4 locked flips correct + 2 consequential test updates legit; `compute_signal` byte-identical)
+  - Slice 4 eval+versioning → PASS (2 locked flips; numeric `_target_engine` `["9","10"]→"10"`; reconciliation oracle panel-only; CHANGELOG `[Unreleased]`, VERSION unchanged `0.9.3`)
+  - Integration gate: `639 passed, 12 skipped` (live-gated) across `tests/monitor/ tests/monitor/eval/ tests/commands/test_monitor_cmd*`; ruff clean on feature surface.
+- **001 drift** 🔄 — plan↔diff drift check
 
 ## Notes
 
