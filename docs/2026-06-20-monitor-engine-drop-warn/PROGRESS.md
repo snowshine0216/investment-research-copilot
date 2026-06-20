@@ -5,7 +5,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ #169 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 
 **Skipped-column reasons:**
 - `grill` ⏭️ — spec mode: user already grilled (spec status line). Orchestrator must not auto-invoke grill. (No `qa` column — non-web project uses `/verify`.)
@@ -15,10 +15,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - 001-plan: [items/001-plan.md](items/001-plan.md) — 9 TDD tasks, commit `6edec06` ✅
 - 001-impl: branch `claude/monitor-engine-drop-warn-001`, 8 commits `c015f59..f49f251` ✅ (tests/evals 287P/1 pre-existing-DAG-fail confirmed on base; tests/monitor 641P; monitor command tests 37P; ruff clean on changed files)
 - 001-drift: _pending_
-- 001-ship: _pending_
-- 001-verify: _pending_
-- 001-review: _pending_
-- 001-pr-review: _pending_
+- 001-ship: [items/001-ship.md](items/001-ship.md) — PR [#169](https://github.com/snowshine0216/investment-research-copilot/pull/169) → feature branch ✅
+- 001-verify: _running_
+- 001-review: [items/001-review.md](items/001-review.md) — `/ship` steps 8+9, **PASS-WITH-NITS** (0 P0/0 latent, adversarial CLEAN) ✅
+- 001-pr-review: _running_
 
 ## Notes
 - Feature branch `autodev/monitor-engine-drop-warn-feature` synthesized off `main` (protected). Sub-branch `claude/monitor-engine-drop-warn-001` cut from it.
