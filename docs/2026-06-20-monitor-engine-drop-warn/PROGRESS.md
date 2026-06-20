@@ -5,7 +5,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Skipped-column reasons:**
 - `grill` ⏭️ — spec mode: user already grilled (spec status line). Orchestrator must not auto-invoke grill. (No `qa` column — non-web project uses `/verify`.)
@@ -13,6 +13,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 **Artifact links (filled as phases pass):**
 - 001-spec: [items/001-spec.md](items/001-spec.md) — verbatim copy of source spec ✅
 - 001-plan: [items/001-plan.md](items/001-plan.md) — 9 TDD tasks, commit `6edec06` ✅
+- 001-impl: branch `claude/monitor-engine-drop-warn-001`, 8 commits `c015f59..f49f251` ✅ (tests/evals 287P/1 pre-existing-DAG-fail confirmed on base; tests/monitor 641P; monitor command tests 37P; ruff clean on changed files)
 - 001-drift: _pending_
 - 001-ship: _pending_
 - 001-verify: _pending_
