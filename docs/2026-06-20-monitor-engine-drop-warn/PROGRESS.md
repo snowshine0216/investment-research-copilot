@@ -5,7 +5,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ #169 | ✅ | ✅ | ✅ | ✅ 1rd | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ #169 | ✅ | ✅ | ✅ | ✅ 1rd | ✅ 9aa3136 |
 
 **Skipped-column reasons:**
 - `grill` ⏭️ — spec mode: user already grilled (spec status line). Orchestrator must not auto-invoke grill. (No `qa` column — non-web project uses `/verify`.)
@@ -23,4 +23,6 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 ## Notes
 - Feature branch `autodev/monitor-engine-drop-warn-feature` synthesized off `main` (protected). Sub-branch `claude/monitor-engine-drop-warn-001` cut from it.
+- **001 MERGED** into the feature branch via PR [#169](https://github.com/snowshine0216/investment-research-copilot/pull/169) (squash `9aa3136`, sub-branch deleted). 2026-06-20.
+- `tests/commands/` verification: 45/56 files green; 11 files with **pre-existing** failures (opportunity/run/notify/ask/research/score families — proven identical on the untouched base), 0 per-file hangs. The additive `engine_population` change introduced zero command-layer regressions. `tests/evals` 1 pre-existing DAG-acyclic failure (src/irc-only scanner, unrelated). `tests/monitor` fully green.
 - Design artifacts commit also carries the grilled source-spec mod + the ADR 0019 D3-follow-up addendum (both pre-existing uncommitted working-tree changes for this feature).
