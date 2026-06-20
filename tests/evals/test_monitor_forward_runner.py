@@ -245,3 +245,56 @@ def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     for ref in refs:
         assert ref.startswith("outputs/") and not ref.startswith("/")
         assert ref.endswith("evals/monitor_forward/details.json")
+
+
+# ── FU1: engine_population diagnostic row ─────────────────────────────────────
+
+def _ledger_line_engine(run_date, fund, as_of, engine, status="ok",
+                        comp=0.2, bias="ADD_BIAS"):
+    """Like _ledger_line but stamps manifest_versions.engine so the runner's
+    _target_engine / engine_mismatch path activates."""
+    return json.dumps({
+        "run_date": run_date, "fund_id": fund, "written_at": f"{run_date}T09:00:00",
+        "raw_status": status, "raw_bias": bias, "raw_composite": comp,
+        "nav_acc": 1.0, "as_of_date": as_of, "manifest_versions": {"engine": engine},
+    })
+
+
+def test_engine_population_warns_on_transition(tmp_path: Path):
+    """A ledger dominated by legacy-engine rows (dropped under engine_mismatch)
+    with a thin matured engine-'2' population → engine_population row WARNs,
+    state 'engine_transition', ci_low/ci_high None (producer side of the CI
+    contract), and run() returns rc 1 (WARN)."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                          encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    # 3 legacy-engine rows (engine '0') + 1 target-engine row (engine '2').
+    # target_engine='2' → the 3 legacy rows drop under engine_mismatch, leaving
+    # 1 thin matured target-engine row → publishable_bias_directional is
+    # insufficient_data → engine_population must WARN.
+    lines = [
+        _ledger_line_engine(run_date, "a", run_date, "0"),
+        _ledger_line_engine(run_date, "b", run_date, "0"),
+        _ledger_line_engine(run_date, "c", run_date, "0"),
+        _ledger_line_engine(run_date, "a", run_date, "2"),
+    ]
+    (md / "forward_ledger.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    rc = run(tmp_path)
+    assert rc == EVAL_RC_WARN
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    report = json.loads((out_dir / "report.json").read_text())
+    names = [m["name"] for m in report["metrics"]]
+    assert "engine_population" in names
+    ep = next(m for m in report["metrics"] if m["name"] == "engine_population")
+    assert ep["status"] == "WARN"
+
+    details = json.loads((out_dir / "details.json").read_text())
+    epd = details["engine_population"]
+    assert epd["state"] == "engine_transition"
+    assert epd["ci_low"] is None and epd["ci_high"] is None
+    assert epd["n_excluded"] >= 1
+    # raw counts unchanged (additive block)
+    assert details["excluded_by_engine"]["engine_mismatch"] >= 1
