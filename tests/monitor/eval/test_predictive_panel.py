@@ -87,3 +87,22 @@ def test_baseline_na_state_renders_na():
                                  metrics=(m,), review_flag=False)
     html = predictive_validity_panel_html(model=model)
     assert "n/a" in html.lower()
+
+
+def test_engine_population_row_renders_ci_pending_and_na_deltas():
+    """The engine_population row (None CIs, None deltas) renders 'engine_population',
+    'CI pending', and 'n/a' for ALL THREE baseline (Δrandom/Δmomentum/Δbuy_hold)
+    cells. Renderer is unchanged; this guards the new row's render shape."""
+    m = PredictiveMetricView(
+        name="engine_population", value=0.5, status="WARN",
+        state="engine_transition", ci_low=None, ci_high=None,
+        random_delta=None, momentum_delta=None, buy_hold_delta=None,
+        n_observations=3,
+    )
+    model = PredictivePanelModel(present=True, stale=False, artifact_date="2026-06-20",
+                                 metrics=(m,), review_flag=False)
+    html = predictive_validity_panel_html(model=model)
+    assert "engine_population" in html
+    assert "engine_transition" in html
+    assert "CI pending" in html
+    assert html.count("n/a") >= 3        # all three Δ cells render n/a
