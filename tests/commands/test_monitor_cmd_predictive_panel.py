@@ -65,3 +65,48 @@ def test_review_flag_not_fired_when_a_week_is_none(tmp_path: Path):
     _write_report(tmp_path, "2026-06-18", random_delta=-0.05)
     model = _predictive_panel_model(tmp_path, today="2026-06-19")
     assert model.review_flag is False
+
+
+def _write_report_with_engine_population(root: Path, artifact_date: str):
+    """Persist a 4-metric report whose engine_population row carries explicit
+    null CIs in details.json (the exact on-disk shape the runner writes)."""
+    d = root / "outputs" / artifact_date / "evals" / "monitor_forward"
+    d.mkdir(parents=True)
+    rel = f"outputs/{artifact_date}/evals/monitor_forward/details.json"
+    metrics = [
+        MetricReport("raw_composite_directional", 0.55, "WARN", 5, {}, rel),
+        MetricReport("publishable_bias_directional", 0.6, "WARN", 1, {}, rel),
+        MetricReport("rank_ic", 0.1, "WARN", 3, {}, rel),
+        MetricReport("engine_population", 0.25, "WARN", 1, {}, rel),
+    ]
+    rep = StageReport("monitor_forward", f"{artifact_date}T09:00:00+08:00",
+                      [], metrics, "WARN")
+    (d / "report.json").write_text(json.dumps(report_to_dict(rep)), encoding="utf-8")
+    details = {
+        "publishable_bias_directional": {
+            "value": 0.6, "state": "insufficient_data",
+            "baseline_deltas": {"random": {"state": "insufficient_data"}},
+        },
+        "raw_composite_directional": {"value": 0.55, "state": "ok",
+                                      "baseline_deltas": {"random": {"delta": 0.0}}},
+        "rank_ic": {"value": 0.1, "state": "insufficient_data",
+                    "baseline_deltas": {"random": {"state": "insufficient_data"}}},
+        "engine_population": {
+            "state": "engine_transition", "ci_low": None, "ci_high": None,
+            "headline_state": "insufficient_data", "n_excluded": 3,
+            "n_total_raw": 4, "n_target_raw": 1,
+        },
+    }
+    (d / "details.json").write_text(json.dumps(details), encoding="utf-8")
+
+
+def test_engine_population_ci_none_preserved_through_panel_model(tmp_path: Path):
+    """The persisted explicit-null CIs must survive _predictive_panel_model →
+    _metric_view: the engine_population view has ci_low is None (NOT the value
+    faked by md.get('ci_low', m.value))."""
+    _write_report_with_engine_population(tmp_path, "2026-06-19")
+    model = _predictive_panel_model(tmp_path, today="2026-06-20")
+    assert model.present is True
+    ep = next(m for m in model.metrics if m.name == "engine_population")
+    assert ep.ci_low is None and ep.ci_high is None
+    assert ep.state == "engine_transition"

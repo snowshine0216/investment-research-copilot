@@ -14,16 +14,17 @@ from evals._shared.missing_input import (
     missing_input_report, write_missing_input_report,
 )
 from evals._shared.report_paths import report_dir, write_report
-from evals._shared.report_schema import StageReport
+from evals._shared.report_schema import MetricReport, StageReport
 from evals._shared.status import worst_status
 from irc.config_loader import load_monitor_config
 from irc.io_utils import atomic_write_text
 from irc.monitor.eval.backtest import run_backtest
-from irc.monitor.eval.constants import FORWARD_H
+from irc.monitor.eval.constants import FORWARD_H, N_MIN_BLOCKS
 from irc.monitor.eval.forward_score import score_forward, _row_engine
 from irc.monitor.eval.nav_history import parse_nav_history_lines, latest_per_nav_date
 from irc.monitor.resolve import resolve_funds
-from evals.monitor_forward.metrics import build_metric_reports
+from irc.monitor.eval.stats import effective_n
+from evals.monitor_forward.metrics import build_metric_reports, engine_population_status
 
 _log = logging.getLogger(__name__)
 _TZ = timezone(timedelta(hours=8))
@@ -159,6 +160,34 @@ def run(repo_root: Path) -> int:
     details["excluded_by_engine"] = {"target_engine": target_engine,
                                      "engine_mismatch": _excl.get("engine_mismatch", 0)}
 
+    # FU1: engine_population diagnostic/attribution row (appended, NOT scored).
+    # Surfaces WHY a post-_ENGINE_VERSION-bump forward eval is thin (engine reset)
+    # vs general youth. Never gates: its WARN can only co-occur with a headline
+    # WARN that already lifted the stage status (spec D3).
+    n_excluded_engine = _excl.get("engine_mismatch", 0)
+    headline_state = details["publishable_bias_directional"]["state"]  # direct index
+    ep_status, ep_state = engine_population_status(
+        n_excluded_engine=n_excluded_engine, headline_state=headline_state)
+    n_total_raw = len(ledger)
+    ep_value = (n_total_raw - n_excluded_engine) / n_total_raw if n_total_raw else 0.0
+    reports = [*reports, MetricReport(
+        name="engine_population", value=ep_value, status=ep_status,
+        n_observations=effective_n([{"run_date": r.run_date} for r in forward_rows]),
+        threshold={}, details_ref=None)]
+    details["engine_population"] = {
+        "state": ep_state,
+        "ci_low": None, "ci_high": None,           # MANDATORY — explicit None → "CI pending"
+        "headline_low_n": headline_state == "insufficient_data",
+        "headline_metric": "publishable_bias_directional",
+        "headline_state": headline_state,
+        "n_excluded": n_excluded_engine,
+        "n_total_raw": n_total_raw,
+        "n_target_raw": n_total_raw - n_excluded_engine,
+        "value_population": "raw_ledger_target_engine_share",
+        "n_observations_population": "matured_target_engine_effective_n_blocks",
+        "n_min_blocks": N_MIN_BLOCKS,              # provenance only (not a threshold)
+    }
+
     # write details.json sibling, then point each MetricReport at the repo-relative path
     out_dir = report_dir(repo_root, _STAGE, today)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -167,6 +196,11 @@ def run(repo_root: Path) -> int:
     rel = f"outputs/{today}/evals/{_STAGE}/details.json"
     reports = [replace(m, details_ref=rel) for m in reports]
 
+    # D3 structural dependency: engine_population is included here, but it can only
+    # be WARN when publishable_bias_directional is already insufficient_data (→ already
+    # WARN, see metrics.py:_hit_rate_report), so it never raises `overall` on its own.
+    # If a future edit lets engine_population WARN while the headline is PASS (e.g. a
+    # different trigger), this aggregation would start gating — re-check D3 first.
     overall = worst_status([m.status for m in reports])
     report = StageReport(stage=_STAGE, ran_at=datetime.now(_TZ).isoformat(),
                          based_on=[str(ledger_path), str(nav_path)],

@@ -27,6 +27,23 @@ _HIT_TH: dict[str, float] = {}      # NO fail_below — WARN set manually
 _IC_TH: dict[str, float] = {}
 
 
+def engine_population_status(
+    *, n_excluded_engine: int, headline_state: str
+) -> tuple[str, str]:
+    """PURE. Returns (status, state_code) for the engine_population diagnostic row.
+
+    headline_state is publishable_bias_directional's state from
+    build_metric_reports' details dict. rank_ic is DELIBERATELY excluded from the
+    trigger (spec D2): its cross-sectional 'undefined' flapping is not an engine
+    signal and would resurrect the permanent false-attribution WARN.
+    """
+    if n_excluded_engine == 0:
+        return "PASS", "ok"                   # single-engine ledger; no transition
+    if headline_state == "insufficient_data":
+        return "WARN", "engine_transition"    # drop is material AND headline is thin
+    return "PASS", "ok"                       # drop happened, but headline is sufficient
+
+
 def _composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
     return [{"run_date": r.run_date, "fund_id": r.fund_id,
              "pred": sign(r.raw_composite), "label": sign(r.raw_composite),
