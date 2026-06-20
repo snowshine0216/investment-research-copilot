@@ -155,9 +155,11 @@
         <path d="M 996 700 L 616 700 L 616 281 L 602 281" fill="none" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
         <text x="628" y="694" fill="#94a3b8" font-size="8">latest suite StageReport → resolve_health (14d staleness)</text>
 
-        <!-- ledger + nav_history -> M3 monitor_forward scorer (landed) -->
-        <path d="M 300 800 L 360 800 L 360 872 L 900 872 L 900 906" fill="none" stroke="#a78bfa" stroke-width="1.3" marker-end="url(#arrowhead)"/>
-        <text x="426" y="866" fill="#a78bfa" font-size="8">track-record clock + nav_history → M3 monitor_forward scorer (landed)</text>
+        <!-- forward_ledger + nav_history -> monitor_forward (engine-isolated scorer) -->
+        <path d="M 340 812 L 650 812" fill="none" stroke="#a78bfa" stroke-width="1.3" marker-end="url(#arrowhead)"/>
+        <text x="348" y="806" fill="#a78bfa" font-size="8">forward_ledger + nav_history → engine-isolated scorer</text>
+        <!-- monitor_forward -> engine_population diagnostic row (excluded count) -->
+        <line x1="956" y1="818" x2="982" y2="818" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- ============================ NODES ============================ -->
         <!-- Zone 1: FundView -->
@@ -296,6 +298,26 @@
         <text x="1152" y="704" fill="white" font-size="11" font-weight="600" text-anchor="middle">monitor_{impact,narrative}/report.json</text>
         <text x="1152" y="720" fill="#a78bfa" font-size="8" text-anchor="middle">outputs/&lt;date&gt;/evals/ · StageReport</text>
         <text x="1152" y="734" fill="#94a3b8" font-size="8" text-anchor="middle">overall PASS/WARN/FAIL · or SKIPPED</text>
+
+        <!-- Zone 2: monitor_forward · engine-isolated scorer (M3) -->
+        <rect x="656" y="756" width="300" height="124" rx="6" fill="#0f172a"/>
+        <rect x="656" y="756" width="300" height="124" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="806" y="778" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc eval monitor_forward</text>
+        <text x="806" y="795" fill="#94a3b8" font-size="8" text-anchor="middle">active · out of --all · never gates · rc 0/1/2</text>
+        <text x="806" y="812" fill="#fbbf24" font-size="8" text-anchor="middle">_target_engine = NUMERIC max · missing field → '0'</text>
+        <text x="806" y="829" fill="#94a3b8" font-size="8" text-anchor="middle">score_forward(target_engine): drop prior-engine rows</text>
+        <text x="806" y="846" fill="#fb7185" font-size="8" text-anchor="middle">→ engine_mismatch · details.json.excluded_by_engine</text>
+        <text x="806" y="863" fill="#94a3b8" font-size="8" text-anchor="middle">retro replay + forward score · reads ledger + nav</text>
+
+        <!-- Zone 2: engine_population diagnostic row (FU1 · as-built, solid) -->
+        <rect x="986" y="756" width="300" height="124" rx="6" fill="#0f172a"/>
+        <rect x="986" y="756" width="300" height="124" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1136" y="778" fill="white" font-size="11" font-weight="600" text-anchor="middle">engine_population · diagnostic row</text>
+        <text x="1136" y="795" fill="#94a3b8" font-size="8" text-anchor="middle">FU1 · 4th MetricReport · NOT predictive</text>
+        <text x="1136" y="812" fill="#94a3b8" font-size="8" text-anchor="middle">← reads engine_mismatch (excluded_by_engine)</text>
+        <text x="1136" y="829" fill="#fbbf24" font-size="8" text-anchor="middle">WARN ⇔ publishable_bias = insufficient_data</text>
+        <text x="1136" y="846" fill="#fbbf24" font-size="8" text-anchor="middle">state: ok | engine_transition</text>
+        <text x="1136" y="863" fill="#94a3b8" font-size="8" text-anchor="middle">attribution-only · never gates rc</text>
 
         <!-- ============================ MILESTONE STRIP ============================ -->
         <rect x="24" y="906" width="252" height="58" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
