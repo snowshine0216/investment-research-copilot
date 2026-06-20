@@ -196,6 +196,11 @@ def run(repo_root: Path) -> int:
     rel = f"outputs/{today}/evals/{_STAGE}/details.json"
     reports = [replace(m, details_ref=rel) for m in reports]
 
+    # D3 structural dependency: engine_population is included here, but it can only
+    # be WARN when publishable_bias_directional is already insufficient_data (→ already
+    # WARN, see metrics.py:_hit_rate_report), so it never raises `overall` on its own.
+    # If a future edit lets engine_population WARN while the headline is PASS (e.g. a
+    # different trigger), this aggregation would start gating — re-check D3 first.
     overall = worst_status([m.status for m in reports])
     report = StageReport(stage=_STAGE, ran_at=datetime.now(_TZ).isoformat(),
                          based_on=[str(ledger_path), str(nav_path)],
