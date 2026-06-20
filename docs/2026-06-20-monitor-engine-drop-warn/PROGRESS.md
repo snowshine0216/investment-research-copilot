@@ -21,6 +21,16 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - 001-pr-review: [items/001-pr-review.md](items/001-pr-review.md) — `/code-review` **PASS-WITH-NITS**, 0 blockers (2 nits = same defensive items) ✅
 - 001-fix: [items/001-fix.md](items/001-fix.md) — 1 round (proactive): D3 comment fixed inline, 2 nits accepted w/ rationale; exit contract satisfied ✅
 
+## Final status (run complete — 2026-06-20)
+
+- **Items merged:** 1/1 — item 001 (`engine_population` diagnostic row) via PR [#169](https://github.com/snowshine0216/investment-research-copilot/pull/169) (squash `9aa3136`) into the feature branch.
+- **Items SKIPPED:** 0. **Items BLOCKED:** 0.
+- **Deferred follow-ups** (SKIPPED.md): §8.1 standalone as-built diagram doc-sync PR (shared #168 doc-debt, not FU1-owned); §8.3 FU1 diagram overlay (waits for §8.1).
+- **Phase 3:** workflow-completeness audit PASS; build/test sanity PASS (only pre-existing failures — DAG-acyclic in tests/evals, 11 unrelated command-family files in tests/commands, all proven identical on base); doc-sync PASS; run-level final-verify PASS.
+- Feature branch: `autodev/monitor-engine-drop-warn-feature`
+- **Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/170** (feature → `main`)
+- **Merged into protected branch: no** (PR #170 left OPEN for user review — protected-base guardrail held; no "merge to main" opt-in given).
+
 ## Notes
 - Feature branch `autodev/monitor-engine-drop-warn-feature` synthesized off `main` (protected). Sub-branch `claude/monitor-engine-drop-warn-001` cut from it.
 - **001 MERGED** into the feature branch via PR [#169](https://github.com/snowshine0216/investment-research-copilot/pull/169) (squash `9aa3136`, sub-branch deleted). 2026-06-20.
