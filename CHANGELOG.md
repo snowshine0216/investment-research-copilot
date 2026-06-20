@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor forward-eval `engine_population` diagnostic row (FU1) (2026-06-20)
+
+- **Attribution-only `engine_population` diagnostic row** in the `irc eval
+  monitor_forward` stage. After an `_ENGINE_VERSION` bump the append-only
+  `forward_ledger.jsonl` strands prior-engine rows, so the headline metrics go
+  thin and the stage already WARNs — but an operator couldn't tell *engine-reset
+  thinness* from *general youth*. This adds exactly that one bit of attribution:
+  a new 4th `MetricReport` whose `state` flips to `engine_transition` when the
+  engine drop is the proximate cause. `value` = raw-ledger share of rows on the
+  current engine; `n_observations` = matured target-engine `effective_n`.
+- **Never gating, never changes `rc`** (spec D3): the row WARNs *only* when
+  `publishable_bias_directional` is already `insufficient_data` (already WARN), so
+  `worst_status` is unaffected. `rank_ic` is **deliberately excluded** from the
+  trigger (D2) — its cross-sectional `undefined` flapping is ordinary 7-fund
+  sparsity, not an engine signal, and keying on it would resurrect a permanent
+  false-attribution WARN. Self-clearing: keys on the hit-rate headline, which
+  clears monotonically as blocks accrue. Pure helper `engine_population_status`;
+  no scorer / schema / panel-renderer change. `details["engine_population"]`
+  carries explicit `ci_low/ci_high = None` (→ "CI pending", not a faked interval).
+
 ### Added — monitor capital-flow factor + per-stock drill-down (ADR 0019) (2026-06-19)
 
 - **Monitor capital-flow factor + per-stock drill-down (ADR 0019).** New `flow`

@@ -211,7 +211,8 @@ def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
     run(tmp_path)
     out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
     report = json.loads((out_dir / "report.json").read_text())
-    assert len(report["metrics"]) == 3, f"expected 3 metrics; got {len(report['metrics'])}"
+    assert len(report["metrics"]) == 4, f"expected 4 metrics; got {len(report['metrics'])}"
+    assert "engine_population" in {m["name"] for m in report["metrics"]}
 
 
 # ── Finding 3: _target_engine must not crash on non-numeric string versions ───
@@ -245,3 +246,80 @@ def test_details_ref_is_repo_relative_no_leading_slash(tmp_path: Path):
     for ref in refs:
         assert ref.startswith("outputs/") and not ref.startswith("/")
         assert ref.endswith("evals/monitor_forward/details.json")
+
+
+# ── FU1: engine_population diagnostic row ─────────────────────────────────────
+
+def _ledger_line_engine(run_date, fund, as_of, engine, status="ok",
+                        comp=0.2, bias="ADD_BIAS"):
+    """Like _ledger_line but stamps manifest_versions.engine so the runner's
+    _target_engine / engine_mismatch path activates."""
+    return json.dumps({
+        "run_date": run_date, "fund_id": fund, "written_at": f"{run_date}T09:00:00",
+        "raw_status": status, "raw_bias": bias, "raw_composite": comp,
+        "nav_acc": 1.0, "as_of_date": as_of, "manifest_versions": {"engine": engine},
+    })
+
+
+def test_engine_population_empty_ledger_is_pass_ok(tmp_path: Path):
+    """Empty ledger: engine_population ROW is PASS, value 0.0, state 'ok',
+    n_target_raw 0, no crash (empty-ledger guard avoids division). Whole-stage is
+    NOT asserted PASS — empty forward_rows still WARNs the headline metrics."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                          encoding="utf-8")
+    (md / "forward_ledger.jsonl").write_text("\n", encoding="utf-8")  # empty ledger
+
+    rc = run(tmp_path)              # must NOT raise (no ZeroDivisionError)
+    assert rc in (EVAL_RC_WARN, 0)
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    report = json.loads((out_dir / "report.json").read_text())
+    ep = next(m for m in report["metrics"] if m["name"] == "engine_population")
+    assert ep["status"] == "PASS"
+    assert ep["value"] == 0.0
+    details = json.loads((out_dir / "details.json").read_text())
+    epd = details["engine_population"]
+    assert epd["state"] == "ok"
+    assert epd["n_target_raw"] == 0
+    assert epd["ci_low"] is None and epd["ci_high"] is None
+
+
+def test_engine_population_warns_on_transition(tmp_path: Path):
+    """A ledger dominated by legacy-engine rows (dropped under engine_mismatch)
+    with a thin matured engine-'2' population → engine_population row WARNs,
+    state 'engine_transition', ci_low/ci_high None (producer side of the CI
+    contract), and run() returns rc 1 (WARN)."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                          encoding="utf-8")
+    run_date = (date.fromisoformat("2026-01-01") + timedelta(days=2)).isoformat()
+    # 3 legacy-engine rows (engine '0') + 1 target-engine row (engine '2').
+    # target_engine='2' → the 3 legacy rows drop under engine_mismatch, leaving
+    # 1 thin matured target-engine row → publishable_bias_directional is
+    # insufficient_data → engine_population must WARN.
+    lines = [
+        _ledger_line_engine(run_date, "a", run_date, "0"),
+        _ledger_line_engine(run_date, "b", run_date, "0"),
+        _ledger_line_engine(run_date, "c", run_date, "0"),
+        _ledger_line_engine(run_date, "a", run_date, "2"),
+    ]
+    (md / "forward_ledger.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    rc = run(tmp_path)
+    assert rc == EVAL_RC_WARN
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    report = json.loads((out_dir / "report.json").read_text())
+    names = [m["name"] for m in report["metrics"]]
+    assert "engine_population" in names
+    ep = next(m for m in report["metrics"] if m["name"] == "engine_population")
+    assert ep["status"] == "WARN"
+
+    details = json.loads((out_dir / "details.json").read_text())
+    epd = details["engine_population"]
+    assert epd["state"] == "engine_transition"
+    assert epd["ci_low"] is None and epd["ci_high"] is None
+    assert epd["n_excluded"] >= 1
+    # raw counts unchanged (additive block)
+    assert details["excluded_by_engine"]["engine_mismatch"] >= 1

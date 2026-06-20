@@ -389,3 +389,26 @@ def test_buy_hold_uses_paired_bootstrap():
     assert "delta" in bh
     assert "ci_low" in bh
     assert "ci_high" in bh
+
+
+# ── FU1: engine_population diagnostic row — pure status truth table ───────────
+
+def test_engine_population_status_truth_table():
+    """4 cells of (n_excluded_engine ∈ {0, >0}) × (headline_state ∈
+    {'insufficient_data', 'ok'}). Only (>0, 'insufficient_data') →
+    ('WARN', 'engine_transition'); the other three → ('PASS', 'ok').
+    rank_ic is DELIBERATELY not an input (spec D2)."""
+    from evals.monitor_forward.metrics import engine_population_status
+
+    assert engine_population_status(
+        n_excluded_engine=5, headline_state="insufficient_data"
+    ) == ("WARN", "engine_transition")
+    assert engine_population_status(
+        n_excluded_engine=5, headline_state="ok"
+    ) == ("PASS", "ok")
+    assert engine_population_status(
+        n_excluded_engine=0, headline_state="insufficient_data"
+    ) == ("PASS", "ok")
+    assert engine_population_status(
+        n_excluded_engine=0, headline_state="ok"
+    ) == ("PASS", "ok")
