@@ -211,7 +211,8 @@ def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
     run(tmp_path)
     out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
     report = json.loads((out_dir / "report.json").read_text())
-    assert len(report["metrics"]) == 3, f"expected 3 metrics; got {len(report['metrics'])}"
+    assert len(report["metrics"]) == 4, f"expected 4 metrics; got {len(report['metrics'])}"
+    assert "engine_population" in {m["name"] for m in report["metrics"]}
 
 
 # ── Finding 3: _target_engine must not crash on non-numeric string versions ───
