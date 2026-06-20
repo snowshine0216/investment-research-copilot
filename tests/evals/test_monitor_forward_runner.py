@@ -261,6 +261,30 @@ def _ledger_line_engine(run_date, fund, as_of, engine, status="ok",
     })
 
 
+def test_engine_population_empty_ledger_is_pass_ok(tmp_path: Path):
+    """Empty ledger: engine_population ROW is PASS, value 0.0, state 'ok',
+    n_target_raw 0, no crash (empty-ledger guard avoids division). Whole-stage is
+    NOT asserted PASS — empty forward_rows still WARNs the headline metrics."""
+    md = tmp_path / "data" / "monitor"
+    md.mkdir(parents=True)
+    (md / "nav_history.jsonl").write_text("\n".join(_nav_lines("a", 40)) + "\n",
+                                          encoding="utf-8")
+    (md / "forward_ledger.jsonl").write_text("\n", encoding="utf-8")  # empty ledger
+
+    rc = run(tmp_path)              # must NOT raise (no ZeroDivisionError)
+    assert rc in (EVAL_RC_WARN, 0)
+    out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
+    report = json.loads((out_dir / "report.json").read_text())
+    ep = next(m for m in report["metrics"] if m["name"] == "engine_population")
+    assert ep["status"] == "PASS"
+    assert ep["value"] == 0.0
+    details = json.loads((out_dir / "details.json").read_text())
+    epd = details["engine_population"]
+    assert epd["state"] == "ok"
+    assert epd["n_target_raw"] == 0
+    assert epd["ci_low"] is None and epd["ci_high"] is None
+
+
 def test_engine_population_warns_on_transition(tmp_path: Path):
     """A ledger dominated by legacy-engine rows (dropped under engine_mismatch)
     with a thin matured engine-'2' population → engine_population row WARNs,
