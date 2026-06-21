@@ -135,3 +135,39 @@ def test_valuation_rollup_no_imperative_language():
     agg = ValuationAggregate(value=1.0, reason=None, covered_weight_ratio=0.60)
     html = valuation_rollup_html(metrics, agg)
     assert "买入" not in html and "卖出" not in html
+
+
+# ── Slice 3 followup: valuation rollup wired into drilldown_page_html ─────────
+
+
+def test_drilldown_page_renders_valuation_rollup_for_lookthrough_fund():
+    """§5.D: drilldown_page_html must render valuation rollup (行业覆盖) for a
+    look-through fund whose val_agg is provided as the 6th tuple element."""
+    metrics = (_m("600519", 35.0, val_score=1.0, industry="酿酒行业", industry_score=1.0),)
+    flow_agg = FlowAggregate(value=1.0, reason=None, covered_weight_ratio=1.0)
+    val_agg = ValuationAggregate(value=1.0, reason=None, covered_weight_ratio=0.35)
+    views = (("519069", "易方达蓝筹", metrics, flow_agg, _sig(), val_agg),)
+    html = drilldown_page_html(views)
+    assert "行业覆盖" in html
+
+
+def test_drilldown_page_sub50_industry_coverage_note_in_rendered_page():
+    """§6/Q7: when covered rows have NO industry leg (coverage 0% < 0.50),
+    the sub-0.50 note fires inside the rendered drilldown page."""
+    # covered by val_score but NO industry leg — coverage = 0% < 0.50
+    metrics = (_m("000858", 30.0, val_score=1.0, industry=None, industry_score=None),)
+    flow_agg = FlowAggregate(value=None, reason="flow_no_data", covered_weight_ratio=0.0)
+    val_agg = ValuationAggregate(value=0.5, reason=None, covered_weight_ratio=0.30)
+    views = (("000858", "五粮液", metrics, flow_agg, _sig(), val_agg),)
+    html = drilldown_page_html(views)
+    assert "价值陷阱检测数据有限" in html or "不可用" in html
+
+
+def test_drilldown_page_legacy_5tuple_still_works():
+    """Backward-compat: existing 5-tuple callers (val_agg absent) must not break."""
+    metrics = (_m("600519", 12.0, pe=30.0, flow_score=1.0),)
+    flow_agg = FlowAggregate(value=1.0, reason=None, covered_weight_ratio=1.0)
+    views = (("519069", "易方达蓝筹", metrics, flow_agg, _sig()),)
+    html = drilldown_page_html(views)
+    assert "519069" in html
+    assert html.startswith("<!doctype html>")

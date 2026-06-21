@@ -390,7 +390,11 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
 def _write_drilldown(out: Path, views: tuple) -> None:
     """EDGE: write drilldown.html when any fund has holding_metrics (atomic write)."""
     dd_views = tuple(
-        (v.fund_id, v.name_cn, v.holding_metrics, aggregate_flow(v.holding_metrics), v.signal)
+        (
+            v.fund_id, v.name_cn, v.holding_metrics,
+            aggregate_flow(v.holding_metrics), v.signal,
+            aggregate_valuation(v.holding_metrics),
+        )
         for v in views if v.holding_metrics
     )
     if not dd_views:

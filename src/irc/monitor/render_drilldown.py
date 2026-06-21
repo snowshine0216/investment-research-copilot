@@ -137,23 +137,31 @@ _DRILLDOWN_CSS = (
 )
 
 
-def drilldown_section_html(name_cn: str, fund_id: str, metrics, agg, signal) -> str:
-    """PURE: one fund's board + roll-up section (reused by card + standalone page)."""
+def drilldown_section_html(
+    name_cn: str, fund_id: str, metrics, agg, signal, val_agg=None,
+) -> str:
+    """PURE: one fund's board + roll-up section (reused by card + standalone page).
+    val_agg: optional ValuationAggregate; when present, appends valuation rollup."""
+    val_html = valuation_rollup_html(metrics, val_agg) if val_agg is not None else ""
     return (
         f"<section class='drilldown' id='dd-{escape(fund_id)}'>"
         f"<h2>{escape(name_cn)} ({escape(fund_id)})</h2>"
         f"{holdings_board_html(metrics)}{flow_rollup_html(metrics, agg, signal)}"
-        "</section>"
+        f"{val_html}</section>"
     )
 
 
 def drilldown_page_html(views) -> str:
     """PURE: full standalone drilldown.html. views = iterable of
-    (fund_id, name_cn, metrics, agg, signal). Self-contained: inline CSS, no JS."""
-    sections = "".join(
-        drilldown_section_html(name_cn, fund_id, metrics, agg, signal)
-        for fund_id, name_cn, metrics, agg, signal in views
-    )
+    (fund_id, name_cn, metrics, agg, signal) or
+    (fund_id, name_cn, metrics, agg, signal, val_agg).
+    Self-contained: inline CSS, no JS."""
+    def _section(row) -> str:
+        fund_id, name_cn, metrics, agg, signal = row[:5]
+        val_agg = row[5] if len(row) > 5 else None
+        return drilldown_section_html(name_cn, fund_id, metrics, agg, signal, val_agg)
+
+    sections = "".join(_section(row) for row in views)
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor — 个股钻取</title>" + _DRILLDOWN_CSS + "</head><body>"
