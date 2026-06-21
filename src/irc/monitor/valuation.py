@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import logging
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 
@@ -49,10 +50,14 @@ class ValuationResolution:
     cached: True iff a real cached percentile produced the state (drives
             FactorInputs.valuation_cached → the _valuation eligibility gate).
     reason: N/A reason code (a KNOWN_NA_REASONS member) when state is None, else None.
+    path: "index" (tracked_index-anchored) or "lookthrough" (per-stock bottom-up).
+          Trailing-defaulted for back-compat: existing call sites that pass 3 positional
+          args still work.
     """
     state: str | None
     cached: bool
     reason: str | None
+    path: Literal["index", "lookthrough"] = "index"
 
 
 def _tracked_index_for_fund(con: duckdb.DuckDBPyConnection, fund_id: str) -> str | None:
@@ -78,8 +83,8 @@ def _resolve_index(con: duckdb.DuckDBPyConnection, tracked_index: str) -> Valuat
     _, _, _, pe_pct, _ = _index_valuation_metrics(con, tracked_index)
     state = percentile_to_valuation_state(pe_pct)
     if state is None:
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
-    return ValuationResolution(state, True, None)
+        return ValuationResolution(None, False, _NA_NO_ANCHOR, path="index")
+    return ValuationResolution(state, True, None, path="index")
 
 
 def _resolve_lookthrough(
@@ -120,7 +125,11 @@ def _resolve(
     tracked_index = _tracked_index_for_fund(con, fund.id)
     if tracked_index is not None:
         return _resolve_index(con, tracked_index)
-    return _resolve_lookthrough(con, fund.id, root)
+    # Look-through short-circuit (slice 3): bottom-up valuation is computed in
+    # _process_fund via holding_metrics → aggregate_valuation → FactorInputs.
+    # The ValuationResolution itself carries no state; path="lookthrough" signals
+    # to monitor_cmd to pass valuation_aggregate instead.
+    return ValuationResolution(None, False, None, path="lookthrough")
 
 
 def resolve_valuation_state(

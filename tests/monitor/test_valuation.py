@@ -151,13 +151,16 @@ def test_lookthrough_branch_is_na_stub(tmp_path):
     con.close()
 
 
-def test_unknown_fund_no_instrument_row_is_na(tmp_path):
+def test_unknown_fund_no_instrument_row_is_lookthrough(tmp_path):
+    # No instrument row → tracked_index None → look-through short-circuit path.
+    # state/cached/reason are all None/False/None; path="lookthrough" (slice 3).
     con = duckdb.connect(str(tmp_path / "iv5.duckdb"))
     ensure_schema(con)
     res = resolve_valuation_state(_fund("999999", "active_cn_equity"),
                                   con=con, root=tmp_path)
     assert res.state is None and res.cached is False
-    assert res.reason == "valuation_no_anchor"
+    assert res.path == "lookthrough"
+    assert res.reason is None
     con.close()
 
 
@@ -326,3 +329,35 @@ def test_index_path_unchanged_by_lookthrough(tmp_path):
     assert res.state == "very_expensive"
     assert res.reason is None
     con.close()
+
+
+# ── Slice 3: ValuationResolution.path field ───────────────────────────────────
+
+
+def test_lookthrough_branch_returns_path_lookthrough(tmp_path):
+    con = duckdb.connect(str(tmp_path / "p1.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "519069", None)
+    res = resolve_valuation_state(_fund("519069", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.path == "lookthrough"
+    assert res.state is None and res.cached is False and res.reason is None
+    con.close()
+
+
+def test_index_branch_returns_path_index(tmp_path):
+    con = duckdb.connect(str(tmp_path / "p2.duckdb"))
+    ensure_schema(con)
+    _seed_instrument(con, "510300", "csi300")
+    pairs = [(10.0 + i * 0.1, 1.0 + i * 0.01) for i in range(200)]
+    _seed_index_valuation_history(con, "csi300", pairs)
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    assert res.path == "index"
+    assert res.state == "very_expensive" and res.cached is True
+    con.close()
+
+
+def test_resolution_path_defaults_to_index_for_back_compat():
+    r = ValuationResolution(state="cheap", cached=True, reason=None)
+    assert r.path == "index"
