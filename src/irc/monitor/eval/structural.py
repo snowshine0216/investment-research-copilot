@@ -165,3 +165,59 @@ def flow_coverage_health(t: dict) -> StageHealth:
     reasons.append(f"flow_no_data {no_data}")
     reasons.append(f"flow_no_coverage {no_cov}")
     return StageHealth("flow_coverage", "PASS", tuple(reasons))
+
+
+def _board_valuation_value(rows: list[dict]) -> float | None:
+    """Pure: Σ(wᵢ·val_scoreᵢ)/Σ(wᵢ) over rows with non-None val_score.
+    Clamped rows have val_score==0.0 and are included (contribute 0)."""
+    covered = [r for r in rows if r.get("val_score") is not None]
+    cw = sum(r["weight_pct"] for r in covered)
+    if cw <= 0.0:
+        return None
+    return sum(r["weight_pct"] * r["val_score"] for r in covered) / cw
+
+
+def _valuation_factor_value(t: dict) -> float | None:
+    for c in t.get("signal", {}).get("contributions", []):
+        if c.get("name") == "valuation":
+            return c.get("value")
+    return None
+
+
+def valuation_reconciliation(t: dict) -> StageHealth:
+    """PURE: the board's Σ(wᵢ·val_scoreᵢ)/Σ(wᵢ) over covered rows (clamped rows
+    sum as 0) must equal the valuation factor value (4dp). No valuation
+    contribution → PASS. Panel-only — NOT in any GATING_STAGES list (§5.E)."""
+    factor_value = _valuation_factor_value(t)
+    if factor_value is None:
+        return StageHealth("valuation_reconciliation", "PASS", ())
+    board = _board_valuation_value(t.get("holding_metrics", {}).get("rows", []))
+    if board is None or abs(round(board, 4) - round(factor_value, 4)) >= _EPS:
+        return StageHealth("valuation_reconciliation", "FAIL",
+                           (f"board {board} != factor {factor_value}",))
+    return StageHealth("valuation_reconciliation", "PASS", ())
+
+
+def valuation_coverage_health(t: dict) -> StageHealth:
+    """PURE informational dual-track coverage tally (§5.E, panel-only, always PASS).
+    Surfaces NAV coverage, industry-leg coverage over covered rows, and false_cheap
+    tally. Empty holding_metrics → PASS with no reasons, never raises."""
+    hm = t.get("holding_metrics") or {}
+    rows = hm.get("rows") or []
+    agg = hm.get("valuation_aggregate") or {}
+    if not rows and not agg:
+        return StageHealth("valuation_coverage", "PASS", ())
+    covered = [r for r in rows if r.get("val_score") is not None]
+    cw = sum(r["weight_pct"] for r in covered)
+    industry_cov = (
+        sum(r["weight_pct"] for r in covered if r.get("industry_score") is not None) / cw
+        if cw > 0.0 else 0.0
+    )
+    nav_cov = agg.get("covered_weight_ratio")
+    false_cheap = sum(1 for r in rows if r.get("false_cheap"))
+    reasons: list[str] = []
+    if nav_cov is not None:
+        reasons.append(f"nav_cover {round(nav_cov, 2)}")
+    reasons.append(f"industry_cover {round(industry_cov, 2)}")
+    reasons.append(f"false_cheap {false_cheap}")
+    return StageHealth("valuation_coverage", "PASS", tuple(reasons))
