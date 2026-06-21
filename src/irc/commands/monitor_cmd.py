@@ -538,6 +538,7 @@ def _write_eval_artifacts(
                           json.dumps(trace, ensure_ascii=False, indent=2))
     except Exception:  # noqa: BLE001 — degrade, never crash the brief
         _log.warning("eval_trace write failed", exc_info=True)
+    written_at = ""  # always bound: a _now_iso() failure must not unbind the trailing append
     try:
         written_at = _now_iso()
         rows = [
