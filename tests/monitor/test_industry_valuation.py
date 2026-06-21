@@ -72,3 +72,43 @@ def test_fetch_industry_pe_never_raises_returns_empty(tmp_path: Path):
     out = fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-06-21",
                             fetch=boom, sleep=lambda _s: None)
     assert out == {}
+
+
+def _info_df(industry: str) -> pd.DataFrame:
+    return pd.DataFrame({"item": ["行业"], "value": [industry]})
+
+
+def test_fetch_stock_industry_map_per_symbol_cache_ok_and_miss(tmp_path: Path):
+    seen: list[str] = []
+
+    def fake_fetch(symbol):
+        seen.append(symbol)
+        if symbol == "600519":
+            return _info_df("酿酒行业")
+        raise RuntimeError("dead symbol")  # 000001 → miss
+
+    cache_dir = tmp_path / "stock_industry"
+    out = fetch_stock_industry_map(("600519", "000001", "600519"),
+                                   cache_dir=cache_dir, today="2026-06-21",
+                                   fetch=fake_fetch, sleep=lambda _s: None)
+    assert out == {"600519": "酿酒行业", "000001": None}
+    assert seen == ["600519", "000001"]  # deduped, miss not re-fetched in-run
+    # cache persists ok+miss; re-run hits NEITHER endpoint
+    seen.clear()
+    out2 = fetch_stock_industry_map(("600519", "000001"),
+                                    cache_dir=cache_dir, today="2026-06-21",
+                                    fetch=fake_fetch, sleep=lambda _s: None)
+    assert out2 == {"600519": "酿酒行业", "000001": None}
+    assert seen == []
+    payload = json.loads((cache_dir / "2026-06-21.json").read_text(encoding="utf-8"))
+    assert payload["000001"] == {"status": "miss", "industry": None}
+    assert payload["600519"] == {"status": "ok", "industry": "酿酒行业"}
+
+
+def test_fetch_stock_industry_map_per_call_never_raises(tmp_path: Path):
+    def boom(symbol):
+        raise RuntimeError("x")
+
+    out = fetch_stock_industry_map(("600519",), cache_dir=tmp_path / "si",
+                                   today="2026-06-21", fetch=boom, sleep=lambda _s: None)
+    assert out == {"600519": None}
