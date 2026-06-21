@@ -217,6 +217,15 @@ class HoldingMetric:
     flow_pct_20d: float | None
     flow_score: float | None
     flow_reason: str | None  # None | flow_no_data
+    # Dual-track valuation (trailing-defaulted for back-compat).
+    self_score: float | None = None
+    industry: str | None = None
+    industry_pe: float | None = None
+    industry_richness: float | None = None
+    industry_score: float | None = None
+    val_score: float | None = None
+    false_cheap: bool = False
+    industry_reason: str | None = None
 
 
 def _flow_metric(series) -> tuple[float | None, float | None, float | None, str | None]:
@@ -230,18 +239,33 @@ def _flow_metric(series) -> tuple[float | None, float | None, float | None, str 
     return p5, p20, flow_band(_blend_flow_pct(p5, p20)), None
 
 
-def per_stock_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]:
-    """Pure: top holdings + per-code PE/PB series + per-code flow series →
-    HoldingMetric rows (valuation + flow). No I/O; consumes already-loaded inputs."""
+def per_stock_metrics(
+    top_holdings, series_by_code, flow_series_by_code,
+    *, industry_by_symbol: dict | None = None,
+    industry_pe_by_industry: dict | None = None,
+) -> tuple[HoldingMetric, ...]:
+    """Pure: holdings + per-code PE/PB series + per-code flow series + optional
+    industry maps → HoldingMetric rows. Industry maps default empty (back-compat:
+    industry leg N/A → val_score == self_score)."""
+    ind_by_sym = industry_by_symbol or {}
+    ind_pe = industry_pe_by_industry or {}
     out: list[HoldingMetric] = []
     for h in top_holdings:
-        val = per_stock_valuation(h.symbol, series_by_code.get(h.symbol))
+        industry = ind_by_sym.get(h.symbol)
+        industry_avg_pe = ind_pe.get(industry) if industry is not None else None
+        val = per_stock_valuation_dual(
+            h.symbol, series_by_code.get(h.symbol),
+            industry=industry, industry_avg_pe=industry_avg_pe)
         p5, p20, score, reason = _flow_metric(flow_series_by_code.get(h.symbol))
         out.append(HoldingMetric(
             symbol=h.symbol, name=h.name_cn, weight_pct=h.weight_pct,
             pe=val.pe, pb=val.pb, pe_percentile=val.pe_percentile,
             valuation_state=val.valuation_state, valuation_reason=val.valuation_reason,
             flow_pct_5d=p5, flow_pct_20d=p20, flow_score=score, flow_reason=reason,
+            self_score=val.self_score, industry=val.industry, industry_pe=val.industry_pe,
+            industry_richness=val.industry_richness, industry_score=val.industry_score,
+            val_score=val.val_score, false_cheap=val.false_cheap,
+            industry_reason=val.industry_reason,
         ))
     return tuple(out)
 
@@ -253,11 +277,18 @@ class FlowAggregate:
     covered_weight_ratio: float
 
 
-def build_holding_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]:
-    """Pure assembly entry called from the edge (monitor_cmd). Identical to
-    per_stock_metrics — named so the command imports one stable name. Effects
-    (fetch_flow_series, _stock_series_by_code) stay in monitor_cmd."""
-    return per_stock_metrics(top_holdings, series_by_code, flow_series_by_code)
+def build_holding_metrics(
+    top_holdings, series_by_code, flow_series_by_code,
+    *, industry_by_symbol: dict | None = None,
+    industry_pe_by_industry: dict | None = None,
+) -> tuple[HoldingMetric, ...]:
+    """Pure assembly entry called from the edge (monitor_cmd). Effects
+    (fetch_flow_series, _stock_series_by_code, industry fetch) stay in monitor_cmd."""
+    return per_stock_metrics(
+        top_holdings, series_by_code, flow_series_by_code,
+        industry_by_symbol=industry_by_symbol,
+        industry_pe_by_industry=industry_pe_by_industry,
+    )
 
 
 def aggregate_flow(metrics: tuple[HoldingMetric, ...]) -> FlowAggregate:

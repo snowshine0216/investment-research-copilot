@@ -336,3 +336,37 @@ def test_per_stock_valuation_dual_industry_na_self_only():
     assert sv.self_score == -1.0
     assert sv.val_score == -1.0                      # self-only fallback
     assert sv.industry_reason == "industry_no_data"
+
+
+# ---------------------------------------------------------------------------
+# Task 2.5: HoldingMetric extended + per_stock_metrics threads industry inputs
+# ---------------------------------------------------------------------------
+
+def test_per_stock_metrics_threads_industry_inputs():
+    class _H:
+        def __init__(self, s, n, w):
+            self.symbol, self.name_cn, self.weight_pct = s, n, w
+    holdings = (_H("600519", "贵州茅台", 35.0),)
+    series = {"600519": _mature_rising_series("600519")}
+    metrics = per_stock_metrics(
+        holdings, series, flow_series_by_code={},
+        industry_by_symbol={"600519": "酿酒行业"},
+        industry_pe_by_industry={"酿酒行业": 10.0},
+    )
+    m = metrics[0]
+    assert m.industry == "酿酒行业"
+    assert m.industry_pe == 10.0
+    assert m.val_score is not None
+    assert m.self_score == -1.0  # very_expensive
+
+
+def test_per_stock_metrics_backward_compatible_without_industry():
+    # The two new params default empty → industry leg N/A, val_score == self_score.
+    class _H:
+        def __init__(self, s, n, w):
+            self.symbol, self.name_cn, self.weight_pct = s, n, w
+    holdings = (_H("600519", "贵州茅台", 35.0),)
+    series = {"600519": _mature_rising_series("600519")}
+    metrics = per_stock_metrics(holdings, series, flow_series_by_code={})
+    assert metrics[0].industry_reason == "industry_no_data"
+    assert metrics[0].val_score == metrics[0].self_score == -1.0
