@@ -152,18 +152,20 @@ def test_unknown_fund_no_instrument_row_is_lookthrough(tmp_path):
 
 
 def test_missing_instruments_table_degrades_to_na(tmp_path):
-    """A DB with NO instruments table → CatalogException must degrade to N/A, not raise."""
+    """A DB with NO instruments table → CatalogException must degrade to N/A, not raise.
+    FIX 2: error-path fallback uses path="lookthrough" (conservative default)."""
     con = duckdb.connect(str(tmp_path / "empty.duckdb"))
     # Intentionally do NOT call ensure_schema — instruments table is absent.
     res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
                                   con=con, root=tmp_path)
-    assert res == ValuationResolution(None, False, "valuation_no_anchor")
+    assert res == ValuationResolution(None, False, "valuation_no_anchor", path="lookthrough")
     con.close()
 
 
 def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
     """instruments present + tracked_index set, but index_valuation_history absent →
-    must degrade to N/A, not raise."""
+    must degrade to N/A, not raise.
+    FIX 2: error-path fallback uses path="lookthrough" (conservative default)."""
     con = duckdb.connect(str(tmp_path / "partial.duckdb"))
     ensure_schema(con)
     _seed_instrument(con, "510300", "csi300")
@@ -171,7 +173,7 @@ def test_missing_index_valuation_history_table_degrades_to_na(tmp_path):
     con.execute("DROP TABLE index_valuation_history")
     res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
                                   con=con, root=tmp_path)
-    assert res == ValuationResolution(None, False, "valuation_no_anchor")
+    assert res == ValuationResolution(None, False, "valuation_no_anchor", path="lookthrough")
     con.close()
 
 
@@ -223,3 +225,27 @@ def test_index_branch_returns_path_index(tmp_path):
 def test_resolution_path_defaults_to_index_for_back_compat():
     r = ValuationResolution(state="cheap", cached=True, reason=None)
     assert r.path == "index"
+
+
+# ── FIX 2: DuckDB error fallback must use path="lookthrough" ─────────────────
+
+
+def test_duckdb_error_fallback_path_is_lookthrough(tmp_path, monkeypatch):
+    """On a DuckDB read error in _resolve, resolve_valuation_state must degrade to
+    path="lookthrough" (not "index"). Routing to "index" discards any available
+    bottom-up aggregate; "lookthrough" is the correct conservative default when we
+    cannot confirm a tracked_index."""
+    import irc.monitor.valuation as _val_mod
+
+    def _raise(*a, **kw):
+        raise RuntimeError("simulated DuckDB error")
+
+    monkeypatch.setattr(_val_mod, "_resolve", _raise)
+    con = duckdb.connect(str(tmp_path / "err.duckdb"))
+    res = resolve_valuation_state(_fund("510300", "active_cn_equity"),
+                                  con=con, root=tmp_path)
+    con.close()
+    assert res.state is None
+    assert res.cached is False
+    assert res.reason == "valuation_no_anchor"
+    assert res.path == "lookthrough"   # FIX 2: was "index" (dataclass default)

@@ -114,4 +114,4 @@ def resolve_valuation_state(
             fund.id,
             exc_info=True,
         )
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
+        return ValuationResolution(None, False, _NA_NO_ANCHOR, path="lookthrough")
