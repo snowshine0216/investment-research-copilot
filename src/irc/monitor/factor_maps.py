@@ -13,8 +13,10 @@ _VALUATION_MAP: dict[str, float] = {
 _RAPID_INFLOW_PCT = 20.0   # AUM/share QoQ Δ above this counts as a rapid inflow
 
 
-def valuation_state_score(state: str) -> float | None:
-    """Fixed map; None for an unrecognised state (→ N/A upstream)."""
+def valuation_state_score(state: str | None) -> float | None:
+    """Fixed map; None for an unrecognised/None state (→ N/A upstream)."""
+    if state is None:
+        return None
     return _VALUATION_MAP.get(state)
 
 
