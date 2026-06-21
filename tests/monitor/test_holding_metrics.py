@@ -421,3 +421,47 @@ def test_aggregate_valuation_exactly_at_floor_is_covered():
     agg = aggregate_valuation(metrics)
     assert agg.value == 1.0 and agg.reason is None
     assert agg.covered_weight_ratio == _pt.approx(0.40)
+
+
+# ---------------------------------------------------------------------------
+# FIX 1: aggregate_flow restricts to top-5 by weight (coverage denominator is
+# the top-5 slice, not the full basket). Without the fix, passing a full basket
+# where tail rows have None flow_score drops the coverage ratio and triggers
+# flow_no_coverage even when all top-5 are covered.
+# ---------------------------------------------------------------------------
+
+def test_aggregate_flow_full_basket_tail_ignored_top5_read():
+    """aggregate_flow restricts to the top-_FLOW_TOP_N holdings by weight (FIX 1).
+
+    Regression: before this feature, _process_fund passed only top-5 holdings to
+    aggregate_flow. Now it passes the full disclosed basket (valuation needs all rows).
+    Without the internal top-5 restriction, total_w grows to include the tail, and
+    covered_w / total_w can fall below the 0.50 coverage floor even when all top-5
+    have flow — causing `flow_no_coverage` to suppress the flow factor.
+
+    Triggering setup (task spec §5.C):
+      top-5 by weight: 5 holdings @ 8% each (40% total), flow_score=0.5  ← have flow
+      tail (rows 6-20): 15 holdings @ 4% each (60% total), flow_score=None ← no flow
+    Without fix: covered_w=40, total_w=100, ratio=0.40 < 0.50 → flow_no_coverage.
+    With fix: sort desc by weight, take top-5 (8% items) → total_w=40, covered_w=40,
+              ratio=1.0 → eligible; value=0.5; reason is None.
+    """
+    from irc.monitor.holding_metrics import _FLOW_TOP_N
+    # Top-5 by weight: 8% each, all covered (have flow).
+    top5 = tuple(_metric(f"t{i}", 8.0, 0.5) for i in range(_FLOW_TOP_N))
+    # Tail: 15 lighter holdings at 4% each, no flow.
+    tail = tuple(_metric(f"b{i}", 4.0, None, "flow_no_data") for i in range(15))
+    full_basket = top5 + tail
+
+    agg_full = aggregate_flow(full_basket)
+    agg_top5_only = aggregate_flow(top5)
+
+    # Byte-identity: full basket and top-5-only must agree (tail invisible).
+    assert agg_full.value == _pt.approx(agg_top5_only.value)
+    assert agg_full.reason == agg_top5_only.reason
+    assert agg_full.covered_weight_ratio == _pt.approx(agg_top5_only.covered_weight_ratio)
+
+    # Substantive assertions: top-5 all covered → ratio=1.0, value=0.5, eligible.
+    assert agg_full.value == _pt.approx(0.5)
+    assert agg_full.reason is None          # eligible, NOT flow_no_coverage
+    assert agg_full.covered_weight_ratio == _pt.approx(1.0)  # 40/40, not 40/100

@@ -37,6 +37,11 @@ _FLOW_W_20D = 0.6
 # Coverage floor for flow (D6 — covered/total top-holdings denominator).
 _COVERAGE_FLOOR = 0.50
 
+# Flow is a top-5 read: coverage denominator = top-5 weight slice, not the full
+# basket. Mirrors monitor_cmd._TOP_N_HOLDINGS. Callers pass the full basket;
+# aggregate_flow slices internally so the fetch volume is unchanged (spec §5.C).
+_FLOW_TOP_N = 5
+
 _NA_FLOW_NO_DATA = "flow_no_data"
 _NA_FLOW_NO_COVERAGE = "flow_no_coverage"
 
@@ -270,11 +275,14 @@ def aggregate_valuation(metrics: tuple[HoldingMetric, ...]) -> ValuationAggregat
 
 
 def aggregate_flow(metrics: tuple[HoldingMetric, ...]) -> FlowAggregate:
-    """Pure: Σ(wᵢ·sᵢ)/Σ(wᵢ) over holdings with a non-None flow_score, renormalized
-    over covered top holdings (D5). covered_weight_ratio = Σ covered wᵢ / Σ all wᵢ.
-    Zero covered → flow_no_data; covered but ratio < 0.50 → flow_no_coverage."""
-    total_w = sum(m.weight_pct for m in metrics)
-    covered = [m for m in metrics if m.flow_score is not None]
+    """Pure: Σ(wᵢ·sᵢ)/Σ(wᵢ) over the top-_FLOW_TOP_N holdings by weight (D5/§5.C).
+    Coverage denominator is the top-5 weight slice, not the full basket — callers
+    may pass the full disclosed basket (valuation needs it); flow reads only top-5.
+    covered_weight_ratio = Σ covered wᵢ / Σ top-5 wᵢ.
+    Zero covered → flow_no_data; ratio < 0.50 → flow_no_coverage."""
+    top = sorted(metrics, key=lambda m: m.weight_pct, reverse=True)[:_FLOW_TOP_N]
+    total_w = sum(m.weight_pct for m in top)
+    covered = [m for m in top if m.flow_score is not None]
     covered_w = sum(m.weight_pct for m in covered)
     ratio = covered_w / total_w if total_w > 0.0 else 0.0
     if not covered or covered_w <= 0.0:
