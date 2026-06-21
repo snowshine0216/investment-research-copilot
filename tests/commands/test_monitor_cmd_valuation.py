@@ -140,3 +140,97 @@ def test_synthetic_index_path_fund_rides_index_state(monkeypatch, tmp_path):
     val = [s for s in view.factor_scores if s.name == "valuation"][0]
     assert val.eligible is True
     assert val.value == 1.0  # "cheap" → +1.0 via the state path (NOT the aggregate)
+
+
+# ── FIX 3: con=None fallback ValuationResolution must use path="lookthrough" ──
+
+
+def test_con_none_valuation_fallback_path_is_lookthrough(monkeypatch, tmp_path):
+    """When con is None, _process_fund falls back to a hardcoded ValuationResolution
+    without calling resolve_valuation_state. FIX 3: that fallback must use
+    path="lookthrough" (consistent with the error-path default in FIX 2).
+
+    Observable difference: with holdings present and con=None, path="lookthrough"
+    routes to valuation_aggregate (even if it is valuation_no_data). path="index"
+    keeps valuation_aggregate=None. We detect which path was taken by capturing the
+    FactorInputs passed to build_factor_scores.
+    """
+    import irc.commands.monitor_cmd as mc
+    import irc.opportunity.inputs_loader as il
+
+    captured = []
+    original_build = mc.build_factor_scores
+
+    def _capturing_build(profile, inp):
+        captured.append(inp)
+        return original_build(profile, inp)
+
+    _patch_common(monkeypatch, mc)
+    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr("110011"))
+    # Provide a snapshot so full_holdings is non-empty → holding_metrics built.
+    monkeypatch.setattr(mc, "load_latest_active_fund_cached",
+                        lambda fid, data_dir: _snap("110011", [("600519", "茅台", 60.0)]))
+    monkeypatch.setattr(il, "_stock_series_by_code", lambda con, syms: {})
+    monkeypatch.setattr(mc, "build_factor_scores", _capturing_build)
+
+    # con=None → resolve_valuation_state NOT called; FIX 3 changes the fallback path.
+    view, _c, _b = mc._process_fund(_active_fund(), _Cfg(), tmp_path, object(),
+                                    con=None, today="2026-06-21")
+
+    # After FIX 3: path="lookthrough" + non-empty holding_metrics → valuation_aggregate
+    # is set (even if valuation_no_data); NOT None as it would be with path="index".
+    assert captured, "build_factor_scores must have been called"
+    inp = captured[0]
+    # path="lookthrough" routes to aggregate_valuation branch → ValuationAggregate set.
+    assert inp.valuation_aggregate is not None, (
+        "valuation_aggregate must be set (path=lookthrough + holdings); "
+        "was None (path=index before fix)"
+    )
+
+
+# ── FIX 4: _build_full_basket_metrics skips industry fetch when con is None ──
+
+
+def test_build_full_basket_metrics_skips_industry_fetch_when_con_none(monkeypatch):
+    """When con is None (no DuckDB connection), _build_full_basket_metrics must
+    return early via build_holding_metrics({}, {}, flow_series) without calling
+    fetch_industry_pe or fetch_stock_industry_map (wasted AkShare calls)."""
+    import irc.commands.monitor_cmd as mc
+
+    industry_pe_called = []
+    industry_map_called = []
+
+    def _should_not_call_pe(*a, **kw):
+        industry_pe_called.append(1)
+        return {}
+
+    def _should_not_call_map(*a, **kw):
+        industry_map_called.append(1)
+        return {}
+
+    monkeypatch.setattr(mc, "fetch_industry_pe", _should_not_call_pe)
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", _should_not_call_map)
+    monkeypatch.setattr(mc, "fetch_flow_series",
+                        lambda symbols, cache_dir, today: {s: None for s in symbols})
+
+    from dataclasses import dataclass as _dc2
+    @_dc2(frozen=True)
+    class _H:
+        symbol: str
+        name_cn: str
+        weight_pct: float
+
+    full_holdings = (_H("600519", "茅台", 60.0), _H("000858", "五粮液", 20.0))
+    top5 = full_holdings[:5]
+
+    from pathlib import Path
+    result = mc._build_full_basket_metrics(
+        full_holdings, top5, "110011",
+        root=Path("/tmp"), today="2026-06-21", con=None)
+
+    # No industry fetches fired.
+    assert industry_pe_called == [], "fetch_industry_pe must NOT be called when con is None"
+    assert industry_map_called == [], "fetch_stock_industry_map must NOT be called when con is None"
+    # Returns a valid tuple of HoldingMetrics.
+    assert isinstance(result, tuple)
+    assert len(result) == 2

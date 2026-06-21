@@ -249,7 +249,9 @@ def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con
         _log.warning("flow_fetch failed for %s", fund_id, exc_info=True)
         flow_series = {s: None for s in flow_symbols}
     full_symbols = tuple(h.symbol for h in full_holdings)
-    series_by_code = _stock_series_by_code(con, full_symbols) if con is not None else {}
+    if con is None:
+        return build_holding_metrics(full_holdings, {}, flow_series)
+    series_by_code = _stock_series_by_code(con, full_symbols)
     industry_pe = fetch_industry_pe(
         cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
     industry_map = fetch_stock_industry_map(
@@ -686,7 +688,7 @@ def _process_fund(
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
     else:
-        val = ValuationResolution(None, False, "valuation_no_anchor")
+        val = ValuationResolution(None, False, "valuation_no_anchor", path="lookthrough")
 
     restricted, aum_delta_pct = heat_inputs_for(fund.id, purchase_table=purchase_table)
 
