@@ -125,12 +125,22 @@ def _window_mean(series, n: int) -> float | None:
 
 @dataclass(frozen=True)
 class StockValuation:
-    """Per-stock valuation: raw latest PE/PB + self-history PE percentile + state."""
+    """Per-stock dual-track valuation: self-history PE percentile/state/score +
+    industry-relative richness/score + blended val_score + clamp flag."""
     pe: float | None
     pb: float | None
     pe_percentile: float | None
     valuation_state: str | None
-    valuation_reason: str | None  # None | pe_not_positive | pe_immature | no_series
+    valuation_reason: str | None  # self leg: None|pe_not_positive|pe_immature|no_series
+    # Dual-track fields (trailing-defaulted for back-compat).
+    self_score: float | None = None
+    industry: str | None = None
+    industry_pe: float | None = None
+    industry_richness: float | None = None
+    industry_score: float | None = None
+    val_score: float | None = None
+    false_cheap: bool = False
+    industry_reason: str | None = None  # None|industry_no_data|false_cheap_clamp
 
 
 def _latest_value(series: MetricSeries, idx: int) -> float | None:
@@ -167,6 +177,30 @@ def per_stock_valuation(code: str, series: MetricSeries | None) -> StockValuatio
         return StockValuation(pe, pb, None, None, "pe_immature")
     pct = self_history_percentile(pos)
     return StockValuation(pe, pb, pct, percentile_to_valuation_state(pct), None)
+
+
+def per_stock_valuation_dual(
+    code: str, series: MetricSeries | None, *,
+    industry: str | None, industry_avg_pe: float | None,
+) -> StockValuation:
+    """Pure: the #168 self-history StockValuation EXTENDED with dual-track legs.
+    self_score = valuation_state_score(state); industry leg from latest positive PE
+    vs industry_avg_pe; blend + clamp via dual_track_score.
+    Function-local import of valuation_state_score avoids factor_maps→holding_metrics
+    import cycle (factor_maps imports flow_band from holding_metrics)."""
+    from irc.monitor.factor_maps import valuation_state_score  # noqa: PLC0415
+    base = per_stock_valuation(code, series)
+    self_score = valuation_state_score(base.valuation_state)
+    dt = dual_track_score(self_score=self_score, stock_pe=base.pe,
+                          industry_avg_pe=industry_avg_pe)
+    return StockValuation(
+        pe=base.pe, pb=base.pb, pe_percentile=base.pe_percentile,
+        valuation_state=base.valuation_state, valuation_reason=base.valuation_reason,
+        self_score=self_score, industry=industry, industry_pe=industry_avg_pe,
+        industry_richness=dt.industry_richness, industry_score=dt.industry_score,
+        val_score=dt.val_score, false_cheap=dt.false_cheap,
+        industry_reason=dt.industry_reason,
+    )
 
 
 @dataclass(frozen=True)

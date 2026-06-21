@@ -300,3 +300,39 @@ def test_clamp_does_not_fire_when_self_not_cheap():
     dt = dual_track_score(self_score=-0.5, stock_pe=30.0, industry_avg_pe=20.0)
     assert dt.false_cheap is False
     assert dt.val_score == _pt.approx(-0.7)
+
+
+# ---------------------------------------------------------------------------
+# Task 2.4: StockValuation extended + per_stock_valuation_dual
+# ---------------------------------------------------------------------------
+
+from irc.monitor.holding_metrics import per_stock_valuation_dual, StockValuation
+
+
+def _mature_rising_series(code="600519"):
+    from datetime import date
+    base = date(2025, 1, 1).toordinal()
+    pts = tuple((date.fromordinal(base + 2 * i).isoformat(), 18.0 + i * 0.01, 2.0)
+                for i in range(200))
+    return MetricSeries(code=code, source="eastmoney", points=pts)
+
+
+def test_per_stock_valuation_dual_populates_industry_fields():
+    series = _mature_rising_series("600519")  # latest PE is max → state very_expensive
+    sv = per_stock_valuation_dual("600519", series, industry="酿酒行业",
+                                  industry_avg_pe=10.0)
+    assert isinstance(sv, StockValuation)
+    assert sv.valuation_state == "very_expensive"  # self leg
+    assert sv.self_score == -1.0                    # very_expensive → -1.0
+    assert sv.industry == "酿酒行业"
+    assert sv.industry_pe == 10.0
+    assert sv.industry_score is not None            # stock_pe/10 banded
+    assert sv.val_score is not None
+
+
+def test_per_stock_valuation_dual_industry_na_self_only():
+    series = _mature_rising_series("600519")
+    sv = per_stock_valuation_dual("600519", series, industry=None, industry_avg_pe=None)
+    assert sv.self_score == -1.0
+    assert sv.val_score == -1.0                      # self-only fallback
+    assert sv.industry_reason == "industry_no_data"
