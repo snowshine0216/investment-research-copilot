@@ -30,7 +30,8 @@ from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
 from irc.monitor.flow_fetch import fetch_flow_series
-from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow
+from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
+from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
@@ -69,7 +70,7 @@ from irc.spend.record_run import record_command_run
 from irc.commands.spend_cmd import preflight_gate
 
 _log = logging.getLogger(__name__)
-_ENGINE_VERSION = "2"
+_ENGINE_VERSION = "3"
 _NAV_STALE_DAYS = 7
 
 
@@ -233,6 +234,28 @@ def _make_constituent_rows(
 
 
 # ── Orchestration helpers ─────────────────────────────────────────────────────
+
+
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con):
+    """EDGE: fetch flow (top-5) + industry (full basket) → full-basket HoldingMetrics.
+    Flow stays top-5 (byte-identical); valuation/board span the full basket."""
+    from irc.opportunity.inputs_loader import _stock_series_by_code
+    flow_symbols = tuple(h.symbol for h in top5)
+    try:
+        flow_series = fetch_flow_series(
+            flow_symbols, cache_dir=root / "data" / "monitor" / "fund_flow", today=today)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("flow_fetch failed for %s", fund_id, exc_info=True)
+        flow_series = {s: None for s in flow_symbols}
+    full_symbols = tuple(h.symbol for h in full_holdings)
+    series_by_code = _stock_series_by_code(con, full_symbols) if con is not None else {}
+    industry_pe = fetch_industry_pe(
+        cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    industry_map = fetch_stock_industry_map(
+        full_symbols, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+    return build_holding_metrics(
+        full_holdings, series_by_code, flow_series,
+        industry_by_symbol=industry_map, industry_pe_by_industry=industry_pe)
 
 
 def _impact_rows_from(impacts: ImpactsResult, fund: MonitorFund) -> tuple[ImpactRow, ...]:
@@ -594,7 +617,7 @@ def _process_fund(
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
-    from irc.opportunity.inputs_loader import _stock_series_by_code
+    from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
     impacts = gather_impacts(
@@ -612,34 +635,23 @@ def _process_fund(
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
         snap = load_latest_active_fund_cached(fund.id, root / "data")
-        top_holdings: tuple = ()
+        full_holdings: tuple = ()
         if snap is not None:
-            top_holdings = tuple(
-                sorted(snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True)
-            )[:_TOP_N_HOLDINGS]
-        if const_pool and top_holdings:
-            holding_symbols = tuple(h.symbol for h in top_holdings)
+            full_holdings = tuple(sorted(
+                snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True))
+        top5 = full_holdings[:_TOP_N_HOLDINGS]
+        if const_pool and top5:
+            holding_symbols = tuple(h.symbol for h in top5)
             const_impacts_result = gather_impacts(
                 fund_id=fund.id, themes=holding_symbols, pool=const_pool,
                 route=llm_config, call=llm_call,
             )
             cost_history.extend(const_impacts_result.cost_entries)
-            constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
-        if top_holdings and today is not None:
-            symbols = tuple(h.symbol for h in top_holdings)
-            try:
-                flow_series = fetch_flow_series(
-                    symbols,
-                    cache_dir=root / "data" / "monitor" / "fund_flow",
-                    today=today,
-                )
-            except Exception:  # noqa: BLE001 — degrade gracefully, never crash the brief
-                _log.warning("flow_fetch failed for %s", fund.id, exc_info=True)
-                flow_series = {s: None for s in symbols}
-            series_by_code = _stock_series_by_code(con, symbols) if con is not None else {}
-            holding_metrics = build_holding_metrics(top_holdings, series_by_code, flow_series)
+            constituent_rows = _make_constituent_rows(const_impacts_result, top5)
+        if full_holdings and today is not None:
+            holding_metrics = _build_full_basket_metrics(
+                full_holdings, top5, fund.id, root=root, today=today, con=con)
 
-    from irc.monitor.valuation import ValuationResolution
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
     else:
@@ -657,6 +669,10 @@ def _process_fund(
         macro_rows=macro_rows,
         constituent_rows=constituent_rows,
         flow=aggregate_flow(holding_metrics) if holding_metrics else None,
+        valuation_aggregate=(
+            aggregate_valuation(holding_metrics)
+            if val.path == "lookthrough" and holding_metrics else None
+        ),
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
