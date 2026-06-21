@@ -30,3 +30,17 @@ def test_parse_industry_pe_unexpected_shape_is_empty():
     assert parse_industry_pe(None) == {}
     assert parse_industry_pe(pd.DataFrame()) == {}
     assert parse_industry_pe(pd.DataFrame({"x": [1]})) == {}
+
+
+def test_parse_stock_industry_reads_industry_row():
+    # stock_individual_info_em returns a long (item, value) table.
+    df = pd.DataFrame({"item": ["总市值", "行业", "上市时间"],
+                       "value": ["1.2e12", "酿酒行业", "20010827"]})
+    assert parse_stock_industry(df) == "酿酒行业"
+
+
+def test_parse_stock_industry_missing_industry_is_none():
+    df = pd.DataFrame({"item": ["总市值"], "value": ["1.2e12"]})
+    assert parse_stock_industry(df) is None
+    assert parse_stock_industry(None) is None
+    assert parse_stock_industry(pd.DataFrame()) is None
