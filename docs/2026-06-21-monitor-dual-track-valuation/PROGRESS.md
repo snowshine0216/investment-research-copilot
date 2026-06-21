@@ -5,7 +5,7 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | ✅ [#172](https://github.com/snowshine0216/investment-research-copilot/pull/172) | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | ✅ [#172](https://github.com/snowshine0216/investment-research-copilot/pull/172) | ✅ | ✅ | ✅ | ✅ 1 round | 🔄 |
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
@@ -20,8 +20,14 @@
 - drift: [`items/001-drift.md`](items/001-drift.md) — Verdict: PASS (31/31 verified; 5 findings, 4 accepted + 1 spec gap CLOSED pre-ship)
 - ship (PR): [`items/001-ship.md`](items/001-ship.md) — [PR #172](https://github.com/snowshine0216/investment-research-copilot/pull/172) → feature branch
 - review: [`items/001-review.md`](items/001-review.md) — Verdict: PASS-WITH-NITS (ship steps 8+9; **2 blockers found + fixed before push**: flow-coverage P0 regression `3c481b2` + dark-factor path default `46d6dfd`; re-review CLEAN)
-- verify: _running_
-- pr-review: _running_
+- verify: [`items/001-verify.md`](items/001-verify.md) — Verdict: PASS (ran `irc monitor` live 90s, no code error in new modules; + real-function driver confirming dual-track/clamp/factor-wiring/board+rollup/flow byte-identity)
+- pr-review: [`items/001-pr-review.md`](items/001-pr-review.md) — Verdict: PASS-WITH-NITS ([PR #172 comment](https://github.com/snowshine0216/investment-research-copilot/pull/172#issuecomment-4760971839)); 4 cosmetic nits, 0 blockers, 0 CLAUDE.md violations
+- fix: 1 pre-ship round (flow-coverage P0 `3c481b2` + dark-factor path `46d6dfd` + consistency `dc2aaac`, all from the ship review, re-review CLEAN). Post-ship: 0 rounds — all 3 verdicts PASS/PASS-WITH-NITS; the 4 pr-review nits are below the ruff threshold (ruff clean) and non-blocking per the autodev contract.
+
+## Deferred / out-of-scope
+- Pre-existing `written_at` NameError in `monitor_cmd._process_fund` (from #140, not this diff) — flagged for a separate background task.
+- pr-review nits (comments on dict-merge intent / oracle FAIL message; duplicate `import pytest as _pt`; missing `# noqa: PLC0415`) — cosmetic, below ruff threshold; not addressed.
+- Known-limitation: `valuation_reconciliation` would FAIL for a hypothetical index-path + active_fund-profile fund (structurally unreachable in the live set; panel-only, never gates).
 
 ## Event log
 - 2026-06-21 — intake: mode=spec, project=non-web, base=main(protected, no opt-in) → synthesized feature branch `autodev/monitor-dual-track-valuation-feature`. Run dir created. Grill output (CONTEXT.md + spec) carried onto feature branch.
