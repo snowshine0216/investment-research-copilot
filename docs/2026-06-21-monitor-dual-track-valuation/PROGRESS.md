@@ -5,7 +5,7 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | ✅ [#172](https://github.com/snowshine0216/investment-research-copilot/pull/172) | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
@@ -18,10 +18,10 @@
 - spec: [`items/001-spec.md`](items/001-spec.md)
 - plan: [`items/001-plan.md`](items/001-plan.md) (commit `2e0149f`, Opus writing-plans — 4 slices, 21 tasks, ~95 steps)
 - drift: [`items/001-drift.md`](items/001-drift.md) — Verdict: PASS (31/31 verified; 5 findings, 4 accepted + 1 spec gap CLOSED pre-ship)
-- ship (PR): _pending_
-- verify: _pending_
-- review: _pending_
-- pr-review: _pending_
+- ship (PR): [`items/001-ship.md`](items/001-ship.md) — [PR #172](https://github.com/snowshine0216/investment-research-copilot/pull/172) → feature branch
+- review: [`items/001-review.md`](items/001-review.md) — Verdict: PASS-WITH-NITS (ship steps 8+9; **2 blockers found + fixed before push**: flow-coverage P0 regression `3c481b2` + dark-factor path default `46d6dfd`; re-review CLEAN)
+- verify: _running_
+- pr-review: _running_
 
 ## Event log
 - 2026-06-21 — intake: mode=spec, project=non-web, base=main(protected, no opt-in) → synthesized feature branch `autodev/monitor-dual-track-valuation-feature`. Run dir created. Grill output (CONTEXT.md + spec) carried onto feature branch.
