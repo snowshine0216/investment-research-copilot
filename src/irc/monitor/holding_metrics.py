@@ -28,6 +28,37 @@ _COVERAGE_FLOOR = 0.50
 _NA_FLOW_NO_DATA = "flow_no_data"
 _NA_FLOW_NO_COVERAGE = "flow_no_coverage"
 
+# Dual-track valuation constants (ADR 0020 D3/D5/D9/D10 — priors, never auto-tuned).
+_SELF_W = 0.60
+_INDUSTRY_W = 0.40
+_FALSE_CHEAP_RICHNESS = 1.2  # r >= this → max rich-vs-peers AND clamp trigger
+# Monitor coverage floor (D10/Q8): NAV-denominator, distinct from
+# lookthrough._COVERAGE_FLOOR=0.50 — the monitor valuation is a 0.20-weight
+# research lean, not a publishability gate.
+_MONITOR_COVERAGE_FLOOR = 0.40
+
+_NA_VALUATION_NO_DATA = "valuation_no_data"
+_NA_VALUATION_NO_COVERAGE = "valuation_no_coverage"
+# Per-stock HoldingMetric reasons (NOT factor reasons, NEVER in KNOWN_NA_REASONS).
+_REASON_INDUSTRY_NO_DATA = "industry_no_data"
+_REASON_FALSE_CHEAP_CLAMP = "false_cheap_clamp"
+
+
+def industry_band(r: float) -> float:
+    """Pure: industry richness r = stock_pe/industry_avg_pe → score in [-1,+1].
+    Cheaper-than-peers → positive. ASYMMETRIC bands (slow to call cheap, quick to
+    withhold cheap). The -1.0 edge is pinned to _FALSE_CHEAP_RICHNESS so ONE
+    threshold governs both 'max rich-vs-peers' and the clamp trigger."""
+    if r <= 0.70:
+        return 1.0
+    if r <= 0.90:
+        return 0.5
+    if r <= 1.10:
+        return 0.0
+    if r < _FALSE_CHEAP_RICHNESS:
+        return -0.5
+    return -1.0
+
 
 def _blend_flow_pct(pct_5d: float, pct_20d: float) -> float:
     """Pure: 0.4*5d + 0.6*20d, percent-points."""

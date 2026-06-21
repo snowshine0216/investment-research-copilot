@@ -6,6 +6,8 @@ from datetime import date, timedelta
 
 import pytest
 
+import pytest as _pt
+
 from irc.monitor.holding_metrics import (
     HoldingMetric,
     _COVERAGE_FLOOR,
@@ -210,3 +212,30 @@ def test_aggregate_flow_exactly_at_floor_is_covered():
     assert agg.value == pytest.approx(1.0)
     assert agg.reason is None
     assert _COVERAGE_FLOOR == 0.50
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: industry_band + named constants
+# ---------------------------------------------------------------------------
+
+from irc.monitor.holding_metrics import (
+    industry_band, _FALSE_CHEAP_RICHNESS, _SELF_W, _INDUSTRY_W,
+    _MONITOR_COVERAGE_FLOOR,
+)
+
+
+@_pt.mark.parametrize("r,score", [
+    (0.50, 1.0), (0.70, 1.0),         # r<=0.70 → +1.0
+    (0.80, 0.5), (0.90, 0.5),         # 0.70<r<=0.90 → +0.5
+    (1.00, 0.0), (1.10, 0.0),         # 0.90<r<=1.10 → 0.0
+    (1.15, -0.5), (1.19, -0.5),       # 1.10<r<1.20 → -0.5
+    (1.20, -1.0), (2.00, -1.0),       # r>=1.20 → -1.0 (pinned to _FALSE_CHEAP_RICHNESS)
+])
+def test_industry_band_asymmetric_raw_r(r, score):
+    assert industry_band(r) == score
+
+
+def test_named_constants_locked():
+    assert _SELF_W == 0.60 and _INDUSTRY_W == 0.40
+    assert _FALSE_CHEAP_RICHNESS == 1.2
+    assert _MONITOR_COVERAGE_FLOOR == 0.40
