@@ -108,3 +108,42 @@ def test_build_factor_scores_now_has_six_factors():
     scores = build_factor_scores("active_cn_equity", _inp(FlowAggregate(0.5, None, 1.0)))
     assert [s.name for s in scores] == ["trend", "valuation", "heat", "macro_tilt",
                                         "constituent", "flow"]
+
+
+# ── Slice 3: _valuation numeric path via valuation_aggregate ──────────────────
+from irc.monitor.holding_metrics import ValuationAggregate  # noqa: E402
+
+
+def _inp_agg(**kw):
+    base = dict(acc_nav=(), minimum_observations=2, valuation_state=None,
+                valuation_cached=False, restricted=None, aum_delta_pct=None,
+                macro_rows=(), constituent_rows=())
+    base.update(kw)
+    return FactorInputs(**base)
+
+
+def test_valuation_numeric_path_eligible_from_aggregate():
+    inp = _inp_agg(valuation_aggregate=ValuationAggregate(0.25, None, 0.8))
+    scores = {s.name: s for s in build_factor_scores("active_cn_equity", inp)}
+    assert scores["valuation"].eligible is True
+    assert scores["valuation"].value == 0.25
+
+
+def test_valuation_numeric_path_no_data_reason():
+    inp = _inp_agg(valuation_aggregate=ValuationAggregate(None, "valuation_no_data", 0.0))
+    scores = {s.name: s for s in build_factor_scores("active_cn_equity", inp)}
+    assert scores["valuation"].eligible is False
+    assert scores["valuation"].reason == "valuation_no_data"
+
+
+def test_valuation_numeric_path_no_coverage_reason():
+    inp = _inp_agg(valuation_aggregate=ValuationAggregate(None, "valuation_no_coverage", 0.35))
+    scores = {s.name: s for s in build_factor_scores("active_cn_equity", inp)}
+    assert scores["valuation"].eligible is False
+    assert scores["valuation"].reason == "valuation_no_coverage"
+
+
+def test_valuation_state_path_unchanged_when_no_aggregate():
+    inp = _inp_agg(valuation_state="cheap", valuation_cached=True)
+    scores = {s.name: s for s in build_factor_scores("active_cn_equity", inp)}
+    assert scores["valuation"].eligible is True and scores["valuation"].value == 1.0

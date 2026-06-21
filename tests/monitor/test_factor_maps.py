@@ -26,3 +26,8 @@ def test_heat_map(restricted, aum_delta_pct, expected):
 
 def test_heat_no_data_is_none():
     assert heat_score(restricted=None, aum_delta_pct=None) is None
+
+
+def test_valuation_state_score_none_state_is_none():
+    from irc.monitor.factor_maps import valuation_state_score
+    assert valuation_state_score(None) is None  # self-leg N/A path

@@ -7,8 +7,10 @@ depend on the opportunity *pipeline* having run, and NEVER reads opportunity
 *output files*. The only effect here is cached DuckDB reads, confined to the
 thin query wrapper `_tracked_index_for_fund`; the dispatch + mapping is pure.
 
-Slice 1 (item 001) wires the INDEX-anchored branch. The look-through branch is
-an honest N/A stub filled in by item 002 (see `_resolve_lookthrough`).
+Slice 3: look-through branch is a short-circuit (path="lookthrough"). Bottom-up
+per-stock valuation is wired in monitor_cmd._process_fund via holding_metrics →
+aggregate_valuation → FactorInputs.valuation_aggregate. ValuationResolution only
+carries the path sentinel so monitor_cmd can choose the right FactorInputs field.
 """
 from __future__ import annotations
 
@@ -16,13 +18,11 @@ import logging
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import duckdb
 
-from irc.opportunity.inputs_loader import (
-    _index_valuation_metrics,
-    _stock_series_by_code,
-)
+from irc.opportunity.inputs_loader import _index_valuation_metrics
 from irc.opportunity.states import _band
 
 _log = logging.getLogger(__name__)
@@ -49,10 +49,14 @@ class ValuationResolution:
     cached: True iff a real cached percentile produced the state (drives
             FactorInputs.valuation_cached → the _valuation eligibility gate).
     reason: N/A reason code (a KNOWN_NA_REASONS member) when state is None, else None.
+    path: "index" (tracked_index-anchored) or "lookthrough" (per-stock bottom-up).
+          Trailing-defaulted for back-compat: existing call sites that pass 3 positional
+          args still work.
     """
     state: str | None
     cached: bool
     reason: str | None
+    path: Literal["index", "lookthrough"] = "index"
 
 
 def _tracked_index_for_fund(con: duckdb.DuckDBPyConnection, fund_id: str) -> str | None:
@@ -78,39 +82,8 @@ def _resolve_index(con: duckdb.DuckDBPyConnection, tracked_index: str) -> Valuat
     _, _, _, pe_pct, _ = _index_valuation_metrics(con, tracked_index)
     state = percentile_to_valuation_state(pe_pct)
     if state is None:
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
-    return ValuationResolution(state, True, None)
-
-
-def _resolve_lookthrough(
-    con: duckdb.DuckDBPyConnection, fund_id: str, root: Path
-) -> ValuationResolution:
-    """Look-through branch (tracked_index is None, pure active funds).
-
-    Holdings come from the MONITOR's own cached ActiveFundSnapshot JSON
-    (load_latest_active_fund_cached under `root/'data'` — the exact source the
-    constituent factor uses); the PE/PB series come from the cached DuckDB
-    `stock_valuation_history` via `_stock_series_by_code`. Both are
-    monitor-consumed cached artifacts, NOT opportunity output files (ADR 0017);
-    neither needs the opportunity pipeline to have run. The coverage gate is
-    enforced INSIDE fund_valuation_percentile (None PE pct when covered NAV ratio
-    < floor or PE history immature) → None maps to honest N/A. Non-A-share
-    holdings (e.g. HK/US QDII lines) carry no stock_valuation_history rows → they
-    never match the A-share-keyed series → uncovered → honest N/A (spec §10)."""
-    # Function-local import to avoid a module-load cycle (lookthrough imports
-    # percentile_to_valuation_state from this module).
-    from irc.fundamentals.snapshot_cache import load_latest_active_fund_cached
-    from irc.monitor.lookthrough import lookthrough_valuation_state
-
-    snapshot = load_latest_active_fund_cached(fund_id, root / "data")
-    if snapshot is None or not snapshot.constituent_analyses:
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
-    codes = tuple(c.symbol for c in snapshot.constituent_analyses)
-    series = _stock_series_by_code(con, codes)
-    state = lookthrough_valuation_state(snapshot, series)
-    if state is None:
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
-    return ValuationResolution(state, True, None)
+        return ValuationResolution(None, False, _NA_NO_ANCHOR, path="index")
+    return ValuationResolution(state, True, None, path="index")
 
 
 def _resolve(
@@ -120,14 +93,18 @@ def _resolve(
     tracked_index = _tracked_index_for_fund(con, fund.id)
     if tracked_index is not None:
         return _resolve_index(con, tracked_index)
-    return _resolve_lookthrough(con, fund.id, root)
+    # Look-through short-circuit (slice 3): bottom-up valuation is computed in
+    # _process_fund via holding_metrics → aggregate_valuation → FactorInputs.
+    # The ValuationResolution itself carries no state; path="lookthrough" signals
+    # to monitor_cmd to pass valuation_aggregate instead.
+    return ValuationResolution(None, False, None, path="lookthrough")
 
 
 def resolve_valuation_state(
     fund, *, con: duckdb.DuckDBPyConnection, root: Path
 ) -> ValuationResolution:
     """PURE-ish dispatch (cached reads only): index path when the fund has a
-    tracked_index, else the look-through stub. Never raises on a data miss —
+    tracked_index, else the look-through short-circuit. Never raises on a data miss —
     degrades to an honest N/A so the brief never crashes."""
     try:
         return _resolve(fund, con=con, root=root)
@@ -137,4 +114,4 @@ def resolve_valuation_state(
             fund.id,
             exc_info=True,
         )
-        return ValuationResolution(None, False, _NA_NO_ANCHOR)
+        return ValuationResolution(None, False, _NA_NO_ANCHOR, path="lookthrough")

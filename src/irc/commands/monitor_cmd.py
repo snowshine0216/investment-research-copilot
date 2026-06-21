@@ -30,7 +30,8 @@ from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
 from irc.monitor.flow_fetch import fetch_flow_series
-from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow
+from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
+from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
@@ -46,6 +47,7 @@ from irc.monitor.snapshot_targets import target_for_fund
 from irc.monitor.eval.gate import apply_eval_gate, GATING_STAGES_M1, published_state
 from irc.monitor.eval.structural import (
     monitor_signal_health, flow_reconciliation, flow_coverage_health,
+    valuation_reconciliation, valuation_coverage_health,
 )
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
@@ -69,7 +71,7 @@ from irc.spend.record_run import record_command_run
 from irc.commands.spend_cmd import preflight_gate
 
 _log = logging.getLogger(__name__)
-_ENGINE_VERSION = "2"
+_ENGINE_VERSION = "3"
 _NAV_STALE_DAYS = 7
 
 
@@ -235,6 +237,30 @@ def _make_constituent_rows(
 # ── Orchestration helpers ─────────────────────────────────────────────────────
 
 
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con):
+    """EDGE: fetch flow (top-5) + industry (full basket) → full-basket HoldingMetrics.
+    Flow stays top-5 (byte-identical); valuation/board span the full basket."""
+    from irc.opportunity.inputs_loader import _stock_series_by_code
+    flow_symbols = tuple(h.symbol for h in top5)
+    try:
+        flow_series = fetch_flow_series(
+            flow_symbols, cache_dir=root / "data" / "monitor" / "fund_flow", today=today)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("flow_fetch failed for %s", fund_id, exc_info=True)
+        flow_series = {s: None for s in flow_symbols}
+    full_symbols = tuple(h.symbol for h in full_holdings)
+    if con is None:
+        return build_holding_metrics(full_holdings, {}, flow_series)
+    series_by_code = _stock_series_by_code(con, full_symbols)
+    industry_pe = fetch_industry_pe(
+        cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    industry_map = fetch_stock_industry_map(
+        full_symbols, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+    return build_holding_metrics(
+        full_holdings, series_by_code, flow_series,
+        industry_by_symbol=industry_map, industry_pe_by_industry=industry_pe)
+
+
 def _impact_rows_from(impacts: ImpactsResult, fund: MonitorFund) -> tuple[ImpactRow, ...]:
     return tuple(
         ImpactRow(i.key, weight=1.0, impact=i.impact, confidence=i.confidence)
@@ -366,7 +392,11 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
 def _write_drilldown(out: Path, views: tuple) -> None:
     """EDGE: write drilldown.html when any fund has holding_metrics (atomic write)."""
     dd_views = tuple(
-        (v.fund_id, v.name_cn, v.holding_metrics, aggregate_flow(v.holding_metrics), v.signal)
+        (
+            v.fund_id, v.name_cn, v.holding_metrics,
+            aggregate_flow(v.holding_metrics), v.signal,
+            aggregate_valuation(v.holding_metrics),
+        )
         for v in views if v.holding_metrics
     )
     if not dd_views:
@@ -405,19 +435,22 @@ def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, suite_healths: tuple[StageHealth, ...],
     trading_days: frozenset[date] | None,
-) -> tuple[tuple[GateDecision, ...], dict, dict, dict, dict]:
+) -> tuple[tuple[GateDecision, ...], dict, dict, dict, dict, dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
     run-global LLM-suite healths (resolved once at the edge — identical for every
-    fund, OQ-E), and apply the M1 gate. Also computes flow_reconciliation and
-    flow_coverage healths (panel-only, §5.E — never gate). Returns
-    (gates, signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths);
-    the two flow dicts are PANEL-ONLY and never passed to apply_eval_gate."""
+    fund, OQ-E), and apply the M1 gate. Also computes flow_reconciliation,
+    flow_coverage, valuation_reconciliation, and valuation_coverage healths (all
+    panel-only, §5.E — never gate). Returns
+    (gates, signal_h, det_h, flow_recon_h, flow_cov_h, val_recon_h, val_cov_h);
+    all four health dicts are PANEL-ONLY and never passed to apply_eval_gate."""
     gates: list[GateDecision] = []
     signal_healths: dict = {}
     deterministic_healths: dict = {}
     flow_recon_healths: dict = {}
     flow_cov_healths: dict = {}
+    val_recon_healths: dict = {}
+    val_cov_healths: dict = {}
     for fund, view, bundle in zip(funds, views, bundles):
         stub = GateDecision(fund.id, False, (), "validated", "")
         projection = build_eval_trace(
@@ -460,10 +493,33 @@ def _compute_gates(
                 stage="flow_coverage", status="WARN",
                 reasons=(f"{fund.id}: coverage_error: {exc!r}",),
             )
+        try:
+            val_recon_healths[fund.id] = valuation_reconciliation(projection)
+        except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
+            _log.warning(
+                "valuation_reconciliation failed for %s: %r", fund.id, exc, exc_info=True,
+            )
+            val_recon_healths[fund.id] = StageHealth(
+                stage="valuation_reconciliation", status="WARN",
+                reasons=(f"{fund.id}: reconciliation_error: {exc!r}",),
+            )
+        try:
+            val_cov_healths[fund.id] = valuation_coverage_health(projection)
+        except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
+            _log.warning(
+                "valuation_coverage_health failed for %s: %r", fund.id, exc, exc_info=True,
+            )
+            val_cov_healths[fund.id] = StageHealth(
+                stage="valuation_coverage", status="WARN",
+                reasons=(f"{fund.id}: coverage_error: {exc!r}",),
+            )
         health = (signal_health, *suite_healths)
         gates.append(apply_eval_gate(view.signal, health=health,
                                      gating_stages=GATING_STAGES_M1))
-    return tuple(gates), signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths
+    return (
+        tuple(gates), signal_healths, deterministic_healths,
+        flow_recon_healths, flow_cov_healths, val_recon_healths, val_cov_healths,
+    )
 
 
 def _write_eval_artifacts(
@@ -594,7 +650,7 @@ def _process_fund(
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
-    from irc.opportunity.inputs_loader import _stock_series_by_code
+    from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
     pool = build_evidence_pool(fund, repo_root=root)
     impacts = gather_impacts(
@@ -612,38 +668,27 @@ def _process_fund(
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
         snap = load_latest_active_fund_cached(fund.id, root / "data")
-        top_holdings: tuple = ()
+        full_holdings: tuple = ()
         if snap is not None:
-            top_holdings = tuple(
-                sorted(snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True)
-            )[:_TOP_N_HOLDINGS]
-        if const_pool and top_holdings:
-            holding_symbols = tuple(h.symbol for h in top_holdings)
+            full_holdings = tuple(sorted(
+                snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True))
+        top5 = full_holdings[:_TOP_N_HOLDINGS]
+        if const_pool and top5:
+            holding_symbols = tuple(h.symbol for h in top5)
             const_impacts_result = gather_impacts(
                 fund_id=fund.id, themes=holding_symbols, pool=const_pool,
                 route=llm_config, call=llm_call,
             )
             cost_history.extend(const_impacts_result.cost_entries)
-            constituent_rows = _make_constituent_rows(const_impacts_result, top_holdings)
-        if top_holdings and today is not None:
-            symbols = tuple(h.symbol for h in top_holdings)
-            try:
-                flow_series = fetch_flow_series(
-                    symbols,
-                    cache_dir=root / "data" / "monitor" / "fund_flow",
-                    today=today,
-                )
-            except Exception:  # noqa: BLE001 — degrade gracefully, never crash the brief
-                _log.warning("flow_fetch failed for %s", fund.id, exc_info=True)
-                flow_series = {s: None for s in symbols}
-            series_by_code = _stock_series_by_code(con, symbols) if con is not None else {}
-            holding_metrics = build_holding_metrics(top_holdings, series_by_code, flow_series)
+            constituent_rows = _make_constituent_rows(const_impacts_result, top5)
+        if full_holdings and today is not None:
+            holding_metrics = _build_full_basket_metrics(
+                full_holdings, top5, fund.id, root=root, today=today, con=con)
 
-    from irc.monitor.valuation import ValuationResolution
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
     else:
-        val = ValuationResolution(None, False, "valuation_no_anchor")
+        val = ValuationResolution(None, False, "valuation_no_anchor", path="lookthrough")
 
     restricted, aum_delta_pct = heat_inputs_for(fund.id, purchase_table=purchase_table)
 
@@ -657,6 +702,10 @@ def _process_fund(
         macro_rows=macro_rows,
         constituent_rows=constituent_rows,
         flow=aggregate_flow(holding_metrics) if holding_metrics else None,
+        valuation_aggregate=(
+            aggregate_valuation(holding_metrics)
+            if val.path == "lookthrough" and holding_metrics else None
+        ),
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
@@ -714,7 +763,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
-    gates, signal_healths, deterministic_healths, flow_recon_healths, flow_cov_healths = (
+    (gates, signal_healths, deterministic_healths,
+     flow_recon_healths, flow_cov_healths, val_recon_healths, val_cov_healths) = (
         _compute_gates(
             list(funds), views, bundles,
             min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
@@ -724,6 +774,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         signal_healths, deterministic_healths, now=_now_iso(), suite_rows=suite_rows,
         flow_reconciliation_healths=flow_recon_healths,
         flow_coverage_healths=flow_cov_healths,
+        valuation_reconciliation_healths=val_recon_healths,
+        valuation_coverage_healths=val_cov_healths,
     )
     prior = _read_prior_signal(root, _today)
     out = root / "outputs" / _today / "monitor"

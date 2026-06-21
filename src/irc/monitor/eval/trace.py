@@ -5,12 +5,12 @@ from __future__ import annotations
 from datetime import date
 from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.types import FundTraceBundle, GateDecision
-from irc.monitor.holding_metrics import aggregate_flow
+from irc.monitor.holding_metrics import aggregate_flow, aggregate_valuation
 from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "3"
+_SCHEMA_VERSION = "4"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -127,16 +127,23 @@ def _narrative(narr) -> dict:
 
 def _holding_metrics(view: FundView) -> dict:
     metrics = view.holding_metrics
-    agg = aggregate_flow(metrics)
+    flow_agg = aggregate_flow(metrics)
+    val_agg = aggregate_valuation(metrics)
     return {
         "rows": [{"symbol": m.symbol, "name": m.name, "weight_pct": m.weight_pct,
                   "pe": m.pe, "pb": m.pb, "pe_percentile": m.pe_percentile,
                   "valuation_state": m.valuation_state, "valuation_reason": m.valuation_reason,
                   "flow_pct_5d": m.flow_pct_5d, "flow_pct_20d": m.flow_pct_20d,
-                  "flow_score": m.flow_score, "flow_reason": m.flow_reason}
+                  "flow_score": m.flow_score, "flow_reason": m.flow_reason,
+                  "self_score": m.self_score, "industry": m.industry,
+                  "industry_pe": m.industry_pe, "industry_richness": m.industry_richness,
+                  "industry_score": m.industry_score, "val_score": m.val_score,
+                  "false_cheap": m.false_cheap, "industry_reason": m.industry_reason}
                  for m in metrics],
-        "aggregate": {"value": agg.value, "reason": agg.reason,
-                      "covered_weight_ratio": agg.covered_weight_ratio},
+        "aggregate": {"value": flow_agg.value, "reason": flow_agg.reason,
+                      "covered_weight_ratio": flow_agg.covered_weight_ratio},
+        "valuation_aggregate": {"value": val_agg.value, "reason": val_agg.reason,
+                                "covered_weight_ratio": val_agg.covered_weight_ratio},
     }
 
 

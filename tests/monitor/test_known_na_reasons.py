@@ -13,7 +13,7 @@ from irc.monitor import factors
 from irc.monitor.factors import KNOWN_NA_REASONS
 
 
-# The ten named constants the spec enumerates (§6).
+# The twelve named constants the spec enumerates (§6 + ADR 0020).
 _EXPECTED = {
     "profile_ineligible",
     "trend_insufficient_history",
@@ -25,10 +25,12 @@ _EXPECTED = {
     "constituent_no_coverage",
     "flow_no_data",
     "flow_no_coverage",
+    "valuation_no_data",
+    "valuation_no_coverage",
 }
 
 
-def test_known_na_reasons_is_exactly_the_ten_codes():
+def test_known_na_reasons_is_exactly_the_twelve_codes():
     assert KNOWN_NA_REASONS == frozenset(_EXPECTED)
 
 

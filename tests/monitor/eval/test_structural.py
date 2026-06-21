@@ -3,6 +3,7 @@ import datetime as _dt
 from irc.monitor.eval.structural import (
     signal_consistency, citation_integrity, nav_quality, monitor_signal_health,
     flow_reconciliation, flow_coverage_health,
+    valuation_reconciliation, valuation_coverage_health,
 )
 
 _TODAY = _dt.date(2026, 6, 16)
@@ -305,3 +306,50 @@ def test_flow_coverage_health_flow_cover_fallback_when_no_ratio_key():
     # covered_weight_ratio NOT in aggregate
     h = flow_coverage_health(_coverage_trace(rows, covered_weight_ratio=None))
     assert any("flow_cover 0.5" in r for r in h.reasons)
+
+
+# ---- Task 4.2: valuation_reconciliation + valuation_coverage_health ----
+
+def _trace_with_valuation(rows, factor_value):
+    return {
+        "signal": {"contributions": [{"name": "valuation", "value": factor_value}]},
+        "holding_metrics": {"rows": rows},
+    }
+
+
+def test_valuation_reconciliation_passes_when_board_matches_factor():
+    rows = [{"weight_pct": 50.0, "val_score": 1.0},
+            {"weight_pct": 30.0, "val_score": -1.0}]
+    # board = (50*1 + 30*-1)/80 = 0.25
+    t = _trace_with_valuation(rows, 0.25)
+    assert valuation_reconciliation(t).status == "PASS"
+
+
+def test_valuation_reconciliation_clamped_row_counts_as_zero():
+    rows = [{"weight_pct": 50.0, "val_score": 0.0},   # clamped
+            {"weight_pct": 30.0, "val_score": 1.0}]
+    # board = (50*0 + 30*1)/80 = 0.375
+    t = _trace_with_valuation(rows, 0.375)
+    assert valuation_reconciliation(t).status == "PASS"
+
+
+def test_valuation_reconciliation_fails_on_mismatch():
+    rows = [{"weight_pct": 50.0, "val_score": 1.0}]
+    t = _trace_with_valuation(rows, -0.99)
+    assert valuation_reconciliation(t).status == "FAIL"
+
+
+def test_valuation_reconciliation_no_factor_is_pass():
+    t = {"signal": {"contributions": []}, "holding_metrics": {"rows": []}}
+    assert valuation_reconciliation(t).status == "PASS"
+
+
+def test_valuation_coverage_health_is_informational_pass():
+    rows = [{"weight_pct": 50.0, "val_score": 1.0, "industry_score": 1.0, "false_cheap": False},
+            {"weight_pct": 30.0, "val_score": 0.0, "industry_score": -1.0, "false_cheap": True}]
+    t = {"holding_metrics": {"rows": rows,
+         "valuation_aggregate": {"value": 0.375, "reason": None, "covered_weight_ratio": 0.80}}}
+    h = valuation_coverage_health(t)
+    assert h.status == "PASS"
+    assert any("false_cheap 1" in r for r in h.reasons)
+    assert any("industry_cover" in r for r in h.reasons)

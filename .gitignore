@@ -44,3 +44,6 @@ htmlcov/
 
 # Spend gate — machine-owned consumption ledger and learned profile (Phase 2 writes these)
 data/spend/
+
+# Tool worktree artifacts
+.claire/

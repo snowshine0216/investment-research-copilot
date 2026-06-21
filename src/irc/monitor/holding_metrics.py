@@ -2,11 +2,13 @@
 
 Takes already-loaded inputs (top holdings, per-code PE/PB MetricSeries, per-code
 FlowSeries) and produces per-stock HoldingMetrics (valuation + flow) plus the
-holding-weight-renormalized FlowAggregate that drives the `flow` factor.
+holding-weight-renormalized FlowAggregate and ValuationAggregate that drive the
+`flow` and `valuation` factors.
 
 Flow units are PERCENT-POINTS throughout (D3/D7). NO /100. Per-stock valuation is
 a NEW computation distinct from the fund aggregate: each stock's PE percentile vs
-ITS OWN history, reusing the opportunity primitives (no new fetch).
+ITS OWN history, reusing the opportunity primitives (no new fetch). Dual-track
+scoring (self-history + industry-relative + False-Cheap clamp) is in _dual_track.py.
 """
 from __future__ import annotations
 
@@ -14,6 +16,16 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from irc.monitor._dual_track import (  # noqa: F401 (re-exported for tests)
+    DualTrack,
+    _FALSE_CHEAP_RICHNESS,
+    _INDUSTRY_W,
+    _REASON_FALSE_CHEAP_CLAMP,
+    _REASON_INDUSTRY_NO_DATA,
+    _SELF_W,
+    dual_track_score,
+    industry_band,
+)
 from irc.monitor.valuation import percentile_to_valuation_state
 from irc.opportunity.lookthrough_valuation import MetricSeries, _pe_series_is_mature
 from irc.opportunity.returns import self_history_percentile
@@ -22,11 +34,23 @@ from irc.opportunity.returns import self_history_percentile
 _FLOW_W_5D = 0.4
 _FLOW_W_20D = 0.6
 
-# Coverage floor (mirrors the valuation factor's covered-NAV gate D6).
+# Coverage floor for flow (D6 — covered/total top-holdings denominator).
 _COVERAGE_FLOOR = 0.50
+
+# Flow is a top-5 read: coverage denominator = top-5 weight slice, not the full
+# basket. Mirrors monitor_cmd._TOP_N_HOLDINGS. Callers pass the full basket;
+# aggregate_flow slices internally so the fetch volume is unchanged (spec §5.C).
+_FLOW_TOP_N = 5
 
 _NA_FLOW_NO_DATA = "flow_no_data"
 _NA_FLOW_NO_COVERAGE = "flow_no_coverage"
+
+# Monitor NAV coverage floor (D10/Q8): distinct from _COVERAGE_FLOOR=0.50.
+# The monitor valuation is a 0.20-weight research lean, not a publishability gate.
+_MONITOR_COVERAGE_FLOOR = 0.40
+
+_NA_VALUATION_NO_DATA = "valuation_no_data"
+_NA_VALUATION_NO_COVERAGE = "valuation_no_coverage"
 
 
 def _blend_flow_pct(pct_5d: float, pct_20d: float) -> float:
@@ -60,12 +84,22 @@ def _window_mean(series, n: int) -> float | None:
 
 @dataclass(frozen=True)
 class StockValuation:
-    """Per-stock valuation: raw latest PE/PB + self-history PE percentile + state."""
+    """Per-stock dual-track valuation: self-history PE percentile/state/score +
+    industry-relative richness/score + blended val_score + clamp flag."""
     pe: float | None
     pb: float | None
     pe_percentile: float | None
     valuation_state: str | None
-    valuation_reason: str | None  # None | pe_not_positive | pe_immature | no_series
+    valuation_reason: str | None  # self leg: None|pe_not_positive|pe_immature|no_series
+    # Dual-track fields (trailing-defaulted for back-compat).
+    self_score: float | None = None
+    industry: str | None = None
+    industry_pe: float | None = None
+    industry_richness: float | None = None
+    industry_score: float | None = None
+    val_score: float | None = None
+    false_cheap: bool = False
+    industry_reason: str | None = None  # None|industry_no_data|false_cheap_clamp
 
 
 def _latest_value(series: MetricSeries, idx: int) -> float | None:
@@ -104,6 +138,30 @@ def per_stock_valuation(code: str, series: MetricSeries | None) -> StockValuatio
     return StockValuation(pe, pb, pct, percentile_to_valuation_state(pct), None)
 
 
+def per_stock_valuation_dual(
+    code: str, series: MetricSeries | None, *,
+    industry: str | None, industry_avg_pe: float | None,
+) -> StockValuation:
+    """Pure: the #168 self-history StockValuation EXTENDED with dual-track legs.
+    self_score = valuation_state_score(state); industry leg from latest positive PE
+    vs industry_avg_pe; blend + clamp via dual_track_score.
+    Function-local import of valuation_state_score avoids factor_maps→holding_metrics
+    import cycle (factor_maps imports flow_band from holding_metrics)."""
+    from irc.monitor.factor_maps import valuation_state_score  # noqa: PLC0415
+    base = per_stock_valuation(code, series)
+    self_score = valuation_state_score(base.valuation_state)
+    dt = dual_track_score(self_score=self_score, stock_pe=base.pe,
+                          industry_avg_pe=industry_avg_pe)
+    return StockValuation(
+        pe=base.pe, pb=base.pb, pe_percentile=base.pe_percentile,
+        valuation_state=base.valuation_state, valuation_reason=base.valuation_reason,
+        self_score=self_score, industry=industry, industry_pe=industry_avg_pe,
+        industry_richness=dt.industry_richness, industry_score=dt.industry_score,
+        val_score=dt.val_score, false_cheap=dt.false_cheap,
+        industry_reason=dt.industry_reason,
+    )
+
+
 @dataclass(frozen=True)
 class HoldingMetric:
     symbol: str
@@ -118,6 +176,15 @@ class HoldingMetric:
     flow_pct_20d: float | None
     flow_score: float | None
     flow_reason: str | None  # None | flow_no_data
+    # Dual-track valuation (trailing-defaulted for back-compat).
+    self_score: float | None = None
+    industry: str | None = None
+    industry_pe: float | None = None
+    industry_richness: float | None = None
+    industry_score: float | None = None
+    val_score: float | None = None
+    false_cheap: bool = False
+    industry_reason: str | None = None
 
 
 def _flow_metric(series) -> tuple[float | None, float | None, float | None, str | None]:
@@ -131,18 +198,33 @@ def _flow_metric(series) -> tuple[float | None, float | None, float | None, str 
     return p5, p20, flow_band(_blend_flow_pct(p5, p20)), None
 
 
-def per_stock_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]:
-    """Pure: top holdings + per-code PE/PB series + per-code flow series →
-    HoldingMetric rows (valuation + flow). No I/O; consumes already-loaded inputs."""
+def per_stock_metrics(
+    top_holdings, series_by_code, flow_series_by_code,
+    *, industry_by_symbol: dict | None = None,
+    industry_pe_by_industry: dict | None = None,
+) -> tuple[HoldingMetric, ...]:
+    """Pure: holdings + per-code PE/PB series + per-code flow series + optional
+    industry maps → HoldingMetric rows. Industry maps default empty (back-compat:
+    industry leg N/A → val_score == self_score)."""
+    ind_by_sym = industry_by_symbol or {}
+    ind_pe = industry_pe_by_industry or {}
     out: list[HoldingMetric] = []
     for h in top_holdings:
-        val = per_stock_valuation(h.symbol, series_by_code.get(h.symbol))
+        industry = ind_by_sym.get(h.symbol)
+        industry_avg_pe = ind_pe.get(industry) if industry is not None else None
+        val = per_stock_valuation_dual(
+            h.symbol, series_by_code.get(h.symbol),
+            industry=industry, industry_avg_pe=industry_avg_pe)
         p5, p20, score, reason = _flow_metric(flow_series_by_code.get(h.symbol))
         out.append(HoldingMetric(
             symbol=h.symbol, name=h.name_cn, weight_pct=h.weight_pct,
             pe=val.pe, pb=val.pb, pe_percentile=val.pe_percentile,
             valuation_state=val.valuation_state, valuation_reason=val.valuation_reason,
             flow_pct_5d=p5, flow_pct_20d=p20, flow_score=score, flow_reason=reason,
+            self_score=val.self_score, industry=val.industry, industry_pe=val.industry_pe,
+            industry_richness=val.industry_richness, industry_score=val.industry_score,
+            val_score=val.val_score, false_cheap=val.false_cheap,
+            industry_reason=val.industry_reason,
         ))
     return tuple(out)
 
@@ -154,19 +236,53 @@ class FlowAggregate:
     covered_weight_ratio: float
 
 
-def build_holding_metrics(top_holdings, series_by_code, flow_series_by_code) -> tuple[HoldingMetric, ...]:
-    """Pure assembly entry called from the edge (monitor_cmd). Identical to
-    per_stock_metrics — named so the command imports one stable name. Effects
-    (fetch_flow_series, _stock_series_by_code) stay in monitor_cmd."""
-    return per_stock_metrics(top_holdings, series_by_code, flow_series_by_code)
+def build_holding_metrics(
+    top_holdings, series_by_code, flow_series_by_code,
+    *, industry_by_symbol: dict | None = None,
+    industry_pe_by_industry: dict | None = None,
+) -> tuple[HoldingMetric, ...]:
+    """Pure assembly entry called from the edge (monitor_cmd). Effects
+    (fetch_flow_series, _stock_series_by_code, industry fetch) stay in monitor_cmd."""
+    return per_stock_metrics(
+        top_holdings, series_by_code, flow_series_by_code,
+        industry_by_symbol=industry_by_symbol,
+        industry_pe_by_industry=industry_pe_by_industry,
+    )
+
+
+@dataclass(frozen=True)
+class ValuationAggregate:
+    value: float | None
+    reason: str | None
+    covered_weight_ratio: float
+
+
+def aggregate_valuation(metrics: tuple[HoldingMetric, ...]) -> ValuationAggregate:
+    """Pure: Σ(wᵢ·val_scoreᵢ)/Σ(wᵢ) over holdings with a non-None val_score
+    (weight-renormalized; clamped stocks have val_score 0.0 → covered, contribute 0).
+    Coverage uses the NAV denominator (D10): covered_weight_ratio = Σ covered
+    weight_pct / 100.0. Zero covered → valuation_no_data; ratio < 0.40 (the
+    MONITOR floor, distinct from lookthrough's 0.50) → valuation_no_coverage."""
+    covered = [m for m in metrics if m.val_score is not None]
+    covered_w = sum(m.weight_pct for m in covered)
+    ratio = covered_w / 100.0
+    if not covered or covered_w <= 0.0:
+        return ValuationAggregate(None, _NA_VALUATION_NO_DATA, ratio)
+    if ratio < _MONITOR_COVERAGE_FLOOR:
+        return ValuationAggregate(None, _NA_VALUATION_NO_COVERAGE, ratio)
+    value = sum(m.weight_pct * m.val_score for m in covered) / covered_w
+    return ValuationAggregate(value, None, ratio)
 
 
 def aggregate_flow(metrics: tuple[HoldingMetric, ...]) -> FlowAggregate:
-    """Pure: Σ(wᵢ·sᵢ)/Σ(wᵢ) over holdings with a non-None flow_score, renormalized
-    over covered top holdings (D5). covered_weight_ratio = Σ covered wᵢ / Σ all wᵢ.
-    Zero covered → flow_no_data; covered but ratio < 0.50 → flow_no_coverage."""
-    total_w = sum(m.weight_pct for m in metrics)
-    covered = [m for m in metrics if m.flow_score is not None]
+    """Pure: Σ(wᵢ·sᵢ)/Σ(wᵢ) over the top-_FLOW_TOP_N holdings by weight (D5/§5.C).
+    Coverage denominator is the top-5 weight slice, not the full basket — callers
+    may pass the full disclosed basket (valuation needs it); flow reads only top-5.
+    covered_weight_ratio = Σ covered wᵢ / Σ top-5 wᵢ.
+    Zero covered → flow_no_data; ratio < 0.50 → flow_no_coverage."""
+    top = sorted(metrics, key=lambda m: m.weight_pct, reverse=True)[:_FLOW_TOP_N]
+    total_w = sum(m.weight_pct for m in top)
+    covered = [m for m in top if m.flow_score is not None]
     covered_w = sum(m.weight_pct for m in covered)
     ratio = covered_w / total_w if total_w > 0.0 else 0.0
     if not covered or covered_w <= 0.0:
