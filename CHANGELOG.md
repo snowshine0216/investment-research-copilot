@@ -7,7 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed — monitor dual-track per-stock valuation + False-Cheap clamp (ADR 0020) (2026-06-21)
+### Fixed — monitor brief crash when `_now_iso` fails during eval-artifact write (2026-06-21)
+
+- **`_write_eval_artifacts` no longer crashes the brief on a clock failure.**
+  `written_at` was bound by `_now_iso()` as the first statement *inside* the
+  forward-ledger `try` block, but the trailing `_append_nav_history_for_views(...,
+  written_at=written_at)` call sits *outside* it. If `_now_iso()` raised, the
+  `except` swallowed it and `written_at` was never bound, so the trailing append
+  blew up with an uncaught `UnboundLocalError` — violating the function's "degrade,
+  never crash the brief" contract. `written_at` now defaults to `""` before the
+  `try`, so a clock failure degrades gracefully (latent since PR #140 / `ef2661b`;
+  flagged P1 by a pre-landing review of PR #172).
 
 - **Look-through valuation factor re-based bottom-up.** For `active_cn_equity`
   funds the valuation factor is now a weight-weighted mean of per-stock

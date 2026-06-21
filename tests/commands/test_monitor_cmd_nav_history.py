@@ -2,7 +2,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from datetime import date, timedelta
-from irc.commands.monitor_cmd import _append_nav_history_for_views
+import irc.commands.monitor_cmd as monitor_cmd
+from irc.commands.monitor_cmd import _append_nav_history_for_views, _write_eval_artifacts
 from irc.monitor.render_types import FundView
 from irc.monitor.types import NarrativeDoc, SignalRecord
 
@@ -39,3 +40,15 @@ def test_append_bounded_tail_only(tmp_path: Path):
 def test_append_never_crashes_on_empty_series(tmp_path: Path):
     _append_nav_history_for_views(tmp_path, [_view("a", ())], run_date="2026-01-01",
                                   written_at="w")  # no exception
+
+
+def test_eval_artifacts_completes_when_now_iso_raises(tmp_path: Path, monkeypatch):
+    """Regression (PR #140 latent bug): if _now_iso raises, written_at must still be
+    bound so the trailing nav-history append cannot crash the brief with a NameError."""
+    def _boom() -> str:
+        raise RuntimeError("clock unavailable")
+
+    monkeypatch.setattr(monitor_cmd, "_now_iso", _boom)
+    _write_eval_artifacts(  # must not raise — the brief still renders
+        tmp_path, tmp_path, [], [], [], (), run_date="2026-01-01", trading_days=None,
+    )
