@@ -5,7 +5,7 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | ✅ [#172](https://github.com/snowshine0216/investment-research-copilot/pull/172) | ✅ | ✅ | ✅ | ✅ 1 round | 🔄 |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | ✅ [#172](https://github.com/snowshine0216/investment-research-copilot/pull/172) | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `4ed6d3b` |
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
