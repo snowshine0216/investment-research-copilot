@@ -9,14 +9,25 @@ import pytest
 import pytest as _pt
 
 from irc.monitor.holding_metrics import (
+    DualTrack,
     HoldingMetric,
+    StockValuation,
+    ValuationAggregate,
     _COVERAGE_FLOOR,
+    _FALSE_CHEAP_RICHNESS,
+    _INDUSTRY_W,
+    _MONITOR_COVERAGE_FLOOR,
+    _SELF_W,
     _blend_flow_pct,
     _window_mean,
     aggregate_flow,
+    aggregate_valuation,
+    dual_track_score,
     flow_band,
+    industry_band,
     per_stock_metrics,
     per_stock_valuation,
+    per_stock_valuation_dual,
 )
 from irc.opportunity.lookthrough_valuation import MetricSeries
 
@@ -218,12 +229,6 @@ def test_aggregate_flow_exactly_at_floor_is_covered():
 # Task 2.2: industry_band + named constants
 # ---------------------------------------------------------------------------
 
-from irc.monitor.holding_metrics import (
-    industry_band, _FALSE_CHEAP_RICHNESS, _SELF_W, _INDUSTRY_W,
-    _MONITOR_COVERAGE_FLOOR,
-)
-
-
 @_pt.mark.parametrize("r,score", [
     (0.50, 1.0), (0.70, 1.0),         # r<=0.70 → +1.0
     (0.80, 0.5), (0.90, 0.5),         # 0.70<r<=0.90 → +0.5
@@ -244,9 +249,6 @@ def test_named_constants_locked():
 # ---------------------------------------------------------------------------
 # Task 2.3: dual_track_score + DualTrack
 # ---------------------------------------------------------------------------
-
-from irc.monitor.holding_metrics import dual_track_score, DualTrack
-
 
 def test_dual_track_blend_self_and_industry():
     # self=+1.0 (cheap vs own), r=0.5 (cheap vs peers, industry=+1.0)
@@ -305,9 +307,6 @@ def test_clamp_does_not_fire_when_self_not_cheap():
 # ---------------------------------------------------------------------------
 # Task 2.4: StockValuation extended + per_stock_valuation_dual
 # ---------------------------------------------------------------------------
-
-from irc.monitor.holding_metrics import per_stock_valuation_dual, StockValuation
-
 
 def _mature_rising_series(code="600519"):
     from datetime import date
@@ -370,3 +369,55 @@ def test_per_stock_metrics_backward_compatible_without_industry():
     metrics = per_stock_metrics(holdings, series, flow_series_by_code={})
     assert metrics[0].industry_reason == "industry_no_data"
     assert metrics[0].val_score == metrics[0].self_score == -1.0
+
+
+# ---------------------------------------------------------------------------
+# Task 2.6: aggregate_valuation + ValuationAggregate
+# ---------------------------------------------------------------------------
+
+def _hm(symbol, weight, val_score):
+    # minimal HoldingMetric with a val_score (other fields irrelevant to aggregate).
+    return HoldingMetric(symbol=symbol, name=symbol, weight_pct=weight,
+                         pe=None, pb=None, pe_percentile=None, valuation_state=None,
+                         valuation_reason=None, flow_pct_5d=None, flow_pct_20d=None,
+                         flow_score=None, flow_reason=None, val_score=val_score)
+
+
+def test_aggregate_valuation_value_is_nav_weighted_mean():
+    # 50%@+1.0, 30%@-1.0 covered; NAV coverage = (50+30)/100 = 0.80 >= 0.40.
+    # value = (50*1 + 30*-1)/(50+30) = 0.25
+    metrics = (_hm("a", 50.0, 1.0), _hm("b", 30.0, -1.0))
+    agg = aggregate_valuation(metrics)
+    assert agg == ValuationAggregate(value=0.25, reason=None, covered_weight_ratio=0.80)
+
+
+def test_aggregate_valuation_clamped_counts_as_covered_zero():
+    # a clamped stock has val_score 0.0 (NOT None) → covered, contributes 0.
+    metrics = (_hm("a", 50.0, 0.0), _hm("b", 30.0, 1.0))
+    agg = aggregate_valuation(metrics)
+    # value = (50*0 + 30*1)/(80) = 0.375 ; coverage 0.80
+    assert agg.value == _pt.approx(0.375)
+    assert agg.covered_weight_ratio == _pt.approx(0.80)
+
+
+def test_aggregate_valuation_zero_covered_is_no_data():
+    metrics = (_hm("a", 50.0, None), _hm("b", 30.0, None))
+    agg = aggregate_valuation(metrics)
+    assert agg.value is None and agg.reason == "valuation_no_data"
+    assert agg.covered_weight_ratio == 0.0
+
+
+def test_aggregate_valuation_below_nav_floor_is_no_coverage():
+    # only 35% NAV covered < 0.40 floor → valuation_no_coverage.
+    metrics = (_hm("a", 35.0, 1.0), _hm("b", 30.0, None))
+    agg = aggregate_valuation(metrics)
+    assert agg.value is None and agg.reason == "valuation_no_coverage"
+    assert agg.covered_weight_ratio == _pt.approx(0.35)
+
+
+def test_aggregate_valuation_exactly_at_floor_is_covered():
+    # exactly 0.40 NAV covered → accepted (>= floor, matches _meets_floor).
+    metrics = (_hm("a", 40.0, 1.0),)
+    agg = aggregate_valuation(metrics)
+    assert agg.value == 1.0 and agg.reason is None
+    assert agg.covered_weight_ratio == _pt.approx(0.40)

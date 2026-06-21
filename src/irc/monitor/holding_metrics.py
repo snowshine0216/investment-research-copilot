@@ -2,11 +2,13 @@
 
 Takes already-loaded inputs (top holdings, per-code PE/PB MetricSeries, per-code
 FlowSeries) and produces per-stock HoldingMetrics (valuation + flow) plus the
-holding-weight-renormalized FlowAggregate that drives the `flow` factor.
+holding-weight-renormalized FlowAggregate and ValuationAggregate that drive the
+`flow` and `valuation` factors.
 
 Flow units are PERCENT-POINTS throughout (D3/D7). NO /100. Per-stock valuation is
 a NEW computation distinct from the fund aggregate: each stock's PE percentile vs
-ITS OWN history, reusing the opportunity primitives (no new fetch).
+ITS OWN history, reusing the opportunity primitives (no new fetch). Dual-track
+scoring (self-history + industry-relative + False-Cheap clamp) is in _dual_track.py.
 """
 from __future__ import annotations
 
@@ -14,6 +16,16 @@ from dataclasses import dataclass
 
 import pandas as pd
 
+from irc.monitor._dual_track import (  # noqa: F401 (re-exported for tests)
+    DualTrack,
+    _FALSE_CHEAP_RICHNESS,
+    _INDUSTRY_W,
+    _REASON_FALSE_CHEAP_CLAMP,
+    _REASON_INDUSTRY_NO_DATA,
+    _SELF_W,
+    dual_track_score,
+    industry_band,
+)
 from irc.monitor.valuation import percentile_to_valuation_state
 from irc.opportunity.lookthrough_valuation import MetricSeries, _pe_series_is_mature
 from irc.opportunity.returns import self_history_percentile
@@ -22,76 +34,18 @@ from irc.opportunity.returns import self_history_percentile
 _FLOW_W_5D = 0.4
 _FLOW_W_20D = 0.6
 
-# Coverage floor (mirrors the valuation factor's covered-NAV gate D6).
+# Coverage floor for flow (D6 — covered/total top-holdings denominator).
 _COVERAGE_FLOOR = 0.50
 
 _NA_FLOW_NO_DATA = "flow_no_data"
 _NA_FLOW_NO_COVERAGE = "flow_no_coverage"
 
-# Dual-track valuation constants (ADR 0020 D3/D5/D9/D10 — priors, never auto-tuned).
-_SELF_W = 0.60
-_INDUSTRY_W = 0.40
-_FALSE_CHEAP_RICHNESS = 1.2  # r >= this → max rich-vs-peers AND clamp trigger
-# Monitor coverage floor (D10/Q8): NAV-denominator, distinct from
-# lookthrough._COVERAGE_FLOOR=0.50 — the monitor valuation is a 0.20-weight
-# research lean, not a publishability gate.
+# Monitor NAV coverage floor (D10/Q8): distinct from _COVERAGE_FLOOR=0.50.
+# The monitor valuation is a 0.20-weight research lean, not a publishability gate.
 _MONITOR_COVERAGE_FLOOR = 0.40
 
 _NA_VALUATION_NO_DATA = "valuation_no_data"
 _NA_VALUATION_NO_COVERAGE = "valuation_no_coverage"
-# Per-stock HoldingMetric reasons (NOT factor reasons, NEVER in KNOWN_NA_REASONS).
-_REASON_INDUSTRY_NO_DATA = "industry_no_data"
-_REASON_FALSE_CHEAP_CLAMP = "false_cheap_clamp"
-
-
-def industry_band(r: float) -> float:
-    """Pure: industry richness r = stock_pe/industry_avg_pe → score in [-1,+1].
-    Cheaper-than-peers → positive. ASYMMETRIC bands (slow to call cheap, quick to
-    withhold cheap). The -1.0 edge is pinned to _FALSE_CHEAP_RICHNESS so ONE
-    threshold governs both 'max rich-vs-peers' and the clamp trigger."""
-    if r <= 0.70:
-        return 1.0
-    if r <= 0.90:
-        return 0.5
-    if r <= 1.10:
-        return 0.0
-    if r < _FALSE_CHEAP_RICHNESS:
-        return -0.5
-    return -1.0
-
-
-@dataclass(frozen=True)
-class DualTrack:
-    industry_score: float | None
-    val_score: float | None
-    false_cheap: bool
-    industry_reason: str | None  # None | industry_no_data | false_cheap_clamp
-    industry_richness: float | None
-
-
-def _industry_leg(stock_pe: float | None, industry_avg_pe: float | None):
-    """(richness, score) or (None, None) when the industry denominator is unusable."""
-    if (stock_pe is None or stock_pe <= 0.0
-            or industry_avg_pe is None or industry_avg_pe <= 0.0):
-        return None, None
-    r = stock_pe / industry_avg_pe
-    return r, industry_band(r)
-
-
-def dual_track_score(
-    *, self_score: float | None, stock_pe: float | None, industry_avg_pe: float | None,
-) -> DualTrack:
-    """Pure: 0.60·self + 0.40·industry, with industry-N/A → self-only and a
-    hard-0 False-Cheap clamp (self>0 AND r>=1.2). self-N/A → no val_score."""
-    r, industry_score = _industry_leg(stock_pe, industry_avg_pe)
-    if self_score is None:                        # self leg N/A → no score
-        return DualTrack(industry_score, None, False, None, r)
-    if industry_score is None:                    # industry leg N/A → self-only
-        return DualTrack(None, self_score, False, _REASON_INDUSTRY_NO_DATA, None)
-    if self_score > 0.0 and r >= _FALSE_CHEAP_RICHNESS:  # value-trap quadrant
-        return DualTrack(industry_score, 0.0, True, _REASON_FALSE_CHEAP_CLAMP, r)
-    blend = _SELF_W * self_score + _INDUSTRY_W * industry_score
-    return DualTrack(industry_score, blend, False, None, r)
 
 
 def _blend_flow_pct(pct_5d: float, pct_20d: float) -> float:
@@ -289,6 +243,30 @@ def build_holding_metrics(
         industry_by_symbol=industry_by_symbol,
         industry_pe_by_industry=industry_pe_by_industry,
     )
+
+
+@dataclass(frozen=True)
+class ValuationAggregate:
+    value: float | None
+    reason: str | None
+    covered_weight_ratio: float
+
+
+def aggregate_valuation(metrics: tuple[HoldingMetric, ...]) -> ValuationAggregate:
+    """Pure: Σ(wᵢ·val_scoreᵢ)/Σ(wᵢ) over holdings with a non-None val_score
+    (weight-renormalized; clamped stocks have val_score 0.0 → covered, contribute 0).
+    Coverage uses the NAV denominator (D10): covered_weight_ratio = Σ covered
+    weight_pct / 100.0. Zero covered → valuation_no_data; ratio < 0.40 (the
+    MONITOR floor, distinct from lookthrough's 0.50) → valuation_no_coverage."""
+    covered = [m for m in metrics if m.val_score is not None]
+    covered_w = sum(m.weight_pct for m in covered)
+    ratio = covered_w / 100.0
+    if not covered or covered_w <= 0.0:
+        return ValuationAggregate(None, _NA_VALUATION_NO_DATA, ratio)
+    if ratio < _MONITOR_COVERAGE_FLOOR:
+        return ValuationAggregate(None, _NA_VALUATION_NO_COVERAGE, ratio)
+    value = sum(m.weight_pct * m.val_score for m in covered) / covered_w
+    return ValuationAggregate(value, None, ratio)
 
 
 def aggregate_flow(metrics: tuple[HoldingMetric, ...]) -> FlowAggregate:
