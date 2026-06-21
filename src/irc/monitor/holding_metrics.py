@@ -60,6 +60,40 @@ def industry_band(r: float) -> float:
     return -1.0
 
 
+@dataclass(frozen=True)
+class DualTrack:
+    industry_score: float | None
+    val_score: float | None
+    false_cheap: bool
+    industry_reason: str | None  # None | industry_no_data | false_cheap_clamp
+    industry_richness: float | None
+
+
+def _industry_leg(stock_pe: float | None, industry_avg_pe: float | None):
+    """(richness, score) or (None, None) when the industry denominator is unusable."""
+    if (stock_pe is None or stock_pe <= 0.0
+            or industry_avg_pe is None or industry_avg_pe <= 0.0):
+        return None, None
+    r = stock_pe / industry_avg_pe
+    return r, industry_band(r)
+
+
+def dual_track_score(
+    *, self_score: float | None, stock_pe: float | None, industry_avg_pe: float | None,
+) -> DualTrack:
+    """Pure: 0.60·self + 0.40·industry, with industry-N/A → self-only and a
+    hard-0 False-Cheap clamp (self>0 AND r>=1.2). self-N/A → no val_score."""
+    r, industry_score = _industry_leg(stock_pe, industry_avg_pe)
+    if self_score is None:                        # self leg N/A → no score
+        return DualTrack(industry_score, None, False, None, r)
+    if industry_score is None:                    # industry leg N/A → self-only
+        return DualTrack(None, self_score, False, _REASON_INDUSTRY_NO_DATA, None)
+    if self_score > 0.0 and r >= _FALSE_CHEAP_RICHNESS:  # value-trap quadrant
+        return DualTrack(industry_score, 0.0, True, _REASON_FALSE_CHEAP_CLAMP, r)
+    blend = _SELF_W * self_score + _INDUSTRY_W * industry_score
+    return DualTrack(industry_score, blend, False, None, r)
+
+
 def _blend_flow_pct(pct_5d: float, pct_20d: float) -> float:
     """Pure: 0.4*5d + 0.6*20d, percent-points."""
     return _FLOW_W_5D * pct_5d + _FLOW_W_20D * pct_20d

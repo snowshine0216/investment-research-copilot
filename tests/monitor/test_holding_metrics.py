@@ -239,3 +239,64 @@ def test_named_constants_locked():
     assert _SELF_W == 0.60 and _INDUSTRY_W == 0.40
     assert _FALSE_CHEAP_RICHNESS == 1.2
     assert _MONITOR_COVERAGE_FLOOR == 0.40
+
+
+# ---------------------------------------------------------------------------
+# Task 2.3: dual_track_score + DualTrack
+# ---------------------------------------------------------------------------
+
+from irc.monitor.holding_metrics import dual_track_score, DualTrack
+
+
+def test_dual_track_blend_self_and_industry():
+    # self=+1.0 (cheap vs own), r=0.5 (cheap vs peers, industry=+1.0)
+    # blend = 0.6*1.0 + 0.4*1.0 = 1.0
+    dt = dual_track_score(self_score=1.0, stock_pe=10.0, industry_avg_pe=20.0)
+    assert dt == DualTrack(industry_score=1.0, val_score=1.0,
+                           false_cheap=False, industry_reason=None,
+                           industry_richness=0.5)
+
+
+def test_dual_track_industry_na_falls_to_self_only():
+    # No industry PE → industry leg N/A → val_score == self_score, reason set.
+    dt = dual_track_score(self_score=0.5, stock_pe=10.0, industry_avg_pe=None)
+    assert dt.val_score == 0.5
+    assert dt.industry_score is None
+    assert dt.industry_reason == "industry_no_data"
+    assert dt.industry_richness is None
+    assert dt.false_cheap is False
+
+
+def test_dual_track_industry_na_when_pe_nonpositive_or_missing():
+    assert dual_track_score(self_score=0.5, stock_pe=None,
+                            industry_avg_pe=20.0).industry_reason == "industry_no_data"
+    assert dual_track_score(self_score=0.5, stock_pe=10.0,
+                            industry_avg_pe=0.0).industry_reason == "industry_no_data"
+
+
+def test_dual_track_self_na_yields_no_score():
+    # self_score None (immature/non-positive PE) → val_score None → excluded.
+    dt = dual_track_score(self_score=None, stock_pe=10.0, industry_avg_pe=20.0)
+    assert dt.val_score is None
+    assert dt.false_cheap is False
+
+
+def test_false_cheap_clamp_hard_zero():
+    # self=+0.5 (cheap vs own) AND r=1.5 (>=1.2 rich vs peers) → hard-0, flagged.
+    dt = dual_track_score(self_score=0.5, stock_pe=30.0, industry_avg_pe=20.0)
+    assert dt.val_score == 0.0          # hard-0, NOT min(blend,0)
+    assert dt.false_cheap is True
+    assert dt.industry_reason == "false_cheap_clamp"
+
+
+def test_false_cheap_clamp_boundary_at_richness_threshold():
+    # r EXACTLY 1.2 with self>0 → clamp fires (>= boundary).
+    dt = dual_track_score(self_score=1.0, stock_pe=24.0, industry_avg_pe=20.0)
+    assert dt.val_score == 0.0 and dt.false_cheap is True
+
+
+def test_clamp_does_not_fire_when_self_not_cheap():
+    # self=-0.5 (expensive vs own), r=1.5 → no clamp; blend = 0.6*-0.5+0.4*-1.0=-0.7
+    dt = dual_track_score(self_score=-0.5, stock_pe=30.0, industry_avg_pe=20.0)
+    assert dt.false_cheap is False
+    assert dt.val_score == _pt.approx(-0.7)
