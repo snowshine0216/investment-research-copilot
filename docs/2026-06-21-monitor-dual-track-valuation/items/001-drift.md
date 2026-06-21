@@ -22,7 +22,7 @@ Drift findings:
 
   - Task 3.5 `valuation_rollup_html` not wired into `drilldown_section_html` / `drilldown_page_html`
     Evidence: `render_drilldown.py:drilldown_section_html` (line 140–147) only calls `holdings_board_html + flow_rollup_html`; `valuation_rollup_html` is implemented and tested but not called from the HTML page. `monitor_cmd._write_drilldown` still passes a 5-tuple (line 393).
-    Action: accepted — plan Task 3.5 (line 1924) explicitly says: "The `drilldown_page_html` views tuple stays `(fund_id, name_cn, metrics, agg, signal)` for back-compat … Keep the existing 5-tuple if simpler; the board columns + badge are the locked deliverable." The function is built and tested; wiring into the HTML page is OPTIONAL per plan.
+    Action: the plan marked HTML-page wiring OPTIONAL (Task 3.5 line 1924), but the SPEC (§5.D + §6 + grill Q7) requires the drilldown to ALWAYS show `行业覆盖 X%` and the sub-0.50 note — plan downgraded a spec deliverable. **CLOSED pre-ship (orchestrator triage per implement.md):** wired in commit `c7a715f` — `drilldown_section_html` gains trailing `val_agg=None`, `drilldown_page_html` accepts 6-tuples (back-compat with legacy 5-tuples), `_write_drilldown` passes `aggregate_valuation(v.holding_metrics)`. 3 new render tests assert `行业覆盖` + sub-0.50 note appear in the rendered page (15 render tests pass). Spec gap resolved; NOT shipped incomplete.
 
   - Critical checks — all present in diff:
     - `ValuationResolution.path` trailing-defaulted ("index"): `valuation.py` — `path: Literal["index", "lookthrough"] = "index"` ✓

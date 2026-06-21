@@ -5,7 +5,7 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ `…-001` | ✅ `d8a9ff4` | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
@@ -17,7 +17,7 @@
 ## Artifact links (filled as phases complete)
 - spec: [`items/001-spec.md`](items/001-spec.md)
 - plan: [`items/001-plan.md`](items/001-plan.md) (commit `2e0149f`, Opus writing-plans — 4 slices, 21 tasks, ~95 steps)
-- drift: _pending_
+- drift: [`items/001-drift.md`](items/001-drift.md) — Verdict: PASS (31/31 verified; 5 findings, 4 accepted + 1 spec gap CLOSED pre-ship)
 - ship (PR): _pending_
 - verify: _pending_
 - review: _pending_
