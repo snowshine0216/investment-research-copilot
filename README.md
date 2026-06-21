@@ -167,15 +167,20 @@ RESEARCH_ENABLED=true uv run irc run
 
 ### Daily monitor brief (`irc monitor`)
 
-A focused daily brief on the fixed 7-fund **Monitor set** defined in
+A focused daily brief on the fixed 10-fund **Monitor set** defined in
 `config/monitor.yaml` (the sole source of truth for which funds are monitored).
 For each fund the brief shows current unit NAV + as-of date, an accumulated-NAV
 trend chart, a directional bias (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or
 `NO_CALL` when evidence is insufficient), and a causal MiniMax narrative explaining
 why the price moved and why the current bias holds. For `active_cn_equity` funds the
 brief also grounds the bias bottom-up with a **capital-flow factor** (主力净流入净占比,
-5d/20d blended) and a per-stock **PB/PE + flow drill-down board** over the top-5
-holdings (ADR 0019). Output is a self-contained HTML report at
+5d/20d blended, top-5) and a **bottom-up dual-track valuation factor** — each holding
+scored on its own PE history *and* its richness vs the industry average, blended
+`0.60·self + 0.40·industry`, with a **False-Cheap clamp** that neutralizes value
+traps (cheap-vs-self but rich-vs-peers → NEUTRAL) — aggregated over the full
+disclosed basket. The per-stock drill-down board carries PB/PE, the industry leg
+(`行业 · 行业PE · r · 行业分`) with a value-trap badge, and the top-5 flow (ADR
+0019 / 0020). Output is a self-contained HTML report at
 `outputs/<date>/monitor/report.html`, plus a standalone per-fund drill-down at
 `outputs/<date>/monitor/drilldown.html`.
 
@@ -185,7 +190,7 @@ uv run irc monitor snapshot                 # quarterly: refresh per-fund consti
 ```
 
 `irc monitor` is self-contained for NAV + news + valuation (narrow-prefetch for the
-7 funds only — not a broad universe ingest). `irc monitor snapshot` constructs
+10 funds only — not a broad universe ingest). `irc monitor snapshot` constructs
 typed per-fund snapshot targets (`active_fund` or `fund_level`) keyed by fund id and
 analysis profile, then runs the constituent refresh. Run it at install (cold-start
 bootstrap — see [ops/launchd/README.md](ops/launchd/README.md)) and quarterly

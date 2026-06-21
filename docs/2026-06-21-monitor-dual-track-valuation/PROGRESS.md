@@ -9,6 +9,16 @@
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
+## ✅ FINAL STATUS — run complete (2026-06-21)
+
+- **Items merged:** 1/1 — item 001 (dual-track valuation + False-Cheap clamp), squash `4ed6d3b` via [PR #172](https://github.com/snowshine0216/investment-research-copilot/pull/172) → feature branch.
+- **Items SKIPPED / BLOCKED:** none.
+- **Phase 3:** workflow-completeness audit ✅ (all verdict files present + markers); build/test sanity on merged feature branch ✅ (`tests/monitor/` 688 passed/12 skipped, `tests/monitor/eval/` 258 passed, ruff clean); doc-sync ✅ ([`doc-sync.md`](doc-sync.md) — CONTEXT.md(grill)/ADR 0020/CHANGELOG/CLAUDE.md/README all current); run-level verify covered by the per-item `/verify` which exercised the real `irc monitor` end-to-end (N=1).
+- **Feature branch:** `autodev/monitor-dual-track-valuation-feature`
+- **Feature-branch PR:** _opened below_
+- **Merged into protected branch:** no (PR left open for user review — `main` was protected and no "merge to main" opt-in was given this turn).
+- **Follow-ups:** (1) diagram doc-sync for `docs/diagrams/monitor-workflow.html` + `evals/docs/monitor-eval-workflow.html` (spec §9 — sequenced as a standalone PR per project convention); (2) pre-existing `written_at` NameError (#140) — background task spawned; (3) 4 cosmetic pr-review nits (below ruff threshold); (4) known-limitation: reconciliation oracle for a hypothetical index+active_fund fund (unreachable today).
+
 ## Column notes (spec mode)
 - **spec ⏭️** — user-authored; verbatim copy at [`items/001-spec.md`](items/001-spec.md).
 - **grill ⏭️** — pre-completed (grilled 2026-06-21, Q1–Q8 resolved inline + CONTEXT.md updated). Orchestrator must NOT auto-invoke.
