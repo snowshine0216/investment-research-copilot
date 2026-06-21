@@ -44,3 +44,31 @@ def test_parse_stock_industry_missing_industry_is_none():
     assert parse_stock_industry(df) is None
     assert parse_stock_industry(None) is None
     assert parse_stock_industry(pd.DataFrame()) is None
+
+
+def test_fetch_industry_pe_caches_and_round_trips(tmp_path: Path):
+    calls = {"n": 0}
+
+    def fake_fetch():
+        calls["n"] += 1
+        return pd.DataFrame({"板块名称": ["银行"], "市盈率": ["6.5"]})
+
+    cache_dir = tmp_path / "industry_pe"
+    out1 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
+                             fetch=fake_fetch, sleep=lambda _s: None)
+    out2 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
+                             fetch=fake_fetch, sleep=lambda _s: None)
+    assert out1 == out2 == {"银行": 6.5}
+    assert calls["n"] == 1  # second call served from cache
+    # on-disk form is sorted-key JSON of primitives (byte-stable)
+    payload = json.loads((cache_dir / "2026-06-21.json").read_text(encoding="utf-8"))
+    assert payload == {"银行": 6.5}
+
+
+def test_fetch_industry_pe_never_raises_returns_empty(tmp_path: Path):
+    def boom():
+        raise RuntimeError("network down")
+
+    out = fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-06-21",
+                            fetch=boom, sleep=lambda _s: None)
+    assert out == {}
