@@ -5,7 +5,7 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Legend:** ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loop) · ⏭️ skipped/pre-completed · ⛔ refused gate
 
@@ -16,7 +16,7 @@
 
 ## Artifact links (filled as phases complete)
 - spec: [`items/001-spec.md`](items/001-spec.md)
-- plan: _pending_
+- plan: [`items/001-plan.md`](items/001-plan.md) (commit `2e0149f`, Opus writing-plans — 4 slices, 21 tasks, ~95 steps)
 - drift: _pending_
 - ship (PR): _pending_
 - verify: _pending_
@@ -25,3 +25,4 @@
 
 ## Event log
 - 2026-06-21 — intake: mode=spec, project=non-web, base=main(protected, no opt-in) → synthesized feature branch `autodev/monitor-dual-track-valuation-feature`. Run dir created. Grill output (CONTEXT.md + spec) carried onto feature branch.
+- 2026-06-21 — plan ✅ (Opus): `items/001-plan.md` committed `2e0149f`. Flagged real-code deltas: ValuationResolution gains trailing `path`; valuation_state_score(None)→None already holds; function-local import to avoid factor_maps↔holding_metrics cycle; backtest.py rides both trailing defaults.
