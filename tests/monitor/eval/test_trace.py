@@ -2,6 +2,7 @@ from __future__ import annotations
 import dataclasses
 import datetime as _dt
 import json
+import pytest
 from irc.monitor.eval.trace import (
     build_eval_trace, dedup_by_citation_id, _max_gap_days, _missing_trading_days,
 )
@@ -259,25 +260,36 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_3():
+def test_schema_version_is_4():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
-                         engine_version="2", run_date="2026-06-19")
-    assert t["schema_version"] == "3"
+                         engine_version="3", run_date="2026-06-21")
+    assert t["schema_version"] == "4"
 
 
 def test_trace_emits_holding_metrics_block():
     from irc.monitor.holding_metrics import HoldingMetric
-    hm = HoldingMetric("600519", "贵州茅台", 12.0, 30.0, 8.0, 0.8, "expensive",
-                       None, 4.0, 3.5, 1.0, None)
+    # weight_pct=50.0 → coverage 0.50 >= monitor floor 0.40 so valuation_aggregate computes.
+    hm = HoldingMetric("600519", "贵州茅台", 50.0, 30.0, 8.0, 0.8, "expensive",
+                       None, 4.0, 3.5, 1.0, None,
+                       self_score=-0.5, industry="酿酒行业", industry_pe=20.0,
+                       industry_richness=1.5, industry_score=-1.0, val_score=-0.7,
+                       false_cheap=False, industry_reason=None)
     view = _good_view()
     view = dataclasses.replace(view, holding_metrics=(hm,))
     fund = _fund("519069", profile="active_cn_equity")
     bundle = FundTraceBundle("519069", (), (), ())
     gate = apply_eval_gate(view.signal, health=(), gating_stages=GATING_STAGES_M0)
-    t = build_eval_trace(((fund, view, gate, bundle),), engine_version="2",
-                         run_date="2026-06-19")
+    t = build_eval_trace(((fund, view, gate, bundle),), engine_version="3",
+                         run_date="2026-06-21")
     block = t["funds"]["519069"]["holding_metrics"]
-    assert block["rows"][0]["symbol"] == "600519"
-    assert block["rows"][0]["flow_score"] == 1.0
+    row = block["rows"][0]
+    assert row["symbol"] == "600519"
+    assert row["flow_score"] == 1.0
+    assert row["val_score"] == -0.7
+    assert row["industry"] == "酿酒行业"
+    assert row["industry_score"] == -1.0
+    assert row["false_cheap"] is False
     assert block["aggregate"]["value"] == 1.0
     assert block["aggregate"]["covered_weight_ratio"] == 1.0
+    assert "valuation_aggregate" in block
+    assert block["valuation_aggregate"]["value"] == pytest.approx(-0.7)
