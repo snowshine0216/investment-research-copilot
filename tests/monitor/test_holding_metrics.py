@@ -6,15 +6,28 @@ from datetime import date, timedelta
 
 import pytest
 
+import pytest as _pt
+
 from irc.monitor.holding_metrics import (
+    DualTrack,
     HoldingMetric,
+    StockValuation,
+    ValuationAggregate,
     _COVERAGE_FLOOR,
+    _FALSE_CHEAP_RICHNESS,
+    _INDUSTRY_W,
+    _MONITOR_COVERAGE_FLOOR,
+    _SELF_W,
     _blend_flow_pct,
     _window_mean,
     aggregate_flow,
+    aggregate_valuation,
+    dual_track_score,
     flow_band,
+    industry_band,
     per_stock_metrics,
     per_stock_valuation,
+    per_stock_valuation_dual,
 )
 from irc.opportunity.lookthrough_valuation import MetricSeries
 
@@ -210,3 +223,245 @@ def test_aggregate_flow_exactly_at_floor_is_covered():
     assert agg.value == pytest.approx(1.0)
     assert agg.reason is None
     assert _COVERAGE_FLOOR == 0.50
+
+
+# ---------------------------------------------------------------------------
+# Task 2.2: industry_band + named constants
+# ---------------------------------------------------------------------------
+
+@_pt.mark.parametrize("r,score", [
+    (0.50, 1.0), (0.70, 1.0),         # r<=0.70 → +1.0
+    (0.80, 0.5), (0.90, 0.5),         # 0.70<r<=0.90 → +0.5
+    (1.00, 0.0), (1.10, 0.0),         # 0.90<r<=1.10 → 0.0
+    (1.15, -0.5), (1.19, -0.5),       # 1.10<r<1.20 → -0.5
+    (1.20, -1.0), (2.00, -1.0),       # r>=1.20 → -1.0 (pinned to _FALSE_CHEAP_RICHNESS)
+])
+def test_industry_band_asymmetric_raw_r(r, score):
+    assert industry_band(r) == score
+
+
+def test_named_constants_locked():
+    assert _SELF_W == 0.60 and _INDUSTRY_W == 0.40
+    assert _FALSE_CHEAP_RICHNESS == 1.2
+    assert _MONITOR_COVERAGE_FLOOR == 0.40
+
+
+# ---------------------------------------------------------------------------
+# Task 2.3: dual_track_score + DualTrack
+# ---------------------------------------------------------------------------
+
+def test_dual_track_blend_self_and_industry():
+    # self=+1.0 (cheap vs own), r=0.5 (cheap vs peers, industry=+1.0)
+    # blend = 0.6*1.0 + 0.4*1.0 = 1.0
+    dt = dual_track_score(self_score=1.0, stock_pe=10.0, industry_avg_pe=20.0)
+    assert dt == DualTrack(industry_score=1.0, val_score=1.0,
+                           false_cheap=False, industry_reason=None,
+                           industry_richness=0.5)
+
+
+def test_dual_track_industry_na_falls_to_self_only():
+    # No industry PE → industry leg N/A → val_score == self_score, reason set.
+    dt = dual_track_score(self_score=0.5, stock_pe=10.0, industry_avg_pe=None)
+    assert dt.val_score == 0.5
+    assert dt.industry_score is None
+    assert dt.industry_reason == "industry_no_data"
+    assert dt.industry_richness is None
+    assert dt.false_cheap is False
+
+
+def test_dual_track_industry_na_when_pe_nonpositive_or_missing():
+    assert dual_track_score(self_score=0.5, stock_pe=None,
+                            industry_avg_pe=20.0).industry_reason == "industry_no_data"
+    assert dual_track_score(self_score=0.5, stock_pe=10.0,
+                            industry_avg_pe=0.0).industry_reason == "industry_no_data"
+
+
+def test_dual_track_self_na_yields_no_score():
+    # self_score None (immature/non-positive PE) → val_score None → excluded.
+    dt = dual_track_score(self_score=None, stock_pe=10.0, industry_avg_pe=20.0)
+    assert dt.val_score is None
+    assert dt.false_cheap is False
+
+
+def test_false_cheap_clamp_hard_zero():
+    # self=+0.5 (cheap vs own) AND r=1.5 (>=1.2 rich vs peers) → hard-0, flagged.
+    dt = dual_track_score(self_score=0.5, stock_pe=30.0, industry_avg_pe=20.0)
+    assert dt.val_score == 0.0          # hard-0, NOT min(blend,0)
+    assert dt.false_cheap is True
+    assert dt.industry_reason == "false_cheap_clamp"
+
+
+def test_false_cheap_clamp_boundary_at_richness_threshold():
+    # r EXACTLY 1.2 with self>0 → clamp fires (>= boundary).
+    dt = dual_track_score(self_score=1.0, stock_pe=24.0, industry_avg_pe=20.0)
+    assert dt.val_score == 0.0 and dt.false_cheap is True
+
+
+def test_clamp_does_not_fire_when_self_not_cheap():
+    # self=-0.5 (expensive vs own), r=1.5 → no clamp; blend = 0.6*-0.5+0.4*-1.0=-0.7
+    dt = dual_track_score(self_score=-0.5, stock_pe=30.0, industry_avg_pe=20.0)
+    assert dt.false_cheap is False
+    assert dt.val_score == _pt.approx(-0.7)
+
+
+# ---------------------------------------------------------------------------
+# Task 2.4: StockValuation extended + per_stock_valuation_dual
+# ---------------------------------------------------------------------------
+
+def _mature_rising_series(code="600519"):
+    from datetime import date
+    base = date(2025, 1, 1).toordinal()
+    pts = tuple((date.fromordinal(base + 2 * i).isoformat(), 18.0 + i * 0.01, 2.0)
+                for i in range(200))
+    return MetricSeries(code=code, source="eastmoney", points=pts)
+
+
+def test_per_stock_valuation_dual_populates_industry_fields():
+    series = _mature_rising_series("600519")  # latest PE is max → state very_expensive
+    sv = per_stock_valuation_dual("600519", series, industry="酿酒行业",
+                                  industry_avg_pe=10.0)
+    assert isinstance(sv, StockValuation)
+    assert sv.valuation_state == "very_expensive"  # self leg
+    assert sv.self_score == -1.0                    # very_expensive → -1.0
+    assert sv.industry == "酿酒行业"
+    assert sv.industry_pe == 10.0
+    assert sv.industry_score is not None            # stock_pe/10 banded
+    assert sv.val_score is not None
+
+
+def test_per_stock_valuation_dual_industry_na_self_only():
+    series = _mature_rising_series("600519")
+    sv = per_stock_valuation_dual("600519", series, industry=None, industry_avg_pe=None)
+    assert sv.self_score == -1.0
+    assert sv.val_score == -1.0                      # self-only fallback
+    assert sv.industry_reason == "industry_no_data"
+
+
+# ---------------------------------------------------------------------------
+# Task 2.5: HoldingMetric extended + per_stock_metrics threads industry inputs
+# ---------------------------------------------------------------------------
+
+def test_per_stock_metrics_threads_industry_inputs():
+    class _H:
+        def __init__(self, s, n, w):
+            self.symbol, self.name_cn, self.weight_pct = s, n, w
+    holdings = (_H("600519", "贵州茅台", 35.0),)
+    series = {"600519": _mature_rising_series("600519")}
+    metrics = per_stock_metrics(
+        holdings, series, flow_series_by_code={},
+        industry_by_symbol={"600519": "酿酒行业"},
+        industry_pe_by_industry={"酿酒行业": 10.0},
+    )
+    m = metrics[0]
+    assert m.industry == "酿酒行业"
+    assert m.industry_pe == 10.0
+    assert m.val_score is not None
+    assert m.self_score == -1.0  # very_expensive
+
+
+def test_per_stock_metrics_backward_compatible_without_industry():
+    # The two new params default empty → industry leg N/A, val_score == self_score.
+    class _H:
+        def __init__(self, s, n, w):
+            self.symbol, self.name_cn, self.weight_pct = s, n, w
+    holdings = (_H("600519", "贵州茅台", 35.0),)
+    series = {"600519": _mature_rising_series("600519")}
+    metrics = per_stock_metrics(holdings, series, flow_series_by_code={})
+    assert metrics[0].industry_reason == "industry_no_data"
+    assert metrics[0].val_score == metrics[0].self_score == -1.0
+
+
+# ---------------------------------------------------------------------------
+# Task 2.6: aggregate_valuation + ValuationAggregate
+# ---------------------------------------------------------------------------
+
+def _hm(symbol, weight, val_score):
+    # minimal HoldingMetric with a val_score (other fields irrelevant to aggregate).
+    return HoldingMetric(symbol=symbol, name=symbol, weight_pct=weight,
+                         pe=None, pb=None, pe_percentile=None, valuation_state=None,
+                         valuation_reason=None, flow_pct_5d=None, flow_pct_20d=None,
+                         flow_score=None, flow_reason=None, val_score=val_score)
+
+
+def test_aggregate_valuation_value_is_nav_weighted_mean():
+    # 50%@+1.0, 30%@-1.0 covered; NAV coverage = (50+30)/100 = 0.80 >= 0.40.
+    # value = (50*1 + 30*-1)/(50+30) = 0.25
+    metrics = (_hm("a", 50.0, 1.0), _hm("b", 30.0, -1.0))
+    agg = aggregate_valuation(metrics)
+    assert agg == ValuationAggregate(value=0.25, reason=None, covered_weight_ratio=0.80)
+
+
+def test_aggregate_valuation_clamped_counts_as_covered_zero():
+    # a clamped stock has val_score 0.0 (NOT None) → covered, contributes 0.
+    metrics = (_hm("a", 50.0, 0.0), _hm("b", 30.0, 1.0))
+    agg = aggregate_valuation(metrics)
+    # value = (50*0 + 30*1)/(80) = 0.375 ; coverage 0.80
+    assert agg.value == _pt.approx(0.375)
+    assert agg.covered_weight_ratio == _pt.approx(0.80)
+
+
+def test_aggregate_valuation_zero_covered_is_no_data():
+    metrics = (_hm("a", 50.0, None), _hm("b", 30.0, None))
+    agg = aggregate_valuation(metrics)
+    assert agg.value is None and agg.reason == "valuation_no_data"
+    assert agg.covered_weight_ratio == 0.0
+
+
+def test_aggregate_valuation_below_nav_floor_is_no_coverage():
+    # only 35% NAV covered < 0.40 floor → valuation_no_coverage.
+    metrics = (_hm("a", 35.0, 1.0), _hm("b", 30.0, None))
+    agg = aggregate_valuation(metrics)
+    assert agg.value is None and agg.reason == "valuation_no_coverage"
+    assert agg.covered_weight_ratio == _pt.approx(0.35)
+
+
+def test_aggregate_valuation_exactly_at_floor_is_covered():
+    # exactly 0.40 NAV covered → accepted (>= floor, matches _meets_floor).
+    metrics = (_hm("a", 40.0, 1.0),)
+    agg = aggregate_valuation(metrics)
+    assert agg.value == 1.0 and agg.reason is None
+    assert agg.covered_weight_ratio == _pt.approx(0.40)
+
+
+# ---------------------------------------------------------------------------
+# FIX 1: aggregate_flow restricts to top-5 by weight (coverage denominator is
+# the top-5 slice, not the full basket). Without the fix, passing a full basket
+# where tail rows have None flow_score drops the coverage ratio and triggers
+# flow_no_coverage even when all top-5 are covered.
+# ---------------------------------------------------------------------------
+
+def test_aggregate_flow_full_basket_tail_ignored_top5_read():
+    """aggregate_flow restricts to the top-_FLOW_TOP_N holdings by weight (FIX 1).
+
+    Regression: before this feature, _process_fund passed only top-5 holdings to
+    aggregate_flow. Now it passes the full disclosed basket (valuation needs all rows).
+    Without the internal top-5 restriction, total_w grows to include the tail, and
+    covered_w / total_w can fall below the 0.50 coverage floor even when all top-5
+    have flow — causing `flow_no_coverage` to suppress the flow factor.
+
+    Triggering setup (task spec §5.C):
+      top-5 by weight: 5 holdings @ 8% each (40% total), flow_score=0.5  ← have flow
+      tail (rows 6-20): 15 holdings @ 4% each (60% total), flow_score=None ← no flow
+    Without fix: covered_w=40, total_w=100, ratio=0.40 < 0.50 → flow_no_coverage.
+    With fix: sort desc by weight, take top-5 (8% items) → total_w=40, covered_w=40,
+              ratio=1.0 → eligible; value=0.5; reason is None.
+    """
+    from irc.monitor.holding_metrics import _FLOW_TOP_N
+    # Top-5 by weight: 8% each, all covered (have flow).
+    top5 = tuple(_metric(f"t{i}", 8.0, 0.5) for i in range(_FLOW_TOP_N))
+    # Tail: 15 lighter holdings at 4% each, no flow.
+    tail = tuple(_metric(f"b{i}", 4.0, None, "flow_no_data") for i in range(15))
+    full_basket = top5 + tail
+
+    agg_full = aggregate_flow(full_basket)
+    agg_top5_only = aggregate_flow(top5)
+
+    # Byte-identity: full basket and top-5-only must agree (tail invisible).
+    assert agg_full.value == _pt.approx(agg_top5_only.value)
+    assert agg_full.reason == agg_top5_only.reason
+    assert agg_full.covered_weight_ratio == _pt.approx(agg_top5_only.covered_weight_ratio)
+
+    # Substantive assertions: top-5 all covered → ratio=1.0, value=0.5, eligible.
+    assert agg_full.value == _pt.approx(0.5)
+    assert agg_full.reason is None          # eligible, NOT flow_no_coverage
+    assert agg_full.covered_weight_ratio == _pt.approx(1.0)  # 40/40, not 40/100

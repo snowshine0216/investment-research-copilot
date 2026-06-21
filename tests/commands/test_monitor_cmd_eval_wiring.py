@@ -126,3 +126,40 @@ def test_run_monitor_still_renders_when_trace_write_fails(monkeypatch, tmp_path:
     rc = monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
     assert rc == 0
     assert (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").exists()
+
+
+def test_valuation_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path):
+    """Task 4.2: a per-fund exception in valuation_reconciliation must not crash
+    _compute_gates — degrades to WARN, run still completes."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.eval.types import StageHealth
+
+    def _local_fund(fid="008986"):
+        return MonitorFund(id=fid, name_cn="测试", market="CN", analysis_profile="gold_etf",
+                           themes=("gold",), constituent_news=False, weights={"trend": 1.0},
+                           bands={"buy": 0.1, "sell": -0.1}, minimum_confidence=0.5)
+
+    def _local_view(fid):
+        return FundView(
+            fund_id=fid, name_cn="x", latest_nav=2.0, as_of_date="2026-06-21",
+            nav_series=(("2026-06-18", 2.4), ("2026-06-19", 2.5)),
+            signal=_signal(fid), narrative=NarrativeDoc(fid, (), (), (), "ok"),
+            evidence_pool=(), return_table={}, factor_freshness={},
+            missing_factor_reasons=(), factor_scores=(),
+        )
+
+    fund = _local_fund()
+    view = _local_view(fund.id)
+    bundle = FundTraceBundle(fund.id, (), (), ())
+
+    def _boom(_proj):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(mc, "valuation_reconciliation", _boom)
+    result = mc._compute_gates(
+        [fund], [view], [bundle], min_obs=2, suite_healths=(), trading_days=None,
+    )
+    # _compute_gates now returns 7-tuple:
+    # (gates, signal_h, det_h, flow_recon_h, flow_cov_h, val_recon_h, val_cov_h)
+    val_recon = result[5]
+    assert val_recon[fund.id].status == "WARN"

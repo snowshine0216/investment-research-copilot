@@ -156,9 +156,11 @@ def test_flow_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path):
     bundle = FundTraceBundle(fund.id, (), (), ())
 
     # Patch flow_reconciliation to raise
-    monkeypatch.setattr(mc, "flow_reconciliation", lambda proj: (_ for _ in ()).throw(RuntimeError("boom")))
+    def _boom(_proj):
+        raise RuntimeError("boom")
+    monkeypatch.setattr(mc, "flow_reconciliation", _boom)
 
-    _, _sh, _dh, flow_recon_healths, _fch = mc._compute_gates(
+    _, _sh, _dh, flow_recon_healths, _fch, _vrh, _vch = mc._compute_gates(
         [fund], [view], [bundle],
         min_obs=2, suite_healths=(),
         trading_days=None,

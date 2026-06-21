@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor dual-track per-stock valuation + False-Cheap clamp (ADR 0020) (2026-06-21)
+
+- **Look-through valuation factor re-based bottom-up.** For `active_cn_equity`
+  funds the valuation factor is now a weight-weighted mean of per-stock
+  **dual-track** scores — `0.60·self-history + 0.40·industry-relative` — replacing
+  the old single portfolio-harmonic earnings-yield percentile. `self_score` reuses
+  the existing valuation-state ladder (board state and self leg can never
+  disagree); `industry_score` comes from richness `r = stock_pe / industry_avg_pe`
+  via asymmetric raw-`r` bands (`0.70/0.90/1.10/1.20`). Industry leg N/A →
+  honest self-only fallback; self leg N/A → the stock is excluded.
+- **False-Cheap clamp.** A holding cheap vs its own history **and** rich vs peers
+  (`self_score > 0 AND r ≥ 1.2`) is hard-assigned `val_score = 0.0` (NEUTRAL) —
+  the value-trap verdict is discarded to neutral, never asserted bearish.
+- **New `industry_valuation.py` edge** (ADR 0017 isolation): industry-average PE
+  from market-wide `stock_board_industry_name_em` (1 cached call/day) + per-symbol
+  东财 classification from `stock_individual_info_em` (~15–25 deduped cached
+  calls/run, the flow_fetch contract; direct CN endpoint, never raises).
+- **Coverage = fraction of fund NAV** over the **full disclosed basket** (~top-10),
+  monitor floor **0.40** (a deliberate divergence from opportunity's 0.50 — the
+  monitor valuation is a 0.20-weight research lean, not a publishability gate; at
+  0.50 the factor was a phantom for 6/7 funds). Flow stays a **top-5** read,
+  byte-identical.
+- **Report:** drill-down board gains `行业 · 行业PE · r · 行业分` columns + a
+  value-trap badge; the roll-up always shows `行业覆盖 X%` with a non-gating note
+  when industry coverage < 0.50 (a dark value-trap guard is never silent).
+- **Eval:** trace schema `3→4` (dual-track per-row fields + `valuation_aggregate`
+  block); a board↔factor valuation reconciliation oracle + coverage health
+  (panel-only). New non-caveating factor N/A reasons `valuation_no_data` /
+  `valuation_no_coverage` (`KNOWN_NA_REASONS` 10→12); `industry_no_data` /
+  `false_cheap_clamp` stay per-stock reasons. `_ENGINE_VERSION` `2→3`. Old
+  `monitor/lookthrough.py` portfolio-harmonic path deleted.
+
 ### Added — monitor forward-eval `engine_population` diagnostic row (FU1) (2026-06-20)
 
 - **Attribution-only `engine_population` diagnostic row** in the `irc eval

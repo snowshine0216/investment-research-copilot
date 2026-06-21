@@ -3,7 +3,11 @@ from dataclasses import dataclass
 from irc.monitor.profiles import eligible_factors
 from irc.monitor.trend import trend_score
 from irc.monitor.factor_maps import valuation_state_score, heat_score
-from irc.monitor.holding_metrics import FlowAggregate, _NA_FLOW_NO_DATA, _NA_FLOW_NO_COVERAGE
+from irc.monitor.holding_metrics import (
+    FlowAggregate, ValuationAggregate,
+    _NA_FLOW_NO_DATA, _NA_FLOW_NO_COVERAGE,
+    _NA_VALUATION_NO_DATA, _NA_VALUATION_NO_COVERAGE,
+)
 from irc.monitor.news_factor import ImpactRow, aggregate_news_factor
 from irc.monitor.types import FactorScore
 
@@ -18,6 +22,11 @@ _NA_HEAT_NO_DATA = "heat_no_data"
 _NA_MACRO_INSUFFICIENT_FAMILIES = "macro_insufficient_families"
 _NA_MACRO_EMPTY_POOL = "macro_empty_pool"
 _NA_CONSTITUENT_NO_COVERAGE = "constituent_no_coverage"
+
+# Numeric-path aliases (bottom-up look-through aggregate reasons, §6 + ADR 0020).
+_NA_VALUATION_NO_DATA_FACTOR = _NA_VALUATION_NO_DATA          # "valuation_no_data"
+_NA_VALUATION_NO_COVERAGE_FACTOR = _NA_VALUATION_NO_COVERAGE  # "valuation_no_coverage"
+
 KNOWN_NA_REASONS: frozenset[str] = frozenset({
     _NA_PROFILE_INELIGIBLE,
     _NA_TREND_INSUFFICIENT_HISTORY,
@@ -29,6 +38,8 @@ KNOWN_NA_REASONS: frozenset[str] = frozenset({
     _NA_CONSTITUENT_NO_COVERAGE,
     _NA_FLOW_NO_DATA,
     _NA_FLOW_NO_COVERAGE,
+    _NA_VALUATION_NO_DATA_FACTOR,
+    _NA_VALUATION_NO_COVERAGE_FACTOR,
 })
 
 _MACRO_MIN_FAMILIES = 2
@@ -45,6 +56,7 @@ class FactorInputs:
     macro_rows: tuple[ImpactRow, ...]
     constituent_rows: tuple[ImpactRow, ...]
     flow: FlowAggregate | None = None
+    valuation_aggregate: ValuationAggregate | None = None
 
 
 def _na(name: str, reason: str) -> FactorScore:
@@ -60,6 +72,13 @@ def _trend(inp: FactorInputs) -> FactorScore:
 def _valuation(profile: str, inp: FactorInputs) -> FactorScore:
     if "valuation" not in eligible_factors(profile):
         return _na("valuation", _NA_PROFILE_INELIGIBLE)
+    agg = inp.valuation_aggregate
+    if agg is not None:
+        if agg.value is not None:
+            return FactorScore("valuation", agg.value, True, "", 1.0)
+        if agg.reason == _NA_VALUATION_NO_COVERAGE_FACTOR:
+            return _na("valuation", _NA_VALUATION_NO_COVERAGE_FACTOR)
+        return _na("valuation", _NA_VALUATION_NO_DATA_FACTOR)
     if not inp.valuation_cached or inp.valuation_state is None:
         return _na("valuation", _NA_VALUATION_NO_ANCHOR)
     score = valuation_state_score(inp.valuation_state)
