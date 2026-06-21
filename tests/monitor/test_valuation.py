@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import pytest
 import duckdb
-from datetime import date as _date
 
 from irc.data.duckdb_helper import ensure_schema
 from irc.monitor.types import MonitorFund

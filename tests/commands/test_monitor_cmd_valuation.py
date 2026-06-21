@@ -1,6 +1,5 @@
 # tests/commands/test_monitor_cmd_valuation.py
 from __future__ import annotations
-from pathlib import Path
 
 from irc.monitor.types import MonitorFund, NarrativeDoc
 from irc.monitor.valuation import ValuationResolution
