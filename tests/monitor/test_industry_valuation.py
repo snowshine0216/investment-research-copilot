@@ -106,6 +106,46 @@ def test_fetch_stock_industry_map_per_symbol_cache_ok_and_miss(tmp_path: Path):
     assert payload["600519"] == {"status": "ok", "industry": "酿酒行业"}
 
 
+def test_unrecognised_cache_status_is_refetched_not_a_frozen_miss(tmp_path: Path):
+    # Only ok/miss are ever written; an unrecognised status can arise only from
+    # external corruption / a manual edit. Treat it as cache-ABSENT (refetch),
+    # never as a confirmed miss that freezes the symbol dark for the day.
+    # Line-23 residual fix.
+    cache_dir = tmp_path / "si"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "2026-06-21.json").write_text(
+        '{"600519": {"status": "weird", "industry": null}}', encoding="utf-8")
+    seen: list[str] = []
+
+    def fetch(symbol):
+        seen.append(symbol)
+        return _info_df("酿酒行业")
+
+    out = fetch_stock_industry_map(("600519",), cache_dir=cache_dir, today="2026-06-21",
+                                   fetch=fetch, sleep=lambda _s: None)
+    assert seen == ["600519"]  # refetched, NOT served from the poisoned entry
+    assert out == {"600519": "酿酒行业"}
+
+
+def test_blank_frame_is_transient_not_dead(tmp_path: Path):
+    # A soft-throttle empty-200 (akshare → empty df, OR a frame missing the
+    # item/value columns) is NOT the same as a well-formed table that genuinely
+    # lacks a 行业 row. The former is throttle-like → TRANSIENT (retried next run),
+    # not cached as a confirmed miss that freezes the industry leg for the day.
+    # Line-22 residual fix; the content-absence DEAD path is preserved by
+    # test_fetch_stock_industry_map_per_symbol_cache_ok_and_miss.
+    cache_dir = tmp_path / "si"
+    out = fetch_stock_industry_map(("600519",), cache_dir=cache_dir, today="2026-06-21",
+                                   fetch=lambda symbol: pd.DataFrame(), sleep=lambda _s: None)
+    assert out == {"600519": None}
+    assert not (cache_dir / "2026-06-21.json").is_file()  # not poisoned → retries
+    # throttle lifts → real industry on the next same-day run
+    out2 = fetch_stock_industry_map(("600519",), cache_dir=cache_dir, today="2026-06-21",
+                                    fetch=lambda symbol: _info_df("酿酒行业"),
+                                    sleep=lambda _s: None)
+    assert out2 == {"600519": "酿酒行业"}
+
+
 def test_fetch_stock_industry_map_transient_not_persisted_and_retried(tmp_path: Path):
     # A raised fetch is TRANSIENT: None to the caller, NOT cached → re-run retries.
     cache_dir = tmp_path / "si"

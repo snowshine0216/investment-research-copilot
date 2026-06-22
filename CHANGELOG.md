@@ -33,11 +33,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   clean refetch instead of raising through the unguarded
   `fetch_stock_industry_map` / `fetch_industry_pe` call sites and crashing the
   brief (caught by an adversarial pre-landing review).
-- *Known residual:* a soft throttle that returns an empty/garbled 200 body
-  instead of raising can still mint a same-day `dead`/`ok-empty` for that symbol;
-  the 2026-06-21 throttle empirically *raised*, so this is a documented trade-off,
-  not the observed failure mode (ADR 0019 addendum). Recovering an
-  already-poisoned day still requires deleting that day's cache file.
+- *Known residual (now closed — see next entry):* a soft throttle that returns an
+  empty/garbled 200 body instead of raising could still mint a same-day
+  `dead`/`ok-empty` for that symbol; the 2026-06-21 throttle empirically *raised*,
+  so this was a documented trade-off, not the observed failure mode (ADR 0019
+  addendum). Recovering an already-poisoned day still requires deleting that day's
+  cache file.
+
+### Fixed — monitor per-symbol cache: close the blank-frame and unrecognised-status residuals (2026-06-22)
+
+- **A soft-throttle empty/garbled 200 body is now retried, not frozen for the
+  day.** The `dead`-vs-`transient` split previously keyed only on a *raised*
+  fetch, so a throttle that answered with a blank HTTP-200 (akshare → empty frame)
+  was cached as `ok`-with-no-rows (flow) or `dead` (industry) and never retried.
+  `_classify` / `_classify_industry` now split *no usable field* into a
+  **blank-frame** case (`None` / empty / missing expected columns → `transient`,
+  retried) versus **content-absence** (a well-formed frame whose specific field is
+  genuinely absent → `dead`, cached miss). New pure predicates `_is_blank_frame` /
+  `_is_blank_info_frame`. This needs no throttle sample and preserves the
+  well-formed-table-with-no-`行业`-row → `dead` contract.
+- **An unrecognised cache `status` now refetches instead of serving a frozen
+  miss.** The deserialize codecs (`_load_cache_payload`, `_load_industry_cache`)
+  mapped any non-`ok` status to `None`, and because the symbol was present in the
+  cache it was served as a confirmed miss for the rest of the day. They now
+  **omit** any entry whose status is outside `{"ok","miss"}` (with a WARN) so it
+  reads as cache-absent → refetch. Only `ok`/`miss` are ever written, so this can
+  arise only from external corruption / a manual edit — a poisoning hole the
+  transient work left open. (ADR 0019 addendum, 2026-06-22.)
 
 ### Fixed — monitor brief crash when `_now_iso` fails during eval-artifact write (2026-06-21)
 
