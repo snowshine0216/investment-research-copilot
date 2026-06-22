@@ -3,9 +3,10 @@
 `ak.stock_individual_fund_flow(stock, market)` returns ONE per-symbol daily
 table (主力净流入-净占比 percent-points). Unlike `fund_purchase_em` there is NO
 batch variant — flow is ~15-25 SEQUENTIAL per-A-share-symbol calls/run, deduped
-and cached per day. Each fetch NEVER raises: a failure → None → flow_no_data
-(spec §5.A). Parsing is pure and column-name-tolerant: an unexpected shape →
-empty → N/A, NEVER a fabricated value.
+and cached per day via cached_fetch (ADR 0019). A raised fetch (timeout / rate
+limit) is TRANSIENT → never cached → retried next run; a non-A-share line is
+DEAD → cached miss. Parsing is pure and column-name-tolerant: an unexpected
+shape → empty series (status ok, no rows), NEVER a fabricated value.
 
 Flow units are PERCENT-POINTS (D3): akshare parses the EastMoney 净占比 column via
 pd.to_numeric with NO /100, so 12.34 means 12.34%. NO /100 here. CN endpoint
@@ -13,13 +14,13 @@ stays DIRECT (no IRC_HTTPS_PROXY) per the project http-proxy rule (ADR 0017).
 """
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
 from pathlib import Path
 
 import pandas as pd
+
+from irc.monitor.cached_fetch import DEAD, OK, TRANSIENT, Outcome, cache_first_fetch
 
 _log = logging.getLogger(__name__)
 
@@ -114,68 +115,35 @@ def _market_of(symbol: str) -> str | None:
     return None
 
 
-_PACING_SECONDS = 0.3  # light pacing between live CN calls (ADR 0014 rate-limit posture)
-
-
-def _cache_path(cache_dir: Path, today: str) -> Path:
-    return cache_dir / f"{today}.json"
-
-
-def _read_cache(cache_dir: Path, today: str) -> dict[str, FlowSeries | None]:
-    path = _cache_path(cache_dir, today)
-    if not path.is_file():
-        return {}
-    try:
-        return _load_cache_payload(json.loads(path.read_text(encoding="utf-8")))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError, KeyError, TypeError):
-        _log.warning("flow_fetch: unreadable cache %s; refetching", path, exc_info=True)
-        return {}
-
-
-def _write_cache(cache_dir: Path, today: str, by_symbol: dict[str, FlowSeries | None]) -> None:
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    payload = _cache_payload(by_symbol)
-    text = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True)
-    tmp = _cache_path(cache_dir, today).with_suffix(f".tmp.{os.getpid()}")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, _cache_path(cache_dir, today))
-
-
-def _fetch_one(symbol: str, fetch, *, sleep) -> FlowSeries | None:
-    """EDGE: one symbol → FlowSeries or None. NEVER raises. Non-A-share → None
-    (skipped, never fetched). CN endpoint DIRECT."""
+def _classify(symbol: str, fetch) -> Outcome:
+    """EDGE: classify one symbol's fetch (NEVER sleeps — cached_fetch owns pacing).
+    Non-A-share → DEAD (cached miss); raised fetch → TRANSIENT (retried, not
+    cached); parsed (incl. empty) → OK. CN endpoint DIRECT."""
     market = _market_of(symbol)
     if market is None:
-        return None
+        return DEAD, None
     try:
         df = fetch(stock=symbol, market=market)
-    except Exception:  # noqa: BLE001 — degrade to None (flow_no_data), never crash
+    except Exception:  # noqa: BLE001 — degrade to TRANSIENT (retry), never crash
         _log.warning("flow_fetch: stock_individual_fund_flow failed for %s", symbol,
                      exc_info=True)
-        return None
-    sleep(_PACING_SECONDS)
-    return parse_main_net_pct(df)
+        return TRANSIENT, None
+    return OK, parse_main_net_pct(df)
 
 
 def fetch_flow_series(
     symbols: tuple[str, ...], *, cache_dir: Path, today: str, fetch=None, sleep=time.sleep,
 ) -> dict[str, FlowSeries | None]:
-    """EDGE: dedup symbols → cache-first per-day fetch → byte-stable cache write.
-    Idempotent within a day (--resume / drilldown re-render never re-fetch).
+    """EDGE: dedup symbols → cache-first per-day fetch (cached_fetch) → byte-stable
+    write of ok+dead only. Idempotent within a day for settled symbols (--resume /
+    drilldown re-render never re-fetch them); transient throttles retry next run.
     `fetch` is injectable for tests; the default lazy-imports akshare (house
     pattern). ~15-25 sequential CN calls/run, free endpoint."""
     if fetch is None:
         import akshare as ak  # local import — house pattern, no module-top akshare
         fetch = ak.stock_individual_fund_flow
-    cached = _read_cache(cache_dir, today)
-    out: dict[str, FlowSeries | None] = {}
-    dirty = False
-    for symbol in dict.fromkeys(symbols):  # dedup, preserve order
-        if symbol in cached:
-            out[symbol] = cached[symbol]
-            continue
-        out[symbol] = _fetch_one(symbol, fetch, sleep=sleep)
-        dirty = True
-    if dirty:
-        _write_cache(cache_dir, today, {**cached, **out})
-    return out
+    return cache_first_fetch(
+        symbols, cache_dir=cache_dir, today=today,
+        fetch_one=lambda symbol: _classify(symbol, fetch),
+        serialize=_cache_payload, deserialize=_load_cache_payload, sleep=sleep,
+    )
