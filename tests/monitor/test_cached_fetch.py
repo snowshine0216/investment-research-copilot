@@ -148,6 +148,23 @@ def test_breaker_stops_fetching_after_consecutive_transients(tmp_path):
     assert not (tmp_path / "2026-06-21.json").is_file()  # nothing persisted → all retry
 
 
+def test_corrupt_cache_entry_refetches_instead_of_crashing(tmp_path):
+    # Valid JSON but a malformed ok entry (deserialize raises KeyError on the
+    # missing payload key) must NOT propagate — the day is refetched. Regression:
+    # _read once ran deserialize outside the try and caught only json/OS errors,
+    # so a partial cache crashed the whole brief.
+    (tmp_path / "2026-06-21.json").write_text('{"AAA": {"status": "ok"}}', encoding="utf-8")
+    seen: list[str] = []
+
+    def fetch_one(symbol):
+        seen.append(symbol)
+        return OK, f"val-{symbol}"
+
+    out = _run(("AAA",), tmp_path, fetch_one)
+    assert out == {"AAA": "val-AAA"}  # refetched, not crashed
+    assert seen == ["AAA"]
+
+
 def test_breaker_resets_on_a_settled_outcome(tmp_path):
     # ok between transients keeps the breaker from tripping.
     def pattern(symbol):

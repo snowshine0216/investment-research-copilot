@@ -159,6 +159,19 @@ def test_fetch_failure_is_transient_not_persisted_and_retried(tmp_path):
     assert out2["600519"] == (("2026-06-16", 5.0),)  # retried, recovered
 
 
+def test_corrupt_cache_does_not_crash_brief_refetches(tmp_path):
+    # A partial on-disk ok entry (row missing main_net_pct) must degrade to a
+    # refetch, never crash the brief (fetch_stock_industry_map/_pe are unguarded
+    # at the monitor_cmd call site). Regression for the cached_fetch._read guard.
+    (tmp_path / "2026-06-16.json").write_text(
+        '{"600519": {"status": "ok", "rows": [{"date": "2026-06-16"}]}}',
+        encoding="utf-8",
+    )
+    out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                            fetch=lambda *, stock, market: _fake_df(7.0), sleep=lambda _: None)
+    assert out["600519"] == (("2026-06-16", 7.0),)  # corrupt entry ignored, refetched
+
+
 def test_fetch_skips_non_a_share_symbols(tmp_path):
     calls: list[str] = []
 

@@ -53,17 +53,20 @@ def _cache_path(cache_dir: Path, today: str) -> Path:
 
 
 def _read(cache_dir: Path, today: str, deserialize) -> dict[str, object | None]:
-    """Cache JSON → symbol→(payload|None) map (ok→payload, miss→None). Unreadable
-    or missing → empty (refetch). Transient entries are absent by construction."""
+    """Cache JSON → symbol→(payload|None) map (ok→payload, miss→None). Unreadable,
+    missing, OR structurally corrupt (a partial/garbled entry that fails to
+    deserialize) → empty (refetch the day), NEVER a crash — the brief must degrade.
+    Transient entries are absent by construction. The deserialize runs INSIDE the
+    guard because a truncated/edited cache yields valid JSON with malformed rows."""
     path = _cache_path(cache_dir, today)
     if not path.is_file():
         return {}
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return deserialize(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError,
+            KeyError, TypeError, ValueError, AttributeError):
         _log.warning("cached_fetch: unreadable cache %s; refetching", path, exc_info=True)
         return {}
-    return deserialize(payload)
 
 
 def _write(cache_dir: Path, today: str, payload: dict[str, dict]) -> None:
