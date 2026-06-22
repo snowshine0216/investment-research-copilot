@@ -139,23 +139,50 @@ def _industry_cache_payload(by_symbol: dict[str, str | None]) -> dict[str, dict]
     }
 
 
+_RECOGNISED_STATUSES = ("ok", "miss")  # the only values _industry_cache_payload writes
+
+
 def _load_industry_cache(payload: dict[str, dict]) -> dict[str, str | None]:
-    """Pure: cache dict → symbol→(industry|None) map."""
+    """Pure: cache dict → symbol→(industry|None) map. ok→industry, miss→None. An
+    UNRECOGNISED status (only reachable via external corruption / a manual edit)
+    is OMITTED → the symbol reads as cache-absent → refetched, never served as a
+    frozen confirmed miss (Line-23 residual fix)."""
     out: dict[str, str | None] = {}
     for symbol, entry in payload.items():
-        out[symbol] = entry.get("industry") if entry.get("status") == "ok" else None
+        status = entry.get("status")
+        if status not in _RECOGNISED_STATUSES:
+            _log.warning("industry_valuation: unrecognised cache status %r for %s; "
+                         "refetching", status, symbol)
+            continue
+        out[symbol] = entry.get("industry") if status == "ok" else None
     return out
+
+
+def _is_blank_info_frame(df: object) -> bool:
+    """Pure: True when the fetch returned NO usable frame — None / not a frame /
+    empty / missing the item/value columns. This is the soft-throttle empty-200
+    signature, structurally distinct from a well-formed (item,value) table that
+    genuinely lacks a 行业 row → TRANSIENT, not a confirmed miss (ADR 0019
+    2026-06-22 addendum refinement)."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return True
+    return _INFO_ITEM_COL not in df.columns or _INFO_VALUE_COL not in df.columns
 
 
 def _classify_industry(symbol: str, fetch) -> Outcome:
     """EDGE: classify one symbol's fetch (NEVER sleeps — cached_fetch owns pacing).
-    Raised fetch → TRANSIENT (retried, not cached); answered with no 行业 row →
-    DEAD (cached miss); a parsed industry → OK. CN endpoint DIRECT."""
+    Raised fetch OR a blank/throttled frame → TRANSIENT (retried, not cached); a
+    well-formed table with no 行业 row → DEAD (cached miss); a parsed industry →
+    OK. CN endpoint DIRECT."""
     try:
         df = fetch(symbol=symbol)
     except Exception:  # noqa: BLE001 — degrade to TRANSIENT (retry), never crash
         _log.warning("industry_valuation: stock_individual_info_em failed for %s",
                      symbol, exc_info=True)
+        return TRANSIENT, None
+    if _is_blank_info_frame(df):  # blank/throttled 200 body → retry, never freeze
+        _log.warning("industry_valuation: blank/throttled frame for %s; transient",
+                     symbol)
         return TRANSIENT, None
     industry = parse_stock_industry(df)
     return (OK, industry) if industry is not None else (DEAD, None)

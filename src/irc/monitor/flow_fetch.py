@@ -85,11 +85,22 @@ def _cache_payload(by_symbol: dict[str, FlowSeries | None]) -> dict[str, dict]:
     return out
 
 
+_RECOGNISED_STATUSES = ("ok", "miss")  # the only values _cache_payload ever writes
+
+
 def _load_cache_payload(payload: dict[str, dict]) -> dict[str, FlowSeries | None]:
-    """Pure: cache dict → symbol→(series|None) map. ok→FlowSeries, miss→None."""
+    """Pure: cache dict → symbol→(series|None) map. ok→FlowSeries, miss→None. An
+    UNRECOGNISED status (only reachable via external corruption / a manual edit)
+    is OMITTED → the symbol reads as cache-absent → refetched, never served as a
+    frozen confirmed miss (Line-23 residual fix)."""
     out: dict[str, FlowSeries | None] = {}
     for symbol, entry in payload.items():
-        if entry.get("status") != "ok":
+        status = entry.get("status")
+        if status not in _RECOGNISED_STATUSES:
+            _log.warning("flow_fetch: unrecognised cache status %r for %s; refetching",
+                         status, symbol)
+            continue
+        if status != "ok":
             out[symbol] = None
             continue
         out[symbol] = tuple(
@@ -115,10 +126,21 @@ def _market_of(symbol: str) -> str | None:
     return None
 
 
+def _is_blank_frame(df: object) -> bool:
+    """Pure: True when the fetch returned NO usable frame — None / not a frame /
+    empty / missing the expected columns. This is the soft-throttle empty-200
+    signature (EastMoney answered with a blank body), structurally distinct from
+    a populated frame whose rows were merely filtered out. → TRANSIENT, not a
+    confirmed miss (ADR 0019 2026-06-22 addendum refinement)."""
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return True
+    return _DATE_COL not in df.columns or _NET_PCT_COL not in df.columns
+
+
 def _classify(symbol: str, fetch) -> Outcome:
     """EDGE: classify one symbol's fetch (NEVER sleeps — cached_fetch owns pacing).
-    Non-A-share → DEAD (cached miss); raised fetch → TRANSIENT (retried, not
-    cached); parsed (incl. empty) → OK. CN endpoint DIRECT."""
+    Non-A-share → DEAD (cached miss); raised fetch OR a blank/throttled frame →
+    TRANSIENT (retried, not cached); a well-formed frame → OK. CN endpoint DIRECT."""
     market = _market_of(symbol)
     if market is None:
         return DEAD, None
@@ -127,6 +149,10 @@ def _classify(symbol: str, fetch) -> Outcome:
     except Exception:  # noqa: BLE001 — degrade to TRANSIENT (retry), never crash
         _log.warning("flow_fetch: stock_individual_fund_flow failed for %s", symbol,
                      exc_info=True)
+        return TRANSIENT, None
+    if _is_blank_frame(df):  # blank/throttled 200 body → retry, never freeze the day
+        _log.warning("flow_fetch: blank/throttled frame for %s; treating as transient",
+                     symbol)
         return TRANSIENT, None
     return OK, parse_main_net_pct(df)
 

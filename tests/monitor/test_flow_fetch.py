@@ -172,6 +172,40 @@ def test_corrupt_cache_does_not_crash_brief_refetches(tmp_path):
     assert out["600519"] == (("2026-06-16", 7.0),)  # corrupt entry ignored, refetched
 
 
+def test_unrecognised_cache_status_is_refetched_not_a_frozen_miss(tmp_path):
+    # Only ok/miss are ever written, so an unrecognised status can arise only from
+    # external corruption / a manual edit. It must be treated as cache-ABSENT
+    # (refetch) rather than served as a confirmed miss — otherwise the poisoned
+    # entry freezes the symbol dark for the whole day. Line-23 residual fix.
+    (tmp_path / "2026-06-16.json").write_text(
+        '{"600519": {"status": "weird", "rows": []}}', encoding="utf-8")
+    seen: list[str] = []
+
+    def fetch(*, stock, market):
+        seen.append(stock)
+        return _fake_df(5.0)
+
+    out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                            fetch=fetch, sleep=lambda _: None)
+    assert seen == ["600519"]  # refetched, NOT served from the poisoned entry
+    assert out["600519"] == (("2026-06-16", 5.0),)
+
+
+def test_blank_frame_is_transient_not_cached_ok(tmp_path):
+    # A soft-throttle that returns an empty/blank HTTP-200 body (akshare → empty
+    # df) for a valid A-share is structurally indistinguishable from "no answer"
+    # → TRANSIENT (retried next run), NOT cached as ok-with-no-rows which would
+    # freeze the flow factor dark for the whole day. Line-22 residual fix.
+    out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                            fetch=lambda *, stock, market: pd.DataFrame(), sleep=lambda _: None)
+    assert out["600519"] is None
+    assert not (tmp_path / "2026-06-16.json").is_file()  # not poisoned → retries
+    # throttle lifts → real data on the next same-day run
+    out2 = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                             fetch=lambda *, stock, market: _fake_df(5.0), sleep=lambda _: None)
+    assert out2["600519"] == (("2026-06-16", 5.0),)  # recovered, not a frozen miss
+
+
 def test_fetch_skips_non_a_share_symbols(tmp_path):
     calls: list[str] = []
 
