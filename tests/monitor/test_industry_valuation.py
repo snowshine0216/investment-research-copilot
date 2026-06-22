@@ -85,7 +85,8 @@ def test_fetch_stock_industry_map_per_symbol_cache_ok_and_miss(tmp_path: Path):
         seen.append(symbol)
         if symbol == "600519":
             return _info_df("酿酒行业")
-        raise RuntimeError("dead symbol")  # 000001 → miss
+        # endpoint answers but has no 行业 row → confirmed DEAD → miss (not a raise)
+        return pd.DataFrame({"item": ["总市值"], "value": ["1.2e12"]})
 
     cache_dir = tmp_path / "stock_industry"
     out = fetch_stock_industry_map(("600519", "000001", "600519"),
@@ -105,10 +106,19 @@ def test_fetch_stock_industry_map_per_symbol_cache_ok_and_miss(tmp_path: Path):
     assert payload["600519"] == {"status": "ok", "industry": "酿酒行业"}
 
 
-def test_fetch_stock_industry_map_per_call_never_raises(tmp_path: Path):
+def test_fetch_stock_industry_map_transient_not_persisted_and_retried(tmp_path: Path):
+    # A raised fetch is TRANSIENT: None to the caller, NOT cached → re-run retries.
+    cache_dir = tmp_path / "si"
+
     def boom(symbol):
         raise RuntimeError("x")
 
-    out = fetch_stock_industry_map(("600519",), cache_dir=tmp_path / "si",
+    out = fetch_stock_industry_map(("600519",), cache_dir=cache_dir,
                                    today="2026-06-21", fetch=boom, sleep=lambda _s: None)
     assert out == {"600519": None}
+    assert not (cache_dir / "2026-06-21.json").is_file()  # nothing poisoned
+
+    out2 = fetch_stock_industry_map(("600519",), cache_dir=cache_dir, today="2026-06-21",
+                                    fetch=lambda symbol: _info_df("酿酒行业"),
+                                    sleep=lambda _s: None)
+    assert out2 == {"600519": "酿酒行业"}  # retried, recovered

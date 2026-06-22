@@ -23,6 +23,8 @@ from pathlib import Path
 
 import pandas as pd
 
+from irc.monitor.cached_fetch import DEAD, OK, TRANSIENT, Outcome, cache_first_fetch
+
 _log = logging.getLogger(__name__)
 
 _PE_NAME_COL = "板块名称"
@@ -127,7 +129,8 @@ def fetch_industry_pe(
 
 def _industry_cache_payload(by_symbol: dict[str, str | None]) -> dict[str, dict]:
     """Pure: symbol→industry map → deterministic cache dict (sorted symbols).
-    None → status:miss (records a confirmed failure so re-runs skip dead symbols)."""
+    None → status:miss (confirmed: the endpoint answered with no 行业 row).
+    Transient (raised) fetches never reach here — they are not persisted."""
     return {
         symbol: ({"status": "ok", "industry": by_symbol[symbol]}
                  if by_symbol[symbol] is not None
@@ -144,42 +147,33 @@ def _load_industry_cache(payload: dict[str, dict]) -> dict[str, str | None]:
     return out
 
 
-def _read_industry_cache(cache_dir: Path, today: str) -> dict[str, str | None]:
-    payload = _read_json(cache_dir, today)
-    return _load_industry_cache(payload) if payload else {}
-
-
-def _fetch_one_industry(symbol: str, fetch, *, sleep) -> str | None:
-    """EDGE: one symbol → industry or None. NEVER raises. CN endpoint DIRECT."""
+def _classify_industry(symbol: str, fetch) -> Outcome:
+    """EDGE: classify one symbol's fetch (NEVER sleeps — cached_fetch owns pacing).
+    Raised fetch → TRANSIENT (retried, not cached); answered with no 行业 row →
+    DEAD (cached miss); a parsed industry → OK. CN endpoint DIRECT."""
     try:
         df = fetch(symbol=symbol)
-    except Exception:  # noqa: BLE001 — degrade to None (industry_no_data)
+    except Exception:  # noqa: BLE001 — degrade to TRANSIENT (retry), never crash
         _log.warning("industry_valuation: stock_individual_info_em failed for %s",
                      symbol, exc_info=True)
-        return None
-    sleep(_PACING_SECONDS)
-    return parse_stock_industry(df)
+        return TRANSIENT, None
+    industry = parse_stock_industry(df)
+    return (OK, industry) if industry is not None else (DEAD, None)
 
 
 def fetch_stock_industry_map(
     symbols: tuple[str, ...], *, cache_dir: Path, today: str,
     fetch=None, sleep=time.sleep,
 ) -> dict[str, str | None]:
-    """EDGE: dedup symbols → cache-first per-day per-symbol fetch → byte-stable
-    cache write (ok/miss). Idempotent within a day. Same contract + volume as
+    """EDGE: dedup symbols → cache-first per-day per-symbol fetch (cached_fetch) →
+    byte-stable write of ok+dead only. Idempotent within a day for settled symbols;
+    transient throttles retry next run. Same contract + volume as
     flow_fetch.fetch_flow_series. fetch injectable; default lazy-imports akshare."""
     if fetch is None:
         import akshare as ak  # local import — house pattern
         fetch = ak.stock_individual_info_em
-    cached = _read_industry_cache(cache_dir, today)
-    out: dict[str, str | None] = {}
-    dirty = False
-    for symbol in dict.fromkeys(symbols):  # dedup, preserve order
-        if symbol in cached:
-            out[symbol] = cached[symbol]
-            continue
-        out[symbol] = _fetch_one_industry(symbol, fetch, sleep=sleep)
-        dirty = True
-    if dirty:
-        _write_json(cache_dir, today, _industry_cache_payload({**cached, **out}))
-    return out
+    return cache_first_fetch(
+        symbols, cache_dir=cache_dir, today=today,
+        fetch_one=lambda symbol: _classify_industry(symbol, fetch),
+        serialize=_industry_cache_payload, deserialize=_load_industry_cache, sleep=sleep,
+    )

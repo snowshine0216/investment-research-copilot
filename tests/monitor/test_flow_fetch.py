@@ -142,15 +142,21 @@ def test_fetch_is_idempotent_within_a_day_no_refetch(tmp_path):
     assert calls == ["600519"]  # second call served from cache
 
 
-def test_fetch_failure_degrades_to_miss_never_raises(tmp_path):
+def test_fetch_failure_is_transient_not_persisted_and_retried(tmp_path):
+    # A raised fetch (rate limit / timeout) is TRANSIENT: caller sees no data,
+    # but it is NOT cached as a confirmed miss → a re-run retries it (ADR 0019).
     def boom(*, stock, market):
         raise RuntimeError("rate limited")
 
     out = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
                             fetch=boom, sleep=lambda _: None)
     assert out["600519"] is None  # flow_no_data, never a crash
-    cache = _json.loads((tmp_path / "2026-06-16.json").read_text())
-    assert cache["600519"] == {"status": "miss", "rows": []}
+    assert not (tmp_path / "2026-06-16.json").is_file()  # nothing poisoned
+
+    out2 = fetch_flow_series(("600519",), cache_dir=tmp_path, today="2026-06-16",
+                             fetch=lambda *, stock, market: _fake_df(5.0),
+                             sleep=lambda _: None)
+    assert out2["600519"] == (("2026-06-16", 5.0),)  # retried, recovered
 
 
 def test_fetch_skips_non_a_share_symbols(tmp_path):
