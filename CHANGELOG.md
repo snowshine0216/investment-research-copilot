@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor per-symbol fetch no longer poisons its day cache on a transient throttle (2026-06-22)
+
+- **A throttled EastMoney call is now retried, not cached as a confirmed miss.**
+  The per-symbol flow (`stock_individual_fund_flow`) and industry
+  (`stock_individual_info_em`) fetchers conflated a *raised* fetch (timeout /
+  rate-limit / 5xx) with a genuinely dead symbol: both were written as
+  `status:miss`, and the cache-first guard (`if symbol in cached: skip`) then made
+  that miss permanent for the day. One throttle burst poisoned the whole day's
+  cache (observed 2026-06-21: flow `5 ok / 25 miss` — the first fund's top-5 were
+  the only survivors — and industry `60/60 miss`), with no same-day recovery and
+  no backoff to survive the burst. Six of seven `active_cn_equity` funds showed
+  `资金流因子 = N/A`.
+- **New shared edge `src/irc/monitor/cached_fetch.py`** distinguishes three
+  outcomes: `ok` (persist), `dead` (non-A-share / answered-with-no-field → persist
+  `miss`, never retry), and `transient` (raised → **never persisted** → retried
+  next run, with bounded exponential backoff and a consecutive-transient
+  circuit-breaker that stops hammering a hard-blocking endpoint). `flow_fetch` and
+  `industry_valuation.fetch_stock_industry_map` delegate to it, reusing their
+  existing `None→miss` codecs so the on-disk cache stays byte-stable;
+  `fetch_industry_pe` already self-healed and is unchanged. `miss` now means
+  *confirmed dead*, not "any failure" (ADR 0019 addendum, 2026-06-22).
+- **`cached_fetch._read` degrades a structurally corrupt cache to a refetch.** A
+  partial/garbled but valid-JSON entry (e.g. a truncated row) now degrades to a
+  clean refetch instead of raising through the unguarded
+  `fetch_stock_industry_map` / `fetch_industry_pe` call sites and crashing the
+  brief (caught by an adversarial pre-landing review).
+- *Known residual:* a soft throttle that returns an empty/garbled 200 body
+  instead of raising can still mint a same-day `dead`/`ok-empty` for that symbol;
+  the 2026-06-21 throttle empirically *raised*, so this is a documented trade-off,
+  not the observed failure mode (ADR 0019 addendum). Recovering an
+  already-poisoned day still requires deleting that day's cache file.
+
 ### Fixed — monitor brief crash when `_now_iso` fails during eval-artifact write (2026-06-21)
 
 - **`_write_eval_artifacts` no longer crashes the brief on a clock failure.**
