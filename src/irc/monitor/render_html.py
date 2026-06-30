@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from html import escape
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.render_cards import (
@@ -12,6 +13,45 @@ from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
 from irc.monitor.eval.predictive_panel import predictive_validity_panel_html
 from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictivePanelModel
+
+
+@dataclass(frozen=True)
+class CitationIndex:
+    """PURE cid → 1-based N + (source, title), first-seen = appendix order."""
+    entries: tuple[tuple[str, str, str], ...]   # (cid, source, title)
+
+    def _pos(self, cid: str) -> int | None:
+        for i, (c, _, _) in enumerate(self.entries):
+            if c == cid:
+                return i
+        return None
+
+    def number(self, cid: str) -> int | None:
+        p = self._pos(cid)
+        return None if p is None else p + 1
+
+    def source(self, cid: str) -> str | None:
+        p = self._pos(cid)
+        return None if p is None else self.entries[p][1]
+
+    def title(self, cid: str) -> str | None:
+        p = self._pos(cid)
+        return None if p is None else self.entries[p][2]
+
+
+def build_citation_index(views: tuple[FundView, ...]) -> CitationIndex:
+    """PURE: appendix-order (first-seen) cid index over every fund's evidence pool.
+    Same iteration order as _appendix so superscript-N == appendix-N."""
+    seen: set[str] = set()
+    out: list[tuple[str, str, str]] = []
+    for v in views:
+        for ev in v.evidence_pool:
+            if ev.citation_id in seen:
+                continue
+            seen.add(ev.citation_id)
+            out.append((ev.citation_id, ev.source, ev.title))
+    return CitationIndex(tuple(out))
+
 
 _NO_CALL = "NO_CALL"
 _EVAL_GATED = "EVAL_GATED"
