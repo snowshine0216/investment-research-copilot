@@ -193,6 +193,13 @@ def _markers(view: FundView) -> tuple[EventMarker, ...]:
     )
 
 
+def _market_cell(view: FundView) -> str:
+    mv = view.market_view
+    if mv is None:
+        return "<td class='muted'>—</td>"
+    return f"<td>市场面 {mv.composite:+.2f} {escape(mv.bias)}</td>"
+
+
 def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) -> str:
     changed = ""
     if prior is not None:
@@ -204,6 +211,7 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
         f"<td>{view.latest_nav:.4f} @ {view.as_of_date}</td>"
         f"<td>{_badge(view, gate)}</td>"
         f"<td>C={view.signal.composite:+.4f}</td>"
+        f"{_market_cell(view)}"
         f"<td>{changed}</td></tr>"
     )
 

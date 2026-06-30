@@ -253,3 +253,12 @@ def test_flow_outage_note_only_when_set_wide_collapse():
     # no flow-eligible fund at all (all profile_ineligible) → no note (not an outage).
     none_eligible = (_view_with_factor_na("flow", "profile_ineligible"),)
     assert _flow_outage_note(none_eligible) == ""
+
+
+def test_summary_row_has_market_composite_column():
+    from irc.monitor.render_html import _summary_row
+    from irc.monitor.market_composite import MarketCompositeView
+    import dataclasses
+    v = dataclasses.replace(_view(), market_view=MarketCompositeView(0.24, "NEUTRAL", 0.2, 4))
+    html = _summary_row(v, None, None)
+    assert "市场面" in html or "+0.24" in html

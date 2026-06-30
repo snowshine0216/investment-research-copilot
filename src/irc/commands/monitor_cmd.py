@@ -15,6 +15,7 @@ from pathlib import Path
 from irc.config_loader import load_monitor_config, load_yaml
 from irc.data.duckdb_helper import connect
 from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for
+from irc.monitor.market_composite import market_composite_view
 from irc.monitor.valuation import resolve_valuation_state
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -281,6 +282,7 @@ def _make_view(
     *,
     holding_metrics: tuple = (),
 ) -> FundView:
+    mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
         fund_id=fund.id,
         name_cn=fund.name_cn,
@@ -298,6 +300,7 @@ def _make_view(
         factor_scores=tuple(scores),
         impacts_status=impacts_status,
         holding_metrics=holding_metrics,
+        market_view=mv,
     )
 
 
