@@ -69,5 +69,11 @@ acquire_lock "outputs/_logs/.monitor.lock" || {
 # rc (incl. 124) from aborting the script under `set -e` before notify runs.
 rc=0
 run_with_watchdog "${IRC_MONITOR_TIMEOUT:-1800}" "$UV_BIN" run irc monitor || rc=$?
-"$UV_BIN" run irc notify-status --run-kind monitor --last-exit-code "$rc" || true
+# `|| echo …` (not `|| true`) keeps a notifier failure from aborting under `set -e`
+# while still leaving a breadcrumb in the per-run log — notify is best-effort (no
+# page on its own failure), but a silent swallow hid the bad case where a monitor
+# timeout (rc=124, page-worthy) is followed by a notifier error → operator sees
+# nothing with no trace of why. The breadcrumb is log-only, never a page.
+"$UV_BIN" run irc notify-status --run-kind monitor --last-exit-code "$rc" \
+  || echo "[$TODAY] notify-status failed (rc=$?) — monitor rc was $rc (see above)"
 exit "$rc"

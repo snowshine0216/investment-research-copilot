@@ -72,6 +72,11 @@ already surfaced indirectly — the next daily monitor brief degrades the affect
 factors to N/A within ~a day. The watchdog there is purely protective: kill the
 stuck constituent socket and free the `.snapshot.lock`.
 
+`notify-status` is best-effort: a failure of the notifier itself does **not** page
+(it can't — the notifier is the thing that broke) and does **not** change the
+wrapper's exit code, but it is logged as a breadcrumb (`notify-status failed …`) in
+`outputs/_logs/run-monitor.<ts>.log` so a missing page can be traced.
+
 ## Install
 
 > **Before installing:** set `MINIMAX_MODEL` in `.env` to a **fast, non-reasoning
