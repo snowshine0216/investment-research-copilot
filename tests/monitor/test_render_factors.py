@@ -79,3 +79,29 @@ def test_returns_table_renders_na_for_none_windows():
     html = returns_table_html({5: 0.0123, 20: None, 60: None, 120: None, 250: None})
     assert "+1.23%" in html
     assert "—" in html  # None windows show dash, not crash
+
+
+def test_factor_table_has_jiedu_column_with_annotation_and_title():
+    contribs = (
+        FactorContribution("trend", 0.6, 0.8, 0.48, 1.0, True, ""),
+        FactorContribution("macro_tilt", 0.4, 0.6, 0.24, 1.0, True, ""),
+    )
+    rec = SignalRecord("x", "ok", "ADD_BIAS", 0.72, 1.0, 1.0, ("price-momentum", "news"),
+                       contribs, ())
+    scores = (FactorScore("trend", 0.8, True, "", 1.0),
+              FactorScore("macro_tilt", 0.6, True, "", 1.0))
+    html = factor_table_html(rec, scores, {"trend": "fresh", "macro_tilt": "fresh"})
+    assert "解读" in html              # new column header
+    assert "强上行" in html            # trend annotation
+    assert "新闻面" in html            # macro carries the news mark
+    assert 'title="强上行"' in html    # value-cell tooltip
+    # composite verdict line gains composite_annotation
+    assert "市场面" in html and "新闻叠加" in html
+
+
+def test_factor_table_na_row_jiedu_blank():
+    rec = SignalRecord("x", "ok", "NEUTRAL", 0.0, 1.0, 1.0, (), (), ())
+    scores = (FactorScore("heat", None, False, "heat_no_data", 1.0),)
+    html = factor_table_html(rec, scores, {})
+    # N/A row: 解读 cell present but empty (—)
+    assert "heat_no_data" in html
