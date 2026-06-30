@@ -18,6 +18,8 @@ class ForwardRow:
     entry_nav_date: str
     fwd_ret: float
     from_latest_nav: float           # as_of-anchored diagnostic ONLY (look-ahead)
+    market_composite: float | None = None
+    market_bias: str | None = None
 
 
 def _is_iso_date(s) -> bool:
@@ -108,11 +110,14 @@ def score_forward(
         if eo.reason != "ok":
             excl[eo.reason] = excl.get(eo.reason, 0) + 1
             continue
+        mc = r.get("market_composite")
         out.append(ForwardRow(
             run_date=r["run_date"], fund_id=r["fund_id"], as_of_date=r["as_of_date"],
             raw_status=r["raw_status"], raw_composite=float(r["raw_composite"]),
             raw_bias=r.get("raw_bias"),
             entry_nav_date=eo.entry_nav_date, fwd_ret=eo.fwd_ret,
             from_latest_nav=_from_latest_nav(series, r["run_date"], eo.outcome_idx),
+            market_composite=float(mc) if mc is not None else None,
+            market_bias=r.get("market_bias"),
         ))
     return out, excl
