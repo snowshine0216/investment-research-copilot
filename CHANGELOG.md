@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — launchd wrapper watchdog + single-instance lock restored via shared `lib-run.sh` (2026-06-30)
+
+- **New `ops/launchd/lib-run.sh`** defines two pure-bash helpers reused by both
+  surviving wrappers: `acquire_lock <lock_dir>` (atomic `mkdir` lock with
+  stale-holder reclaim + `EXIT`-trap release) and `run_with_watchdog <timeout> <cmd…>`
+  (background under bash job control, poll on the `IRC_WATCHDOG_POLL` cadence using
+  the `$SECONDS` wall-clock builtin, and on overrun kill the whole **process group**
+  TERM→grace→KILL, returning `rc=124`). Restores the watchdog + lock that were lost
+  when `run-daily.sh` was deleted in the single-daily-12:15 schedule rework (#178).
+- **`run-monitor.sh`** now acquires `outputs/_logs/.monitor.lock` (after the
+  once-per-day skip) and runs `irc monitor` under the watchdog
+  (`IRC_MONITOR_TIMEOUT`, default 1800s). A timeout yields `rc=124`, which
+  `notify-status` pages as "timeout". Lock contention is a silent `exit 0`.
+- **`run-fundamentals.sh`** now acquires `outputs/_logs/.snapshot.lock` and runs
+  `irc monitor snapshot` under the watchdog (`IRC_SNAPSHOT_TIMEOUT`, default 3600s).
+  **Protective-only:** a snapshot timeout is logged loudly but does NOT page (no
+  completion sentinel to test; the next daily brief degrades affected factors to N/A).
+- **Process-group kill correction:** `uv run` spawns a Python child, so the old
+  single-PID kill could orphan the worker (continued paid spend + a late
+  `monitor.json` write). The watchdog now signals the negative PID under `set -m`.
+- **Docs:** fixed `ops/launchd/README.md`'s false `outputs/_logs/.run.lock` claim
+  (the lock never existed) and documented both timeouts + the notify asymmetry; one-line
+  pointer added to ADR 0016. Design: `docs/2026-06-30-launchd-watchdog/items/001-spec.md`.
+- **Tests:** new `tests/ops/test_run_lib.py` (library unit tests incl. process-group
+  grandchild-kill + `IRC_WATCHDOG_POLL` fast path); extended
+  `tests/ops/test_launchd_monitor.py` (timeout-kill→notify-124, lock-held→uv-not-called,
+  watchdog-presence on both wrappers); `tests/commands/test_notify_cmd.py` asserts
+  `lib-run.sh` defines both functions.
+
 ### Fixed — monitor completion sentinel: wrapper guard + notifier now key on `monitor.json`, not `report.html` (2026-06-30)
 
 - **`run-monitor.sh`'s once-per-day idempotency guard and `notify-status` success
