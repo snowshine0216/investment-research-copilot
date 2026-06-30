@@ -798,6 +798,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days)
+    _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     predictive_panel = _predictive_panel_model(root, today=_today)
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
     _write_drilldown(out, tuple(views))
