@@ -1,7 +1,10 @@
 from __future__ import annotations
+import json
+import pandas as pd
+from irc.commands import monitor_cmd
 from irc.commands.monitor_cmd import _make_view
 from irc.monitor.types import (
-    MonitorFund, SignalRecord, FactorContribution, NarrativeDoc, FactorScore,
+    MonitorFund, SignalRecord, FactorContribution, NarrativeDoc,
 )
 
 
@@ -31,11 +34,6 @@ def test_make_view_populates_market_view():
     assert view.market_view.news_delta != 0.0
 
 
-import json
-from pathlib import Path
-from irc.commands import monitor_cmd
-
-
 def test_build_bias_timeline_dedups_and_bounds(tmp_path):
     led = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
     led.parent.mkdir(parents=True)
@@ -61,12 +59,8 @@ def test_build_bias_timeline_missing_ledger_empty(tmp_path):
     assert tl.run_dates == () and tl.rows == ()
 
 
-import pandas as pd
-
-
 def test_make_view_populates_purchase_tag():
     """_make_view with a purchase_table containing the fund → purchase_tag set."""
-    import pandas as pd
     fund = _fund()
     table = pd.DataFrame([{"基金代码": "519069", "申购状态": "暂停申购", "日累计限定金额": 1e11}])
     view = _make_view(fund, None, _signal(), (), NarrativeDoc("519069", (), (), (), "ok"), (),

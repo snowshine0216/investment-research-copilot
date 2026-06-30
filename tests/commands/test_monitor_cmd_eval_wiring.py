@@ -184,7 +184,7 @@ def test_ledger_row_carries_market_composite(tmp_path):
     _write_eval_artifacts(out, tmp_path, [fund], [view], [bundle], (gate,),
                           run_date="2026-06-30", trading_days=None)
     ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
-    rows = [json.loads(l) for l in ledger.read_text().splitlines()]
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
     assert len(rows) == 1
     assert rows[0]["market_composite"] == 0.55
     assert rows[0]["market_bias"] == "ADD_BIAS"
@@ -205,6 +205,6 @@ def test_ledger_row_market_composite_none_when_no_market_view(tmp_path):
     _write_eval_artifacts(out, tmp_path, [fund], [view], [bundle], (gate,),
                           run_date="2026-06-30", trading_days=None)
     ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
-    rows = [json.loads(l) for l in ledger.read_text().splitlines()]
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
     assert rows[0]["market_composite"] is None
     assert rows[0]["market_bias"] is None

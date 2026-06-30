@@ -1,6 +1,6 @@
 from __future__ import annotations
 import math
-from irc.monitor.market_composite import MarketCompositeView, market_composite_view
+from irc.monitor.market_composite import market_composite_view
 from irc.monitor.types import FactorContribution, SignalRecord
 
 _BANDS = {"buy": 0.40, "sell": -0.40}

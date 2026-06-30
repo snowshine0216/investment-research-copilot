@@ -1,5 +1,4 @@
 from __future__ import annotations
-import re
 from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.market_composite import MarketCompositeView
 from irc.monitor.render_types import FundView

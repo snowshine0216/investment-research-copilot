@@ -1,14 +1,10 @@
 """Structural invariants for Monitor Report v2 (market-composite anchor + news overlay).
 All five tests are PURE — no I/O, no network."""
 from __future__ import annotations
-import re
 from irc.monitor.render_html import render_report
 from irc.monitor.render_types import FundView, Provenance
-from irc.monitor.types import (
-    MonitorFund, SignalRecord, FactorContribution, NarrativeDoc,
-)
+from irc.monitor.types import SignalRecord, FactorContribution, NarrativeDoc
 from irc.monitor.market_composite import MarketCompositeView
-import dataclasses
 
 _NOW = "2026-06-30T09:00:00+08:00"
 
