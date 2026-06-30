@@ -1,176 +1,179 @@
-# Monitor Report v2 — annotations, charts, robustness, freshness
+# Monitor Report v2 — market composite anchor, news overlay, charts, annotations, freshness
 
-Status: design (approved in brainstorming 2026-06-30)
-Scope: `irc monitor` report + command layer only. **No scoring/engine change.**
+Status: design (grilled 2026-06-30 via grill-with-docs)
+Scope: `irc monitor` report + command + forward-eval ledger. **No scoring/engine-version change** (engine stays 3). Base: current `main` (post #178/#179/#180/#181).
 
-## 1. Problem
+## 1. Problem & reframe
 
-The daily `irc monitor` report (`outputs/<date>/monitor/report.html`) has five gaps surfaced while reading the 2026-06-30 run:
+The original ask (annotations, charts, robustness chip, citations, freshness) was reframed during grilling around one realization: **the report's job is to produce a *reliable, fact-backed number* a reader can act on, not a "fragile" sticker.** A "forever fragile" label is useless for deciding.
 
-1. **Stale predictive panel.** The "Predictive validity" panel reads whatever `monitor_forward` eval artifact already exists and flags it stale past `STALE_EVAL_DAYS` (10). `monitor_cmd` already appends `forward_ledger.jsonl` + `nav_history.jsonl` every run, but **never runs the scorer**, so the artifact ages until someone manually runs `irc eval monitor_forward`. The 2026-06-30 report showed `⚠ stale backtest (2026-06-16)`.
-2. **Thin / low-actionability signals are invisible.** QDII funds produce the only non-neutral bias today, yet they have only 3/6 eligible factors (trend/heat/macro_tilt — valuation/flow/constituent are `profile_ineligible`), are dominated by the most volatile factor (`macro_tilt`, which flipped two funds on a same-day re-fetch — see [[project-monitor-macro-tilt-instability]]), and are purchase-capped (~¥100/day). Nothing in the report communicates this fragility.
-3. **No cross-fund / historical charts.** The report has per-fund NAV sparklines only. There is no cross-fund factor overview, no bias history, no per-fund contribution view.
-4. **Raw citations.** Narrative text prints inline `[ref:16-hex-id]` — unreadable.
-5. **Unannotated scores.** Factor values (`sᵢ ∈ [−1,1]`) and the composite `C` are bare numbers; a reader cannot tell what `flow −0.60` or `valuation +0.29` means without domain knowledge.
+The codebase already has the bones. `signal.py` `_FAMILY_OF` classifies every factor:
 
-## 2. Goals / non-goals
+| family | factors | nature |
+|---|---|---|
+| price-momentum / valuation / capital-flow / crowding | `trend`, `valuation`, `flow`, `heat` | **market data — deterministic, reproducible** |
+| **news** | `macro_tilt`, `constituent` | **LLM-scored — volatile (flips on same-day re-fetch, [[project-monitor-macro-tilt-instability]])** |
 
-**Goals:** make every score self-explaining; surface signal fragility + purchase-restriction; embed cross-fund/historical charts; clean citations; make the predictive panel structurally always-fresh.
+So the reliable number is the **market composite** (the four market-data factors, news excluded & renormalized), and the volatile part is the **news overlay** (macro + constituent). Both terms are now in CONTEXT.md.
 
-**Non-goals (hard):**
-- No change to composite-`C` math, factor weights, gating, or `_ENGINE_VERSION` (stays 3). Robustness/annotations are *render-derived*, never inputs to scoring.
-- No JS, no remote refs, no I/O in the render layer. `render_report` stays PURE (its docstring contract).
-- No new network calls or LLM calls (annotations are rule-based; charts reuse data already in the run).
+**Honest ceiling (must be rendered, never hidden):** the only component with a *measured* forward hit-rate is **trend-only** (the retro evidence-free sub-composite — `backtest.py`: "Trend is the only present factor") at **~0.54 (n≈17,919)** — barely above coin-flip. The market composite (4-factor) is fact-backed but its forward edge is **unmeasured** until it's logged + matures (Component 6). The full composite's forward eval is still `insufficient_data` (engine v1→v3 transition). The report must say this plainly.
 
-## 3. Hard invariants (carried from existing acceptance tests)
+## 2. Non-goals (hard)
 
-- `render_report` and all `render_*` functions: pure, deterministic, byte-stable, no I/O/JS/remote refs.
-- All new I/O (ledger read, scorer invocation, purchase-table threading) lives in `monitor_cmd.py` / the `commands` layer; pure data structures are passed into render.
-- Determinism: annotations and robustness tiers are pure functions of already-computed values. Same trace → same HTML.
-- Files < 200 lines, functions < 20 lines ideal; each new renderer is its own focused module.
-- TDD: a failing test precedes each unit.
+- No change to composite-`C` math, factor weights, gating, `published_state`, or `_ENGINE_VERSION` (stays 3). Market composite / news overlay / annotations are **render-derived**, never scoring inputs.
+- The **full composite `C` stays the canonical published/tracked signal** — header badge, `monitor.json`, `forward_ledger.raw_composite`, the gate, `EVAL_GATED`, the validation panel — all unchanged.
+- `render_report` and every `render_*` stay PURE (no I/O, no JS, no remote refs). All new I/O stays in `monitor_cmd` / the `evals/` runner.
+- No new network or LLM calls (annotations rule-based; charts reuse run data; market composite is render-derived).
 
----
+## 3. Glossary (added to CONTEXT.md during grilling)
 
-## 4. Component 0 — Anti-staleness (Approach A: inline scorer)
-
-`monitor_cmd._write_eval_artifacts` already appends the ledger + nav_history. After that, and before `_predictive_panel_model`, invoke the forward scorer inline:
-
-- New thin edge in `monitor_cmd`: `_run_forward_eval(root, today) -> None` that calls the existing `evals/monitor_forward/runner.py` entry (the same path `irc eval monitor_forward` dispatches to), which writes `outputs/<today>/evals/monitor_forward/report.json` + `details.json`.
-- **Containment:** the scorer's WARN/`insufficient_data` is normal and its non-zero rc MUST NOT change `irc monitor`'s exit code. Wrap in try/except that logs and continues (same posture as the existing ledger/nav_history appends). A scorer failure degrades to the pre-existing "read latest artifact" behaviour — never crashes the run.
-- `_predictive_panel_model` is unchanged; it now reads a same-day artifact, so `_is_stale` is false on every run (manual or scheduled). The stale banner becomes a genuine signal (only fires if the scorer truly couldn't run for ≥10 days), not routine noise.
-
-Note: this does **not** make the forward metrics *mature* — they stay `insufficient_data` until ≥8 engine-3 days accumulate (engine switched v1→v3 on 2026-06-21). It only removes the *artifact-age* staleness. The panel will read `effective_n=0 / WARN` honestly until the engine-3 window matures.
+- **Market composite (市场面综合分)** — render-time composite over `trend`/`valuation`/`flow`/`heat` (news family excluded, weights renormalized). The brief's fact-backed decision anchor; render-derived only. **Distinct** from the trend-only **evidence-free sub-composite / "deterministic core"** (the existing retro/eval term — a *smaller* subset, the one measured at ~0.54).
+- **News overlay (新闻叠加)** — the `macro_tilt`+`constituent` contribution, surfaced as the delta `C − market_composite`. The volatile part.
 
 ---
 
-## 5. Component 1 — Signal robustness + actionability (render-derived)
+## 4. Component 0 — Anti-staleness (inline forward scorer)
 
-Two distinct, pure indicators per fund, no C-math change:
+`monitor_cmd._write_eval_artifacts` already appends `forward_ledger.jsonl` + `nav_history.jsonl` each run but never runs the scorer, so the `monitor_forward` artifact ages until a manual `irc eval monitor_forward` (the 2026-06-30 report showed `⚠ stale backtest (2026-06-16)`).
 
-- **稳健度 / robustness** — signal quality. Inputs: `breadth = (#eligible factor_scores)/6` and `macro_share = macro_tilt.renorm_weight` (its share of available weight, from `signal.contributions`). Tier rule:
-  - `脆弱 / fragile` if `breadth ≤ 0.5` (≤3 factors) **or** `macro_share ≥ 0.30`
-  - `一般 / moderate` if `breadth ≤ 0.84` (≤5 factors) **or** `macro_share ≥ 0.20`
-  - else `稳健 / robust`
-  - (Thresholds live in a small constants block, tunable; values chosen so today's QDII = 脆弱, full-6-factor active = 稳健.)
-- **限购 / actionability** — purchase restriction, reusing the table already fetched for `heat` (`fund_purchase_em` → `申购状态`, `日累计限定金额`). Render a `限购` tag when `parse_purchase_status` is True; when the daily cap `日累计限定金额` is a finite small number, show it (e.g. `限购 ¥100/日`). When unrestricted/unknown, no tag.
+- New thin edge `monitor_cmd._run_forward_eval(root, today)` invokes the `evals/monitor_forward/runner.py` entry (the same path `irc eval monitor_forward` dispatches) after the ledger/nav_history appends, before `_predictive_panel_model`.
+- **Containment:** the scorer's WARN/`insufficient_data` is normal; its non-zero rc MUST NOT change `irc monitor`'s exit code. try/except logs + continues (same posture as the existing appends); a scorer failure degrades to the pre-existing "read latest artifact" path — never crashes the run.
+- `_predictive_panel_model` is unchanged; it now reads a **same-day** artifact ⇒ `_is_stale` false on every run. The stale banner becomes a genuine signal (scorer truly couldn't run for ≥`STALE_EVAL_DAYS`=10), not routine noise.
+- **Sentinel-safe:** the idempotency guard is in `run-monitor.sh` (skips the whole job if today's `monitor.json` exists, #179 fix). The inline eval runs exactly when `irc monitor` runs fully; no hole reintroduced.
+- Does **not** make forward metrics mature faster — they stay `insufficient_data` until ≥8 engine-3 days accrue. It removes only artifact-age staleness.
 
-**New module** `src/irc/monitor/robustness.py` (pure):
-```
-@dataclass(frozen=True)
-class RobustnessView:
-    tier: str            # "robust" | "moderate" | "fragile"
-    breadth: float       # eligible/6
-    macro_share: float
-    restricted: bool | None
-    daily_cap_cny: float | None   # 日累计限定金额 when restricted & finite
+## 5. Component 1 — Market composite anchor + news overlay (render-derived)
 
-def robustness_view(factor_scores, contributions, *, restricted, daily_cap) -> RobustnessView
-```
-**Assembly:** `monitor_cmd` (has the purchase table) builds one per fund and attaches it to `FundView` (new optional field `robustness: RobustnessView | None = None`).
-**Render:** two chips after the bias badge in the card `<h2>` and the verdict block, plus a `稳健度` column in the summary table. Chips are explanatory only — they never gate, never alter `C`. For today's QDII `ADD_BIAS` the card reads `偏多 · 稳健度 脆弱 · 限购 ¥100/日`.
+The reframed centerpiece. Per fund, **purely from `signal.contributions`** (no engine change):
 
----
+- **Market composite** = renormalize the contributions of the non-news factors (`trend`,`valuation`,`flow`,`heat`) to sum-of-weights 1 and sum `Σ w'·value`; map to bias via the **same `fund.bands`** (`_bias`) the full signal uses → a `market_bias`.
+- **News overlay delta** = `C − market_composite`.
+- New pure module `src/irc/monitor/market_composite.py`:
+  ```
+  @dataclass(frozen=True)
+  class MarketCompositeView:
+      composite: float      # renormalized market-only composite
+      bias: str             # _bias(composite, fund.bands)
+      news_delta: float     # C - composite
+      eligible_market_factors: int   # for the displayed explanation
+  def market_composite_view(signal, *, bands) -> MarketCompositeView | None  # None iff no market factors present
+  ```
+  Reuse `_FAMILY_OF` from `signal.py` so the market/news split has one source of truth (shared with `backtest.py`).
+
+**Presentation (Q7):**
+- **Header badge stays `published_state`** (full, gated) — gating/eval continuity intact.
+- **Decision line** directly beneath, e.g.:
+  `市场面 决策锚: NEUTRAL (+0.24) · 新闻叠加 +0.20 (易变) · 限购 ¥100/日`
+- **Honesty line**, precise (0.54 is trend-only, not the market composite):
+  `市场面综合分 前瞻验证累积中 · 目前仅趋势单因子有历史命中 ~0.54`
+- Reading order per card: gated published lean → fact-backed market anchor → how much volatile news pushes it → tradability → honest "anchor track-record accruing".
+
+This **replaces** the original "robustness tier." There is no `robust/moderate/fragile` enum; reliability is the concrete market-vs-news split a reader can see.
 
 ## 6. Component 2 — Per-score annotations (render-derived, pure)
 
-Every factor score and the composite gets a deterministic plain-language gloss. **New module** `src/irc/monitor/annotate.py` (pure), keyed per factor (sign conventions from `factor_maps.py`):
+New pure module `src/irc/monitor/annotate.py` (sign conventions from `factor_maps.py`):
 
-| factor | rule | example phrases |
+| factor | rule | phrases |
 |---|---|---|
-| `trend` | band on value | 强上行 / 上行 / 横盘 / 下行 / 强下行 |
+| `trend` | value band | 强上行 / 上行 / 横盘 / 下行 / 强下行 |
 | `valuation` | from value (cheap=+1…very_expensive=−1) | 便宜 / 中性偏低 / 估值中性 / 偏贵 / 很贵 |
-| `flow` | from flow band score | 强净流入 / 净流入 / 均衡 / 净流出 / 强净流出 |
+| `flow` | flow-band score | 强净流入 / 净流入 / 均衡 / 净流出 / 强净流出 |
 | `heat` | asymmetric (calm caps +0.3, overheated −1.0) | 低拥挤·平静 / 偏拥挤 / 过热 |
-| `macro_tilt` | band on value, **always** append volatility caveat | 新闻面偏多 / 中性 / 偏空 · 「宏观因子波动大」 |
-| `constituent` | band on value | 成分质量高 / 中等 / 偏弱 |
+| `macro_tilt` | value band, **always append** `·新闻面·易变` (it's news overlay) | 新闻面偏多 / 中性 / 偏空 |
+| `constituent` | value band, **mark `·新闻面`** | 成分质量高 / 中等 / 偏弱 |
 
 ```
-def factor_annotation(name: str, value: float | None, *, state: str | None = None) -> str   # "" when N/A
-def composite_annotation(signal) -> str   # names the top ±2 contributing factors, e.g. "由 宏观/成分 抬升、资金流 拖累"
+def factor_annotation(name, value, *, state=None) -> str   # "" when N/A
+def composite_annotation(signal) -> str   # names market vs news drivers, e.g. "市场面中性，新闻叠加偏多"
 ```
-**Render:** add a `解读` column to the factor table (`render_factors.py`) carrying `factor_annotation`, and a `title` tooltip on the value cell with the same text. The composite verdict line (`render_cards._ok_clause`) gains `composite_annotation(signal)` so `C` says *which* factors drove it. N/A factors get an empty annotation (status column already explains the N/A reason).
-
----
+Render: a `解读` column in the factor table + a `title` tooltip on the value cell. The two **news** factors carry the `·新闻面` mark so a reader sees which annotations belong to the volatile overlay. The composite verdict gains `composite_annotation`.
 
 ## 7. Component 3 — Three charts (pure inline-SVG / styled HTML, no JS)
 
-- **(a) Cross-fund factor heatmap** — `src/irc/monitor/render_heatmap.py::factor_heatmap_html(views)`. A styled HTML table: rows = funds (ordered by composite desc), cols = 6 factors + composite `C`; cell background a diverging fill, intensity ∝ |value|, `—` cells neutral. **Color follows the report's existing badge convention** (`.add_bias` green `#1a7f37` = 偏多 for positive, `.reduce_bias` red `#cf222e` = 偏空 for negative) — do not introduce a new palette or invert it; a one-line legend states 正=偏多/负=偏空 to defuse the CN red=涨 ambiguity. Each cell carries a `title` with `factor_annotation`. Inserted after the summary table. No new data.
-- **(b) Bias-history timeline** — `monitor_cmd` reads `data/monitor/forward_ledger.jsonl`, dedups one row per `(fund_id, run_date)` (prefer current engine, else latest `written_at`), tags engine, and builds a frozen `BiasTimeline` passed into `src/irc/monitor/render_timeline.py::bias_timeline_html(timeline)` — a colored HTML grid (rows=funds, cols=dates) with the v1→v3 engine boundary marked. This is the **only** new data-read; it lives in the command layer, render stays pure. Bounded to the last N (≈20) run-dates.
-- **(c) Per-fund contribution bars** — `src/irc/monitor/render_contrib.py::contribution_bars_svg(contributions)`. A compact inline-SVG horizontal diverging bar per factor (value × renorm-weight = contribution), rendered inside each card next to the factor table. Pure, byte-stable, geometry rounded (mirrors `svg_chart.py` style).
-
----
+- **(a) Cross-fund heatmap** `render_heatmap.py::factor_heatmap_html(views)`. Rows=funds (by `C` desc); columns **grouped: market block (trend/valuation/flow/heat) | news block (macro/constituent) | 市场面C | 完整C**. Diverging fill **using the report's existing badge convention** (`.add_bias` green `#1a7f37`=偏多 positive, `.reduce_bias` red `#cf222e`=偏空 negative — no new/ inverted palette), intensity ∝ |value|, `—` neutral; one-line legend `正=偏多/负=偏空`. Cell `title` = `factor_annotation`. After the summary table.
+- **(b) Bias-history timeline** `render_timeline.py::bias_timeline_html(timeline)`. `monitor_cmd` reads `forward_ledger.jsonl`, dedups one row per `(fund_id, run_date)` (prefer current engine, else latest `written_at`), tags engine, builds a frozen `BiasTimeline` (bounded ~20 run-dates), passes it in. Colored HTML grid; v1→v3 engine boundary marked. Only new render-data read; lives in command layer.
+- **(c) Per-fund contribution bars** `render_contrib.py::contribution_bars_svg(contributions)`. Compact inline-SVG diverging bar per factor inside each card; **market factors vs news factors visually distinguished** (e.g. news bars hatched/muted) so the overlay is obvious. Byte-stable, geometry rounded.
 
 ## 8. Component 4 — Citation UX (numbered + source on hover)
 
-Build a `CitationIndex` once, in `render_html`, from the views in first-seen order (== evidence-appendix order):
-```
-@dataclass(frozen=True)
-class CitationIndex:
-    number: dict[str, int]                 # cid -> 1-based N
-    meta: dict[str, tuple[str, str]]       # cid -> (source, title)
-```
-Thread it into `render_cards._claim_html`, replacing `[ref:cid]` with
-`<sup><a href="#ev-{cid}" title="{source} — {title}">{N}</a></sup>`.
-The evidence `<li id="ev-{cid}">` gains a leading `N.` so superscript ↔ appendix line up. Native `title` = source-on-hover, zero JS. Citation-ID format (`[ref:16-hex]`) is unchanged in the data model — this is render-only.
+`render_html` builds a `CitationIndex` (cid → 1-based N + (source,title), first-seen = appendix order) and threads it into `render_cards._claim_html`, replacing `[ref:cid]` with `<sup><a href="#ev-{cid}" title="{source} — {title}">{N}</a></sup>`. Evidence `<li id="ev-{cid}">` gains a leading `N.`. Native `title` tooltip, zero JS. Data-model `[ref:16-hex]` unchanged (render-only).
 
----
+## 9. Component 5 — 限购 / actionability tag (separate axis)
 
-## 9. Data flow summary
+Reuse the purchase table already fetched for `heat` (`fund_purchase_em` → `申购状态`, `日累计限定金额`; restricted iff `parse_purchase_status` True, i.e. status ∉ {开放申购} or cap < `_RESTRICTION_CAP_THRESHOLD`=1e8). Render a `限购 ¥{cap}/日` tag (or `限购` when only status-restricted) on restricted funds, in the decision line. **Orthogonal to the market/news split** — it answers "can you act?", not "how reliable?". No tag when open/unknown.
+
+## 10. Component 6 — Log + score the market composite (the lynchpin)
+
+The market composite is the decision anchor, so its forward edge must be *measured*, not assumed. It's logged by nothing today.
+
+- **Ledger (additive, back-compat):** `forward_log.ledger_row` adds `market_composite: float | None` (and `market_bias`) to each `forward_ledger.jsonl` row. Additive field; existing readers (`latest_per_key`) unaffected; rerun dedup unchanged.
+- **Forward scorer:** `forward_score.py` adds a `market_composite_directional` population (matured rows, sign of `market_composite`), parallel to `raw_composite_directional` — same maturity join / zero-return exclusion / block bootstrap.
+- **Panel:** `predictive_validity_panel_html` renders the new row (it will read `insufficient_data` until engine-3 days mature — shown honestly, like the others).
+- This is the only path that turns the anchor from "fact-backed but unproven" into "proven," exactly as trend-only earned its 0.54. Component 0 keeps the eval fresh so it accrues from day one.
+
+## 11. Data flow
 
 ```
-monitor_cmd (EDGE / I/O):
-  fetch purchase table (already done for heat)
-  build views + signals (unchanged scoring)
-  _write_eval_artifacts: append forward_ledger + nav_history   (unchanged)
-  Component 0: _run_forward_eval(root, today)  -> writes fresh artifact (contained)
-  build RobustnessView per fund (Comp 1), attach to FundView
+monitor_cmd (EDGE):
+  fetch purchase table (already, for heat)
+  build views + signals (unchanged scoring; full C is canonical)
+  market_composite_view per fund (Comp 1, from signal.contributions)
+  _write_eval_artifacts: append ledger (+ market_composite, Comp 6) + nav_history
+  Component 0: _run_forward_eval(root, today)  -> fresh artifact (contained; scores market_composite_directional, Comp 6)
   read forward_ledger -> BiasTimeline (Comp 3b)
-  _predictive_panel_model  -> reads fresh artifact (now same-day)
-  render_report(views, ..., timeline=, citation built inside)
+  _predictive_panel_model  -> fresh same-day artifact (+ market row)
+  render_report(views, market_views, timeline, predictive_panel)
 
 render_report (PURE):
   CitationIndex (Comp 4)
   header + outage + explainer
-  summary (+ 稳健度 col, Comp 1)
-  factor_heatmap_html (Comp 3a)
-  bias_timeline_html (Comp 3b)
-  per fund card: verdict(+composite_annotation) + nav chart
-                 + contribution_bars_svg (Comp 3c)
-                 + factor table (+解读 col, Comp 2)
-                 + drilldown + narrative (numbered citations, Comp 4)
-                 + robustness chips (Comp 1)
-  validation panel + predictive panel + evidence appendix (numbered)
+  summary (+ 市场面 col)
+  factor_heatmap (market|news|市场面C|完整C, Comp 3a)
+  bias_timeline (Comp 3b)
+  per fund card:
+    header badge = published_state (unchanged)
+    decision line: market_bias + composite + news_delta + 限购 + honesty (Comp 1/5)
+    nav chart + contribution bars (market vs news, Comp 3c)
+    factor table (+解读 col w/ 新闻面 marks, Comp 2)
+    drilldown + narrative (numbered citations, Comp 4)
+  validation panel + predictive panel (+ market row, Comp 6) + evidence appendix (numbered)
 ```
 
-## 10. Testing (TDD, all unit/pure unless noted)
+## 12. Testing (TDD)
 
-- `annotate.py`: truth-table tests per factor (band edges, N/A → "", heat asymmetry, macro caveat always appended).
-- `robustness.py`: tier truth table (QDII 3-factor+macro→fragile; 6-factor active→robust; restriction tag + cap formatting).
-- `render_heatmap.py` / `render_timeline.py` / `render_contrib.py`: golden-HTML/SVG asserts; byte-stability; dark `—`/empty handling.
-- `render_cards`/`render_html` citations: superscript N ↔ appendix N alignment; `title` carries source; no raw `[ref:` left in narrative output.
-- Component 0: test that after a monitor run the predictive panel's `artifact_date == today` and `stale is False`; test that a scorer exception does not change monitor exit code (containment).
-- Preserve existing invariants: keep/extend the acceptance tests asserting the report has no `<script>`, no remote refs; `_ENGINE_VERSION` unchanged; `基金概况` still absent.
-- Signature-change discipline: `FundView` gains a field and `render_report` gains a param → run every test dir exercising them (`tests/monitor/`, `tests/commands/`), per [[feedback-test-scope-signature-changes]]. Run `tests/commands/` per-file (whole-dir hangs).
+- `market_composite.py`: renorm math truth table (QDII trend+heat only; full active 4-factor; news-delta = C − market; bands applied; None when no market factor present); cross-check against `signal.compute_signal` renorm conventions.
+- `annotate.py`: per-factor band truth tables, heat asymmetry, the `·新闻面·易变` mark always on macro/constituent, N/A → "".
+- `render_heatmap/timeline/contrib`: golden HTML/SVG, byte-stability, market/news grouping, dark `—` handling, engine-boundary marker.
+- citations: superscript N ↔ appendix N alignment; `title` carries source; no raw `[ref:` left in narrative.
+- Component 0: post-run `artifact_date == today` & `stale is False`; scorer exception doesn't change monitor exit code.
+- Component 6: ledger row carries `market_composite`; `market_composite_directional` present in report.json; additive-field back-compat (old rows w/o the field don't crash the scorer).
+- Invariants preserved: report has no `<script>`/remote refs; `_ENGINE_VERSION` unchanged; `published_state`/gate/full-`C` unchanged; `基金概况` absent.
+- Signature-change discipline ([[feedback-test-scope-signature-changes]]): `FundView`/`render_report` gain params, `ledger_row`/`forward_score` change → run `tests/monitor/` **and** `tests/commands/` (per-file; whole-dir hangs) **and** `evals/monitor_forward/` tests.
 
-## 11. Phasing (single PR, landed together)
+## 13. Phasing (single PR, off current main)
 
-1. **Phase 1 — correctness + citations:** Component 0 (anti-staleness) + Component 4 (citations). Fastest correctness + readability win.
-2. **Phase 2 — annotations + heatmap:** Component 2 + Component 3a.
-3. **Phase 3 — robustness + contribution bars:** Component 1 + Component 3c.
-4. **Phase 4 — bias timeline:** Component 3b.
+1. **Anti-staleness + citations** (Comp 0 + 4) — correctness + readability.
+2. **Market composite + news overlay + presentation + annotations** (Comp 1 + 2) — the reframe core.
+3. **Charts** (Comp 3a/b/c).
+4. **Log + score market composite** (Comp 6) — ledger + forward scorer + panel.
+5. **限购 tag** (Comp 5).
 
-Each phase is independently testable and committed atomically; all four merge in one PR via `/ship`.
+Each phase TDD'd + committed atomically; all merge in one PR via `/ship`.
 
-## 12. Risks / open items
+## 14. ADR
 
-- **Report width.** Adding a `解读` column + `稳健度` column + heatmap + timeline grows the page. Mitigate with compact phrasing (≤6 chars) and muted styling; keep tables ≤ existing max-width.
-- **Robustness thresholds are judgment calls.** Put them in a constants block with a comment tying each to an observed case; revisit if they mislabel funds.
-- **Timeline ledger growth.** Bound to last ~20 run-dates; dedup is pure.
-- **Annotation vocabulary** finalized against `factor_maps.py` during implementation (sign conventions already verified: valuation cheap=+1, heat calm caps +0.3).
+A monitor ADR is warranted (hard-to-reverse + surprising + real trade-off): *"the report's decision anchor is the market composite (news-excluded), the full composite remains the published/tracked signal, and the market composite is logged + forward-scored to earn its own track record."* Alternatives rejected: making the market composite the published signal (re-baselines ledger/eval), an engine change to down-weight news (engine bump + re-baseline), or a render-only "robustness" sticker (no decision value). → `docs/adr/0021-monitor-market-composite-decision-anchor.md`.
 
-## 13. Out of scope (possible follow-ups)
+## 15. Risks / open items
 
-- Changing scoring to damp thin/macro-dominated biases (the "change the scoring" option was declined in favour of the render-derived robustness field).
-- Per-constituent daily news (existing v2.1 open item).
-- Making the forward metrics mature faster (purely a function of engine-3 day accumulation).
+- **Report width** — decision line + 解读 col + heatmap + timeline grow the page; compact phrasing (≤6 chars), muted styling, tables ≤ existing max-width.
+- **Market composite vs retro core confusion** — mitigated by distinct CONTEXT.md terms + the rendered honesty line naming trend-only explicitly.
+- **Delayed payoff** — market-composite forward row reads `insufficient_data` for weeks (engine transition); honest by design.
+- **Ledger contract** — `market_composite` is additive; document in ADR 0017 §"Monitor-eval data contracts" alongside the existing row fields.
+
+## 16. Out of scope
+
+- Changing scoring to down-weight news / make market composite the published signal (engine change — declined).
+- Per-constituent daily news (existing v2.1 item).
+- Faster forward maturation (purely a function of engine-3 day accrual).
