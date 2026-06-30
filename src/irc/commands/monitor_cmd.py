@@ -555,6 +555,8 @@ def _write_eval_artifacts(
                 nav_unit=view.latest_nav, as_of_date=view.as_of_date,
                 published_state=published_state(view.signal, gate), gate=gate,
                 manifest_versions={"engine": _ENGINE_VERSION},
+                market_composite=(view.market_view.composite if view.market_view else None),
+                market_bias=(view.market_view.bias if view.market_view else None),
             )
             for fund, view, gate in zip(funds, views, gates)
         ]
