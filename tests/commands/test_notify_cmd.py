@@ -300,11 +300,18 @@ def test_all_shell_scripts_pass_bash_syntax_check():
 
 
 def test_wrapper_scripts_contain_uv_bin_placeholder():
-    """P0-2: checked-in wrappers must use __UV_BIN__ placeholder (machine-agnostic)."""
-    for name in ("run-daily.sh", "run-weekly-full.sh"):
+    """P0-2: checked-in wrappers must use the __UV_BIN__ placeholder and invoke uv
+    via "$UV_BIN" (machine-agnostic), never a bare `uv run` from PATH."""
+    for name in ("run-monitor.sh", "run-fundamentals.sh"):
         text = (_OPS / name).read_text(encoding="utf-8")
         assert "__UV_BIN__" in text, f"{name} missing __UV_BIN__ placeholder"
-        assert 'uv run' not in text, f"{name} must not call 'uv run' directly"
+        # Strip comments first: a doc line may *mention* `uv run` (e.g. the
+        # provenance-xattr note) without the wrapper actually calling it.
+        code = "\n".join(
+            ln for ln in text.splitlines() if not ln.lstrip().startswith("#")
+        )
+        assert "uv run" not in code, f"{name} must not call 'uv run' directly"
+        assert '"$UV_BIN" run' in code, f'{name} must invoke uv via "$UV_BIN"'
 
 
 def test_install_sh_aborts_if_uv_absent():
@@ -314,13 +321,12 @@ def test_install_sh_aborts_if_uv_absent():
     assert "exit 1" in text, "install.sh must exit 1 when uv is absent"
 
 
-def test_wrapper_scripts_contain_watchdog_timeout():
-    """P0-3: wrappers must implement the portable background watchdog (IRC_RUN_TIMEOUT)."""
-    for name in ("run-daily.sh", "run-weekly-full.sh"):
-        text = (_OPS / name).read_text(encoding="utf-8")
-        assert "IRC_RUN_TIMEOUT" in text, f"{name} missing IRC_RUN_TIMEOUT"
-        assert "124" in text, f"{name} missing rc=124 for watchdog kill"
-        assert "kill -TERM" in text, f"{name} missing kill -TERM"
+# NOTE: the P0-3 background-watchdog test (IRC_RUN_TIMEOUT / kill -TERM / rc=124)
+# was removed with the `run-daily.sh` / `run-weekly-full.sh` wrappers in the
+# single-daily-12:15 schedule rework. The surviving wrappers (`run-monitor.sh`,
+# `run-fundamentals.sh`) run bounded jobs (a daily brief / a snapshot refresh),
+# not the open-ended `irc run` pipeline the watchdog guarded, and neither
+# implements a timeout. notify-status still maps exit 124 → "timeout" defensively.
 
 
 # ---- P1-2: holiday grep anchor ----
@@ -328,7 +334,7 @@ def test_wrapper_scripts_contain_watchdog_timeout():
 def test_holiday_grep_anchored_regex_does_not_match_comment():
     """P1-2: the anchored regex must NOT match a date that appears inside a comment."""
     today = "2026-10-01"
-    # Python equivalent of the POSIX ERE used in run-daily.sh:
+    # Python equivalent of the POSIX ERE used in run-monitor.sh:
     #   ^[-[:space:]]*[\"']?${TODAY}[\"']?[[:space:]]*$
     py_pattern = r"^[-\s]*[\"']?" + re.escape(today) + r"[\"']?\s*$"
 
@@ -344,10 +350,11 @@ def test_holiday_grep_anchored_regex_does_not_match_comment():
     assert re.match(py_pattern, "  2026-10-01  "), "must match padded entry"
 
 
-def test_run_daily_sh_uses_anchored_grep():
-    """P1-2: run-daily.sh must use the anchored -Eq grep pattern, not bare grep -q."""
-    text = (_OPS / "run-daily.sh").read_text(encoding="utf-8")
-    assert "grep -Eq" in text, "run-daily.sh must use grep -Eq for anchored holiday match"
+def test_run_monitor_sh_uses_anchored_grep():
+    """P1-2: run-monitor.sh (the surviving holiday-gated wrapper) must use the
+    anchored -Eq grep pattern, not bare grep -q."""
+    text = (_OPS / "run-monitor.sh").read_text(encoding="utf-8")
+    assert "grep -Eq" in text, "run-monitor.sh must use grep -Eq for anchored holiday match"
     assert 'grep -q "$TODAY"' not in text, (
-        "run-daily.sh must not use unanchored grep -q for holiday check"
+        "run-monitor.sh must not use unanchored grep -q for holiday check"
     )
