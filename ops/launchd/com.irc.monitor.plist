@@ -11,21 +11,14 @@
   </array>
   <key>WorkingDirectory</key>
   <string>__REPO_ROOT__</string>
-  <!-- Mon–Fri 09:00 primary + 13:00 retry (Asia/Shanghai). 13:00 fires only if the
-       09:00 run left no report.html (retry-only idempotency guard in wrapper). -->
+  <!-- Daily 12:15 (Asia/Shanghai; machine is UTC+8). Fires every calendar day; the
+       wrapper's trading-day gate still skips weekends + CN holidays, and a
+       once-per-day idempotency guard skips if today's report.html already exists. -->
   <key>StartCalendarInterval</key>
-  <array>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>9</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>1</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>2</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>3</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>4</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-    <dict><key>Weekday</key><integer>5</integer><key>Hour</key><integer>13</integer><key>Minute</key><integer>0</integer></dict>
-  </array>
+  <dict>
+    <key>Hour</key><integer>12</integer>
+    <key>Minute</key><integer>15</integer>
+  </dict>
   <key>RunAtLoad</key>
   <false/>
   <!-- launchd must NOT own a persistent log file: once `irc` writes to it the file
