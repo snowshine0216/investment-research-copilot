@@ -18,9 +18,18 @@ _BIAS_GLOSS = {
 }
 
 
-def _claim_html(claim: Claim) -> str:
+def _sup(cid: str, idx) -> str:
+    """One numbered superscript anchor; '' when the cid isn't in the index."""
+    n = idx.number(cid)
+    if n is None:
+        return ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}")
+    return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+
+
+def _claim_html(claim: Claim, idx) -> str:
     text = escape(claim.claim)
-    refs = "".join(f"[ref:{cid}]" for cid in claim.citation_ids)
+    refs = "".join(_sup(cid, idx) for cid in claim.citation_ids)
     return f"<p>{text} {refs}</p>"
 
 
@@ -46,24 +55,24 @@ def _gate_clause(rec: SignalRecord) -> str:
     )
 
 
-def _comment(narr: NarrativeDoc) -> str:
+def _comment(narr: NarrativeDoc, idx) -> str:
     if narr.status != "ok":
         return f'<p class="narr-degraded">narrative unavailable: {escape(narr.status)}</p>'
     lead = narr.signal_rationale_commentary[:1]
-    return "".join(f'<blockquote>{_claim_html(c)}</blockquote>' for c in lead)
+    return "".join(f'<blockquote>{_claim_html(c, idx)}</blockquote>' for c in lead)
 
 
-def verdict_block_html(rec: SignalRecord, narr: NarrativeDoc) -> str:
+def verdict_block_html(rec: SignalRecord, narr: NarrativeDoc, idx) -> str:
     """PURE: deterministic verdict clause + capped MiniMax comment."""
     clause = _ok_clause(rec) if rec.status == "ok" else _gate_clause(rec)
-    return f'<div class="verdict"><p class="verdict-clause">{clause}</p>{_comment(narr)}</div>'
+    return f'<div class="verdict"><p class="verdict-clause">{clause}</p>{_comment(narr, idx)}</div>'
 
 
-def risk_block_html(rec: SignalRecord, narr: NarrativeDoc) -> str:
+def risk_block_html(rec: SignalRecord, narr: NarrativeDoc, idx) -> str:
     """PURE: divergence caveats + MiniMax risk claims; muted placeholder if empty."""
     caveats = [f"<li>{divergence_caveat(code)}</li>" for code in rec.divergence_codes]
     risk_claims = (
-        [_claim_html(c) for c in narr.risk_commentary] if narr.status == "ok" else []
+        [_claim_html(c, idx) for c in narr.risk_commentary] if narr.status == "ok" else []
     )
     if not caveats and not risk_claims:
         return '<div class="risk"><p class="muted">无显著风险信号</p></div>'
@@ -74,11 +83,11 @@ def risk_block_html(rec: SignalRecord, narr: NarrativeDoc) -> str:
     )
 
 
-def narrative_sections_html(narr: NarrativeDoc) -> str:
+def narrative_sections_html(narr: NarrativeDoc, idx) -> str:
     """PURE: only price_action_commentary in its own section (signal→verdict, risk→risk)."""
     if narr.status != "ok":
         return ""
     if not narr.price_action_commentary:
         return ""
-    body = "".join(_claim_html(c) for c in narr.price_action_commentary)
+    body = "".join(_claim_html(c, idx) for c in narr.price_action_commentary)
     return f'<div class="price-action"><h3>价格走势 / Price action</h3>{body}</div>'
