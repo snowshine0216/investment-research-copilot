@@ -2238,18 +2238,21 @@ In `build_metric_reports`, after building `r_comp`/`r_bias`, add the market popu
         d_mkt["excluded"] = {**d_mkt.get("excluded", {}), **market_excl}
 ```
 
-Add `r_mkt` to the returned report list and `d_mkt` to details (keep ordering: market row after the two existing hit-rate rows, before rank_ic, OR after rank_ic — choose after `publishable_bias_directional` for reading order):
+Add `market_composite_directional` to `details` only (NOT to the returned `[reports]` list). The panel layout must stay stable for legacy runs that have no market_composite rows — so this key is omitted entirely when no rows carry the field:
+
 ```python
-    details = {
-        "raw_composite_directional": d_comp,
-        "publishable_bias_directional": d_bias,
-        "market_composite_directional": d_mkt,
-        "rank_ic": d_ic,
-    }
-    return [r_comp, r_bias, r_mkt, r_ic], details
+    # Additive market_composite_directional (Comp 4c): omitted when no rows carry the field
+    mc_rows = _market_composite_rows(forward_rows)
+    if mc_rows:
+        _, d_mc = _hit_rate_report("market_composite_directional", mc_rows,
+                                   seed=seed + 30, momentum_by_key=mbk)
+        details["market_composite_directional"] = d_mc
+    return [r_comp, r_bias, r_ic], details
 ```
 
-> CRITICAL non-goal guard: this is an ADDITIVE row. Do NOT change the existing `raw_composite_directional`/`publishable_bias_directional`/`rank_ic`/`engine_population` rows or their details. The runner's `engine_population` headline trigger still keys on `publishable_bias_directional` — unchanged.
+> **AS-BUILT AMENDMENT (drift reconciliation 2026-06-30):** The original plan added `r_mkt` as a 4th MetricReport in the return list. The implementation places `market_composite_directional` in `details` only (not the report list), conditional on at least one non-None market_composite row. This keeps the panel layout stable for legacy runs (3 reports, no breakage) while still surfacing the market directional data for display. Test `test_market_composite_directional_report_count` asserts `len(reports) == 3`.
+
+> CRITICAL non-goal guard: this is an ADDITIVE entry. Do NOT change the existing `raw_composite_directional`/`publishable_bias_directional`/`rank_ic`/`engine_population` rows or their details. The runner's `engine_population` headline trigger still keys on `publishable_bias_directional` — unchanged.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -2379,95 +2382,59 @@ git commit -m "feat(monitor): log market_composite to forward ledger + panel row
 - Modify: `src/irc/monitor/heat_fetch.py` (add `purchase_tag_for` pure helper) — OR put it in `monitor_cmd`. Spec §9 says "reuse the purchase table already fetched for heat". Put the pure cap/status → tag logic in `heat_fetch.py` (its home) and call it at the edge.
 - Test: `tests/monitor/test_heat_fetch.py` (or create `tests/monitor/test_heat_fetch_tag.py`)
 
-- [ ] **Step 1: Write the failing test (restricted-with-cap → ¥cap/日; status-only → 限购; open/unknown → None)**
+- [ ] **Step 1: Write the failing test**
 
-Create `tests/monitor/test_heat_fetch_tag.py`:
+> **AS-BUILT AMENDMENT (drift reconciliation 2026-06-30):** The as-built `purchase_tag_for` API differs from the original plan. The implementation simplified the return values to a three-way: `"限购"` for any restricted status (no per-cap ¥amount formatting), `"可申购"` for confirmed open status, and `None` for unknown/no-table. Tests were added to the existing `tests/monitor/test_heat_fetch.py` (not a separate `test_heat_fetch_tag.py` file), and purchase-tag wiring tests landed in `tests/commands/test_monitor_cmd_market_composite.py`. The rationale: the ¥cap format added complexity with limited decision value (the key question is "can you buy?" not "exactly how much?"). All callers of `purchase_tag_for` are updated accordingly.
+
+Append to `tests/monitor/test_heat_fetch.py`:
 
 ```python
-from __future__ import annotations
-import pandas as pd
-from irc.monitor.heat_fetch import purchase_tag_for
+def test_purchase_tag_for_open():
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "519069", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) == "可申购"
 
 
-def _table(code, status, cap):
-    return pd.DataFrame({"基金代码": [code], "申购状态": [status], "日累计限定金额": [cap]})
+def test_purchase_tag_for_restricted_by_status():
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "519069", "申购状态": "暂停申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) == "限购"
 
 
-def test_open_fund_no_tag():
-    t = _table("519069", "开放申购", 2e8)
-    assert purchase_tag_for("519069", purchase_table=t) is None
-
-
-def test_cap_restricted_shows_amount():
-    t = _table("519069", "开放申购", 100.0)  # cap below 1e8 → restricted
-    assert purchase_tag_for("519069", purchase_table=t) == "限购 ¥100/日"
-
-
-def test_status_only_restricted_generic_tag():
-    t = _table("519069", "暂停申购", float("nan"))  # status restricted, no usable cap
-    assert purchase_tag_for("519069", purchase_table=t) == "限购"
-
-
-def test_unknown_fund_no_tag():
-    t = _table("000001", "开放申购", 2e8)
-    assert purchase_tag_for("519069", purchase_table=t) is None
-
-
-def test_none_table_no_tag():
+def test_purchase_tag_for_none_table():
+    from irc.monitor.heat_fetch import purchase_tag_for
     assert purchase_tag_for("519069", purchase_table=None) is None
+
+
+def test_purchase_tag_for_fund_absent():
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "999999", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) is None
 ```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-Run: `uv run pytest tests/monitor/test_heat_fetch_tag.py -v`
-Expected: FAIL — `ImportError: cannot import name 'purchase_tag_for'`.
 
 - [ ] **Step 3: Write minimal implementation**
 
-In `src/irc/monitor/heat_fetch.py`, add a pure helper that reuses `parse_purchase_status` for the restricted decision and reads the cap for the amount:
+In `src/irc/monitor/heat_fetch.py`, add the simplified helper:
 
 ```python
-def _cap_value(table: pd.DataFrame, fund_id: str) -> float | None:
-    """Pure: the numeric cap for fund_id when present and < threshold, else None."""
-    row = _row_for(table, fund_id)
-    if row is None or _CAP_COL not in row.index:
+def purchase_tag_for(fund_id: str, *, purchase_table: pd.DataFrame | None) -> str | None:
+    """PURE: '可申购' | '限购' | None.
+    None means data unavailable — never a fabricated tag."""
+    status = parse_purchase_status(purchase_table, fund_id)
+    if status is None:
         return None
-    try:
-        cap = float(row[_CAP_COL])
-    except (TypeError, ValueError):
-        return None
-    if pd.isna(cap) or cap >= _RESTRICTION_CAP_THRESHOLD:
-        return None
-    return cap
-
-
-def _fmt_cap(cap: float) -> str:
-    """Compact cap rendering: drop a trailing .0 (¥100/日, not ¥100.0/日)."""
-    return f"{int(cap)}" if cap == int(cap) else f"{cap:g}"
-
-
-def purchase_tag_for(fund_id: str, *, purchase_table) -> str | None:
-    """PURE Comp 5: restricted-fund actionability tag — '限购 ¥{cap}/日' when a
-    sub-threshold cap is known, '限购' when only status-restricted, None when open
-    or unknown. Orthogonal to the market/news split (answers 'can you act?')."""
-    restricted = parse_purchase_status(purchase_table, fund_id)
-    if not restricted:
-        return None
-    if not isinstance(purchase_table, pd.DataFrame):
-        return "限购"
-    cap = _cap_value(purchase_table, fund_id)
-    return f"限购 ¥{_fmt_cap(cap)}/日" if cap is not None else "限购"
+    return "限购" if status else "可申购"
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `uv run pytest tests/monitor/test_heat_fetch_tag.py -v`
+Run: `uv run pytest tests/monitor/test_heat_fetch.py -v`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/irc/monitor/heat_fetch.py tests/monitor/test_heat_fetch_tag.py
+git add src/irc/monitor/heat_fetch.py tests/monitor/test_heat_fetch.py
 git commit -m "feat(monitor): purchase_tag_for 限购 actionability tag (Comp 5)"
 ```
 
