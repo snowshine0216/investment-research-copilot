@@ -1,9 +1,8 @@
 from __future__ import annotations
-import re
-from irc.monitor.render_html import build_citation_index
+from irc.monitor.render_html import build_citation_index, render_report
 from irc.monitor.evidence import make_evidence_item
-from irc.monitor.render_types import FundView
-from irc.monitor.types import NarrativeDoc, SignalRecord
+from irc.monitor.render_types import FundView, Provenance
+from irc.monitor.types import NarrativeDoc, SignalRecord, Claim
 
 
 def _view(fid, evs):
@@ -34,12 +33,6 @@ def test_citation_index_dedups_repeated_cid():
 def test_citation_index_unknown_cid_returns_none():
     idx = build_citation_index((_view("001", ()),))
     assert idx.number("deadbeefdeadbeef") is None
-
-
-import re
-from irc.monitor.render_html import render_report
-from irc.monitor.render_types import Provenance
-from irc.monitor.types import Claim
 
 
 def test_appendix_numbers_align_with_superscripts():

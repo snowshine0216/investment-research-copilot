@@ -132,7 +132,6 @@ def test_valuation_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path
     """Task 4.2: a per-fund exception in valuation_reconciliation must not crash
     _compute_gates — degrades to WARN, run still completes."""
     import irc.commands.monitor_cmd as mc
-    from irc.monitor.eval.types import StageHealth
 
     def _local_fund(fid="008986"):
         return MonitorFund(id=fid, name_cn="测试", market="CN", analysis_profile="gold_etf",

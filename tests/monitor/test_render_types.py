@@ -1,4 +1,5 @@
 from irc.monitor.render_types import FundView
+from irc.monitor.market_composite import MarketCompositeView
 
 
 def test_fundview_holding_metrics_defaults_empty():
@@ -6,9 +7,6 @@ def test_fundview_holding_metrics_defaults_empty():
     import inspect
     sig = inspect.signature(FundView)
     assert sig.parameters["holding_metrics"].default == ()
-
-
-from irc.monitor.market_composite import MarketCompositeView
 
 
 def test_fundview_market_view_defaults_none():

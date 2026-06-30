@@ -1,7 +1,6 @@
 from __future__ import annotations
-from pathlib import Path
-import pytest
 from irc.commands import monitor_cmd
+from irc.monitor.eval.types import PredictivePanelModel
 
 
 def test_run_forward_eval_invokes_runner(monkeypatch, tmp_path):
@@ -27,7 +26,6 @@ def test_run_forward_eval_swallows_exception(monkeypatch, tmp_path):
     assert rc is None
 
 
-from irc.monitor.eval.types import PredictivePanelModel
 _PANEL_STUB = PredictivePanelModel(present=False, stale=False, artifact_date=None,
                                    metrics=(), review_flag=False)
 

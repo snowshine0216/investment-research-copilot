@@ -1,5 +1,6 @@
 from irc.monitor.types import SignalRecord, NarrativeDoc, Claim
-from irc.monitor.render_cards import verdict_block_html, risk_block_html, narrative_sections_html
+from irc.monitor.render_cards import (
+    verdict_block_html, risk_block_html, narrative_sections_html, _claim_html)
 from irc.monitor.render_html import CitationIndex
 from irc.monitor.render_cards import decision_line_html
 from irc.monitor.market_composite import MarketCompositeView
@@ -91,12 +92,6 @@ def test_narrative_sections_only_price_action():
     assert "价格上行" in html
     assert "不应在此" not in html  # signal_rationale lives in verdict block
     assert "也不应在此" not in html  # risk lives in risk block
-
-
-import re
-from irc.monitor.render_html import CitationIndex
-from irc.monitor.render_cards import _claim_html
-from irc.monitor.types import Claim
 
 
 def test_claim_html_renders_numbered_superscript_with_title():
