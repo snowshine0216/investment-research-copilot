@@ -431,10 +431,9 @@ def _make_sleepy_uv_stub(tmp_path: Path, monitor_sleep: int) -> tuple[Path, Path
             echo "$@" >> {argv_log}
             for arg in "$@"; do
               if [ "$arg" = "notify-status" ]; then exit 0; fi
-              if [ "$arg" = "snapshot" ]; then exit 0; fi
             done
-            # plain `irc monitor` (no notify-status / snapshot): sleep so the
-            # watchdog has something to kill.
+            # irc monitor / irc monitor snapshot: sleep so the watchdog has
+            # something to kill.
             sleep {monitor_sleep}
             exit 0
         """),
@@ -467,6 +466,42 @@ def test_monitor_wrapper_watchdog_kills_and_notifies_124(tmp_path: Path) -> None
     assert notify, f"notify-status must be called after a timeout. argv: {invocations}"
     assert any("--last-exit-code 124" in ln for ln in notify), (
         f"notify-status must receive --last-exit-code 124. notify calls: {notify}"
+    )
+
+
+def test_fundamentals_wrapper_watchdog_kills_and_exits_124_without_notify(
+    tmp_path: Path,
+) -> None:
+    """A snapshot run that overruns IRC_SNAPSHOT_TIMEOUT is killed (exit 124),
+    and NO notify-status is called (protective-only asymmetry, spec §4.2)."""
+    stub, argv_log = _make_sleepy_uv_stub(tmp_path, monitor_sleep=30)
+    wrapper = _template_wrapper(_OPS / "run-fundamentals.sh", tmp_path, stub)
+    result = _run_wrapper(
+        wrapper,
+        {"IRC_SNAPSHOT_TIMEOUT": "1", "IRC_WATCHDOG_POLL": "0.2"},
+    )
+    assert result.returncode == 124, (
+        f"snapshot wrapper must exit 124 on watchdog kill; got {result.returncode}. "
+        f"log:\n{_read_run_log(tmp_path, 'run-fundamentals')}"
+    )
+    invocations = _read_argv(argv_log)
+    assert not any("notify-status" in ln for ln in invocations), (
+        f"run-fundamentals.sh must NOT call notify-status (protective-only). argv: {invocations}"
+    )
+
+
+def test_fundamentals_wrapper_skips_when_snapshot_lock_held(tmp_path: Path) -> None:
+    """When .snapshot.lock is held by a LIVE pid, the wrapper skips (exit 0) and
+    never runs the snapshot (spec §4.2 / §4.3 per-wrapper locks)."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    wrapper = _template_wrapper(_OPS / "run-fundamentals.sh", tmp_path, stub)
+    lock = tmp_path / "outputs" / "_logs" / ".snapshot.lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    result = _run_wrapper(wrapper)
+    assert result.returncode == 0, result.stderr
+    assert not any("snapshot" in ln for ln in _read_argv(argv_log)), (
+        f"snapshot must NOT run while .snapshot.lock is held. argv: {_read_argv(argv_log)}"
     )
 
 
