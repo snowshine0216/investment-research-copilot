@@ -84,7 +84,8 @@ def test_no_call_fund_renders_distinct_badge_and_still_has_card():
 
 def test_anchor_set_equals_appendix_id_set():
     html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
-    anchors = set(re.findall(r"\[ref:([0-9a-f]{16})\]", html))
+    # In v2, in-text anchors are <sup><a href="#ev-{cid}">N</a></sup>
+    anchors = set(re.findall(r'href="#ev-([0-9a-f]{16})"', html))
     appendix = set(re.findall(r'id="ev-([0-9a-f]{16})"', html))
     assert anchors == appendix and anchors      # closed + non-empty
 
@@ -93,7 +94,9 @@ def test_markers_are_appended_deterministically():
     v = _view()
     html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
     cid = v.evidence_pool[0].citation_id
-    assert f"[ref:{cid}]" in html               # renderer appended, LLM did not
+    # v2: in-text superscript anchor replaces raw [ref:cid] marker
+    assert f'href="#ev-{cid}"' in html          # renderer wired citation, LLM did not
+    assert "[ref:" not in html                  # no raw markers leak
 
 
 def test_hostile_title_is_escaped():
@@ -230,8 +233,9 @@ def _view_with_factor_present(factor_name: str):
 
 
 def test_card_embeds_board_when_metrics_present():
+    from irc.monitor.render_html import CitationIndex
     view = _view_with_metrics(holding_metrics=(_hm(1.0),))
-    html = _card(view, None)
+    html = _card(view, None, CitationIndex(()))
     assert "holdings-board" in html
     assert "600519" in html
 

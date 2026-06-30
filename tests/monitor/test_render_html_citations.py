@@ -34,3 +34,37 @@ def test_citation_index_dedups_repeated_cid():
 def test_citation_index_unknown_cid_returns_none():
     idx = build_citation_index((_view("001", ()),))
     assert idx.number("deadbeefdeadbeef") is None
+
+
+import re
+from irc.monitor.render_html import render_report
+from irc.monitor.render_types import Provenance
+from irc.monitor.types import Claim
+
+
+def test_appendix_numbers_align_with_superscripts():
+    a = make_evidence_item("Reuters", "title A", "2026-06-30", "https://a", "001")
+    rec = SignalRecord("001", "ok", "NEUTRAL", 0.0, 1.0, 1.0, (), (), ())
+    narr = NarrativeDoc("001",
+                        price_action_commentary=(Claim("c", "consistent_with", (a.citation_id,)),),
+                        signal_rationale_commentary=(), risk_commentary=(), status="ok")
+    view = FundView(fund_id="001", name_cn="x", latest_nav=1.0, as_of_date="2026-06-30",
+                    nav_series=(), signal=rec, narrative=narr, evidence_pool=(a,),
+                    return_table={}, factor_freshness={}, missing_factor_reasons=(),
+                    factor_scores=())
+    html = render_report((view,), Provenance("3", "1", "1", ""),
+                         prior_signal=None, now="2026-06-30T09:00:00+08:00")
+    # appendix li carries a leading "1." and id ev-{cid}
+    assert f'<li id="ev-{a.citation_id}">1.' in html
+    # the in-text superscript anchor links to the same id with number 1
+    assert f'href="#ev-{a.citation_id}" title="Reuters — title A">1</a>' in html
+    # no raw [ref:cid] survives anywhere
+    assert "[ref:" not in html
+
+
+def test_no_script_or_remote_refs_in_report():
+    html = render_report((), Provenance("3", "1", "1", ""), prior_signal=None,
+                         now="2026-06-30T09:00:00+08:00")
+    assert "<script" not in html.lower()
+    assert "http://" not in html and "https://" not in html
+    assert "基金概况" not in html

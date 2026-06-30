@@ -105,6 +105,7 @@ _CSS = (
     ".na-reason{color:#8c959f;font-size:11px}"
     ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
     ".flow-outage{margin:8px 0;padding:6px 8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:6px}"
+    "sup a{text-decoration:none}"
     "</style>"
 )
 
@@ -204,39 +205,32 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
     )
 
 
-def _card(view: FundView, gate: GateDecision | None) -> str:
+def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
-        f"{verdict_block_html(view.signal, view.narrative)}"
+        f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
         f"{_drilldown_block(view)}"
-        f"{narrative_sections_html(view.narrative)}"
-        f"{risk_block_html(view.signal, view.narrative)}"
+        f"{narrative_sections_html(view.narrative, idx)}"
+        f"{risk_block_html(view.signal, view.narrative, idx)}"
         "</section>"
     )
 
 
-def _appendix(views: tuple[FundView, ...]) -> str:
+def _appendix(idx: CitationIndex) -> str:
     items = []
-    seen: set[str] = set()
-    for v in views:
-        for ev in v.evidence_pool:
-            if ev.citation_id in seen:
-                continue
-            seen.add(ev.citation_id)
-            items.append(
-                f'<li id="ev-{ev.citation_id}">{escape(ev.title)} — '
-                f'{escape(ev.source)} ({ev.date}) '
-                f'<code>[ref:{ev.citation_id}]</code></li>'
-            )
+    for n, (cid, source, title) in enumerate(idx.entries, start=1):
+        items.append(
+            f'<li id="ev-{cid}">{n}. {escape(title)} — {escape(source)}</li>'
+        )
     return (
-        "<details><summary>证据 / Evidence</summary><ul>"
+        "<details><summary>证据 / Evidence</summary><ol>"
         + "".join(items)
-        + "</ul></details>"
+        + "</ol></details>"
     )
 
 
@@ -275,12 +269,13 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
+    idx = build_citation_index(views)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
         + "</table>"
     )
-    cards = "".join(_card(v, g.get(v.fund_id)) for v in views)
+    cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
     panel = _panel(views, gates, panel_rows)
     outage_note = _flow_outage_note(views)
     predictive = (
@@ -291,5 +286,5 @@ def render_report(
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
         + header + outage_note + _EXPLAINER + summary + cards + panel + predictive
-        + _appendix(views) + "</body></html>"
+        + _appendix(idx) + "</body></html>"
     )
