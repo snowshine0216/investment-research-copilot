@@ -92,3 +92,7 @@ future item.
 - The wrapper chain is fail-fast (`set -euo pipefail`, `&&`): one pipeline failure ⇒
   one `notify-status` call ⇒ one notification, never three.
 - No pipeline exit code or artifact contract changes — item 002 only consumes them.
+- **Wrapper robustness (2026-06-30):** the surviving launchd wrappers regained a
+  portable wall-clock watchdog (process-group kill → `rc=124`) and per-wrapper
+  single-instance locks via the shared `ops/launchd/lib-run.sh`. Design + rationale:
+  `docs/2026-06-30-launchd-watchdog/items/001-spec.md` (no standalone ADR — reversible).

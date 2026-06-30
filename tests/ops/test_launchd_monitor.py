@@ -294,6 +294,13 @@ def _template_wrapper(src: Path, tmp_path: Path, stub: Path) -> Path:
     out = tmp_path / src.name
     out.write_text(text, encoding="utf-8")
     out.chmod(out.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    # Make lib-run.sh available under tmp_path/ops/launchd/ so the `source` line
+    # in wrappers (resolved relative to cd "$REPO_ROOT" == tmp_path) can find it.
+    lib_dst = tmp_path / "ops" / "launchd"
+    lib_dst.mkdir(parents=True, exist_ok=True)
+    lib_src = _OPS / "lib-run.sh"
+    assert lib_src.exists(), f"lib-run.sh missing at {lib_src}; cannot build wrapper fixture"
+    (lib_dst / "lib-run.sh").write_text(lib_src.read_text(encoding="utf-8"), encoding="utf-8")
     return out
 
 
@@ -404,4 +411,151 @@ def test_monitor_wrapper_calls_notify_after_run(tmp_path: Path) -> None:
     assert notify_calls, "run-monitor.sh must call notify-status"
     assert any("--run-kind" in c and "monitor" in c for c in notify_calls), (
         f"notify-status not called with --run-kind monitor. Calls: {notify_calls}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper integration: watchdog timeout-kill + single-instance lock (item 001)
+# ---------------------------------------------------------------------------
+
+
+def _make_sleepy_uv_stub(tmp_path: Path, monitor_sleep: int) -> tuple[Path, Path]:
+    """A stub `uv` whose `irc monitor` sleeps <monitor_sleep>s (to be killed by
+    the watchdog) but whose `notify-status` returns instantly with exit 0.
+    Records every argv line to stub_argv.log."""
+    argv_log = tmp_path / "stub_argv.log"
+    stub = tmp_path / "uv"
+    stub.write_text(
+        textwrap.dedent(f"""\
+            #!/bin/bash
+            echo "$@" >> {argv_log}
+            for arg in "$@"; do
+              if [ "$arg" = "notify-status" ]; then exit 0; fi
+            done
+            # irc monitor / irc monitor snapshot: sleep so the watchdog has
+            # something to kill.
+            sleep {monitor_sleep}
+            exit 0
+        """),
+        encoding="utf-8",
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return stub, argv_log
+
+
+def test_monitor_wrapper_watchdog_kills_and_notifies_124(tmp_path: Path) -> None:
+    """A monitor run that overruns IRC_MONITOR_TIMEOUT is killed by the watchdog,
+    and the wrapper calls notify-status with --last-exit-code 124 (spec §4.1)."""
+    stub, argv_log = _make_sleepy_uv_stub(tmp_path, monitor_sleep=30)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    result = _run_wrapper(
+        wrapper,
+        {
+            "PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}",
+            "IRC_MONITOR_TIMEOUT": "1",
+            "IRC_WATCHDOG_POLL": "0.2",
+        },
+    )
+    assert result.returncode == 124, (
+        f"wrapper must exit 124 on watchdog kill; got {result.returncode}. "
+        f"log:\n{_read_run_log(tmp_path, 'run-monitor')}"
+    )
+    invocations = _read_argv(argv_log)
+    notify = [ln for ln in invocations if "notify-status" in ln]
+    assert notify, f"notify-status must be called after a timeout. argv: {invocations}"
+    assert any("--last-exit-code 124" in ln for ln in notify), (
+        f"notify-status must receive --last-exit-code 124. notify calls: {notify}"
+    )
+
+
+def test_fundamentals_wrapper_watchdog_kills_and_exits_124_without_notify(
+    tmp_path: Path,
+) -> None:
+    """A snapshot run that overruns IRC_SNAPSHOT_TIMEOUT is killed (exit 124),
+    and NO notify-status is called (protective-only asymmetry, spec §4.2)."""
+    stub, argv_log = _make_sleepy_uv_stub(tmp_path, monitor_sleep=30)
+    wrapper = _template_wrapper(_OPS / "run-fundamentals.sh", tmp_path, stub)
+    result = _run_wrapper(
+        wrapper,
+        {"IRC_SNAPSHOT_TIMEOUT": "1", "IRC_WATCHDOG_POLL": "0.2"},
+    )
+    assert result.returncode == 124, (
+        f"snapshot wrapper must exit 124 on watchdog kill; got {result.returncode}. "
+        f"log:\n{_read_run_log(tmp_path, 'run-fundamentals')}"
+    )
+    invocations = _read_argv(argv_log)
+    assert not any("notify-status" in ln for ln in invocations), (
+        f"run-fundamentals.sh must NOT call notify-status (protective-only). argv: {invocations}"
+    )
+
+
+def test_fundamentals_wrapper_skips_when_snapshot_lock_held(tmp_path: Path) -> None:
+    """When .snapshot.lock is held by a LIVE pid, the wrapper skips (exit 0) and
+    never runs the snapshot (spec §4.2 / §4.3 per-wrapper locks)."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    wrapper = _template_wrapper(_OPS / "run-fundamentals.sh", tmp_path, stub)
+    lock = tmp_path / "outputs" / "_logs" / ".snapshot.lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    result = _run_wrapper(wrapper)
+    assert result.returncode == 0, result.stderr
+    assert not any("snapshot" in ln for ln in _read_argv(argv_log)), (
+        f"snapshot must NOT run while .snapshot.lock is held. argv: {_read_argv(argv_log)}"
+    )
+
+
+def test_both_wrappers_source_lib_run() -> None:
+    """Both surviving wrappers must source the shared library (spec §3 / §6.2)."""
+    for name in ("run-monitor.sh", "run-fundamentals.sh"):
+        text = (_OPS / name).read_text(encoding="utf-8")
+        assert "source ops/launchd/lib-run.sh" in text, (
+            f"{name} must `source ops/launchd/lib-run.sh` (after cd REPO_ROOT)"
+        )
+
+
+def test_monitor_wrapper_invokes_watchdog_with_timeout_default() -> None:
+    """run-monitor.sh must call run_with_watchdog with an IRC_MONITOR_TIMEOUT
+    default of 1800 around `irc monitor` (spec §4.1 / §6.2)."""
+    text = (_OPS / "run-monitor.sh").read_text(encoding="utf-8")
+    assert 'run_with_watchdog "${IRC_MONITOR_TIMEOUT:-1800}"' in text, (
+        "run-monitor.sh must wrap irc monitor in run_with_watchdog with a 1800s default"
+    )
+    assert "run irc monitor" in text
+
+
+def test_fundamentals_wrapper_invokes_watchdog_with_timeout_default() -> None:
+    """run-fundamentals.sh must call run_with_watchdog with an IRC_SNAPSHOT_TIMEOUT
+    default of 3600 around `irc monitor snapshot` (spec §4.2 / §6.2)."""
+    text = (_OPS / "run-fundamentals.sh").read_text(encoding="utf-8")
+    assert 'run_with_watchdog "${IRC_SNAPSHOT_TIMEOUT:-3600}"' in text, (
+        "run-fundamentals.sh must wrap irc monitor snapshot in run_with_watchdog "
+        "with a 3600s default"
+    )
+    assert "run irc monitor snapshot" in text
+
+
+def test_fundamentals_wrapper_has_no_notify_status() -> None:
+    """run-fundamentals.sh must NOT call notify-status (protective-only, spec §4.2)."""
+    text = (_OPS / "run-fundamentals.sh").read_text(encoding="utf-8")
+    assert "notify-status" not in text, (
+        "run-fundamentals.sh is protective-only — it must not page via notify-status"
+    )
+
+
+def test_monitor_wrapper_skips_when_lock_held(tmp_path: Path) -> None:
+    """When .monitor.lock is held by a LIVE pid, the wrapper skips (exit 0) and
+    never calls `uv run irc monitor` (spec §4.1: silent skip-on-contention)."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    # Pre-create the lock dir held by THIS process (alive for the call duration).
+    lock = tmp_path / "outputs" / "_logs" / ".monitor.lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    result = _run_wrapper(wrapper, {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}"})
+    assert result.returncode == 0, result.stderr
+    invocations = _read_argv(argv_log)
+    assert invocations == [], (
+        f"uv must NOT be called while the lock is held. argv: {invocations}"
     )
