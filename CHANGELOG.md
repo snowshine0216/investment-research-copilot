@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Docs:** fixed `ops/launchd/README.md`'s false `outputs/_logs/.run.lock` claim
   (the lock never existed) and documented both timeouts + the notify asymmetry; one-line
   pointer added to ADR 0016. Design: `docs/2026-06-30-launchd-watchdog/items/001-spec.md`.
+- **Observability follow-up:** `run-monitor.sh` now logs a breadcrumb when
+  `notify-status` itself fails (`|| echo …` instead of `|| true`) — still best-effort
+  (no page on a notifier failure) but no longer silent, so a missing page on the
+  timeout-paging path leaves a trace in `outputs/_logs/run-monitor.<ts>.log`.
 - **Tests:** new `tests/ops/test_run_lib.py` (library unit tests incl. process-group
   grandchild-kill + `IRC_WATCHDOG_POLL` fast path); extended
   `tests/ops/test_launchd_monitor.py` (timeout-kill→notify-124, lock-held→uv-not-called,

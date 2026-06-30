@@ -559,3 +559,50 @@ def test_monitor_wrapper_skips_when_lock_held(tmp_path: Path) -> None:
     assert invocations == [], (
         f"uv must NOT be called while the lock is held. argv: {invocations}"
     )
+
+
+def _make_notify_failing_uv_stub(tmp_path: Path) -> tuple[Path, Path]:
+    """A stub `uv` whose `irc monitor` succeeds (exit 0) but whose `notify-status`
+    FAILS (exit 1) — to exercise the wrapper's notify-failure branch."""
+    argv_log = tmp_path / "stub_argv.log"
+    stub = tmp_path / "uv"
+    stub.write_text(
+        textwrap.dedent(f"""\
+            #!/bin/bash
+            echo "$@" >> {argv_log}
+            for arg in "$@"; do
+              if [ "$arg" = "notify-status" ]; then exit 1; fi
+            done
+            exit 0
+        """),
+        encoding="utf-8",
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return stub, argv_log
+
+
+def test_monitor_wrapper_logs_breadcrumb_when_notify_status_fails(tmp_path: Path) -> None:
+    """A failed `notify-status` must NOT be silently swallowed by `|| true`: the
+    wrapper logs a breadcrumb to its per-run log (so a missing page is debuggable)
+    yet still exits with the monitor's own rc, not the notifier's. The bad case is
+    a monitor timeout (rc=124, page-worthy) whose notifier then errors — without a
+    breadcrumb the operator sees nothing and has no trace of why."""
+    stub, argv_log = _make_notify_failing_uv_stub(tmp_path)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    result = _run_wrapper(
+        wrapper,
+        {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}", "IRC_WATCHDOG_POLL": "0.2"},
+    )
+    # monitor succeeded (rc=0); a notifier failure must NOT change the exit code.
+    assert result.returncode == 0, (
+        f"a notify failure must not change the wrapper exit code; got {result.returncode}. "
+        f"log:\n{_read_run_log(tmp_path, 'run-monitor')}"
+    )
+    # notify-status was actually attempted...
+    assert any("notify-status" in ln for ln in _read_argv(argv_log)), "notify-status must be called"
+    # ...and its failure left a breadcrumb in the per-run log (not silently `|| true`).
+    log = _read_run_log(tmp_path, "run-monitor")
+    assert "notify-status failed" in log, (
+        f"a failed notify-status must log a breadcrumb, not be swallowed by `|| true`. log:\n{log}"
+    )
