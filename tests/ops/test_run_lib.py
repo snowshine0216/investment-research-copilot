@@ -40,3 +40,18 @@ def test_watchdog_propagates_nonzero_child_rc() -> None:
     proc = _bash('run_with_watchdog 5 bash -c "exit 7"; echo "rc=$?"')
     assert proc.returncode == 0, proc.stderr  # the snippet itself succeeds
     assert "rc=7" in proc.stdout, proc.stdout
+
+
+def test_watchdog_kills_overrunning_command_and_returns_124() -> None:
+    """A `sleep 5` under `run_with_watchdog 1` with a 0.2s poll is killed and
+    returns 124 in ~1s (spec §6.1)."""
+    start = time.monotonic()
+    proc = _bash(
+        'IRC_WATCHDOG_POLL=0.2 run_with_watchdog 1 sleep 5; echo "rc=$?"',
+        timeout=10.0,
+    )
+    elapsed = time.monotonic() - start
+    assert proc.returncode == 0, proc.stderr
+    assert "rc=124" in proc.stdout, proc.stdout
+    assert elapsed < 8.0, f"watchdog should fire in ~1s + 5s grace, took {elapsed:.1f}s"
+    assert "watchdog: timed out" in proc.stderr, proc.stderr
