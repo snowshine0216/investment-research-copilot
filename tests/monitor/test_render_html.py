@@ -84,7 +84,8 @@ def test_no_call_fund_renders_distinct_badge_and_still_has_card():
 
 def test_anchor_set_equals_appendix_id_set():
     html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
-    anchors = set(re.findall(r"\[ref:([0-9a-f]{16})\]", html))
+    # In v2, in-text anchors are <sup><a href="#ev-{cid}">N</a></sup>
+    anchors = set(re.findall(r'href="#ev-([0-9a-f]{16})"', html))
     appendix = set(re.findall(r'id="ev-([0-9a-f]{16})"', html))
     assert anchors == appendix and anchors      # closed + non-empty
 
@@ -93,7 +94,9 @@ def test_markers_are_appended_deterministically():
     v = _view()
     html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
     cid = v.evidence_pool[0].citation_id
-    assert f"[ref:{cid}]" in html               # renderer appended, LLM did not
+    # v2: in-text superscript anchor replaces raw [ref:cid] marker
+    assert f'href="#ev-{cid}"' in html          # renderer wired citation, LLM did not
+    assert "[ref:" not in html                  # no raw markers leak
 
 
 def test_hostile_title_is_escaped():
@@ -230,8 +233,9 @@ def _view_with_factor_present(factor_name: str):
 
 
 def test_card_embeds_board_when_metrics_present():
+    from irc.monitor.render_html import CitationIndex
     view = _view_with_metrics(holding_metrics=(_hm(1.0),))
-    html = _card(view, None)
+    html = _card(view, None, CitationIndex(()))
     assert "holdings-board" in html
     assert "600519" in html
 
@@ -249,3 +253,30 @@ def test_flow_outage_note_only_when_set_wide_collapse():
     # no flow-eligible fund at all (all profile_ineligible) → no note (not an outage).
     none_eligible = (_view_with_factor_na("flow", "profile_ineligible"),)
     assert _flow_outage_note(none_eligible) == ""
+
+
+def test_summary_row_has_market_composite_column():
+    from irc.monitor.render_html import _summary_row
+    from irc.monitor.market_composite import MarketCompositeView
+    import dataclasses
+    v = dataclasses.replace(_view(), market_view=MarketCompositeView(0.24, "NEUTRAL", 0.2, 4))
+    html = _summary_row(v, None, None)
+    assert "市场面" in html or "+0.24" in html
+
+
+def test_render_report_includes_charts():
+    from irc.monitor.render_html import render_report
+    from irc.monitor.render_types import Provenance
+    from irc.monitor.render_timeline import BiasTimeline
+    from irc.monitor.market_composite import MarketCompositeView
+    import dataclasses
+    v = dataclasses.replace(_view(), market_view=MarketCompositeView(0.3, "ADD_BIAS", 0.1, 2))
+    tl = BiasTimeline(run_dates=("2026-06-30",),
+                      rows=(("008986", (("ADD_BIAS", "3"),)),))
+    html = render_report((v,), Provenance("3", "1", "1", ""), prior_signal=None,
+                         now=_NOW, timeline=tl)
+    assert 'class="heatmap"' in html
+    assert 'class="timeline"' in html
+    assert 'class="contrib"' in html
+    # heatmap appears after the summary table, before cards
+    assert html.index("summary") < html.index('class="heatmap"') < html.index("fund-card")

@@ -1,8 +1,9 @@
 from __future__ import annotations
+from dataclasses import dataclass
 from html import escape
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.render_cards import (
-    narrative_sections_html, risk_block_html, verdict_block_html,
+    narrative_sections_html, risk_block_html, verdict_block_html, decision_line_html,
 )
 from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
@@ -12,6 +13,48 @@ from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
 from irc.monitor.eval.predictive_panel import predictive_validity_panel_html
 from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictivePanelModel
+from irc.monitor.render_heatmap import factor_heatmap_html
+from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
+from irc.monitor.render_contrib import contribution_bars_svg
+
+
+@dataclass(frozen=True)
+class CitationIndex:
+    """PURE cid → 1-based N + (source, title), first-seen = appendix order."""
+    entries: tuple[tuple[str, str, str], ...]   # (cid, source, title)
+
+    def _pos(self, cid: str) -> int | None:
+        for i, (c, _, _) in enumerate(self.entries):
+            if c == cid:
+                return i
+        return None
+
+    def number(self, cid: str) -> int | None:
+        p = self._pos(cid)
+        return None if p is None else p + 1
+
+    def source(self, cid: str) -> str | None:
+        p = self._pos(cid)
+        return None if p is None else self.entries[p][1]
+
+    def title(self, cid: str) -> str | None:
+        p = self._pos(cid)
+        return None if p is None else self.entries[p][2]
+
+
+def build_citation_index(views: tuple[FundView, ...]) -> CitationIndex:
+    """PURE: appendix-order (first-seen) cid index over every fund's evidence pool.
+    Same iteration order as _appendix so superscript-N == appendix-N."""
+    seen: set[str] = set()
+    out: list[tuple[str, str, str]] = []
+    for v in views:
+        for ev in v.evidence_pool:
+            if ev.citation_id in seen:
+                continue
+            seen.add(ev.citation_id)
+            out.append((ev.citation_id, ev.source, ev.title))
+    return CitationIndex(tuple(out))
+
 
 _NO_CALL = "NO_CALL"
 _EVAL_GATED = "EVAL_GATED"
@@ -65,6 +108,17 @@ _CSS = (
     ".na-reason{color:#8c959f;font-size:11px}"
     ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
     ".flow-outage{margin:8px 0;padding:6px 8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:6px}"
+    "sup a{text-decoration:none}"
+    ".decision-line{margin:6px 0;padding:6px 8px;background:#f6f8fa;"
+    "border-left:3px solid #1a7f37;font-size:13px;line-height:1.5}"
+    ".decision-line .honesty{display:block;margin-top:3px;font-size:12px}"
+    ".heatmap-table,.timeline-table{border-collapse:collapse;font-size:12px;margin:8px 0}"
+    ".heatmap-table td,.heatmap-table th,.timeline-table td,.timeline-table th"
+    "{border:1px solid #d0d7de;padding:2px 5px;text-align:center}"
+    ".tl-cell.add_bias{color:#1a7f37}.tl-cell.reduce_bias{color:#cf222e}.tl-cell.neutral{color:#6e7781}"
+    ".engine-boundary{border-left:2px solid #bf8700}"
+    ".contrib{width:100%;max-width:280px;height:auto;display:block;margin:6px 0}"
+    ".heatmap-legend{font-size:11px}"
     "</style>"
 )
 
@@ -149,6 +203,13 @@ def _markers(view: FundView) -> tuple[EventMarker, ...]:
     )
 
 
+def _market_cell(view: FundView) -> str:
+    mv = view.market_view
+    if mv is None:
+        return "<td class='muted'>—</td>"
+    return f"<td>市场面 {mv.composite:+.2f} {escape(mv.bias)}</td>"
+
+
 def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) -> str:
     changed = ""
     if prior is not None:
@@ -160,43 +221,39 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
         f"<td>{view.latest_nav:.4f} @ {view.as_of_date}</td>"
         f"<td>{_badge(view, gate)}</td>"
         f"<td>C={view.signal.composite:+.4f}</td>"
+        f"{_market_cell(view)}"
         f"<td>{changed}</td></tr>"
     )
 
 
-def _card(view: FundView, gate: GateDecision | None) -> str:
+def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
-        f"{verdict_block_html(view.signal, view.narrative)}"
+        f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
+        f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
+        f"{contribution_bars_svg(view.signal.contributions)}"
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
         f"{_drilldown_block(view)}"
-        f"{narrative_sections_html(view.narrative)}"
-        f"{risk_block_html(view.signal, view.narrative)}"
+        f"{narrative_sections_html(view.narrative, idx)}"
+        f"{risk_block_html(view.signal, view.narrative, idx)}"
         "</section>"
     )
 
 
-def _appendix(views: tuple[FundView, ...]) -> str:
+def _appendix(idx: CitationIndex) -> str:
     items = []
-    seen: set[str] = set()
-    for v in views:
-        for ev in v.evidence_pool:
-            if ev.citation_id in seen:
-                continue
-            seen.add(ev.citation_id)
-            items.append(
-                f'<li id="ev-{ev.citation_id}">{escape(ev.title)} — '
-                f'{escape(ev.source)} ({ev.date}) '
-                f'<code>[ref:{ev.citation_id}]</code></li>'
-            )
+    for n, (cid, source, title) in enumerate(idx.entries, start=1):
+        items.append(
+            f'<li id="ev-{cid}">{n}. {escape(title)} — {escape(source)}</li>'
+        )
     return (
-        "<details><summary>证据 / Evidence</summary><ul>"
+        "<details><summary>证据 / Evidence</summary><ol>"
         + "".join(items)
-        + "</ul></details>"
+        + "</ol></details>"
     )
 
 
@@ -227,6 +284,7 @@ def render_report(
     gates: dict[str, GateDecision] | None = None,
     panel_rows: tuple[ValidationPanelRow, ...] = (),
     predictive_panel: PredictivePanelModel | None = None,
+    timeline: BiasTimeline | None = None,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -235,12 +293,15 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
+    idx = build_citation_index(views)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
         + "</table>"
     )
-    cards = "".join(_card(v, g.get(v.fund_id)) for v in views)
+    heatmap = factor_heatmap_html(views)
+    timeline_html = bias_timeline_html(timeline) if timeline is not None else ""
+    cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
     panel = _panel(views, gates, panel_rows)
     outage_note = _flow_outage_note(views)
     predictive = (
@@ -250,6 +311,7 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + outage_note + _EXPLAINER + summary + cards + panel + predictive
-        + _appendix(views) + "</body></html>"
+        + header + outage_note + _EXPLAINER + summary + heatmap + timeline_html
+        + cards + panel + predictive
+        + _appendix(idx) + "</body></html>"
     )

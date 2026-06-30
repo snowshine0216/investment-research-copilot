@@ -185,7 +185,9 @@ def test_runner_retro_block_non_empty_with_deep_nav(tmp_path: Path, monkeypatch)
 
 
 def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
-    """Runner with deep nav must still produce exactly 3 MetricReport rows."""
+    """Runner with deep nav must produce exactly 5 MetricReport rows (4 core metrics
+    + engine_population diagnostic). market_composite_directional is always emitted
+    as an honest panel row (spec §10: never hidden, even when immature)."""
     cfg_dir = tmp_path / "config"
     cfg_dir.mkdir(parents=True)
     (cfg_dir / "monitor.yaml").write_text(
@@ -211,8 +213,10 @@ def test_runner_still_exactly_three_metric_rows_with_retro(tmp_path: Path):
     run(tmp_path)
     out_dir = next((tmp_path / "outputs").glob("*/evals/monitor_forward"))
     report = json.loads((out_dir / "report.json").read_text())
-    assert len(report["metrics"]) == 4, f"expected 4 metrics; got {len(report['metrics'])}"
-    assert "engine_population" in {m["name"] for m in report["metrics"]}
+    metric_names = {m["name"] for m in report["metrics"]}
+    assert len(report["metrics"]) == 5, f"expected 5 metrics; got {len(report['metrics'])}: {metric_names}"
+    assert "engine_population" in metric_names
+    assert "market_composite_directional" in metric_names
 
 
 # ── Finding 3: _target_engine must not crash on non-numeric string versions ───

@@ -17,8 +17,10 @@ def ledger_row(
     *, run_date: str, fund_id: str, written_at: str, signal: SignalRecord,
     nav_acc: float | None, nav_unit: float, as_of_date: str,
     published_state: str, gate: GateDecision, manifest_versions: dict,
+    market_composite: float | None = None, market_bias: str | None = None,
 ) -> dict:
-    """PURE: one forward-ledger row. nav_acc is COALESCE(nav_acc, nav) perf basis."""
+    """PURE: one forward-ledger row. nav_acc is COALESCE(nav_acc, nav) perf basis.
+    market_composite / market_bias are additive optional fields (backcompat: None)."""
     return {
         "run_date": run_date,
         "fund_id": fund_id,
@@ -34,6 +36,8 @@ def ledger_row(
         "nav_basis": "coalesce(nav_acc,nav)",
         "as_of_date": as_of_date,
         "manifest_versions": manifest_versions,
+        "market_composite": market_composite,
+        "market_bias": market_bias,
     }
 
 

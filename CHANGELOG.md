@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor report v2: market-composite decision anchor + news overlay, annotations, charts, numbered citations, 限购 tag, inline anti-staleness (ADR 0021, 2026-06-30)
+
+- **Market composite (市场面综合分) decision anchor + news overlay (新闻叠加).** Per fund, a
+  render-derived composite over the four market-data factors (`trend`/`valuation`/`flow`/`heat`,
+  news family excluded & weights renormalized) is surfaced as the fact-backed decision anchor,
+  with the volatile news contribution shown as the labeled delta `C − market_composite`. New pure
+  module `src/irc/monitor/market_composite.py`; the market/news split reuses `signal._FAMILY_OF`
+  (one source of truth). **No scoring change** — the full composite `C` stays the canonical
+  published/tracked signal; `_ENGINE_VERSION` stays `"3"`. A per-card decision line + honest
+  "anchor track-record accruing" line (names trend-only ~0.54 explicitly, NOT the market composite).
+  See **ADR 0021**.
+- **Log + forward-score the market composite (the lynchpin).** `forward_ledger.jsonl` rows gain an
+  additive, back-compat `market_composite`/`market_bias` pair; `monitor_forward` emits a
+  `market_composite_directional` population that **renders as a predictive-panel row** (honest
+  `insufficient_data` until engine-3 days mature, parallel to `raw_composite_directional`). The
+  market composite earns its own track record exactly as trend-only earned its 0.54.
+- **Per-score annotations** (`src/irc/monitor/annotate.py`) — a `解读` column + composite verdict;
+  the two news factors carry a `·新闻面` mark so the volatile overlay is visible.
+- **Three pure inline-SVG/HTML charts** (no JS): cross-fund factor heatmap (market|news|市场面C|完整C),
+  bias-history timeline (v1→v3 engine boundary marked; absent cells shown distinctly from NEUTRAL),
+  and per-fund contribution bars (market vs news visually distinguished).
+- **Numbered citations** — appendix-ordered superscripts with source/title on hover (zero JS);
+  data-model `[ref:16-hex]` unchanged (render-only).
+- **限购 / actionability tag** — `限购 ¥{cap}/日` (or bare `限购` when status-restricted) on restricted
+  funds; no tag when open/unknown. Reuses the purchase table already fetched for `heat` (no new call).
+- **Anti-staleness** — `irc monitor` now runs the `monitor_forward` scorer inline (contained: a
+  scorer failure never changes the run's exit code), so the predictive panel reads a same-day-fresh
+  artifact and the stale banner becomes a genuine signal.
+- Invariants preserved & guarded (`tests/monitor/test_report_v2_invariants.py`): no engine/weight/
+  gate/`published_state` change; `render_*` stay pure (no I/O/JS/remote refs); no new network/LLM
+  calls; `基金概况` absent.
+
 ### Fixed / Changed — TODO-list cleanup: real demote bug, silent-swallow logging, eval false-PASS hardening, tushare optional (2026-06-30)
 
 A triaged sweep of `TODOS.md` (verified against code first — three items were

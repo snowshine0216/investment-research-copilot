@@ -50,6 +50,16 @@ def _composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
              "fwd": r.fwd_ret} for r in rows]
 
 
+def _market_composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
+    """Rows where market_composite is non-None (forward-ledger has the field)."""
+    # label=sign(market_composite) is the permutation-null PREDICTION label,
+    # intentionally mirroring _composite_rows (NOT a forgotten sign(fwd_ret)).
+    return [{"run_date": r.run_date, "fund_id": r.fund_id,
+             "pred": sign(r.market_composite), "label": sign(r.market_composite),
+             "fwd": r.fwd_ret}
+            for r in rows if r.market_composite is not None]
+
+
 def _bias_rows(rows: Sequence[ForwardRow]) -> tuple[list[dict], dict[str, int]]:
     out = []
     excl: dict[str, int] = {}
@@ -253,9 +263,17 @@ def build_metric_reports(
     r_ic, d_ic = _ic_report(forward_rows, seed=seed + 20)
     # Wire retro sub-block into raw_composite_directional details (§4.1)
     d_comp["retro"] = _retro_details(retro_points)
+    # Spec §10/§12: market_composite_directional is ALWAYS emitted as a MetricReport so
+    # the panel renders it. Shown honestly as insufficient_data until engine-3 days mature
+    # (spec §1: "must be rendered, never hidden"). Empty mc_rows → _hit_rate_report yields
+    # insufficient_data state, parallel to the other rows' honest ceiling.
+    mc_rows = _market_composite_rows(forward_rows)
+    r_mc, d_mc = _hit_rate_report("market_composite_directional", mc_rows,
+                                  seed=seed + 30, momentum_by_key=mbk)
     details = {
         "raw_composite_directional": d_comp,
         "publishable_bias_directional": d_bias,
         "rank_ic": d_ic,
+        "market_composite_directional": d_mc,
     }
-    return [r_comp, r_bias, r_ic], details
+    return [r_comp, r_bias, r_ic, r_mc], details
