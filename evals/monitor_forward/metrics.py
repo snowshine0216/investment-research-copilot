@@ -261,15 +261,17 @@ def build_metric_reports(
     r_ic, d_ic = _ic_report(forward_rows, seed=seed + 20)
     # Wire retro sub-block into raw_composite_directional details (§4.1)
     d_comp["retro"] = _retro_details(retro_points)
+    # Spec §10/§12: market_composite_directional is ALWAYS emitted as a MetricReport so
+    # the panel renders it. Shown honestly as insufficient_data until engine-3 days mature
+    # (spec §1: "must be rendered, never hidden"). Empty mc_rows → _hit_rate_report yields
+    # insufficient_data state, parallel to the other rows' honest ceiling.
+    mc_rows = _market_composite_rows(forward_rows)
+    r_mc, d_mc = _hit_rate_report("market_composite_directional", mc_rows,
+                                  seed=seed + 30, momentum_by_key=mbk)
     details = {
         "raw_composite_directional": d_comp,
         "publishable_bias_directional": d_bias,
         "rank_ic": d_ic,
+        "market_composite_directional": d_mc,
     }
-    # Additive market_composite_directional (Comp 4c): omitted when no rows carry the field
-    mc_rows = _market_composite_rows(forward_rows)
-    if mc_rows:
-        _, d_mc = _hit_rate_report("market_composite_directional", mc_rows,
-                                   seed=seed + 30, momentum_by_key=mbk)
-        details["market_composite_directional"] = d_mc
-    return [r_comp, r_bias, r_ic], details
+    return [r_comp, r_bias, r_ic, r_mc], details

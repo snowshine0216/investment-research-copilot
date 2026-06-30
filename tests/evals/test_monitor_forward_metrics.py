@@ -9,11 +9,17 @@ def _fr(run_date, fund, status, composite, bias, fwd):
                       entry_nav_date=run_date, fwd_ret=fwd, from_latest_nav=fwd)
 
 
-def test_three_metric_rows_named():
+def test_four_metric_rows_named():
+    """build_metric_reports always returns 4 MetricReport rows (spec §10/§12):
+    market_composite_directional is ALWAYS present as a panel row, even when
+    immature (insufficient_data state, shown honestly per spec §1)."""
     rows = [_fr(f"2026-01-{d:02d}", "a", "ok", 0.2, "ADD_BIAS", 0.01) for d in range(1, 5)]
     reports, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
     names = {r.name for r in reports}
-    assert names == {"raw_composite_directional", "publishable_bias_directional", "rank_ic"}
+    assert names == {
+        "raw_composite_directional", "publishable_bias_directional",
+        "rank_ic", "market_composite_directional",
+    }
 
 
 def test_strongly_negative_ic_is_warn_not_fail():
@@ -165,11 +171,12 @@ def test_retro_block_empty_is_insufficient_data():
     assert "label" in retro_block
 
 
-def test_retro_does_not_add_fourth_metric_row():
-    """Fix 2 must NOT add a 4th MetricReport row — exactly 3."""
+def test_retro_does_not_add_fifth_metric_row():
+    """Retro block lives in details only. Total MetricReport rows is always exactly 4
+    (market_composite_directional is always emitted; retro never adds its own row)."""
     retro = [_retro_point(0.3, 0.01), _retro_point(-0.2, -0.02)]
     reports, _ = build_metric_reports(forward_rows=[], retro_points=retro, seed=1)
-    assert len(reports) == 3
+    assert len(reports) == 4
 
 def test_retro_value_not_overwriting_forward_value():
     """The MetricReport.value for raw_composite_directional is the FORWARD hit-rate,
@@ -431,17 +438,26 @@ def test_market_composite_directional_in_details():
     assert "market_composite_directional" in details
 
 
-def test_market_composite_directional_omitted_when_all_none():
-    """If all ForwardRows have market_composite=None (legacy), the key is absent
-    from details (back-compat: old runs don't break the panel)."""
+def test_market_composite_directional_always_present_even_when_all_none():
+    """Spec §10/§1: market_composite_directional MUST always render as a panel row,
+    shown honestly as 'insufficient_data' until engine-3 days mature.
+    Even when all ForwardRows have market_composite=None (legacy rows), the report
+    row is present and in details with insufficient_data state (never hidden)."""
     rows = [_fr(f"2026-01-{d:02d}", "a", "ok", 0.3, "NEUTRAL", 0.01) for d in range(1, 5)]
-    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
-    assert "market_composite_directional" not in details
+    reports, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
+    # Must be in the MetricReport list (so the panel renders it)
+    assert "market_composite_directional" in {r.name for r in reports}
+    # Must be in details
+    assert "market_composite_directional" in details
+    # Must show insufficient_data honestly (no mc rows → insufficient_data)
+    mc_report = next(r for r in reports if r.name == "market_composite_directional")
+    assert mc_report.status == "WARN"  # insufficient_data → WARN
+    assert details["market_composite_directional"]["state"] == "insufficient_data"
 
 
 def test_market_composite_directional_report_count():
-    """Still exactly 3 MetricReports (market_composite lives in details only,
-    not as a 4th row — keeps panel layout stable)."""
+    """Always exactly 4 MetricReports — market_composite_directional is always emitted
+    as a panel row, not details-only (spec §10: must render, never hidden)."""
     rows = [_fr_mc(f"2026-01-{d:02d}", "a", 0.3, 0.2, 0.01) for d in range(1, 5)]
     reports, _ = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
-    assert len(reports) == 3
+    assert len(reports) == 4
