@@ -82,3 +82,38 @@ def test_watchdog_kills_the_whole_process_group_not_just_pid() -> None:
         f"process-group kill failed — grandchild survived. stdout={proc.stdout!r} "
         f"stderr={proc.stderr!r}"
     )
+
+
+def test_acquire_lock_first_acquire_succeeds_and_writes_pid(tmp_path: Path) -> None:
+    """First acquire returns 0, creates the lock dir, and writes $$ to pid."""
+    lock = tmp_path / ".monitor.lock"
+    proc = _bash(f'acquire_lock "{lock}"; echo "rc=$?"; cat "{lock}/pid"')
+    assert proc.returncode == 0, proc.stderr
+    assert "rc=0" in proc.stdout, proc.stdout
+    assert lock.is_dir(), "lock dir must exist after acquire"
+    pid = (lock / "pid").read_text(encoding="utf-8").strip()
+    assert pid.isdigit() and int(pid) > 0, f"pid file must hold a numeric pid, got {pid!r}"
+
+
+def test_acquire_lock_held_by_live_holder_returns_nonzero(tmp_path: Path) -> None:
+    """A second acquire while the dir is held by a LIVE pid returns non-zero (skip)."""
+    lock = tmp_path / ".monitor.lock"
+    lock.mkdir()
+    # $$ of THIS python process is alive for the duration of the bash call.
+    import os
+    (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    proc = _bash(f'acquire_lock "{lock}" && echo ACQUIRED || echo SKIPPED')
+    assert proc.returncode == 0, proc.stderr
+    assert "SKIPPED" in proc.stdout, proc.stdout
+    assert "ACQUIRED" not in proc.stdout, proc.stdout
+
+
+def test_acquire_lock_reclaims_dead_holder(tmp_path: Path) -> None:
+    """A lock dir holding a DEAD pid is reclaimed; acquire returns 0."""
+    lock = tmp_path / ".snapshot.lock"
+    lock.mkdir()
+    # PID 2999999 is overwhelmingly unlikely to be alive on macOS (max pid ~99998).
+    (lock / "pid").write_text("2999999", encoding="utf-8")
+    proc = _bash(f'acquire_lock "{lock}" && echo ACQUIRED || echo SKIPPED')
+    assert proc.returncode == 0, proc.stderr
+    assert "ACQUIRED" in proc.stdout, proc.stdout
