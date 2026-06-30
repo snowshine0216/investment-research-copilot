@@ -412,3 +412,36 @@ def test_engine_population_status_truth_table():
     assert engine_population_status(
         n_excluded_engine=0, headline_state="ok"
     ) == ("PASS", "ok")
+
+
+# ── Task 4.3: market_composite_directional metric ────────────────────────────
+
+def _fr_mc(run_date, fund, composite, market_composite, fwd):
+    return ForwardRow(run_date=run_date, fund_id=fund, as_of_date=run_date,
+                      raw_status="ok", raw_composite=composite, raw_bias="NEUTRAL",
+                      entry_nav_date=run_date, fwd_ret=fwd, from_latest_nav=fwd,
+                      market_composite=market_composite, market_bias="NEUTRAL")
+
+
+def test_market_composite_directional_in_details():
+    """build_metric_reports includes market_composite_directional in details when
+    ForwardRows carry non-None market_composite values."""
+    rows = [_fr_mc(f"2026-01-{d:02d}", "a", 0.3, 0.2, 0.01) for d in range(1, 5)]
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
+    assert "market_composite_directional" in details
+
+
+def test_market_composite_directional_omitted_when_all_none():
+    """If all ForwardRows have market_composite=None (legacy), the key is absent
+    from details (back-compat: old runs don't break the panel)."""
+    rows = [_fr(f"2026-01-{d:02d}", "a", "ok", 0.3, "NEUTRAL", 0.01) for d in range(1, 5)]
+    _, details = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
+    assert "market_composite_directional" not in details
+
+
+def test_market_composite_directional_report_count():
+    """Still exactly 3 MetricReports (market_composite lives in details only,
+    not as a 4th row — keeps panel layout stable)."""
+    rows = [_fr_mc(f"2026-01-{d:02d}", "a", 0.3, 0.2, 0.01) for d in range(1, 5)]
+    reports, _ = build_metric_reports(forward_rows=rows, retro_points=[], seed=1)
+    assert len(reports) == 3

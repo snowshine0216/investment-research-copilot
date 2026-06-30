@@ -50,6 +50,14 @@ def _composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
              "fwd": r.fwd_ret} for r in rows]
 
 
+def _market_composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
+    """Rows where market_composite is non-None (forward-ledger has the field)."""
+    return [{"run_date": r.run_date, "fund_id": r.fund_id,
+             "pred": sign(r.market_composite), "label": sign(r.market_composite),
+             "fwd": r.fwd_ret}
+            for r in rows if r.market_composite is not None]
+
+
 def _bias_rows(rows: Sequence[ForwardRow]) -> tuple[list[dict], dict[str, int]]:
     out = []
     excl: dict[str, int] = {}
@@ -258,4 +266,10 @@ def build_metric_reports(
         "publishable_bias_directional": d_bias,
         "rank_ic": d_ic,
     }
+    # Additive market_composite_directional (Comp 4c): omitted when no rows carry the field
+    mc_rows = _market_composite_rows(forward_rows)
+    if mc_rows:
+        _, d_mc = _hit_rate_report("market_composite_directional", mc_rows,
+                                   seed=seed + 30, momentum_by_key=mbk)
+        details["market_composite_directional"] = d_mc
     return [r_comp, r_bias, r_ic], details
