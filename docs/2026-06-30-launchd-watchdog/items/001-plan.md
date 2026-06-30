@@ -49,6 +49,8 @@ Start with the watchdog because its non-timeout behavior (run a command, return 
 
 - [ ] **Step 1: Write the failing tests (file does not yet define the function)**
 
+> **Plan amendment (deviation a — accepted):** The implementer wrote both `acquire_lock` and `run_with_watchdog` into `lib-run.sh` in this commit (Task 1), so Task 4's "fail first" step found `acquire_lock` already present. Same final code; only TDD ordering differs. The plan's step-by-step TDD ordering was a latent over-specification; the outcome is identical.
+
 Create `tests/ops/test_run_lib.py` with exactly:
 
 ```python
@@ -282,11 +284,15 @@ Add to `tests/ops/test_run_lib.py`:
 def test_acquire_lock_first_acquire_succeeds_and_writes_pid(tmp_path: Path) -> None:
     """First acquire returns 0, creates the lock dir, and writes $$ to pid."""
     lock = tmp_path / ".monitor.lock"
+    # Plan amendment (deviation c — correct adjustment): reads pid from bash stdout
+    # (cat inside the snippet runs before the EXIT trap removes the dir) rather than
+    # lock.is_dir() after subprocess exit (the trap removes the dir on exit, so
+    # lock.is_dir() would always be False). Correct: pid is the last non-empty line.
     proc = _bash(f'acquire_lock "{lock}"; echo "rc=$?"; cat "{lock}/pid"')
     assert proc.returncode == 0, proc.stderr
     assert "rc=0" in proc.stdout, proc.stdout
-    assert lock.is_dir(), "lock dir must exist after acquire"
-    pid = (lock / "pid").read_text(encoding="utf-8").strip()
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    pid = lines[-1].strip() if len(lines) >= 2 else ""
     assert pid.isdigit() and int(pid) > 0, f"pid file must hold a numeric pid, got {pid!r}"
 
 
@@ -321,6 +327,8 @@ Expected: 3 FAIL — bash reports `acquire_lock: command not found` (function no
 
 - [ ] **Step 3: Add `acquire_lock` to `ops/launchd/lib-run.sh`**
 
+> **Plan amendment (deviation b — correct bug fix):** The plan used `trap 'rm -rf "$lock_dir"'` where `lock_dir` is `local` — out of scope when the trap fires after the function returns (under `set -u` → unbound variable). Implementation fixed this to a script-global `_IRC_LOCK_DIR` set before each trap install: `_IRC_LOCK_DIR="$lock_dir"; trap 'rm -rf "$_IRC_LOCK_DIR"' EXIT`. This is a CORRECT bug fix; the plan text below is amended to match.
+
 Insert this function into `ops/launchd/lib-run.sh` **above** `run_with_watchdog` (after the file header comment):
 
 ```bash
@@ -338,7 +346,8 @@ acquire_lock() {
   local lock_dir="$1"
   if mkdir "$lock_dir" 2>/dev/null; then
     echo "$$" > "$lock_dir/pid"
-    trap 'rm -rf "$lock_dir"' EXIT
+    _IRC_LOCK_DIR="$lock_dir"
+    trap 'rm -rf "$_IRC_LOCK_DIR"' EXIT
     return 0
   fi
   local holder
@@ -350,7 +359,8 @@ acquire_lock() {
   rm -rf "$lock_dir"
   if mkdir "$lock_dir" 2>/dev/null; then
     echo "$$" > "$lock_dir/pid"
-    trap 'rm -rf "$lock_dir"' EXIT
+    _IRC_LOCK_DIR="$lock_dir"
+    trap 'rm -rf "$_IRC_LOCK_DIR"' EXIT
     return 0
   fi
   return 1
@@ -381,6 +391,8 @@ The library is proven. Now wire the monitor wrapper. Per spec §4.1 the final or
 
 - [ ] **Step 1: Add the timeout-kill + lock-skip integration tests**
 
+> **Plan amendment (deviation d — clean addition):** `_template_wrapper` was extended to copy `lib-run.sh` into `tmp_path/ops/launchd/` so the relative `source ops/launchd/lib-run.sh` resolves under the test's substituted `__REPO_ROOT__`. This was a necessary infrastructure fix not anticipated by the plan.
+
 Append to `tests/ops/test_launchd_monitor.py` (the harness helpers `_make_stub`, `_template_wrapper`, `_make_date_stub`, `_run_wrapper`, `_read_argv`, `_GATE_OPEN` already exist in this file — reuse them):
 
 ```python
@@ -393,6 +405,10 @@ def _make_sleepy_uv_stub(tmp_path: Path, monitor_sleep: int) -> tuple[Path, Path
     """A stub `uv` whose `irc monitor` sleeps <monitor_sleep>s (to be killed by
     the watchdog) but whose `notify-status` returns instantly with exit 0.
     Records every argv line to stub_argv.log."""
+    # Plan amendment (deviation e — correct fix): removed the early `if [ "$arg" = "snapshot" ]; then exit 0; fi`
+    # branch. With it, `irc monitor snapshot` returned immediately (exit 0), bypassing the watchdog
+    # entirely and causing `test_fundamentals_wrapper_watchdog_kills_and_exits_124_without_notify` to fail.
+    # The stub must sleep for ALL non-notify-status calls so the watchdog has something to kill.
     argv_log = tmp_path / "stub_argv.log"
     stub = tmp_path / "uv"
     stub.write_text(
@@ -401,10 +417,9 @@ def _make_sleepy_uv_stub(tmp_path: Path, monitor_sleep: int) -> tuple[Path, Path
             echo "$@" >> {argv_log}
             for arg in "$@"; do
               if [ "$arg" = "notify-status" ]; then exit 0; fi
-              if [ "$arg" = "snapshot" ]; then exit 0; fi
             done
-            # plain `irc monitor` (no notify-status / snapshot): sleep so the
-            # watchdog has something to kill.
+            # irc monitor / irc monitor snapshot: sleep so the watchdog has
+            # something to kill.
             sleep {monitor_sleep}
             exit 0
         """),
@@ -1014,6 +1029,8 @@ done
 Expected: for each wrapper, the `source ops/launchd/lib-run.sh` line number is **greater** than the `cd "$REPO_ROOT"` line number.
 
 - [ ] **Step 7: Final commit (only if any verification surfaced a fix; otherwise skip)**
+
+> **Plan amendment (deviation f — ruff cleanup):** The ruff check (Step 4) flagged unused `textwrap` and `pytest` imports in `tests/ops/test_run_lib.py` (added in Task 1's initial commit but never used once the test structure was finalized). The verification sweep commit removed them. This is expected ruff hygiene; the plan already mandated `All checks passed!` so this is consistent.
 
 ```bash
 git add -A
