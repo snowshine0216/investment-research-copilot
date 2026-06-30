@@ -677,6 +677,14 @@ def test_compute_foreign_listed_share_unknown_exchange_treated_non_foreign() -> 
     assert _compute_foreign_listed_share(ranked) == 0.0
 
 
+def test_infer_exchange_classifies_shanghai_5_prefix_etf() -> None:
+    """Shanghai-listed funds/ETFs whose code starts with 5 (e.g. 510300) are SH,
+    not UNKNOWN — mirror _parse_exchange_from_ticker which maps head in (5,6)→SH."""
+    from irc.opportunity.policy_b import _infer_exchange
+    assert _infer_exchange("510300") == "SH"
+    assert _infer_exchange("600000") == "SH"  # regression: existing 6-prefix unchanged
+
+
 def test_evaluate_policy_b_rule_2_5_foreign_heavy_publishable() -> None:
     """006809 fixture: 10 HK constituents, no CN filings, fund-level evidence present."""
     from irc.opportunity.policy_b import evaluate_policy_b

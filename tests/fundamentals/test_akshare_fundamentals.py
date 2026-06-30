@@ -544,6 +544,19 @@ def test_fetch_cn_filing_digest_roe_none_when_value_nan() -> None:
     assert digest.roe is None
 
 
+def test_profitability_metric_screens_inf() -> None:
+    """±inf must screen to None (defense-in-depth), aligning with ratios._finite."""
+    from irc.fundamentals.akshare_filing import _profitability_metric
+    df = pd.DataFrame({"选项": ["盈利能力"], "指标": ["净资产收益率"], "20260331": [float("inf")]})
+    assert _profitability_metric(df, "净资产收益率", "20260331") is None
+
+
+def test_common_metric_screens_inf() -> None:
+    from irc.fundamentals.akshare_filing import _common_metric
+    df = pd.DataFrame({"选项": ["常用指标"], "指标": ["营业总收入"], "20260331": [float("-inf")]})
+    assert _common_metric(df, "营业总收入", "20260331") is None
+
+
 # ---------- fetch_hk_index_constituents ----------
 
 

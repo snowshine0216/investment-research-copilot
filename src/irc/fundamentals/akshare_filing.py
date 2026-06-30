@@ -115,7 +115,7 @@ def _common_metric(df: pd.DataFrame, name: str, col: str) -> float | None:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    return None if math.isnan(value) else value
+    return value if math.isfinite(value) else None
 
 
 def _profitability_metric(df: pd.DataFrame, name: str, col: str) -> float | None:
@@ -135,7 +135,7 @@ def _profitability_metric(df: pd.DataFrame, name: str, col: str) -> float | None
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    return None if math.isnan(value) else value
+    return value if math.isfinite(value) else None
 
 
 def fetch_cn_filing_digest(symbol: str) -> FilingDigest | None:
