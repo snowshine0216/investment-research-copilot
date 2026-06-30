@@ -52,6 +52,8 @@ def _composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
 
 def _market_composite_rows(rows: Sequence[ForwardRow]) -> list[dict]:
     """Rows where market_composite is non-None (forward-ledger has the field)."""
+    # label=sign(market_composite) is the permutation-null PREDICTION label,
+    # intentionally mirroring _composite_rows (NOT a forgotten sign(fwd_ret)).
     return [{"run_date": r.run_date, "fund_id": r.fund_id,
              "pred": sign(r.market_composite), "label": sign(r.market_composite),
              "fwd": r.fwd_ret}
