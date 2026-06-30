@@ -41,6 +41,27 @@ def test_map_fina_to_digest_missing_columns_returns_none() -> None:
     assert _map_fina_to_digest("600519.SH", pd.DataFrame({"roe": [18.0]})) is None
 
 
+def test_map_fina_missing_roe_column_emits_debug_log(caplog) -> None:
+    """A frame missing the roe candidate columns must still produce a digest
+    (roe=None) AND emit a DEBUG log naming the drifted field, so Tushare
+    column-level schema drift inside an otherwise-good frame is observable."""
+    import logging
+
+    fina = pd.DataFrame({
+        "ts_code": ["600519.SH"],
+        "end_date": ["20241231"],
+        "or_yoy": [25.0],
+        "netprofit_yoy": [33.0],
+        "grossprofit_margin": [40.0],
+        # no roe / roe_waa column → column-level drift
+    })
+    with caplog.at_level(logging.DEBUG, logger="irc.fundamentals.tushare_provider"):
+        out = _map_fina_to_digest("600519.SH", fina)
+    assert out is not None and out.roe is None
+    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("roe" in r.getMessage() for r in debugs)
+
+
 # ── report_rc → tuple[BrokerReport, ...] ──────────────────────────────────────
 def test_map_report_rc_carries_target_price() -> None:
     rc = pd.DataFrame({

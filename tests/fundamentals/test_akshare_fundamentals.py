@@ -509,6 +509,27 @@ def test_fetch_cn_filing_digest_roe_none_when_section_absent() -> None:
     assert digest.roe is None
 
 
+def test_profitability_section_absent_emits_debug_log(caplog) -> None:
+    """When the 盈利能力 section is absent (schema drift), roe degrades to None —
+    but a DEBUG log must fire so AkShare section-drift is observable in logs
+    instead of being indistinguishable from a legitimately-absent metric."""
+    import logging
+
+    frame = pd.DataFrame({
+        "选项": ["常用指标", "常用指标", "常用指标"],
+        "指标": ["归母净利润", "营业总收入", "营业成本"],
+        "20260331": [27.24e9, 54.70e9, 17.19e9],
+        "20250331": [26.84e9, 51.44e9, 14.43e9],
+    })
+    with caplog.at_level(logging.DEBUG, logger="irc.fundamentals.akshare_filing"), \
+         patch("irc.fundamentals.akshare_filing._ak_call") as mocked:
+        mocked.return_value = frame
+        digest = fetch_cn_filing_digest("600519")
+    assert digest is not None and digest.roe is None
+    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("盈利能力" in r.getMessage() for r in debugs)
+
+
 def test_fetch_cn_filing_digest_roe_none_when_value_nan() -> None:
     frame = pd.DataFrame({
         "选项": ["常用指标", "常用指标", "常用指标", "盈利能力"],
@@ -521,6 +542,19 @@ def test_fetch_cn_filing_digest_roe_none_when_value_nan() -> None:
         digest = fetch_cn_filing_digest("600519")
     assert digest is not None
     assert digest.roe is None
+
+
+def test_profitability_metric_screens_inf() -> None:
+    """±inf must screen to None (defense-in-depth), aligning with ratios._finite."""
+    from irc.fundamentals.akshare_filing import _profitability_metric
+    df = pd.DataFrame({"选项": ["盈利能力"], "指标": ["净资产收益率"], "20260331": [float("inf")]})
+    assert _profitability_metric(df, "净资产收益率", "20260331") is None
+
+
+def test_common_metric_screens_inf() -> None:
+    from irc.fundamentals.akshare_filing import _common_metric
+    df = pd.DataFrame({"选项": ["常用指标"], "指标": ["营业总收入"], "20260331": [float("-inf")]})
+    assert _common_metric(df, "营业总收入", "20260331") is None
 
 
 # ---------- fetch_hk_index_constituents ----------

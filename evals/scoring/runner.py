@@ -74,6 +74,10 @@ def run(repo_root: Path) -> int:
     comp_a = [s.get("composite_score", 0.0) for s in scores[:mid]]
     comp_b = [s.get("composite_score", 0.0) for s in scores[mid:]]
     stability = score_distribution_stability(comp_a, comp_b)
+    # A split with <2 observations (e.g. a 1-item corpus → empty half) cannot
+    # express distribution stability — score_distribution_stability returns a
+    # vacuous 0.0 that would classify as PASS. Surface it as WARN instead.
+    stability_insufficient = min(len(comp_a), len(comp_b)) < 2
 
     metrics: list[MetricReport] = [
         MetricReport(
@@ -114,7 +118,8 @@ def run(repo_root: Path) -> int:
         MetricReport(
             name="score_distribution_stability",
             value=stability,
-            status=classify_status(stability, _STABILITY_TH, "lower_is_better"),
+            status="WARN" if stability_insufficient
+            else classify_status(stability, _STABILITY_TH, "lower_is_better"),
             n_observations=len(scores),
             threshold=_STABILITY_TH,
         ),

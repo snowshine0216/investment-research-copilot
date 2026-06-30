@@ -112,10 +112,12 @@ def demote_unstable_active(
     Returns ``(all_rows_with_demotions, demoted_rows)`` where demoted_rows is
     a tuple of the original (pre-demotion) rows for logging / diagnostics.
     """
-    # Build best passive quality per theme for comparison.
-    best_passive_key: dict[str | None, tuple] = {}
+    # Build best passive quality per theme for comparison. ``theme is None``
+    # means "unclassified", NOT a shared theme — never bucket those together,
+    # else one unrelated themeless passive demotes every themeless active fund.
+    best_passive_key: dict[str, tuple] = {}
     for r in rows:
-        if r.lookthrough_target.kind == "active_fund":
+        if r.lookthrough_target.kind == "active_fund" or r.theme is None:
             continue
         q = qualities.get(r.instrument_id)
         if q is None:

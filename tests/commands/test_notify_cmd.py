@@ -358,3 +358,11 @@ def test_run_monitor_sh_uses_anchored_grep():
     assert 'grep -q "$TODAY"' not in text, (
         "run-monitor.sh must not use unanchored grep -q for holiday check"
     )
+
+
+def test_lib_run_sh_defines_both_functions():
+    """spec §6.3: ops/launchd/lib-run.sh must define both acquire_lock and
+    run_with_watchdog (the entire public interface, spec §3)."""
+    text = (_OPS / "lib-run.sh").read_text(encoding="utf-8")
+    assert "acquire_lock()" in text, "lib-run.sh must define acquire_lock()"
+    assert "run_with_watchdog()" in text, "lib-run.sh must define run_with_watchdog()"
