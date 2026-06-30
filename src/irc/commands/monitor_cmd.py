@@ -64,6 +64,7 @@ from irc.monitor.eval.review import dedup_iso_weeks, review_trigger
 from evals._shared.latest_report import (
     latest_stage_report, latest_stage_report_entry, list_stage_reports,
 )
+from evals.monitor_forward.runner import run as _forward_eval_run
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -556,6 +557,20 @@ def _write_eval_artifacts(
     except Exception:  # noqa: BLE001 — append_ledger already swallows, this guards ledger_row
         _log.warning("forward ledger write failed", exc_info=True)
     _append_nav_history_for_views(root, views, run_date=run_date, written_at=written_at)
+
+
+def _run_forward_eval(root: Path, today: str) -> int | None:
+    """EDGE (Comp 0): run the monitor_forward scorer inline so its artifact is
+    same-day fresh. `today` is unused by the runner (it computes its own) but kept
+    for symmetry with the spec + the staleness contract. Contained: a non-zero rc
+    or any exception MUST NOT change `irc monitor`'s exit code — degrade to the
+    pre-existing 'read latest artifact' path. Returns the scorer rc, or None on
+    exception."""
+    try:
+        return _forward_eval_run(root)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("inline monitor_forward eval failed", exc_info=True)
+        return None
 
 
 def _is_stale(artifact_date: str, today: str) -> bool:
