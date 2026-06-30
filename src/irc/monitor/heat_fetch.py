@@ -76,12 +76,26 @@ def parse_purchase_status(table: pd.DataFrame | None, fund_id: str) -> bool | No
 
 
 def purchase_tag_for(fund_id: str, *, purchase_table: pd.DataFrame | None) -> str | None:
-    """PURE: '可申购' | '限购' | None.
-    None means data unavailable — never a fabricated tag."""
-    status = parse_purchase_status(purchase_table, fund_id)
-    if status is None:
+    """PURE (spec §9): '限购 ¥{cap}/日' when cap-restricted; '限购' when status-
+    restricted only; None when open OR data unavailable. Never '可申购'."""
+    if not isinstance(purchase_table, pd.DataFrame) or purchase_table.empty:
         return None
-    return "限购" if status else "可申购"
+    row = _row_for(purchase_table, fund_id)
+    if row is None or _STATUS_COL not in row.index:
+        return None
+    if _cap_below_threshold(row):
+        try:
+            cap = float(row[_CAP_COL])
+        except (TypeError, ValueError):
+            cap = None
+        if cap is not None and not pd.isna(cap):
+            cap_int = int(cap) if cap == int(cap) else cap
+            return f"限购 ¥{cap_int}/日"
+    status = str(row[_STATUS_COL]).strip()
+    restricted_by_status = status not in _OPEN_STATUSES
+    if restricted_by_status:
+        return "限购"
+    return None
 
 
 def heat_inputs_for(
