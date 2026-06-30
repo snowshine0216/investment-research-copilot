@@ -26,3 +26,19 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 - **001-verify** — non-web project → `/verify` (NOT `/qa`). QA column omitted by design (XOR).
 - Phase 3: feature→main PR opened and left OPEN (no merge-to-main opt-in this turn).
+
+---
+
+## Run close-out (Phase 3 complete)
+
+**Status:** ✅ COMPLETE. Single IN-scope item (001) merged; run green.
+
+- **Items merged:** 001 → PR [#186](https://github.com/snowshine0216/investment-research-copilot/pull/186) (squash `27041abe`) into the feature branch.
+- **Items SKIPPED / BLOCKED:** none.
+- **Feature branch:** `claude/wizardly-shamir-60a599`
+- **Feature-branch PR:** [#187](https://github.com/snowshine0216/investment-research-copilot/pull/187) (OPEN → `main`)
+- **Merged into protected branch:** no (PR left open for user review — guardrail held; no merge-to-main opt-in this turn).
+- **Phase 3 checks:** workflow-completeness audit PASS (all per-item verdicts present; verify XOR correct; grill ⏭️ spec-mode). Build/test sanity on merged branch → `tests/monitor/` + `tests/evals/` 1072 passed (1 pre-existing unrelated arch failure), ruff clean.
+- **Doc-sync finding (fixed):** ADR 0017 addendum + ADR 0021 §4 still described the *pre-drift-fix* `market_composite_directional` behavior ("details block only / absent for legacy runs"). Corrected to as-built (always-emitted honest panel row, `insufficient_data` until matured) — commit `docs(adr): sync 0017/0021 to as-built …`.
+- **Follow-up (deferred P2 nits — acceptable, both review surfaces agree):** `purchase_tag_for` double-float dead path; `_is_market` unknown-factor→market default; `sign(0.0)=0` zero-composite miss.
+- **VERSION:** unchanged at 0.9.3 (feature accumulated under CHANGELOG `[Unreleased]` per project convention).
