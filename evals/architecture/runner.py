@@ -87,9 +87,10 @@ def run(repo_root: Path) -> int:
             threshold={"fail_below": 1.0},
         ),
         MetricReport(
-            # Syntax-error sources are skipped by dag_acyclic — their import edges
-            # vanish and could mask a cycle behind a false PASS. WARN so it's visible.
-            name="parseable_sources", value=float(len(unparseable)),
+            # Count of sources that fail ast.parse. dag_acyclic skips these — their
+            # import edges vanish and could mask a cycle behind a false PASS — so WARN
+            # when >0. Name matches the value (count of UNparseable files).
+            name="unparseable_sources", value=float(len(unparseable)),
             status="WARN" if unparseable else "PASS",
             threshold={"warn_above": 0},
         ),

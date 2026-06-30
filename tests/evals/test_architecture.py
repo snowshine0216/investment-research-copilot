@@ -46,8 +46,9 @@ def test_architecture_runner_warns_on_unparseable_source(tmp_path: Path):
     rc = run(tmp_path)
     report_path = out_dir / "evals" / "architecture" / "report.json"
     body = json.loads(report_path.read_text(encoding="utf-8"))
-    metric = next(m for m in body["metrics"] if m["name"] == "parseable_sources")
+    metric = next(m for m in body["metrics"] if m["name"] == "unparseable_sources")
     assert metric["status"] == "WARN"
+    assert metric["value"] == 1.0  # one broken file → count matches the metric name
     assert body["overall"] == "WARN"
     assert rc == 1
 
