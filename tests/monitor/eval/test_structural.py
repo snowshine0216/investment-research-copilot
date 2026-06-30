@@ -66,6 +66,60 @@ def test_signal_consistency_fail_when_bias_present_but_status_not_ok():
     assert signal_consistency(t).status == "FAIL"
 
 
+def test_signal_consistency_fail_on_nan_composite():
+    # NaN composite would make `abs(nan - x) >= eps` vacuously False → silent PASS.
+    t = _good_fund()
+    t["signal"]["composite"] = float("nan")
+    assert signal_consistency(t).status == "FAIL"
+
+
+def test_signal_consistency_fail_on_inf_cancelling_contributions():
+    # +inf and -inf contributions sum to NaN → the divergence check is vacuously
+    # satisfied. A non-finite contribution must FAIL regardless of the composite.
+    t = _good_fund()
+    t["signal"]["composite"] = 0.0
+    t["signal"]["contributions"] = [
+        {"name": "a", "renorm_weight": 0.5, "value": 1.0, "contribution": float("inf"), "confidence": 1.0},
+        {"name": "b", "renorm_weight": 0.5, "value": -1.0, "contribution": float("-inf"), "confidence": 1.0},
+    ]
+    assert signal_consistency(t).status == "FAIL"
+
+
+def test_signal_consistency_fail_when_composite_key_missing():
+    # A truncated signal block (no composite) must FAIL, not default to 0.0 and
+    # coincidentally match a zero-summing contribution set.
+    t = _good_fund()
+    del t["signal"]["composite"]
+    t["signal"]["contributions"] = [
+        {"name": "a", "renorm_weight": 0.5, "value": 0.0, "contribution": 0.0, "confidence": 1.0},
+        {"name": "b", "renorm_weight": 0.5, "value": 0.0, "contribution": 0.0, "confidence": 1.0},
+    ]
+    assert signal_consistency(t).status == "FAIL"
+
+
+def test_signal_consistency_fail_when_contribution_key_missing():
+    # A contribution lacking the 'contribution' key must FAIL rather than defaulting
+    # to 0.0 (which can hide a malformed/truncated trace).
+    t = _good_fund()
+    t["signal"]["composite"] = 0.0
+    t["signal"]["contributions"] = [
+        {"name": "a", "renorm_weight": 1.0, "value": 0.0, "confidence": 1.0},
+    ]
+    assert signal_consistency(t).status == "FAIL"
+
+
+def test_signal_consistency_tolerates_tiny_renorm_float_error():
+    # A ~5e-9 renorm sum artifact must not spuriously FAIL: compare Σrenorm at the
+    # same 4dp precision as composite (a real off-by-1e-4 normalization still FAILs).
+    t = _good_fund()
+    t["signal"]["composite"] = 0.3
+    t["signal"]["contributions"] = [
+        {"name": "a", "renorm_weight": 0.5, "value": 0.6, "contribution": 0.3, "confidence": 1.0},
+        {"name": "b", "renorm_weight": 0.500000005, "value": 0.0, "contribution": 0.0, "confidence": 1.0},
+    ]
+    assert signal_consistency(t).status == "PASS"
+
+
 def test_citation_integrity_pass_when_all_ids_resolve():
     assert citation_integrity(_good_fund()).status == "PASS"
 

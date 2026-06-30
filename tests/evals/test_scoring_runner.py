@@ -22,19 +22,28 @@ def _full_factor_breakdown() -> dict:
     }
 
 
+def _stable_corpus(action: str, completeness: float, composite: float = 80.0) -> list[dict]:
+    """Four near-identical scores so the runner's 2-vs-2 split makes
+    score_distribution_stability measurable (>=2 obs/half) — avoids the
+    too-small-corpus WARN so PASS-path tests assert what they intend."""
+    return [
+        {
+            "instrument_id": f"INST{i}",
+            "action": action,
+            "composite_score": composite,
+            "data_completeness": completeness,
+            "factor_breakdown": _full_factor_breakdown(),
+        }
+        for i in range(4)
+    ]
+
+
 def test_runner_reads_dated_scoring_json(tmp_path: Path) -> None:
     today = _today()
     out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True)
-    (out_dir / "scoring.json").write_text(json.dumps(_scoring_payload([
-        {
-            "instrument_id": "VTI",
-            "action": "buy_candidate",
-            "composite_score": 80.0,
-            "data_completeness": 1.0,
-            "factor_breakdown": _full_factor_breakdown(),
-        }
-    ])), encoding="utf-8")
+    (out_dir / "scoring.json").write_text(
+        json.dumps(_scoring_payload(_stable_corpus("buy_candidate", 1.0))), encoding="utf-8")
 
     rc = run(tmp_path)
 
@@ -93,6 +102,31 @@ def test_runner_warns_when_data_completeness_avg_in_warn_band(tmp_path: Path) ->
     assert data_metric["status"] == "WARN"
 
 
+def test_runner_warns_on_too_small_corpus_for_stability(tmp_path: Path) -> None:
+    """A 1-item corpus splits into ([], [x]); distribution stability can't be
+    assessed with <2 observations per half, so the metric must WARN (not report
+    a false 0.0 PASS) and the run must surface rc=1."""
+    today = _today()
+    out_dir = tmp_path / "outputs" / today
+    out_dir.mkdir(parents=True)
+    (out_dir / "scoring.json").write_text(json.dumps(_scoring_payload([
+        {
+            "instrument_id": "VTI",
+            "action": "watch",
+            "composite_score": 80.0,
+            "data_completeness": 1.0,
+            "factor_breakdown": _full_factor_breakdown(),
+        }
+    ])), encoding="utf-8")
+
+    rc = run(tmp_path)
+
+    report = json.loads((tmp_path / "outputs" / today / "evals" / "scoring" / "report.json").read_text(encoding="utf-8"))
+    stability = next(m for m in report["metrics"] if m["name"] == "score_distribution_stability")
+    assert stability["status"] == "WARN"
+    assert rc == 1
+
+
 def test_runner_returns_pass_when_no_scoring_json(tmp_path: Path) -> None:
     """If no scoring.json file exists anywhere in outputs/, runner returns rc=2 (FAIL)."""
     (tmp_path / "outputs").mkdir(parents=True)
@@ -104,15 +138,9 @@ def test_runner_falls_back_to_latest_scoring_json_when_today_absent(tmp_path: Pa
     """When today's file is absent, runner picks the latest available file."""
     past_dir = tmp_path / "outputs" / "2026-05-01"
     past_dir.mkdir(parents=True)
-    (past_dir / "scoring.json").write_text(json.dumps(_scoring_payload([
-        {
-            "instrument_id": "GLD",
-            "action": "buy_candidate",
-            "composite_score": 75.0,
-            "data_completeness": 1.0,
-            "factor_breakdown": _full_factor_breakdown(),
-        }
-    ])), encoding="utf-8")
+    (past_dir / "scoring.json").write_text(
+        json.dumps(_scoring_payload(_stable_corpus("buy_candidate", 1.0, composite=75.0))),
+        encoding="utf-8")
 
     rc = run(tmp_path)
     assert rc == 0
@@ -123,15 +151,7 @@ def test_runner_parses_raw_list_scoring_json(tmp_path: Path) -> None:
     today = _today()
     out_dir = tmp_path / "outputs" / today
     out_dir.mkdir(parents=True)
-    raw_list = [
-        {
-            "instrument_id": "SPY",
-            "action": "buy_candidate",
-            "composite_score": 70.0,
-            "data_completeness": 1.0,
-            "factor_breakdown": _full_factor_breakdown(),
-        }
-    ]
+    raw_list = _stable_corpus("buy_candidate", 1.0, composite=70.0)
     (out_dir / "scoring.json").write_text(json.dumps(raw_list), encoding="utf-8")
 
     rc = run(tmp_path)

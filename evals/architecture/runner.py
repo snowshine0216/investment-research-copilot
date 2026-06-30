@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
@@ -18,6 +17,7 @@ from evals.architecture.metrics import (
     dag_acyclic_check,
     max_file_loc,
     output_files_present,
+    unparseable_sources,
 )
 
 
@@ -74,8 +74,10 @@ def run(repo_root: Path) -> int:
         return EVAL_RC_FAIL
 
     out_dir, artifact_date = located
-    dag_ok = dag_acyclic_check(repo_root / "src" / "irc")
-    max_loc = max_file_loc(repo_root / "src" / "irc")
+    src_irc = repo_root / "src" / "irc"
+    dag_ok = dag_acyclic_check(src_irc)
+    max_loc = max_file_loc(src_irc)
+    unparseable = unparseable_sources(src_irc)
     files = output_files_present(out_dir)
 
     metrics: list[MetricReport] = [
@@ -83,6 +85,13 @@ def run(repo_root: Path) -> int:
             name="dag_acyclic", value=1.0 if dag_ok else 0.0,
             status="PASS" if dag_ok else "FAIL",
             threshold={"fail_below": 1.0},
+        ),
+        MetricReport(
+            # Syntax-error sources are skipped by dag_acyclic — their import edges
+            # vanish and could mask a cycle behind a false PASS. WARN so it's visible.
+            name="parseable_sources", value=float(len(unparseable)),
+            status="WARN" if unparseable else "PASS",
+            threshold={"warn_above": 0},
         ),
         MetricReport(
             name="max_file_loc", value=float(max_loc),
