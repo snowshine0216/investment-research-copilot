@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from html import escape
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.render_cards import (
-    narrative_sections_html, risk_block_html, verdict_block_html,
+    narrative_sections_html, risk_block_html, verdict_block_html, decision_line_html,
 )
 from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
@@ -106,6 +106,9 @@ _CSS = (
     ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
     ".flow-outage{margin:8px 0;padding:6px 8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:6px}"
     "sup a{text-decoration:none}"
+    ".decision-line{margin:6px 0;padding:6px 8px;background:#f6f8fa;"
+    "border-left:3px solid #1a7f37;font-size:13px;line-height:1.5}"
+    ".decision-line .honesty{display:block;margin-top:3px;font-size:12px}"
     "</style>"
 )
 
@@ -210,6 +213,7 @@ def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
+        f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
         f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
         f"{returns_table_html(view.return_table)}"

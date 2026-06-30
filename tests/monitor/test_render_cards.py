@@ -1,6 +1,8 @@
 from irc.monitor.types import SignalRecord, NarrativeDoc, Claim
 from irc.monitor.render_cards import verdict_block_html, risk_block_html, narrative_sections_html
 from irc.monitor.render_html import CitationIndex
+from irc.monitor.render_cards import decision_line_html
+from irc.monitor.market_composite import MarketCompositeView
 
 _EMPTY_IDX = CitationIndex(())
 
@@ -114,3 +116,27 @@ def test_claim_html_unknown_cid_drops_marker_no_raw_ref():
     claim = Claim("x", "unknown", ("ffffffffffffffff",))
     html = _claim_html(claim, idx)
     assert "[ref:" not in html
+
+
+def test_decision_line_market_bias_composite_news_and_honesty():
+    mv = MarketCompositeView(composite=0.24, bias="NEUTRAL", news_delta=0.20,
+                             eligible_market_factors=4)
+    html = decision_line_html(mv, purchase_tag="限购 ¥100/日")
+    assert "市场面" in html and "决策锚" in html
+    assert "NEUTRAL" in html
+    assert "+0.24" in html
+    assert "新闻叠加" in html and "+0.20" in html and "易变" in html
+    assert "限购 ¥100/日" in html
+    # honesty line: 0.54 is trend-only, NOT the market composite
+    assert "前瞻验证累积中" in html
+    assert "趋势单因子" in html and "0.54" in html
+
+
+def test_decision_line_none_market_view_renders_nothing():
+    assert decision_line_html(None, purchase_tag=None) == ""
+
+
+def test_decision_line_no_tag_when_open():
+    mv = MarketCompositeView(0.1, "NEUTRAL", 0.0, 2)
+    html = decision_line_html(mv, purchase_tag=None)
+    assert "限购" not in html

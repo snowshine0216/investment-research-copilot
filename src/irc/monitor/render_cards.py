@@ -2,6 +2,9 @@ from __future__ import annotations
 from html import escape
 from irc.monitor.types import Claim, NarrativeDoc, SignalRecord
 from irc.monitor.render_factors import divergence_caveat
+from irc.monitor.market_composite import MarketCompositeView
+
+_HONESTY = "市场面综合分 前瞻验证累积中 · 目前仅趋势单因子有历史命中 ~0.54"
 
 _BAND_PHRASE = {
     "ADD_BIAS": "落在偏多带",
@@ -25,6 +28,23 @@ def _sup(cid: str, idx) -> str:
         return ""
     title = escape(f"{idx.source(cid)} — {idx.title(cid)}")
     return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+
+
+def decision_line_html(mv: MarketCompositeView | None, *, purchase_tag: str | None) -> str:
+    """PURE Comp 1: the fact-backed decision line beneath the published badge.
+    market anchor + news overlay delta (+易变) + optional 限购 tag + honesty line.
+    '' when no market factor is present (mv is None)."""
+    if mv is None:
+        return ""
+    tag = f' · {escape(purchase_tag)}' if purchase_tag else ""
+    anchor = (
+        f'市场面 决策锚: <b>{escape(mv.bias)}</b> ({mv.composite:+.2f}) · '
+        f'新闻叠加 {mv.news_delta:+.2f} (易变){tag}'
+    )
+    return (
+        f'<div class="decision-line">{anchor}'
+        f'<span class="honesty muted">{_HONESTY}</span></div>'
+    )
 
 
 def _claim_html(claim: Claim, idx) -> str:
