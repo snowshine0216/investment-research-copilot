@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/launchd-watchdog-001` | ✅ `5888d1e` | ✅ `daf5cc9` | ✅ [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) | ✅ `983e451` | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 1 round `e480f15` | 🔄 |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/launchd-watchdog-001` | ✅ `5888d1e` | ✅ `daf5cc9` | ✅ [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) | ✅ `983e451` | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | ✅ 1 round `e480f15` | ✅ `e78fcac` |
 
 ### Notes
 - **spec** ✅ — `items/001-spec.md` (verbatim copy of merged spec PR #180).
@@ -19,4 +19,5 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 - **verify** ✅ — `items/001-verify.md` Verdict: PASS (`983e451`). Non-web → `/verify` (XOR: `/qa` never runs). All 5 ACs exercised live (rc=124 on timeout, rc=0/7 propagation, grandchild killed, lock acquire/contention/reclaim, wrapper wiring).
 - **pr-review** ✅ — `items/001-pr-review.md` PASS-WITH-NITS ([comment](https://github.com/snowshine0216/investment-research-copilot/pull/182#issuecomment-4841056904)). 3 nits, 0 blockers, 0 latent bugs.
 - **fix** ✅ — 1 round (`e480f15`): template_wrapper unconditional copy+assert; timing margin 8.0→9.5; lock-held assertion simplified to `== []`. Test-only (production bash byte-identical). Re-confirmed 73 passed + ruff clean. pr-review's other nits dismissed (matches-original SECONDS=0; documented TOCTOU).
+- **merge** ✅ — PR #182 squash-merged to feature branch `claude/thirsty-lovelace-3da881` as `e78fcac`; sub-branch deleted. All 6 pre-merge gates passed (non-protected base, ship+drift+verify+review+pr-review verdicts, MERGEABLE, no blocking comments).
 - This is the non-web spec-mode path: exactly one of {qa, verify} → `verify`.
