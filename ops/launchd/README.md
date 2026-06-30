@@ -24,7 +24,17 @@ completed run: the notifier would page "success" and the wrapper would skip the 
 (now a full 24h wait under the single daily fire). A failed fire leaves no
 `monitor.json`, so the next fire re-runs the full job. The wrapper guard and the
 notifier sentinel are deliberately kept identical — change one, change the other.
-A **single-instance lock** (`outputs/_logs/.run.lock`) stops two runs from overlapping.
+**Per-wrapper single-instance locks** stop a manual run and the scheduled fire (or
+any two fires of the same job) from overlapping — chiefly to avoid duplicate paid
+LLM spend and wasted concurrent work. `run-monitor.sh` holds
+`outputs/_logs/.monitor.lock`; `run-fundamentals.sh` holds
+`outputs/_logs/.snapshot.lock`. They are **separate on purpose**: one shared lock
+would let an overrunning quarterly snapshot false-skip an entire day's monitor
+brief. Each lock is an atomic `mkdir` with stale-holder reclaim and is released by
+an `EXIT` trap; contention is a **silent skip** (`exit 0`, no notification — a
+skip is not a failure). The lock and the `monitor.json` completion sentinel are
+orthogonal: the lock is *concurrency* control, the sentinel is *completion*
+detection, and both are retained.
 **No same-day retry:** unlike the previous 09:00 + 13:00 pair (where the 13:00 fire
 re-ran a failed morning), a single daily fire means a failed 12:15 run leaves **no
 brief until the next day's 12:15** — the failure is surfaced immediately via
@@ -36,6 +46,31 @@ for one clean daily fire.
 typed per-fund snapshot targets from each fund's `analysis_profile` in `config/monitor.yaml`
 and runs the constituent cache refresh. The daily 12:15 monitor brief reads these caches;
 if the quarterly job lapses, affected factors degrade to N/A (surfaced, not silent).
+
+## Watchdog (wall-clock timeout) + notify asymmetry
+
+Each wrapper bounds its run with a wall-clock watchdog (shared
+`ops/launchd/lib-run.sh`). The watchdog targets a **non-LLM, non-`cached_fetch`
+network call with no timeout** (e.g. an AkShare `requests` call whose default
+timeout is `None` can hang a half-open socket forever); LLM calls and
+`cached_fetch` are already self-bounded, so the ceilings are generous, not tight.
+On overrun the watchdog kills the **whole process group** (`TERM` → 5s grace →
+`KILL`) — `uv run` spawns a Python child, so a single-PID kill would orphan the
+worker — and reports `rc=124`.
+
+| Wrapper | Timeout env (default) | On timeout |
+|---|---|---|
+| `run-monitor.sh` | `IRC_MONITOR_TIMEOUT` (1800s / 30 min) | `rc=124` → `notify-status` pages **"timeout"** (`classify` maps 124) |
+| `run-fundamentals.sh` | `IRC_SNAPSHOT_TIMEOUT` (3600s / 60 min) | `rc=124` **logged loudly, does NOT page** (protective-only) |
+
+**Why the asymmetry.** The monitor job has a single `monitor.json` completion
+sentinel, so a timeout is a clean pageable outcome. The snapshot job has **no
+single completion-sentinel artifact** (it refreshes constituent caches under
+`data/…`), so there is nothing for a notification run-kind to test for success; a
+snapshot timeout is logged in `outputs/_logs/run-fundamentals.<ts>.log` and is
+already surfaced indirectly — the next daily monitor brief degrades the affected
+factors to N/A within ~a day. The watchdog there is purely protective: kill the
+stuck constituent socket and free the `.snapshot.lock`.
 
 ## Install
 
