@@ -13,6 +13,9 @@ from irc.monitor.eval.gate import published_state
 from irc.monitor.eval.panel import validation_panel_html
 from irc.monitor.eval.predictive_panel import predictive_validity_panel_html
 from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictivePanelModel
+from irc.monitor.render_heatmap import factor_heatmap_html
+from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
+from irc.monitor.render_contrib import contribution_bars_svg
 
 
 @dataclass(frozen=True)
@@ -109,6 +112,13 @@ _CSS = (
     ".decision-line{margin:6px 0;padding:6px 8px;background:#f6f8fa;"
     "border-left:3px solid #1a7f37;font-size:13px;line-height:1.5}"
     ".decision-line .honesty{display:block;margin-top:3px;font-size:12px}"
+    ".heatmap-table,.timeline-table{border-collapse:collapse;font-size:12px;margin:8px 0}"
+    ".heatmap-table td,.heatmap-table th,.timeline-table td,.timeline-table th"
+    "{border:1px solid #d0d7de;padding:2px 5px;text-align:center}"
+    ".tl-cell.add_bias{color:#1a7f37}.tl-cell.reduce_bias{color:#cf222e}.tl-cell.neutral{color:#6e7781}"
+    ".engine-boundary{border-left:2px solid #bf8700}"
+    ".contrib{width:100%;max-width:280px;height:auto;display:block;margin:6px 0}"
+    ".heatmap-legend{font-size:11px}"
     "</style>"
 )
 
@@ -224,6 +234,7 @@ def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
         f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
         f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
+        f"{contribution_bars_svg(view.signal.contributions)}"
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
         f"{_drilldown_block(view)}"
@@ -273,6 +284,7 @@ def render_report(
     gates: dict[str, GateDecision] | None = None,
     panel_rows: tuple[ValidationPanelRow, ...] = (),
     predictive_panel: PredictivePanelModel | None = None,
+    timeline: BiasTimeline | None = None,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -287,6 +299,8 @@ def render_report(
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
         + "</table>"
     )
+    heatmap = factor_heatmap_html(views)
+    timeline_html = bias_timeline_html(timeline) if timeline is not None else ""
     cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
     panel = _panel(views, gates, panel_rows)
     outage_note = _flow_outage_note(views)
@@ -297,6 +311,7 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + outage_note + _EXPLAINER + summary + cards + panel + predictive
+        + header + outage_note + _EXPLAINER + summary + heatmap + timeline_html
+        + cards + panel + predictive
         + _appendix(idx) + "</body></html>"
     )

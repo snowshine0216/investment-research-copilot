@@ -369,12 +369,13 @@ def _machine_summary(views: list[FundView]) -> dict:
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple[GateDecision, ...] = (),
                    panel_rows: tuple[ValidationPanelRow, ...] = (),
-                   predictive_panel: PredictivePanelModel | None = None) -> None:
+                   predictive_panel: PredictivePanelModel | None = None,
+                   timeline: BiasTimeline | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
-                         predictive_panel=predictive_panel)
+                         predictive_panel=predictive_panel, timeline=timeline)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -840,8 +841,10 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
+    timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
-    _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
+    _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
+                   timeline=timeline)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,
