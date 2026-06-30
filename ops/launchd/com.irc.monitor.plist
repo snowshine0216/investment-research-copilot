@@ -13,7 +13,8 @@
   <string>__REPO_ROOT__</string>
   <!-- Daily 12:15 (Asia/Shanghai; machine is UTC+8). Fires every calendar day; the
        wrapper's trading-day gate still skips weekends + CN holidays, and a
-       once-per-day idempotency guard skips if today's report.html already exists. -->
+       once-per-day idempotency guard skips if today's monitor.json (the last
+       atomic write, i.e. the full-completion sentinel) already exists. -->
   <key>StartCalendarInterval</key>
   <dict>
     <key>Hour</key><integer>12</integer>

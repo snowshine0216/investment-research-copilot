@@ -5,7 +5,7 @@ Two user LaunchAgents run the `irc` pipeline unattended and notify on outcome
 
 | Label | Schedule (Asia/Shanghai) | Command | Gate |
 |---|---|---|---|
-| `com.irc.monitor` | Daily 12:15 | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `report.html` already exists |
+| `com.irc.monitor` | Daily 12:15 | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `monitor.json` already exists |
 | `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct 06:00 | `irc monitor snapshot` | none (unconditional) |
 
 **Previous labels removed:** `com.irc.daily` (Mon–Fri 17:30/20:00/22:30) and
@@ -14,9 +14,16 @@ install, run `bash ops/launchd/uninstall.sh` to remove them before installing th
 new agents.
 
 **`com.irc.monitor`** captures `$?`, then calls `irc notify-status --run-kind monitor`.
-Success detection looks for `outputs/<date>/monitor/report.html` — that is the atomic
-end-of-run artifact and the basis of the once-per-day idempotency skip; a failed fire
-leaves none, so the next fire re-runs the full job.
+Success detection looks for `outputs/<date>/monitor/monitor.json` — the **last** of
+the five atomic writes in `_write_outputs` (`report.html` → `signal.json` →
+`impacts.json` → `narrative.json` → `monitor.json`), so it is the only artifact that
+proves the **whole** output set was written. It is also the basis of the once-per-day
+idempotency skip. Keying on `report.html` (the *first* write) would mis-classify a
+partial set — left by a crash after `report.html` but before `monitor.json` — as a
+completed run: the notifier would page "success" and the wrapper would skip the day
+(now a full 24h wait under the single daily fire). A failed fire leaves no
+`monitor.json`, so the next fire re-runs the full job. The wrapper guard and the
+notifier sentinel are deliberately kept identical — change one, change the other.
 A **single-instance lock** (`outputs/_logs/.run.lock`) stops two runs from overlapping.
 **No same-day retry:** unlike the previous 09:00 + 13:00 pair (where the 13:00 fire
 re-ran a failed morning), a single daily fire means a failed 12:15 run leaves **no

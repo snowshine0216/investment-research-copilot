@@ -58,11 +58,15 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
     """Gather today's on-disk artifacts into a frozen RunOutcome (no fallback)."""
     out_dir = root / "outputs" / _china_today().isoformat()
     if run_kind == "monitor":
-        report = out_dir / "monitor" / "report.html"
+        # monitor.json is the LAST of _write_outputs' five atomic writes, so its
+        # presence is the only artifact that proves the full set was written. A
+        # crash after report.html but before monitor.json leaves a partial set;
+        # keying on report.html would mis-report that as success.
+        sentinel = out_dir / "monitor" / "monitor.json"
         return RunOutcome(
             run_kind=run_kind,
             last_exit_code=last_exit_code,
-            today_dir_exists=report.exists(),  # success iff report.html written
+            today_dir_exists=sentinel.exists(),  # success iff monitor.json written
             pipeline_halted=False,
             stale_ingest=False,
             actionable_buy_count=0,

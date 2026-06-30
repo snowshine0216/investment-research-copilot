@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — monitor completion sentinel: wrapper guard + notifier now key on `monitor.json`, not `report.html` (2026-06-30)
+
+- **`run-monitor.sh`'s once-per-day idempotency guard and `notify-status` success
+  detection now both treat `outputs/<date>/monitor/monitor.json` as the completion
+  sentinel** — the LAST of `_write_outputs`' five atomic writes (`report.html` →
+  `signal.json` → `impacts.json` → `narrative.json` → `monitor.json`). They
+  previously keyed on `report.html` (the FIRST write), so a crash between the two
+  left a present-but-incomplete output set that the wrapper would skip (now a full
+  24h wait under the single daily 12:15 fire, with no 13:00 retry) and the notifier
+  could report as success. The two consumers are kept deliberately consistent
+  ("change one, change the other"). Pre-existing hole surfaced by the
+  schedule-rework ship review; no engine/logic change beyond the sentinel path.
+- **Tests:** added partial-output regression guards (`report.html` present,
+  `monitor.json` absent → wrapper must re-run, notifier must classify `failed`) in
+  `tests/notify/` and `tests/ops/`. Also cleaned up `tests/commands/test_notify_cmd.py`:
+  repointed the `__UV_BIN__`-placeholder and anchored-holiday-grep assertions to the
+  surviving wrappers (`run-monitor.sh`, `run-fundamentals.sh`) and removed the
+  watchdog-timeout test that targeted the deleted `run-daily.sh` / `run-weekly-full.sh`;
+  updated two stale plist schedule tests (09:00/13:00 → 12:15).
+
 ### Changed — monitor capital-flow factor accepted as best-effort / DARK; root cause is host GEO, not transport (ADR 0019 addendum, 2026-06-30)
 
 - **The flow factor is now formally accepted as best-effort:** it renders when
