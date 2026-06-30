@@ -7,11 +7,8 @@ with stub commands. No launchctl, no install.sh. All new bash is TDD'd
 from __future__ import annotations
 
 import subprocess
-import textwrap
 import time
 from pathlib import Path
-
-import pytest
 
 _REPO_ROOT = Path(__file__).parents[2]
 _LIB = _REPO_ROOT / "ops" / "launchd" / "lib-run.sh"
