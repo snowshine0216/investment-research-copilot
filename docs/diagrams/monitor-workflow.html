@@ -75,7 +75,7 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">Daily directional-bias brief for the 7-fund Monitor set · config → per-fund loop (fetch · LLM · factors · signal · narrative) → report + per-stock drill-down</p>
+      <p class="subtitle">Daily directional-bias brief for the 10-fund Monitor set · config → per-fund loop (fetch · LLM · factors · signal · narrative) → report + per-stock drill-down</p>
     </div>
 
     <!-- Main Diagram -->
@@ -95,7 +95,7 @@
 
         <!-- ===== Per-fund loop boundary ===== -->
         <rect x="200" y="164" width="648" height="600" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="212" y="186" fill="#fbbf24" font-size="11" font-weight="600">per-fund loop × 7 — for fund in resolve_funds(cfg)</text>
+        <text x="212" y="186" fill="#fbbf24" font-size="11" font-weight="600">per-fund loop × 10 — for fund in resolve_funds(cfg)</text>
 
         <!-- ============================ ARROWS ============================ -->
         <!-- top control chain -->
@@ -108,7 +108,7 @@
         <text x="186" y="138" fill="#94a3b8" font-size="8">loads</text>
         <!-- resolve -> loop -->
         <line x1="730" y1="120" x2="730" y2="162" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="736" y="146" fill="#94a3b8" font-size="8">7× MonitorFund</text>
+        <text x="736" y="146" fill="#94a3b8" font-size="8">10× MonitorFund</text>
         <!-- llm.yaml -> Impacts (routing) -->
         <line x1="182" y1="256" x2="221" y2="350" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
         <text x="120" y="300" fill="#94a3b8" font-size="8">route → MiniMax</text>
@@ -131,7 +131,7 @@
 
         <!-- Factor -> Signal -> FundView -->
         <line x1="426" y1="500" x2="426" y2="546" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="432" y="526" fill="#94a3b8" font-size="8">5 scores</text>
+        <text x="432" y="526" fill="#94a3b8" font-size="8">6 scores</text>
         <line x1="426" y1="610" x2="426" y2="656" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <text x="432" y="636" fill="#94a3b8" font-size="8">status + bias</text>
 
@@ -141,7 +141,7 @@
 
         <!-- FundView -> write_outputs -->
         <line x1="628" y1="686" x2="904" y2="592" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="724" y="624" fill="#94a3b8" font-size="8">× 7 FundView</text>
+        <text x="724" y="624" fill="#94a3b8" font-size="8">× 10 FundView</text>
 
         <!-- prior signal -> write -->
         <line x1="1020" y1="510" x2="1020" y2="554" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
@@ -194,7 +194,7 @@
         <rect x="630" y="72" width="200" height="48" rx="6" fill="#0f172a"/>
         <rect x="630" y="72" width="200" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="730" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">resolve_funds</text>
-        <text x="730" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">→ 7× MonitorFund (eff. weights)</text>
+        <text x="730" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">→ 10× MonitorFund (eff. weights)</text>
 
         <!-- Layer 1: NAV fetch -->
         <rect x="224" y="210" width="184" height="66" rx="6" fill="#0f172a"/>
@@ -236,7 +236,7 @@
         <rect x="224" y="438" width="404" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="426" y="461" fill="white" font-size="11" font-weight="600" text-anchor="middle">Factor scores · build_factor_scores</text>
         <text x="426" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">trend · valuation · flow · heat · macro_tilt · constituent</text>
-        <text x="426" y="491" fill="#94a3b8" font-size="8" text-anchor="middle">6× FactorScore (eligible | N/A + reason) · valuation + flow + heat wired (ADR 0019)</text>
+        <text x="426" y="491" fill="#94a3b8" font-size="8" text-anchor="middle">6× FactorScore (eligible | N/A + reason) · valuation dual-track + flow + heat (ADR 0019/0020)</text>
 
         <!-- Layer 4: Signal -->
         <rect x="224" y="548" width="404" height="62" rx="6" fill="#0f172a"/>
@@ -289,7 +289,7 @@
         <text x="922" y="798" fill="#a78bfa" font-size="9">• drilldown.html</text>
         <text x="1070" y="798" fill="#94a3b8" font-size="8">per-stock board + roll-up</text>
         <text x="922" y="816" fill="#a78bfa" font-size="9">• eval_trace.json</text>
-        <text x="1070" y="816" fill="#94a3b8" font-size="8">schema "3" · eval spine</text>
+        <text x="1070" y="816" fill="#94a3b8" font-size="8">schema "4" · eval spine</text>
 
         <!-- snapshot job (quarterly) -->
         <rect x="430" y="798" width="210" height="50" rx="6" fill="#0f172a"/>
@@ -336,7 +336,7 @@
       <div class="card">
         <div class="card-header"><div class="card-dot emerald"></div><h3>Signal &amp; coverage gate</h3></div>
         <ul>
-          <li>• 5 factors → renorm weights w′ᵢ → composite C</li>
+          <li>• 6 factors → renorm weights w′ᵢ → composite C</li>
           <li>• Gate: trend ∧ ≥2 families ∧ Σw ≥ 0.60</li>
           <li>• confidence ≥ minimum_confidence else low_confidence</li>
           <li>• bands → ADD_BIAS / NEUTRAL / REDUCE_BIAS</li>
@@ -364,7 +364,7 @@
 
     <!-- Footer -->
     <p class="footer">
-      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 · v2.1 (flow factor + per-stock drill-down)<br>
+      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 · v2.1 (flow factor + per-stock drill-down + dual-track valuation)<br>
       validation &amp; eval layer (eval_trace.json · EVAL_GATED · forward ledger) → companion <a href="../../evals/docs/monitor-eval-workflow.html" style="color:#34d399;text-decoration:none;">evals/docs/monitor-eval-workflow.html</a>
     </p>
   </div>
