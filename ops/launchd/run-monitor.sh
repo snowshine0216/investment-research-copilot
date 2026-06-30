@@ -37,8 +37,9 @@ if [ -f "$HOLIDAYS_FILE" ] && grep -Eq "^[-[:space:]]*[\"']?${TODAY}[\"']?[[:spa
   exit 0
 fi
 
-# Retry-only idempotency: report.html is the atomic end-of-run success artifact.
-# A failed 09:00 fire leaves none, so 13:00 retries; a completed day is skipped.
+# Once-per-day idempotency: report.html is the atomic end-of-run success artifact.
+# If today's already exists (e.g. a manual run or a sleep-deferred re-fire), skip;
+# otherwise the daily 12:15 fire runs the full job.
 REPORT="outputs/$TODAY/monitor/report.html"
 if [ -f "$REPORT" ]; then
   echo "[$TODAY] monitor already produced report.html — skipping."

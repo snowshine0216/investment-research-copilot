@@ -5,7 +5,7 @@ Two user LaunchAgents run the `irc` pipeline unattended and notify on outcome
 
 | Label | Schedule (Asia/Shanghai) | Command | Gate |
 |---|---|---|---|
-| `com.irc.monitor` | Mon–Fri 09:00 (primary) + 13:00 (retry) | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; retry skips if `report.html` already exists |
+| `com.irc.monitor` | Daily 12:15 | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `report.html` already exists |
 | `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct 06:00 | `irc monitor snapshot` | none (unconditional) |
 
 **Previous labels removed:** `com.irc.daily` (Mon–Fri 17:30/20:00/22:30) and
@@ -15,12 +15,19 @@ new agents.
 
 **`com.irc.monitor`** captures `$?`, then calls `irc notify-status --run-kind monitor`.
 Success detection looks for `outputs/<date>/monitor/report.html` — that is the atomic
-end-of-run artifact; a failed fire leaves none, so the 13:00 retry fires the full job.
+end-of-run artifact and the basis of the once-per-day idempotency skip; a failed fire
+leaves none, so the next fire re-runs the full job.
 A **single-instance lock** (`outputs/_logs/.run.lock`) stops two runs from overlapping.
+**No same-day retry:** unlike the previous 09:00 + 13:00 pair (where the 13:00 fire
+re-ran a failed morning), a single daily fire means a failed 12:15 run leaves **no
+brief until the next day's 12:15** — the failure is surfaced immediately via
+`notify-status` (any non-zero exit pages), so it is loud, not silent, but same-day
+recovery is manual (re-run `irc monitor` by hand). A deliberate trade of redundancy
+for one clean daily fire.
 
 **`com.irc.fundamentals-quarterly`** calls `irc monitor snapshot`, which constructs
 typed per-fund snapshot targets from each fund's `analysis_profile` in `config/monitor.yaml`
-and runs the constituent cache refresh. The 09:00/13:00 monitor brief reads these caches;
+and runs the constituent cache refresh. The daily 12:15 monitor brief reads these caches;
 if the quarterly job lapses, affected factors degrade to N/A (surfaced, not silent).
 
 ## Install
@@ -40,7 +47,7 @@ bash ops/launchd/install.sh
 ```
 
 `RunAtLoad=false`, so install never triggers an immediate run — the first monitor
-run is at the next 09:00 fire. The cold-start `irc monitor snapshot` (step 1) is
+run is at the next 12:15 fire. The cold-start `irc monitor snapshot` (step 1) is
 required because the per-profile factor weights (`valuation`, `constituent`) rely
 on data that comes only from the snapshot; without it, those factors degrade to N/A
 until the first quarterly job fires.
@@ -54,18 +61,16 @@ bash ops/launchd/uninstall.sh
 ## Timezone assumption (machine-local)
 
 `StartCalendarInterval` has **no timezone field** — it fires in the machine's
-local zone. The 09:00 target assumes the machine is on **UTC+8** (China), so
-09:00 ≈ morning brief after overnight NAV publication. The pipeline's internal
-date resolution always uses UTC+8 (`_china_today`) regardless. **If your machine
-is NOT on UTC+8,** edit `Hour`/`Minute` in `com.irc.monitor.plist` before
-installing.
+local zone. The 12:15 target assumes the machine is on **UTC+8** (China), so it
+lands around the CN midday session break. The pipeline's internal date resolution
+always uses UTC+8 (`_china_today`) regardless. **If your machine is NOT on UTC+8,**
+edit `Hour`/`Minute` in `com.irc.monitor.plist` before installing.
 
-> **WARNING — non-CN timezone machines:** the plist fires at *local* 09:00
-> Mon–Fri, but the monitor wrapper's trading-day gate evaluates the date in
+> **WARNING — non-CN timezone machines:** the plist fires at *local* 12:15
+> daily, but the monitor wrapper's trading-day gate evaluates the date in
 > `TZ='Asia/Shanghai'`. On a machine whose local timezone is not UTC+8 these
-> two clocks disagree: e.g. on PDT (UTC−7) local Friday 09:00 is Friday CN
-> time but the NAV that arrives at CN evening is not yet available. Adjust `Hour`
-> accordingly.
+> two clocks disagree: local 12:15 may land on a different CN calendar day than
+> the gate expects, so a run may skip or shift. Adjust `Hour` accordingly.
 > `install.sh` will print a warning when `date +%z` is not `+0800`.
 > (Documented in ADR 0016.)
 

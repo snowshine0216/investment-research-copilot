@@ -85,7 +85,7 @@ _TZ_OFFSET="$(date +%z)"
 if [ "$_TZ_OFFSET" != "+0800" ]; then
   echo ""
   echo "WARNING: your machine timezone offset is $_TZ_OFFSET (expected +0800)." >&2
-  echo "  The launchd schedule fires at LOCAL time (09:00/13:00 Mon-Fri)." >&2
+  echo "  The launchd schedule fires at LOCAL time (12:15 daily)." >&2
   echo "  The monitor wrapper's trading-day gate runs in TZ='Asia/Shanghai'." >&2
   echo "  On a non-CN-TZ machine these two clocks disagree — runs may skip or" >&2
   echo "  shift. Edit Hour/Minute in the plists to match your local offset, or" >&2
