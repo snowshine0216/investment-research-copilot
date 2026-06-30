@@ -1,7 +1,8 @@
-Verdict: FAIL
-Subagent: sonnet (drift) + orchestrator override
+Verdict: PASS
+(Was FAIL — 2 spec divergences found, fixed, and re-verified. See "Resolution" below.)
+Subagent: sonnet (drift) + orchestrator override + sonnet (fix)
 Plan checklist items: 22
-Verified present in diff: 20 (2 divergent from the SPEC, not just the plan)
+Verified present in diff: 22 (the 2 SPEC divergences are now fixed to match §9 / §10)
 
 ## Override note
 
@@ -54,5 +55,30 @@ Routed to triage-fix before ship.
    block. Update report_count test 3→4 + the omit-when-none test; re-run the
    signature-change suite (predictive panel + render tests).
 
-Re-verification after fix: re-run the affected suites + a focused diff-vs-spec recheck of
-both items before flipping drift → PASS and proceeding to ship.
+## Resolution (post-fix, re-verified by orchestrator)
+
+Both FAIL findings fixed on branch (TDD, Sonnet fix subagent) and re-verified:
+
+- **Finding 1 → fixed in `9716f19c`.** `purchase_tag_for` now returns `限购 ¥{cap}/日`
+  (cap-restricted, cap read from `_CAP_COL`), bare `限购` (status-restricted only), and
+  `None` when open OR unknown — matches spec §9. Confirmed in
+  `src/irc/monitor/heat_fetch.py` (no `可申购` path remains).
+- **Finding 2 → fixed in `962a5893`.** `build_metric_reports` now returns
+  `[r_comp, r_bias, r_ic, r_mc]` — `market_composite_directional` is ALWAYS emitted as a
+  `MetricReport` (insufficient_data when immature), so `_predictive_panel_model` (iterating
+  `entry.report.metrics`) renders it as a panel row — matches spec §10/§12/§1.
+
+Re-verification evidence (orchestrator-run):
+- `tests/monitor/test_heat_fetch.py` + `tests/evals/test_monitor_forward_metrics.py` +
+  `tests/evals/test_monitor_forward_runner.py` + `tests/monitor/test_report_v2_invariants.py`
+  → 83 passed.
+- Broad `tests/monitor/` + `tests/evals/` → 1069 passed, 12 skipped, 1 pre-existing
+  unrelated FAIL (`test_dag_acyclic_check_true_for_valid_imports`; `fundamentals↔data`
+  cycle, identical on main, untouched by this branch).
+- Per-file `tests/commands/`: predictive_panel 6, market_composite 5, eval_wiring 7,
+  monitor_cmd 10 — all pass.
+- ruff clean on `heat_fetch.py`, `metrics.py`, and edited tests.
+- Invariants intact: `_ENGINE_VERSION` "3"; published_state/gate/full-C unchanged; render_*
+  pure; no `<script>`/`https://`/`基金概况` in report.
+
+Verdict flipped FAIL → PASS. Cleared for ship.
