@@ -28,20 +28,19 @@ def test_monitor_plist_label() -> None:
     assert "<string>com.irc.monitor</string>" in text
 
 
-def test_monitor_plist_fires_at_0900() -> None:
-    """com.irc.monitor.plist must fire at Hour 9 (09:00 primary)."""
+def test_monitor_plist_fires_at_1215() -> None:
+    """com.irc.monitor.plist must fire once daily at 12:15 (Hour 12, Minute 15)."""
     text = (_OPS / "com.irc.monitor.plist").read_text(encoding="utf-8")
-    assert "<integer>9</integer>" in text, (
-        "monitor plist missing 09:00 Hour entry"
-    )
+    assert "<integer>12</integer>" in text, "monitor plist missing 12:00 Hour entry"
+    assert "<integer>15</integer>" in text, "monitor plist missing :15 Minute entry"
 
 
-def test_monitor_plist_fires_at_1300() -> None:
-    """com.irc.monitor.plist must fire at Hour 13 (13:00 retry)."""
+def test_monitor_plist_has_no_legacy_0900_1300_fires() -> None:
+    """The single-daily 12:15 schedule replaced the old 09:00 + 13:00 pair; neither
+    legacy Hour entry may remain."""
     text = (_OPS / "com.irc.monitor.plist").read_text(encoding="utf-8")
-    assert "<integer>13</integer>" in text, (
-        "monitor plist missing 13:00 Hour entry"
-    )
+    assert "<integer>9</integer>" not in text, "monitor plist must not fire at 09:00"
+    assert "<integer>13</integer>" not in text, "monitor plist must not fire at 13:00"
 
 
 def test_monitor_plist_no_weekend_fires() -> None:
@@ -132,11 +131,13 @@ def test_run_monitor_sh_has_trading_day_gate() -> None:
     assert "weekend" in text.lower(), "run-monitor.sh must log a 'weekend' skip message"
 
 
-def test_run_monitor_sh_has_report_idempotency_guard() -> None:
-    """run-monitor.sh must skip if report.html already exists (retry-only idempotency)."""
+def test_run_monitor_sh_has_monitor_json_idempotency_guard() -> None:
+    """run-monitor.sh must key its once-per-day skip on monitor.json — the LAST
+    atomic write in _write_outputs — so a partial output set (report.html written,
+    crash before monitor.json) is NOT mistaken for a completed run."""
     text = (_OPS / "run-monitor.sh").read_text(encoding="utf-8")
-    assert "report.html" in text, (
-        "run-monitor.sh must check for report.html as its idempotency sentinel"
+    assert "monitor.json" in text, (
+        "run-monitor.sh must check for monitor.json as its idempotency sentinel"
     )
 
 
@@ -357,8 +358,26 @@ def test_monitor_wrapper_skips_weekend(tmp_path: Path) -> None:
     assert "weekend" in _read_run_log(tmp_path, "run-monitor")
 
 
-def test_monitor_wrapper_skips_when_report_exists(tmp_path: Path) -> None:
-    """run-monitor.sh must skip (exit 0) when report.html already exists."""
+def test_monitor_wrapper_skips_when_monitor_json_exists(tmp_path: Path) -> None:
+    """run-monitor.sh must skip (exit 0) when monitor.json (the completion
+    sentinel) already exists."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    day = _GATE_OPEN[0]
+    report_dir = tmp_path / "outputs" / day / "monitor"
+    report_dir.mkdir(parents=True)
+    (report_dir / "monitor.json").write_text("{}", encoding="utf-8")
+    result = _run_wrapper(wrapper, {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}"})
+    assert result.returncode == 0
+    assert _read_argv(argv_log) == [], "must skip when monitor.json already exists"
+    assert "skipping" in _read_run_log(tmp_path, "run-monitor")
+
+
+def test_monitor_wrapper_does_not_skip_on_partial_output(tmp_path: Path) -> None:
+    """Regression: a partial output set (report.html present but monitor.json
+    absent — a crash between the two atomic writes) must NOT trigger the
+    once-per-day skip; the wrapper must re-run `irc monitor`."""
     stub, argv_log = _make_stub(tmp_path, exit_code=0)
     wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
     date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
@@ -368,8 +387,10 @@ def test_monitor_wrapper_skips_when_report_exists(tmp_path: Path) -> None:
     (report_dir / "report.html").write_text("<html></html>", encoding="utf-8")
     result = _run_wrapper(wrapper, {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}"})
     assert result.returncode == 0
-    assert _read_argv(argv_log) == [], "must skip when report.html already exists"
-    assert "skipping" in _read_run_log(tmp_path, "run-monitor")
+    invocations = _read_argv(argv_log)
+    assert any("monitor" in ln for ln in invocations), (
+        "wrapper must re-run irc monitor when only report.html (not monitor.json) exists"
+    )
 
 
 def test_monitor_wrapper_calls_notify_after_run(tmp_path: Path) -> None:

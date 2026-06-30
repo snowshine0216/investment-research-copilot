@@ -37,12 +37,16 @@ if [ -f "$HOLIDAYS_FILE" ] && grep -Eq "^[-[:space:]]*[\"']?${TODAY}[\"']?[[:spa
   exit 0
 fi
 
-# Once-per-day idempotency: report.html is the atomic end-of-run success artifact.
-# If today's already exists (e.g. a manual run or a sleep-deferred re-fire), skip;
-# otherwise the daily 12:15 fire runs the full job.
-REPORT="outputs/$TODAY/monitor/report.html"
-if [ -f "$REPORT" ]; then
-  echo "[$TODAY] monitor already produced report.html — skipping."
+# Once-per-day idempotency: monitor.json is the LAST of _write_outputs' five
+# atomic writes (report.html → signal.json → impacts.json → narrative.json →
+# monitor.json), so it is the only artifact that proves the full set was written.
+# Keying on report.html (the FIRST write) would skip a partial output set left by
+# a crash mid-write — and with a single daily 12:15 fire that wrongly-skipped day
+# waits a full 24h. If today's monitor.json already exists (a manual run or a
+# sleep-deferred re-fire), skip; otherwise the daily fire runs the full job.
+SENTINEL="outputs/$TODAY/monitor/monitor.json"
+if [ -f "$SENTINEL" ]; then
+  echo "[$TODAY] monitor already produced monitor.json — skipping."
   exit 0
 fi
 
