@@ -42,6 +42,44 @@ def _make_snapshot(quarter: str = "2024Q1") -> ActiveFundSnapshot:
     )
 
 
+def test_load_active_fund_cache_warns_on_unreadable_json(tmp_path: Path, caplog) -> None:
+    """A corrupt (non-JSON) cache file must return None AND emit a WARNING naming
+    the path, so a corrupt cache is distinguishable from a legitimate cache-miss."""
+    import logging
+
+    path = active_fund_cache_path("005827", "2024Q1", tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("{not valid json", encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.snapshot_cache"):
+        loaded = load_active_fund_cache("005827", "2024Q1", tmp_path)
+    assert loaded is None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(path) in r.getMessage() for r in warnings)
+
+
+def test_load_active_fund_cache_warns_on_corrupt_snapshot(tmp_path: Path, caplog) -> None:
+    """A well-formed JSON object that fails to deserialize into ActiveFundSnapshot
+    (malformed constituents) must return None AND WARN, not silently look like a miss."""
+    import json
+    import logging
+
+    path = active_fund_cache_path("005827", "2024Q1", tmp_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({
+            "fund_id": "005827",
+            "source_report_quarter": "2024Q1",
+            "constituent_analyses": [{"unexpected": "shape"}],
+        }),
+        encoding="utf-8",
+    )
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.snapshot_cache"):
+        loaded = load_active_fund_cache("005827", "2024Q1", tmp_path)
+    assert loaded is None
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any(str(path) in r.getMessage() for r in warnings)
+
+
 def test_active_fund_cache_path_uses_quarter(tmp_path: Path) -> None:
     path = active_fund_cache_path("005827", "2024Q1", tmp_path)
     assert path == tmp_path / "fundamentals" / "2024Q1" / "active_fund" / "fund_005827.json"

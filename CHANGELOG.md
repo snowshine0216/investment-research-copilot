@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed / Changed — TODO-list cleanup: real demote bug, silent-swallow logging, eval false-PASS hardening, tushare optional (2026-06-30)
+
+A triaged sweep of `TODOS.md` (verified against code first — three items were
+already resolved and only marked off). Grouped by the four phases shipped:
+
+- **Fixed (output-affecting): `demote_unstable_active` cross-demotion.** An active
+  fund with `theme=None` (unclassified) could be demoted to `small_watch` by an
+  *unrelated* passive instrument that also carried `theme=None`, because both shared
+  the single `None` bucket. The best-passive scan now skips `theme is None`, so a
+  themeless active fund is never demoted by an unrelated themeless passive.
+- **Changed (observability): five silent swallows now log.** `load_active_fund_cache`
+  WARNs (with the path) on an unreadable / non-object / corrupt-but-parseable
+  active-fund cache (logging at the I/O edge keeps `_active_fund_from_dict` pure);
+  `_bucket_rows` WARNs on an unknown `dca_action` (default bucket preserved);
+  `akshare_filing._profitability_metric` DEBUG-logs 盈利能力 section/column drift; a
+  new `tushare_provider._resolve_col` DEBUG-logs absent candidate columns. Behavior
+  unchanged everywhere.
+- **Changed (eval reliability): degenerate inputs no longer PASS silently.** The
+  architecture eval gains an `unparseable_sources` metric that WARNs when a source
+  fails `ast.parse` (such files are skipped by the DAG check and could mask a cycle);
+  the scoring `score_distribution_stability` metric WARNs when a split has <2
+  observations (a 1-item corpus produced a vacuous `0.0` PASS); `signal_consistency`
+  gained a `math.isfinite` guard (NaN/±inf no longer vacuously PASS), missing
+  `composite`/`contribution`-key → FAIL, and `Σrenorm_weight` compared at 4dp.
+- **Changed (packaging + cleanup): `tushare` is now an optional extra.** Moved from
+  hard `dependencies` to `[project.optional-dependencies] tushare` (~60 MB no longer
+  pulled on token-absent / CI installs; still installed by `uv sync --all-extras`);
+  `default_cn_provider()` WARNs + degrades to AkShare-only when a `TUSHARE_TOKEN` is
+  set but the extra is absent, instead of crashing at the first fetch. Also: `5`-prefix
+  Shanghai ETFs now classify as `SH` (not `UNKNOWN`); two filing metrics screen ±inf
+  via `math.isfinite`.
+
 ### Added — launchd wrapper watchdog + single-instance lock restored via shared `lib-run.sh` (2026-06-30)
 
 - **New `ops/launchd/lib-run.sh`** defines two pure-bash helpers reused by both

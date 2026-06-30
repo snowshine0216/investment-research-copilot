@@ -147,15 +147,33 @@ def _read_tushare_token() -> str:
         return ""
 
 
+def _tushare_installed() -> bool:
+    """Whether the optional `tushare` package is importable (it lives behind the
+    `tushare` extra; a token-absent / CI install via plain `uv sync` omits it)."""
+    import importlib.util
+
+    return importlib.util.find_spec("tushare") is not None
+
+
 def default_cn_provider() -> CnFundamentalsProvider:
     """Construction edge: read the token from `.env` and pick the provider.
 
     No token → `AkShareProvider()` alone (byte-identical to pre-003). With a
-    token → `FallbackProvider(AkShareProvider(), TushareProvider(token))`.
-    `TushareProvider` is imported lazily so this module never imports tushare.
+    token AND the optional `tushare` extra installed →
+    `FallbackProvider(AkShareProvider(), TushareProvider(token))`. A token set
+    without the package WARNs and degrades to AkShare-only rather than crashing
+    at the first Tushare fetch. `TushareProvider` is imported lazily so this
+    module never imports tushare.
     """
     token = _read_tushare_token()
     if not token:
+        return AkShareProvider()
+    if not _tushare_installed():
+        _log.warning(
+            "TUSHARE_TOKEN is set but the optional 'tushare' package is not "
+            "installed; install it with `uv sync --extra tushare` to enable the "
+            "Tushare fallback. Degrading to AkShare-only.",
+        )
         return AkShareProvider()
     from irc.fundamentals.tushare_provider import TushareProvider
 

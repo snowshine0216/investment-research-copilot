@@ -21,6 +21,25 @@ def _imports_in(path: Path) -> set[str]:
     return out
 
 
+def unparseable_sources(package_root: Path) -> tuple[str, ...]:
+    """Source files (excluding ``__init__.py``, mirroring ``dag_acyclic_check``'s
+    scan) that fail to parse. ``dag_acyclic_check`` silently ``continue``s past
+    these, so their import edges vanish from the graph — a syntax error can
+    therefore hide a real cycle and yield a false PASS. Surfacing them lets the
+    runner WARN instead. Returns relative paths, sorted, never raises."""
+    if not package_root.exists():
+        return ()
+    bad: list[str] = []
+    for py in sorted(package_root.rglob("*.py")):
+        if py.name == "__init__.py":
+            continue
+        try:
+            ast.parse(py.read_text(encoding="utf-8"))
+        except (SyntaxError, OSError, ValueError):
+            bad.append(str(py.relative_to(package_root)))
+    return tuple(bad)
+
+
 def dag_acyclic_check(package_root: Path) -> bool:
     """Build module → set(deps) graph and ensure no cycle."""
     if not package_root.exists():

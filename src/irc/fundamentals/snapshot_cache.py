@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import asdict
 from datetime import date
 import json
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -24,6 +25,8 @@ from irc.fundamentals.types import (
     FundNavReport,
     ThesisEvidence,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def cache_path(lookthrough_target: str, quarter: str, root: Path) -> Path:
@@ -239,11 +242,18 @@ def load_active_fund_cache(
         return None
     try:
         body = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError) as exc:
+        _log.warning("active-fund cache unreadable at %s: %s (treated as miss)", path, exc)
         return None
     if not isinstance(body, dict):
+        _log.warning("active-fund cache at %s is not a JSON object (treated as miss)", path)
         return None
-    return _active_fund_from_dict(body)
+    snap = _active_fund_from_dict(body)
+    if snap is None:
+        _log.warning(
+            "active-fund cache at %s is corrupt/unrecognized (treated as miss)", path
+        )
+    return snap
 
 
 def load_latest_active_fund_cached(

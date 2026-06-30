@@ -1,6 +1,7 @@
 """PURE per-fund in-run structural health over the eval_trace projection.
 ADR 0017 §3.3: no I/O, no AkShare/LLM/settings imports."""
 from __future__ import annotations
+import math
 from datetime import date
 from irc.monitor.eval.types import StageHealth
 from evals._shared.status import worst_status
@@ -29,13 +30,28 @@ def _parse_date(s: str) -> date | None:
 def signal_consistency(t: dict) -> StageHealth:
     sig = t["signal"]
     contribs = sig.get("contributions", [])
-    # composite is round(Σcontribution, 4) by contract (signal.py / types.py: "C, rounded
-    # 4dp") while contributions stay full-precision — compare at that same precision.
-    sum_contrib = round(sum(c.get("contribution", 0.0) for c in contribs), _COMPOSITE_DP)
-    sum_renorm = sum(c.get("renorm_weight", 0.0) for c in contribs)
     reasons: list[str] = []
-    if abs(sig.get("composite", 0.0) - sum_contrib) >= _EPS:
-        reasons.append("composite != Σcontribution")
+    # A truncated/malformed signal block must FAIL, not silently default a missing
+    # numeric key to 0.0 (which can coincidentally satisfy the equality checks).
+    if "composite" not in sig:
+        reasons.append("missing composite")
+    if any("contribution" not in c for c in contribs):
+        reasons.append("missing contribution key")
+    composite = sig.get("composite", 0.0)
+    contrib_values = [c.get("contribution", 0.0) for c in contribs]
+    # NaN/±inf (e.g. inf-cancelling contributions → NaN sum) make `abs(nan - x) >= eps`
+    # vacuously False → a silent PASS. Guard explicitly before the equality check.
+    if not math.isfinite(composite) or any(not math.isfinite(v) for v in contrib_values):
+        reasons.append("non-finite composite/contribution")
+    else:
+        # composite is round(Σcontribution, 4) by contract (signal.py / types.py:
+        # "C, rounded 4dp") while contributions stay full-precision — compare there.
+        sum_contrib = round(sum(contrib_values), _COMPOSITE_DP)
+        if abs(composite - sum_contrib) >= _EPS:
+            reasons.append("composite != Σcontribution")
+    # Compare Σrenorm_weight at the same 4dp precision as composite (a ~1e-16 renorm
+    # artifact must not FAIL; a real off-by-1e-4 normalization still does).
+    sum_renorm = round(sum(c.get("renorm_weight", 0.0) for c in contribs), _COMPOSITE_DP)
     if contribs and abs(sum_renorm - 1.0) >= _EPS:
         reasons.append("Σrenorm_weight != 1")
     bias_none = sig.get("bias") is None

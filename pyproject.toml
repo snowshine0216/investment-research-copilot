@@ -18,12 +18,17 @@ dependencies = [
     "scipy>=1.13",
     "openbb>=4.3",
     "akshare>=1.13",
-    "tushare>=1.4",
     "feedparser>=6.0",
     "rich>=13.0",
 ]
 
 [project.optional-dependencies]
+# Optional CN-fundamentals fallback provider. Lazy-imported only inside
+# `_tushare_call`; `default_cn_provider()` warns + degrades to AkShare-only when
+# a TUSHARE_TOKEN is set but this extra is absent. Pulls ~60 MB (lxml/requests).
+tushare = [
+    "tushare>=1.4",
+]
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.12",

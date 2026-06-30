@@ -767,7 +767,6 @@ dependencies = [
     { name = "rich" },
     { name = "scipy" },
     { name = "tenacity" },
-    { name = "tushare" },
 ]
 
 [package.optional-dependencies]
@@ -777,6 +776,9 @@ dev = [
     { name = "pytest-mock" },
     { name = "respx" },
     { name = "ruff" },
+]
+tushare = [
+    { name = "tushare" },
 ]
 
 [package.dev-dependencies]
@@ -809,9 +811,9 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.4" },
     { name = "scipy", specifier = ">=1.13" },
     { name = "tenacity", specifier = ">=8.2" },
-    { name = "tushare", specifier = ">=1.4" },
+    { name = "tushare", marker = "extra == 'tushare'", specifier = ">=1.4" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["tushare", "dev"]
 
 [package.metadata.requires-dev]
 dev = [

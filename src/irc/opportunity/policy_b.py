@@ -60,6 +60,7 @@ class ConstituentCoverageEntry:
 
 
 _EXCHANGE_FROM_SYMBOL_PREFIX = {
+    "5": "SH",  # Shanghai-listed funds/ETFs (e.g. 510300) — mirror _parse_exchange_from_ticker
     "6": "SH",
     "0": "SZ",
     "3": "SZ",

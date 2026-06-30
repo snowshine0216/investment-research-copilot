@@ -253,6 +253,25 @@ def test_fallback_primary_swallow_emits_warning_and_returns_sentinel(caplog) -> 
     assert warnings, "Expected at least one WARNING log when primary swallows an exception"
 
 
+def test_default_cn_provider_warns_and_degrades_when_token_set_but_tushare_absent(caplog) -> None:
+    """tushare is now an optional extra. With a token set but the package absent,
+    default_cn_provider() must WARN and degrade to AkShare-only rather than build
+    a FallbackProvider that would crash at the first Tushare fetch (ImportError)."""
+    import logging
+
+    import irc.fundamentals.provider as prov
+
+    fake_settings = MagicMock()
+    fake_settings.tushare_token.get_secret_value.return_value = "tok-123"
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.provider"), \
+         patch("irc.fundamentals.provider.Settings", return_value=fake_settings), \
+         patch.object(prov, "_tushare_installed", return_value=False):
+        provider = default_cn_provider()
+    assert isinstance(provider, AkShareProvider)
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("tushare" in r.getMessage().lower() for r in warnings)
+
+
 # ── FIX 003: decouple default_cn_provider from the DEEPSEEK key ──────────────
 
 from pydantic import ValidationError as _PydanticValidationError  # noqa: E402
