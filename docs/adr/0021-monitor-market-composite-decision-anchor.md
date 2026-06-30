@@ -56,9 +56,12 @@ This is unconditional — it does not disappear once the forward eval matures.
 | `market_bias` | `str \| None` | None for legacy rows |
 
 These propagate to `ForwardRow` and are consumed by
-`build_metric_reports` to emit a non-gating
-`market_composite_directional` details block (present only when rows
-carry the field; absent for legacy runs — no panel breakage).
+`build_metric_reports`, which **always emits** a non-gating
+`market_composite_directional` metric (report row + details). The predictive
+panel renders it as an honest row from day one — reading `insufficient_data`
+until matured engine-3 rows carry the field (spec §10/§1: "must be rendered,
+never hidden"). Rows with a `None` `market_composite` are filtered out of the
+directional population, not treated as `0`/bullish.
 
 ### 5. What does NOT change
 

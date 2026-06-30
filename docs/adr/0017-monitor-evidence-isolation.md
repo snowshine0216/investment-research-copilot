@@ -160,7 +160,10 @@ ADR 0021 adds two optional fields to `ledger_row` (→ `ForwardRow`):
 
 **Back-compat contract:** both default to `None`; `score_forward` reads them via
 `.get()`; old ledger rows without these keys are treated as `None` — the scorer
-never crashes on legacy data. `build_metric_reports` emits a
-`market_composite_directional` details block **only** when at least one
-`ForwardRow` carries a non-None `market_composite` — absent for legacy runs, so
-the panel layout is stable.
+never crashes on legacy data. `build_metric_reports` **always emits** the
+`market_composite_directional` metric (report row + details block), so the
+predictive panel renders it as an honest row from day one — reading
+`insufficient_data` until matured engine-3 rows carry the field (spec §10/§1:
+"must be rendered, never hidden"). Rows with a `None` `market_composite` are
+filtered out of the directional population (`_market_composite_rows` keeps only
+non-None rows), not treated as `0`/bullish.
