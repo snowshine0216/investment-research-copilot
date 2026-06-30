@@ -21,3 +21,24 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 - **fix** ✅ — 1 round (`e480f15`): template_wrapper unconditional copy+assert; timing margin 8.0→9.5; lock-held assertion simplified to `== []`. Test-only (production bash byte-identical). Re-confirmed 73 passed + ruff clean. pr-review's other nits dismissed (matches-original SECONDS=0; documented TOCTOU).
 - **merge** ✅ — PR #182 squash-merged to feature branch `claude/thirsty-lovelace-3da881` as `e78fcac`; sub-branch deleted. All 6 pre-merge gates passed (non-protected base, ship+drift+verify+review+pr-review verdicts, MERGEABLE, no blocking comments).
 - This is the non-web spec-mode path: exactly one of {qa, verify} → `verify`.
+
+---
+
+## Final status (Phase 3 — run complete)
+
+**RUN COMPLETE.** 1/1 IN-scope item merged. 0 SKIPPED. 0 BLOCKED.
+
+- **Items merged:** 001 (launchd wrapper watchdog + single-instance lock) → PR [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) squash-merged (`e78fcac`) into feature branch.
+- **Feature branch:** `claude/thirsty-lovelace-3da881`
+- **Feature-branch PR:** [#183](https://github.com/snowshine0216/investment-research-copilot/pull/183) → base `main` (the default/protected branch)
+- **Merged into protected branch: no** — #183 left OPEN for user review (no "merge to main" opt-in this turn; the protected-base guardrail held).
+
+### Phase 3 findings
+- **Workflow-completeness audit:** PASS — all required artifacts present (ship+PR, drift PASS, verify PASS, review + pr-review PASS-WITH-NITS; qa absent per non-web XOR; grill absent per spec ⏭️).
+- **Build/test sanity (merged branch):** 73 passed (test_run_lib 7 + test_launchd_monitor 40 + test_notify_cmd 26); `bash -n` all 5 launchd scripts OK; `plutil -lint` both plists OK (untouched); ruff clean.
+- **Doc-sync:** PASS — README false `.run.lock` claim removed; timeouts + per-wrapper locks + notify asymmetry documented; ADR 0016 pointer; CHANGELOG `[Unreleased]`; TODOS `_ak_call` mitigation note — all present on the merged branch.
+- **Integration (cross-cutting, verified):** `install.sh` templates only the 2 named wrappers (not `lib-run.sh`); both wrappers `cd "$REPO_ROOT"` **before** the relative `source ops/launchd/lib-run.sh`, so the lib resolves to the checked-in repo copy at runtime. Sound end-to-end. (The lib's header comment mentions `__UV_BIN__/__REPO_ROOT__` only to document their absence — never sed-substituted.)
+
+### Follow-up work (deferred, non-blocking)
+1. `run-monitor.sh` `notify-status … || true` swallows a notifier failure on the timeout path — NOT changed (spec §4.1 locked that exact line; notify is best-effort). A log-on-failure breadcrumb is a small future hardening.
+2. Per-`_ak_call` deadline — the wrapper watchdog caps unattended exposure but a manual `irc monitor` is still unbounded (existing `TODOS.md` item, annotated as partially mitigated).
