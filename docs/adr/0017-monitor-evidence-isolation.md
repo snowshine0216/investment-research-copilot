@@ -150,3 +150,17 @@ score inline / let a scorer call the LLM*: would couple the free, deterministic
 grading logic to the paid network surface, break the no-network unit-test contract,
 and create a second un-gated path to LLM spend. The split (pure scorer ⟂ gated
 runner) is the reason the offline suite is free and the paid surface is auditable.
+
+---
+
+### Addendum (ADR 0021, 2026-06-30): additive forward-ledger fields
+
+ADR 0021 adds two optional fields to `ledger_row` (→ `ForwardRow`):
+`market_composite: float | None` and `market_bias: str | None`.
+
+**Back-compat contract:** both default to `None`; `score_forward` reads them via
+`.get()`; old ledger rows without these keys are treated as `None` — the scorer
+never crashes on legacy data. `build_metric_reports` emits a
+`market_composite_directional` details block **only** when at least one
+`ForwardRow` carries a non-None `market_composite` — absent for legacy runs, so
+the panel layout is stable.
