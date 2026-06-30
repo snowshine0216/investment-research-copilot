@@ -53,7 +53,8 @@ from irc.monitor.eval.structural import (
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.trading_calendar import load_trading_days
-from irc.monitor.eval.forward_log import append_ledger, ledger_row
+from irc.monitor.eval.forward_log import append_ledger, ledger_row, latest_per_key
+from irc.monitor.render_timeline import BiasTimeline
 from irc.monitor.eval.nav_history import nav_history_append_rows, append_nav_history
 from irc.monitor.eval.constants import NAV_APPEND_DAYS, REVIEW_TRIGGER_K, STALE_EVAL_DAYS
 from irc.monitor.eval.types import (
@@ -574,6 +575,43 @@ def _run_forward_eval(root: Path, today: str) -> int | None:
     except Exception:  # noqa: BLE001 — degrade, never crash the brief
         _log.warning("inline monitor_forward eval failed", exc_info=True)
         return None
+
+
+_TIMELINE_MAX_DATES = 20
+
+
+def _read_ledger_rows(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    rows: list[dict] = []
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        if ln.strip():
+            try:
+                rows.append(json.loads(ln))
+            except json.JSONDecodeError:
+                continue
+    return rows
+
+
+def _build_bias_timeline(root: Path) -> BiasTimeline:
+    """EDGE-read Comp 3b: forward_ledger → deduped one row per (fund, run_date)
+    (latest written_at wins), bounded to the most recent _TIMELINE_MAX_DATES run
+    dates. Engine tag from manifest_versions.engine (default '0')."""
+    rows = latest_per_key(_read_ledger_rows(
+        root / "data" / "monitor" / "forward_ledger.jsonl"))
+    dates = sorted({r["run_date"] for r in rows})[-_TIMELINE_MAX_DATES:]
+    by_fund: dict[str, dict[str, tuple[str, str]]] = {}
+    for r in rows:
+        if r["run_date"] not in dates:
+            continue
+        eng = str((r.get("manifest_versions") or {}).get("engine", "0"))
+        by_fund.setdefault(r["fund_id"], {})[r["run_date"]] = (
+            r.get("raw_bias") or "NEUTRAL", eng)
+    out_rows = tuple(
+        (fid, tuple(by_fund[fid].get(d, ("NEUTRAL", "0")) for d in dates))
+        for fid in sorted(by_fund)
+    )
+    return BiasTimeline(run_dates=tuple(dates), rows=out_rows)
 
 
 def _is_stale(artifact_date: str, today: str) -> bool:
