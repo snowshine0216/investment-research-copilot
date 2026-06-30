@@ -299,8 +299,8 @@ def _template_wrapper(src: Path, tmp_path: Path, stub: Path) -> Path:
     lib_dst = tmp_path / "ops" / "launchd"
     lib_dst.mkdir(parents=True, exist_ok=True)
     lib_src = _OPS / "lib-run.sh"
-    if lib_src.exists():
-        (lib_dst / "lib-run.sh").write_text(lib_src.read_text(encoding="utf-8"), encoding="utf-8")
+    assert lib_src.exists(), f"lib-run.sh missing at {lib_src}; cannot build wrapper fixture"
+    (lib_dst / "lib-run.sh").write_text(lib_src.read_text(encoding="utf-8"), encoding="utf-8")
     return out
 
 
@@ -556,7 +556,6 @@ def test_monitor_wrapper_skips_when_lock_held(tmp_path: Path) -> None:
     result = _run_wrapper(wrapper, {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}"})
     assert result.returncode == 0, result.stderr
     invocations = _read_argv(argv_log)
-    assert not any(
-        "monitor" in ln and "notify-status" not in ln and "snapshot" not in ln
-        for ln in invocations
-    ), f"uv must NOT be called for `irc monitor` while the lock is held. argv: {invocations}"
+    assert invocations == [], (
+        f"uv must NOT be called while the lock is held. argv: {invocations}"
+    )

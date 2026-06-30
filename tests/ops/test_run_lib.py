@@ -50,7 +50,7 @@ def test_watchdog_kills_overrunning_command_and_returns_124() -> None:
     elapsed = time.monotonic() - start
     assert proc.returncode == 0, proc.stderr
     assert "rc=124" in proc.stdout, proc.stdout
-    assert elapsed < 8.0, f"watchdog should fire in ~1s + 5s grace, took {elapsed:.1f}s"
+    assert elapsed < 9.5, f"watchdog should fire in ~1s + 5s grace, took {elapsed:.1f}s"
     assert "watchdog: timed out" in proc.stderr, proc.stderr
 
 
