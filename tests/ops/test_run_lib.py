@@ -55,3 +55,30 @@ def test_watchdog_kills_overrunning_command_and_returns_124() -> None:
     assert "rc=124" in proc.stdout, proc.stdout
     assert elapsed < 8.0, f"watchdog should fire in ~1s + 5s grace, took {elapsed:.1f}s"
     assert "watchdog: timed out" in proc.stderr, proc.stderr
+
+
+def test_watchdog_kills_the_whole_process_group_not_just_pid() -> None:
+    """The backgrounded command spawns a grandchild; after the watchdog fires,
+    the grandchild PID is gone — proving the negative-PID group kill (not a
+    single-PID kill) took down the subtree (spec §2, §6.1)."""
+    # The inner command writes its grandchild's PID to a file, then waits on it.
+    # `bash -c 'sleep 30 & echo $! > PID; wait'` — the `sleep 30` is the grandchild.
+    with_grandchild = (
+        "tmp=$(mktemp); "
+        "IRC_WATCHDOG_POLL=0.2 run_with_watchdog 1 "
+        "bash -c 'sleep 30 & echo \\$! > \"$tmp\"; wait'; "
+        'rc=$?; '
+        "gpid=$(cat \"$tmp\"); "
+        'echo "rc=$rc"; '
+        # After the group kill the grandchild must be gone: kill -0 fails.
+        'if kill -0 "$gpid" 2>/dev/null; then echo "GRANDCHILD_ALIVE"; '
+        'else echo "GRANDCHILD_GONE"; fi; '
+        'rm -f "$tmp"'
+    )
+    proc = _bash(with_grandchild, timeout=12.0)
+    assert proc.returncode == 0, proc.stderr
+    assert "rc=124" in proc.stdout, proc.stdout
+    assert "GRANDCHILD_GONE" in proc.stdout, (
+        f"process-group kill failed — grandchild survived. stdout={proc.stdout!r} "
+        f"stderr={proc.stderr!r}"
+    )
