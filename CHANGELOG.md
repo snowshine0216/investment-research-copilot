@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — monitor capital-flow factor accepted as best-effort / DARK; root cause is host GEO, not transport (ADR 0019 addendum, 2026-06-30)
+
+- **The flow factor is now formally accepted as best-effort:** it renders when
+  data lands and degrades to DARK (per-fund `flow_no_data` / `flow_no_coverage`
+  N/A, plus the run-level *资金流数据今日不可用——倾向回退至五因子* banner when every
+  flow-eligible fund loses its leg) otherwise. The factor's definition, math,
+  weight, and `_ENGINE_VERSION ("3")` are **all unchanged** — this is a documented
+  decision, not a code change.
+- **Root cause (the binding finding): the monitor host egresses a non-CN
+  datacenter IP** (`199.255.81.250`, US/Virginia) despite an `Asia/Shanghai`
+  clock. EastMoney's `push2*` data plane geo-throttles it (~5-call burst then a
+  hard, self-extending block), which breaks the per-symbol path as much as any new
+  transport — so transport was never the lever. A patient all-symbol sweep got
+  7/30 in 20.7 min and tripped a >40-minute cross-host block; the `RetryPolicy`
+  breaker (stop after 5 transients) is therefore protective, not over-aggressive.
+- **Fixes evaluated and declined** (batch `ulist.np`, CN-IP proxy, JoinQuant /
+  Tushare `moneyflow` / `moneyflow_dc`): none worth it for a 0.15-weight research
+  lean when the bias renormalizes cleanly on N/A. The single market-wide
+  `ulist.np` batch is **retained as a conditional future fix** for a CN-resident
+  egress path (`scripts/phase0_flow_batch_spike.py` + two shelved
+  `docs/superpowers/specs/2026-06-25-monitor-flow-*` drafts capture the design).
+- **Docs:** CONTEXT.md gains a *Flow freshness state* term documenting the
+  as-built same-session states (FRESH / abstain-with-banner) and recording the
+  graded **STALE-N** cross-day state as *designed-but-shelved* (`factor_freshness`
+  is hardcoded `"fresh"` today — no STALE-N path exists in `src/`).
+
+### Changed — monitor launchd schedule: single daily 12:15 fire + once-per-day idempotency (2026-06-30)
+
+- **`com.irc.monitor` now fires once daily at 12:15** (Asia/Shanghai) instead of
+  the Mon–Fri 09:00 primary + 13:00 retry pair. The plist `StartCalendarInterval`
+  drops from a 9-entry array to a single `{Hour 12, Minute 15}` dict; the wrapper's
+  trading-day gate still skips weekends + `config/cn_market_holidays.yaml`.
+- **Idempotency changes from retry-only to once-per-day:** `run-monitor.sh` skips
+  if today's `report.html` already exists (a manual run or a sleep-deferred
+  re-fire), otherwise runs the full job.
+- **Trade-off documented:** removing the 13:00 retry means a failed 12:15 run
+  leaves no brief until the next day's fire. The failure is still surfaced
+  immediately via `notify-status` (any non-zero exit pages), so it is loud, not
+  silent; same-day recovery is manual. README + install.sh warning text updated to
+  the new 12:15 schedule.
+
 ### Fixed — monitor per-symbol fetch no longer poisons its day cache on a transient throttle (2026-06-22)
 
 - **A throttled EastMoney call is now retried, not cached as a confirmed miss.**
