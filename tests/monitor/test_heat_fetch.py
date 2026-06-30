@@ -201,3 +201,32 @@ def test_gold_profile_heat_still_eligible_when_restricted():
     # gold's weight vector includes heat (spec §3 table) → an eligible crowded score.
     s = _heat_score_for("gold", restricted=True, aum=None)
     assert s.eligible is True and s.value == -0.5
+
+
+# ── Task 5.1: purchase_tag_for ────────────────────────────────────────────────
+
+def test_purchase_tag_for_open():
+    """Open fund → '可申购'."""
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "519069", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) == "可申购"
+
+
+def test_purchase_tag_for_restricted_by_status():
+    """Restricted status → '限购'."""
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "519069", "申购状态": "暂停申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) == "限购"
+
+
+def test_purchase_tag_for_none_table():
+    """No table (None) → None (missing, not a wrong string)."""
+    from irc.monitor.heat_fetch import purchase_tag_for
+    assert purchase_tag_for("519069", purchase_table=None) is None
+
+
+def test_purchase_tag_for_fund_absent():
+    """Fund not in table → None."""
+    from irc.monitor.heat_fetch import purchase_tag_for
+    table = _table([{"基金代码": "999999", "申购状态": "开放申购", "日累计限定金额": 1e11}])
+    assert purchase_tag_for("519069", purchase_table=table) is None

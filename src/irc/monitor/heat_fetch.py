@@ -75,6 +75,15 @@ def parse_purchase_status(table: pd.DataFrame | None, fund_id: str) -> bool | No
     return restricted_by_status or _cap_below_threshold(row)
 
 
+def purchase_tag_for(fund_id: str, *, purchase_table: pd.DataFrame | None) -> str | None:
+    """PURE: '可申购' | '限购' | None.
+    None means data unavailable — never a fabricated tag."""
+    status = parse_purchase_status(purchase_table, fund_id)
+    if status is None:
+        return None
+    return "限购" if status else "可申购"
+
+
 def heat_inputs_for(
     fund_id: str, *, purchase_table: pd.DataFrame | None
 ) -> tuple[bool | None, float | None]:
