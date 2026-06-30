@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import asdict
 from typing import Any
@@ -12,6 +13,8 @@ from irc.opportunity.types import (
     OpportunityRow,
     ThesisCard,
 )
+
+_log = logging.getLogger(__name__)
 
 
 def _row_to_dict(
@@ -128,10 +131,17 @@ def _bucket_rows(rows: list[DisciplineRow] | tuple[DisciplineRow, ...]) -> dict[
     for r in rows:
         if r.risk_action in _RISK_BUCKET:
             buckets[_RISK_BUCKET[r.risk_action]].append(r)
+        elif r.dca_action in _DCA_BUCKET:
+            buckets[_DCA_BUCKET[r.dca_action]].append(r)
         else:
-            # Unknown dca_action values fall back to "今日可定投"; see TODOS.md
-            # for a future robustness improvement (log or raise on unknown values).
-            buckets[_DCA_BUCKET.get(r.dca_action, "今日可定投")].append(r)
+            # Unknown dca_action: preserve the historical default bucket but WARN
+            # so a new DcaAction variant missing from _DCA_BUCKET is visible in
+            # logs rather than silently misbucketed into 今日可定投.
+            _log.warning(
+                "unknown dca_action %r for %s; defaulting to 今日可定投",
+                r.dca_action, r.instrument_id,
+            )
+            buckets["今日可定投"].append(r)
     return buckets
 
 

@@ -6,12 +6,15 @@ under 200 lines.
 from __future__ import annotations
 
 from datetime import date
+import logging
 import math
 from typing import Any
 
 import pandas as pd
 
 from irc.fundamentals.types import BrokerReport, FilingDigest
+
+_log = logging.getLogger(__name__)
 
 
 _SINA_FINSUMMARY_URL = (
@@ -120,6 +123,12 @@ def _profitability_metric(df: pd.DataFrame, name: str, col: str) -> float | None
     _common_metric, which hard-filters 常用指标 (shared by revenue/NI/cost)."""
     matches = df[(df.get("选项") == "盈利能力") & (df.get("指标") == name)]
     if matches.empty or col not in matches.columns:
+        # Degrade to None (ROE absence never fails the digest), but DEBUG-log so
+        # 盈利能力-section schema drift is observable rather than silent.
+        _log.debug(
+            "盈利能力 metric %r unavailable in stock_financial_abstract "
+            "(section/metric absent or column %r missing)", name, col,
+        )
         return None
     raw = matches.iloc[0][col]
     try:

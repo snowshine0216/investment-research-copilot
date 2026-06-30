@@ -68,6 +68,20 @@ def _first_col(df: pd.DataFrame, cols: tuple[str, ...]) -> str | None:
     return next((c for c in cols if c in df.columns), None)
 
 
+def _resolve_col(
+    df: pd.DataFrame, cols: tuple[str, ...], *, field: str, context: str
+) -> str | None:
+    """`_first_col` plus a DEBUG log when no candidate column is present, so
+    Tushare column-level schema drift inside an otherwise-good frame is visible."""
+    col = _first_col(df, cols)
+    if col is None:
+        _log.debug(
+            "Tushare %s: no column for %s among %s (column-level schema drift?)",
+            context, field, cols,
+        )
+    return col
+
+
 def _pct_to_ratio(value: Any) -> float | None:
     try:
         f = float(value)
@@ -114,10 +128,10 @@ def _map_fina_to_digest(ts_code: str, df: pd.DataFrame) -> FilingDigest | None:
     if result is None:
         return None
     period, filed = result
-    rev = _first_col(df, _REV_YOY_COLS)
-    ni = _first_col(df, _NI_YOY_COLS)
-    gm = _first_col(df, _GM_COLS)
-    roe = _first_col(df, _ROE_COLS)
+    rev = _resolve_col(df, _REV_YOY_COLS, field="revenue_yoy", context="fina_indicator")
+    ni = _resolve_col(df, _NI_YOY_COLS, field="net_income_yoy", context="fina_indicator")
+    gm = _resolve_col(df, _GM_COLS, field="gross_margin", context="fina_indicator")
+    roe = _resolve_col(df, _ROE_COLS, field="roe", context="fina_indicator")
     return FilingDigest(
         symbol=ts_code,
         fiscal_period=period,
@@ -161,9 +175,9 @@ def _map_index_dailybasic(
         if "trade_date" in df.columns
         else df.iloc[-1]
     )
-    pe = _first_col(df, _PE_COLS)
-    pb = _first_col(df, _PB_COLS)
-    dv = _first_col(df, _DIV_COLS)
+    pe = _resolve_col(df, _PE_COLS, field="pe_ttm", context="index_dailybasic")
+    pb = _resolve_col(df, _PB_COLS, field="pb", context="index_dailybasic")
+    dv = _resolve_col(df, _DIV_COLS, field="dividend_yield", context="index_dailybasic")
     if pe is None and pb is None:
         return None
     return IndexValuation(

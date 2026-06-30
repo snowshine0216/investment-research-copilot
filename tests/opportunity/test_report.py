@@ -125,6 +125,23 @@ def test_discipline_markdown_has_chinese_action_sections():
     assert "20%" in md
 
 
+def test_unknown_dca_action_warns_and_falls_back(caplog):
+    """An unrecognized dca_action must still default to 今日可定投 (behavior
+    preserved) AND emit a WARNING naming the value, so new DcaAction variants
+    missing from _DCA_BUCKET surface in logs instead of silently misbucketing."""
+    import logging
+
+    from irc.opportunity.report import _bucket_rows
+
+    row = DisciplineRow("512760", "半导体", "cn_etf", "semiconductor", "small_watch",
+                        "bogus_action", "none", "观察仓位")
+    with caplog.at_level(logging.WARNING, logger="irc.opportunity.report"):
+        buckets = _bucket_rows([row])
+    assert row in buckets["今日可定投"]
+    warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("bogus_action" in r.getMessage() for r in warnings)
+
+
 def test_discipline_markdown_empty_categories_render_placeholder():
     md = compose_discipline_markdown([], date="2026-05-14")
     assert "## 今日可定投" in md
