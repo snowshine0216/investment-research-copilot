@@ -505,6 +505,44 @@ def test_fundamentals_wrapper_skips_when_snapshot_lock_held(tmp_path: Path) -> N
     )
 
 
+def test_both_wrappers_source_lib_run() -> None:
+    """Both surviving wrappers must source the shared library (spec §3 / §6.2)."""
+    for name in ("run-monitor.sh", "run-fundamentals.sh"):
+        text = (_OPS / name).read_text(encoding="utf-8")
+        assert "source ops/launchd/lib-run.sh" in text, (
+            f"{name} must `source ops/launchd/lib-run.sh` (after cd REPO_ROOT)"
+        )
+
+
+def test_monitor_wrapper_invokes_watchdog_with_timeout_default() -> None:
+    """run-monitor.sh must call run_with_watchdog with an IRC_MONITOR_TIMEOUT
+    default of 1800 around `irc monitor` (spec §4.1 / §6.2)."""
+    text = (_OPS / "run-monitor.sh").read_text(encoding="utf-8")
+    assert 'run_with_watchdog "${IRC_MONITOR_TIMEOUT:-1800}"' in text, (
+        "run-monitor.sh must wrap irc monitor in run_with_watchdog with a 1800s default"
+    )
+    assert "run irc monitor" in text
+
+
+def test_fundamentals_wrapper_invokes_watchdog_with_timeout_default() -> None:
+    """run-fundamentals.sh must call run_with_watchdog with an IRC_SNAPSHOT_TIMEOUT
+    default of 3600 around `irc monitor snapshot` (spec §4.2 / §6.2)."""
+    text = (_OPS / "run-fundamentals.sh").read_text(encoding="utf-8")
+    assert 'run_with_watchdog "${IRC_SNAPSHOT_TIMEOUT:-3600}"' in text, (
+        "run-fundamentals.sh must wrap irc monitor snapshot in run_with_watchdog "
+        "with a 3600s default"
+    )
+    assert "run irc monitor snapshot" in text
+
+
+def test_fundamentals_wrapper_has_no_notify_status() -> None:
+    """run-fundamentals.sh must NOT call notify-status (protective-only, spec §4.2)."""
+    text = (_OPS / "run-fundamentals.sh").read_text(encoding="utf-8")
+    assert "notify-status" not in text, (
+        "run-fundamentals.sh is protective-only — it must not page via notify-status"
+    )
+
+
 def test_monitor_wrapper_skips_when_lock_held(tmp_path: Path) -> None:
     """When .monitor.lock is held by a LIVE pid, the wrapper skips (exit 0) and
     never calls `uv run irc monitor` (spec §4.1: silent skip-on-contention)."""
