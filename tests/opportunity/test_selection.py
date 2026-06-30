@@ -1,6 +1,5 @@
 from __future__ import annotations
 import dataclasses
-import pytest
 
 from irc.opportunity.selection import (
     demote_unstable_active,
@@ -115,7 +114,7 @@ def test_same_theme_collapses_same_index_first():
 # demote_unstable_active tests
 # ---------------------------------------------------------------------------
 
-def _active_row(instrument_id: str, theme: str = "semiconductor") -> OpportunityRow:
+def _active_row(instrument_id: str, theme: str | None = "semiconductor") -> OpportunityRow:
     return OpportunityRow(
         instrument_id=instrument_id,
         name_cn=f"主动基金-{instrument_id}",
@@ -185,6 +184,22 @@ def test_exclude_state_never_demoted():
     rows_out, demoted = demote_unstable_active([passive, active], qualities)
     active_out = next(r for r in rows_out if r.instrument_id == "001234")
     assert active_out.opportunity_state == "exclude"
+    assert len(demoted) == 0
+
+
+def test_themeless_active_not_demoted_by_unrelated_themeless_passive():
+    """theme=None means unclassified, NOT a shared theme bucket. An active fund
+    with theme=None must not be demoted by an unrelated passive that also happens
+    to carry theme=None (regression: both shared the single None bucket)."""
+    passive = _row("159995", lookthrough_key="csi_semiconductor", lookthrough_kind="sector_theme", theme=None)
+    active = _active_row("001234", theme=None)
+    qualities = {
+        "159995": _q(0.0015, 30e9),   # better quality, but UNRELATED instrument
+        "001234": _q(0.0100, 5e9),
+    }
+    rows_out, demoted = demote_unstable_active([passive, active], qualities)
+    active_out = next(r for r in rows_out if r.instrument_id == "001234")
+    assert active_out.opportunity_state == "core_dca"
     assert len(demoted) == 0
 
 
