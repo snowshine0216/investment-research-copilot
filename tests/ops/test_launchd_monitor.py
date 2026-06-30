@@ -294,6 +294,13 @@ def _template_wrapper(src: Path, tmp_path: Path, stub: Path) -> Path:
     out = tmp_path / src.name
     out.write_text(text, encoding="utf-8")
     out.chmod(out.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    # Make lib-run.sh available under tmp_path/ops/launchd/ so the `source` line
+    # in wrappers (resolved relative to cd "$REPO_ROOT" == tmp_path) can find it.
+    lib_dst = tmp_path / "ops" / "launchd"
+    lib_dst.mkdir(parents=True, exist_ok=True)
+    lib_src = _OPS / "lib-run.sh"
+    if lib_src.exists():
+        (lib_dst / "lib-run.sh").write_text(lib_src.read_text(encoding="utf-8"), encoding="utf-8")
     return out
 
 
@@ -405,3 +412,78 @@ def test_monitor_wrapper_calls_notify_after_run(tmp_path: Path) -> None:
     assert any("--run-kind" in c and "monitor" in c for c in notify_calls), (
         f"notify-status not called with --run-kind monitor. Calls: {notify_calls}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Wrapper integration: watchdog timeout-kill + single-instance lock (item 001)
+# ---------------------------------------------------------------------------
+
+
+def _make_sleepy_uv_stub(tmp_path: Path, monitor_sleep: int) -> tuple[Path, Path]:
+    """A stub `uv` whose `irc monitor` sleeps <monitor_sleep>s (to be killed by
+    the watchdog) but whose `notify-status` returns instantly with exit 0.
+    Records every argv line to stub_argv.log."""
+    argv_log = tmp_path / "stub_argv.log"
+    stub = tmp_path / "uv"
+    stub.write_text(
+        textwrap.dedent(f"""\
+            #!/bin/bash
+            echo "$@" >> {argv_log}
+            for arg in "$@"; do
+              if [ "$arg" = "notify-status" ]; then exit 0; fi
+              if [ "$arg" = "snapshot" ]; then exit 0; fi
+            done
+            # plain `irc monitor` (no notify-status / snapshot): sleep so the
+            # watchdog has something to kill.
+            sleep {monitor_sleep}
+            exit 0
+        """),
+        encoding="utf-8",
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    return stub, argv_log
+
+
+def test_monitor_wrapper_watchdog_kills_and_notifies_124(tmp_path: Path) -> None:
+    """A monitor run that overruns IRC_MONITOR_TIMEOUT is killed by the watchdog,
+    and the wrapper calls notify-status with --last-exit-code 124 (spec §4.1)."""
+    stub, argv_log = _make_sleepy_uv_stub(tmp_path, monitor_sleep=30)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    result = _run_wrapper(
+        wrapper,
+        {
+            "PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}",
+            "IRC_MONITOR_TIMEOUT": "1",
+            "IRC_WATCHDOG_POLL": "0.2",
+        },
+    )
+    assert result.returncode == 124, (
+        f"wrapper must exit 124 on watchdog kill; got {result.returncode}. "
+        f"log:\n{_read_run_log(tmp_path, 'run-monitor')}"
+    )
+    invocations = _read_argv(argv_log)
+    notify = [ln for ln in invocations if "notify-status" in ln]
+    assert notify, f"notify-status must be called after a timeout. argv: {invocations}"
+    assert any("--last-exit-code 124" in ln for ln in notify), (
+        f"notify-status must receive --last-exit-code 124. notify calls: {notify}"
+    )
+
+
+def test_monitor_wrapper_skips_when_lock_held(tmp_path: Path) -> None:
+    """When .monitor.lock is held by a LIVE pid, the wrapper skips (exit 0) and
+    never calls `uv run irc monitor` (spec §4.1: silent skip-on-contention)."""
+    stub, argv_log = _make_stub(tmp_path, exit_code=0)
+    wrapper = _template_wrapper(_OPS / "run-monitor.sh", tmp_path, stub)
+    date_bin = _make_date_stub(tmp_path, *_GATE_OPEN)
+    # Pre-create the lock dir held by THIS process (alive for the call duration).
+    lock = tmp_path / "outputs" / "_logs" / ".monitor.lock"
+    lock.mkdir(parents=True)
+    (lock / "pid").write_text(str(os.getpid()), encoding="utf-8")
+    result = _run_wrapper(wrapper, {"PATH": f"{date_bin}{os.pathsep}{os.environ['PATH']}"})
+    assert result.returncode == 0, result.stderr
+    invocations = _read_argv(argv_log)
+    assert not any(
+        "monitor" in ln and "notify-status" not in ln and "snapshot" not in ln
+        for ln in invocations
+    ), f"uv must NOT be called for `irc monitor` while the lock is held. argv: {invocations}"

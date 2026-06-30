@@ -87,11 +87,14 @@ def test_watchdog_kills_the_whole_process_group_not_just_pid() -> None:
 def test_acquire_lock_first_acquire_succeeds_and_writes_pid(tmp_path: Path) -> None:
     """First acquire returns 0, creates the lock dir, and writes $$ to pid."""
     lock = tmp_path / ".monitor.lock"
+    # cat the pid file inside the bash snippet (before EXIT trap cleans up).
     proc = _bash(f'acquire_lock "{lock}"; echo "rc=$?"; cat "{lock}/pid"')
     assert proc.returncode == 0, proc.stderr
     assert "rc=0" in proc.stdout, proc.stdout
-    assert lock.is_dir(), "lock dir must exist after acquire"
-    pid = (lock / "pid").read_text(encoding="utf-8").strip()
+    # The EXIT trap removes the lock dir on process exit; verify pid was written
+    # by reading the cat output (the last non-empty line after "rc=0").
+    lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
+    pid = lines[-1].strip() if len(lines) >= 2 else ""
     assert pid.isdigit() and int(pid) > 0, f"pid file must hold a numeric pid, got {pid!r}"
 
 

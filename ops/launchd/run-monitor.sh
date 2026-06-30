@@ -17,6 +17,8 @@ set -euo pipefail
 UV_BIN="__UV_BIN__"
 REPO_ROOT="__REPO_ROOT__"
 cd "$REPO_ROOT"
+# shellcheck source=ops/launchd/lib-run.sh
+source ops/launchd/lib-run.sh
 mkdir -p outputs/_logs
 
 # Fresh per-run log (launchd writes to /dev/null). Retain ~14 days.
@@ -50,7 +52,22 @@ if [ -f "$SENTINEL" ]; then
   exit 0
 fi
 
+# Single-instance lock: prevent a manual run and the scheduled fire (or any two
+# fires) from overlapping — chiefly to avoid duplicate paid LLM spend + wasted
+# concurrent work. Sits AFTER the idempotency skip (no point locking a day we are
+# skipping). Skip-on-contention is SILENT (exit 0, no notify) — consistent with
+# the weekend / holiday / idempotency skips; a skip is not a failure. Released
+# via the EXIT trap acquire_lock installs. See lib-run.sh / spec §4.1 / §4.3.
+acquire_lock "outputs/_logs/.monitor.lock" || {
+  echo "[$TODAY] another monitor run in progress — skipping."
+  exit 0
+}
+
+# Watchdog: bound the run at IRC_MONITOR_TIMEOUT (default 1800s / 30 min). On
+# overrun the whole process group is killed (TERM -> grace -> KILL) and rc=124,
+# which notify-status maps to "timeout". The `|| rc=$?` keeps a non-zero child
+# rc (incl. 124) from aborting the script under `set -e` before notify runs.
 rc=0
-"$UV_BIN" run irc monitor || rc=$?
+run_with_watchdog "${IRC_MONITOR_TIMEOUT:-1800}" "$UV_BIN" run irc monitor || rc=$?
 "$UV_BIN" run irc notify-status --run-kind monitor --last-exit-code "$rc" || true
 exit "$rc"

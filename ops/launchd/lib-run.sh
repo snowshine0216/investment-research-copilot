@@ -22,7 +22,8 @@ acquire_lock() {
   local lock_dir="$1"
   if mkdir "$lock_dir" 2>/dev/null; then
     echo "$$" > "$lock_dir/pid"
-    trap 'rm -rf "$lock_dir"' EXIT
+    _IRC_LOCK_DIR="$lock_dir"
+    trap 'rm -rf "$_IRC_LOCK_DIR"' EXIT
     return 0
   fi
   local holder
@@ -34,7 +35,8 @@ acquire_lock() {
   rm -rf "$lock_dir"
   if mkdir "$lock_dir" 2>/dev/null; then
     echo "$$" > "$lock_dir/pid"
-    trap 'rm -rf "$lock_dir"' EXIT
+    _IRC_LOCK_DIR="$lock_dir"
+    trap 'rm -rf "$_IRC_LOCK_DIR"' EXIT
     return 0
   fi
   return 1
