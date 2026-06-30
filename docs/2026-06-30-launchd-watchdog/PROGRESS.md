@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/launchd-watchdog-001` | ✅ `5888d1e` | ✅ `daf5cc9` | ✅ [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) | ⏳ | ✅ PASS-WITH-NITS | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ `claude/launchd-watchdog-001` | ✅ `5888d1e` | ✅ `daf5cc9` | ✅ [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) | ✅ `983e451` | ✅ PASS-WITH-NITS | ✅ PASS-WITH-NITS | 🔄 | ⏳ |
 
 ### Notes
 - **spec** ✅ — `items/001-spec.md` (verbatim copy of merged spec PR #180).
@@ -16,5 +16,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done · ⚠️ soft-fail (fix loo
 - **drift** ✅ — `items/001-drift.md` Verdict: PASS (`daf5cc9`). 12 plan items verified, 10 files = spec §7 exactly, 0 unreported drift; plan amended for the 6 known deviations.
 - **PR (ship)** ✅ — [#182](https://github.com/snowshine0216/investment-research-copilot/pull/182) (base = feature branch `claude/thirsty-lovelace-3da881`). `items/001-ship.md`. No VERSION bump.
 - **review** ✅ — `items/001-review.md` PASS-WITH-NITS (ship steps 8+9: code-reviewer + silent-failure-hunter + adversarial). 0 P0; wait/127 P0 empirically refuted, mkdir-lock TOCTOU dismissed as inherent. 2 test nits → triage-fix; 1 follow-up (locked spec line).
-- **verify** — non-web project → `/verify` (not `/qa`). XOR: `/qa` never runs.
+- **verify** ✅ — `items/001-verify.md` Verdict: PASS (`983e451`). Non-web → `/verify` (XOR: `/qa` never runs). All 5 ACs exercised live (rc=124 on timeout, rc=0/7 propagation, grandchild killed, lock acquire/contention/reclaim, wrapper wiring).
+- **pr-review** ✅ — `items/001-pr-review.md` PASS-WITH-NITS ([comment](https://github.com/snowshine0216/investment-research-copilot/pull/182#issuecomment-4841056904)). 3 nits, 0 blockers, 0 latent bugs.
+- **fix** 🔄 — exit contract already met (all 3 PASS/PASS-WITH-NITS). One fix round for 2 cheap test-quality nits (template_wrapper unconditional copy; timing-margin widen). pr-review's 3 nits dismissed (matches-original SECONDS=0; documented TOCTOU; optional readability).
 - This is the non-web spec-mode path: exactly one of {qa, verify} → `verify`.
