@@ -1,8 +1,12 @@
 """PURE Comp 3c: compact inline-SVG diverging contribution bars per factor inside a
 fund card. Market factors vs news factors are visually distinguished (news bars use
 a hatch fill) so the overlay is obvious. Geometry rounded to 2dp; byte-stable. No
-JS, no remote refs."""
+JS, no remote refs.
+
+Non-finite contributions (NaN, ±inf) are treated as zero-width bars so the SVG
+output is always well-formed (Finding D)."""
 from __future__ import annotations
+import math
 from html import escape
 from irc.monitor.signal import _FAMILY_OF
 from irc.monitor.types import FactorContribution
@@ -23,8 +27,10 @@ def _r(x: float) -> str:
 
 def _bar(c: FactorContribution, y: float) -> str:
     is_news = _FAMILY_OF.get(c.name) == "news"
-    mag = min(abs(c.contribution), 1.0) * _HALF
-    if c.contribution >= 0:
+    # Guard non-finite values — treat as zero contribution (Finding D)
+    contrib = c.contribution if math.isfinite(c.contribution) else 0.0
+    mag = min(abs(contrib), 1.0) * _HALF
+    if contrib >= 0:
         x, w, colour = _MID, mag, _GREEN
     else:
         x, w, colour = _MID - mag, mag, _RED

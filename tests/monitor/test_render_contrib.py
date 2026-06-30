@@ -45,3 +45,29 @@ def test_contrib_bars_empty():
 
 def test_contrib_bars_no_script():
     assert "<script" not in contribution_bars_svg(_contribs()).lower()
+
+
+# ---------------------------------------------------------------------------
+# Finding D: non-finite contribution must not produce "nan"/"inf" in SVG
+# ---------------------------------------------------------------------------
+
+def test_contrib_bars_nan_contribution_produces_valid_svg():
+    """A FactorContribution with contribution=float('nan') must produce valid
+    SVG with no 'nan' or 'inf' substring."""
+    contribs = (FactorContribution("trend", .5, float("nan"), float("nan"), 1.0, True, ""),)
+    svg = contribution_bars_svg(contribs)
+    assert "nan" not in svg.lower(), f"SVG must not contain 'nan': {svg[:200]}"
+    assert "inf" not in svg.lower(), f"SVG must not contain 'inf': {svg[:200]}"
+    assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
+
+
+def test_contrib_bars_inf_contribution_produces_valid_svg():
+    """A FactorContribution with contribution=float('inf') must produce valid
+    SVG with no 'nan' or 'inf' substring."""
+    contribs = (
+        FactorContribution("trend", .5, float("inf"), float("inf"), 1.0, True, ""),
+        FactorContribution("flow", .5, float("-inf"), float("-inf"), 1.0, True, ""),
+    )
+    svg = contribution_bars_svg(contribs)
+    assert "inf" not in svg.lower(), f"SVG must not contain 'inf': {svg[:200]}"
+    assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
