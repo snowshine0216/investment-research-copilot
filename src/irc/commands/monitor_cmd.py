@@ -589,34 +589,48 @@ def _read_ledger_rows(path: Path) -> list[dict]:
     if not path.is_file():
         return []
     rows: list[dict] = []
+    dropped = 0
     for ln in path.read_text(encoding="utf-8").splitlines():
         if ln.strip():
             try:
                 rows.append(json.loads(ln))
             except json.JSONDecodeError:
-                continue
+                dropped += 1
+    if dropped:
+        _log.warning("_read_ledger_rows: skipped %d malformed line(s) in %s", dropped, path)
     return rows
 
 
 def _build_bias_timeline(root: Path) -> BiasTimeline:
     """EDGE-read Comp 3b: forward_ledger → deduped one row per (fund, run_date)
     (latest written_at wins), bounded to the most recent _TIMELINE_MAX_DATES run
-    dates. Engine tag from manifest_versions.engine (default '0')."""
-    rows = latest_per_key(_read_ledger_rows(
-        root / "data" / "monitor" / "forward_ledger.jsonl"))
-    dates = sorted({r["run_date"] for r in rows})[-_TIMELINE_MAX_DATES:]
-    by_fund: dict[str, dict[str, tuple[str, str]]] = {}
-    for r in rows:
-        if r["run_date"] not in dates:
-            continue
-        eng = str((r.get("manifest_versions") or {}).get("engine", "0"))
-        by_fund.setdefault(r["fund_id"], {})[r["run_date"]] = (
-            r.get("raw_bias") or "NEUTRAL", eng)
-    out_rows = tuple(
-        (fid, tuple(by_fund[fid].get(d, ("NEUTRAL", "0")) for d in dates))
-        for fid in sorted(by_fund)
-    )
-    return BiasTimeline(run_dates=tuple(dates), rows=out_rows)
+    dates. Engine tag from manifest_versions.engine (default '0').
+
+    Absent (fund, date) cells carry (None, '0') — a distinct no-data sentinel
+    that renders differently from a real NEUTRAL signal (Finding B).
+    Any exception degrades to an empty BiasTimeline — never crash the brief."""
+    try:
+        all_rows = _read_ledger_rows(root / "data" / "monitor" / "forward_ledger.jsonl")
+        # Filter: keep only rows with BOTH run_date and fund_id (Finding A)
+        well_formed = [r for r in all_rows if "run_date" in r and "fund_id" in r]
+        rows = latest_per_key(well_formed)
+        dates = sorted({r["run_date"] for r in rows})[-_TIMELINE_MAX_DATES:]
+        by_fund: dict[str, dict[str, tuple[str | None, str]]] = {}
+        for r in rows:
+            if r["run_date"] not in dates:
+                continue
+            eng = str((r.get("manifest_versions") or {}).get("engine", "0"))
+            by_fund.setdefault(r["fund_id"], {})[r["run_date"]] = (
+                r.get("raw_bias") or "NEUTRAL", eng)
+        # Absent cells use (None, "0") sentinel — NOT "NEUTRAL" (Finding B)
+        out_rows = tuple(
+            (fid, tuple(by_fund[fid].get(d, (None, "0")) for d in dates))
+            for fid in sorted(by_fund)
+        )
+        return BiasTimeline(run_dates=tuple(dates), rows=out_rows)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_build_bias_timeline failed; returning empty timeline", exc_info=True)
+        return BiasTimeline(run_dates=(), rows=())
 
 
 def _is_stale(artifact_date: str, today: str) -> bool:

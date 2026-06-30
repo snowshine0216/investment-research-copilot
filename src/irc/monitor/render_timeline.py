@@ -1,13 +1,17 @@
 """PURE Comp 3b: bias-history timeline grid. Frozen BiasTimeline (built at the
 edge from forward_ledger.jsonl) → colored HTML grid; the v1→v3 engine boundary is
 marked where a fund's engine tag changes between adjacent run dates. No JS, no
-remote refs. Byte-stable."""
+remote refs. Byte-stable.
+
+Absent (fund, date) cells carry bias=None (no-data sentinel) and render with
+class "no-data" + label " " — visually distinct from a real NEUTRAL cell."""
 from __future__ import annotations
 from dataclasses import dataclass
 from html import escape
 
-# one (bias, engine) pair per run date, ordered oldest→newest
-_Cell = tuple[str, str]
+# one (bias | None, engine) pair per run date, ordered oldest→newest
+# bias is None for absent cells (no-data sentinel, distinct from NEUTRAL)
+_Cell = tuple[str | None, str]
 
 
 @dataclass(frozen=True)
@@ -18,6 +22,9 @@ class BiasTimeline:
 
 def _cell_html(prev_eng: str | None, cell: _Cell) -> str:
     bias, eng = cell
+    if bias is None:
+        # no-data sentinel: muted blank cell, no engine-boundary marking
+        return '<td class="tl-cell no-data"> </td>'
     cls = bias.lower()
     boundary = " engine-boundary" if prev_eng is not None and eng != prev_eng else ""
     label = {"ADD_BIAS": "+", "REDUCE_BIAS": "−", "NEUTRAL": "·"}.get(bias, "?")

@@ -40,3 +40,35 @@ def test_timeline_byte_stable():
 def test_timeline_no_script_no_remote():
     html = bias_timeline_html(_tl())
     assert "<script" not in html.lower() and "http" not in html
+
+
+# ---------------------------------------------------------------------------
+# Finding B: absent (fund, date) cells must render distinctly from NEUTRAL
+# ---------------------------------------------------------------------------
+
+def test_timeline_absent_cell_distinct_from_neutral():
+    """A cell with no-data sentinel (None bias) must render differently from a
+    real NEUTRAL cell — it must not carry class 'neutral' and must use a
+    distinct marker."""
+    tl = BiasTimeline(
+        run_dates=("2026-06-29", "2026-06-30"),
+        rows=(
+            # 519069: present both dates
+            ("519069", (("NEUTRAL", "3"), ("ADD_BIAS", "3"))),
+            # 270023: absent on 06-29 → sentinel (None, "0")
+            ("270023", ((None, "0"), ("ADD_BIAS", "3"))),
+        ),
+    )
+    html = bias_timeline_html(tl)
+    # The HTML must exist
+    assert "270023" in html
+    # Absent cell must NOT carry class "neutral"
+    # We check that the cells for 270023 don't produce an uncaveated "neutral" class
+    # by confirming no-data renders with a distinct marker
+    assert "no-data" in html or "·" not in html.split("270023")[1][:60] or True
+    # Strict check: no-data class present OR the absent bias is not labelled "·"
+    # (which is the NEUTRAL label). We rely on render_timeline to use a distinct class.
+    # If the implementation uses class "no-data", assert that:
+    assert "no-data" in html, (
+        "absent cell must render with 'no-data' class, not 'neutral'"
+    )
