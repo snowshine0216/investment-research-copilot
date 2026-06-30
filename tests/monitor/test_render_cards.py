@@ -1,5 +1,11 @@
 from irc.monitor.types import SignalRecord, NarrativeDoc, Claim
-from irc.monitor.render_cards import verdict_block_html, risk_block_html, narrative_sections_html
+from irc.monitor.render_cards import (
+    verdict_block_html, risk_block_html, narrative_sections_html, _claim_html)
+from irc.monitor.render_html import CitationIndex
+from irc.monitor.render_cards import decision_line_html
+from irc.monitor.market_composite import MarketCompositeView
+
+_EMPTY_IDX = CitationIndex(())
 
 
 def _rec(status="ok", bias="ADD_BIAS", c=0.5563, conf=0.9, fams=("price-momentum", "news"),
@@ -15,7 +21,7 @@ def _narr(sig=(), risk=(), pa=(), status="ok"):
 
 
 def test_ok_add_bias_clause_states_band_relationship():
-    html = verdict_block_html(_rec(bias="ADD_BIAS", c=0.5563), _narr())
+    html = verdict_block_html(_rec(bias="ADD_BIAS", c=0.5563), _narr(), _EMPTY_IDX)
     assert "0.5563" in html
     assert "偏多带" in html and "ADD_BIAS" in html
     assert "偏多倾向" in html              # neutral bias gloss, not a trade verb
@@ -23,25 +29,25 @@ def test_ok_add_bias_clause_states_band_relationship():
 
 
 def test_ok_reduce_bias_clause():
-    html = verdict_block_html(_rec(bias="REDUCE_BIAS", c=-0.6), _narr())
+    html = verdict_block_html(_rec(bias="REDUCE_BIAS", c=-0.6), _narr(), _EMPTY_IDX)
     assert "偏空带" in html and "REDUCE_BIAS" in html
     assert "偏空倾向" in html
     assert "卖出阈值" not in html
 
 
 def test_ok_neutral_clause_says_dead_band():
-    html = verdict_block_html(_rec(bias="NEUTRAL", c=0.05), _narr())
+    html = verdict_block_html(_rec(bias="NEUTRAL", c=0.05), _narr(), _EMPTY_IDX)
     assert "中性带" in html and "NEUTRAL" in html
 
 
 def test_insufficient_evidence_clause_names_gate_and_no_call():
-    html = verdict_block_html(_rec(status="insufficient_evidence", bias=None, fams=("news",), aw=0.3), _narr())
+    html = verdict_block_html(_rec(status="insufficient_evidence", bias=None, fams=("news",), aw=0.3), _narr(), _EMPTY_IDX)
     assert "insufficient_evidence" in html and "NO_CALL" in html
     assert "0.30" in html  # available_weight surfaced
 
 
 def test_low_confidence_clause_names_confidence_and_no_call():
-    html = verdict_block_html(_rec(status="low_confidence", bias=None, conf=0.3), _narr())
+    html = verdict_block_html(_rec(status="low_confidence", bias=None, conf=0.3), _narr(), _EMPTY_IDX)
     assert "low_confidence" in html and "NO_CALL" in html
     assert "0.3" in html  # signal_confidence surfaced
 
@@ -49,30 +55,32 @@ def test_low_confidence_clause_names_confidence_and_no_call():
 def test_minimax_comment_renders_lead_claim_with_ref():
     narr = _narr(sig=(Claim("动能强劲", "consistent_with", ("a" * 16,)),
                       Claim("第二条不应出现", "consistent_with", ("b" * 16,))))
-    html = verdict_block_html(_rec(), narr)
-    assert "[ref:" + "a" * 16 + "]" in html
+    html = verdict_block_html(_rec(), narr, _EMPTY_IDX)
+    # With empty idx, refs are suppressed (no [ref:] raw markers)
+    assert "[ref:" not in html
     assert "第二条不应出现" not in html  # capped to lead claim
 
 
 def test_degraded_narrative_shows_note_not_comment():
-    html = verdict_block_html(_rec(), _narr(status="schema_invalid: x"))
+    html = verdict_block_html(_rec(), _narr(status="schema_invalid: x"), _EMPTY_IDX)
     assert "narrative" in html.lower()
     assert "schema_invalid" in html
 
 
 def test_risk_block_maps_divergence_codes_to_caveats():
-    html = risk_block_html(_rec(div=("trend_valuation_conflict",)), _narr())
+    html = risk_block_html(_rec(div=("trend_valuation_conflict",)), _narr(), _EMPTY_IDX)
     assert "趋势与估值背离" in html
 
 
 def test_risk_block_includes_risk_claims_with_refs():
     narr = _narr(risk=(Claim("回撤风险上升", "consistent_with", ("c" * 16,)),))
-    html = risk_block_html(_rec(), narr)
-    assert "回撤风险上升" in html and "[ref:" + "c" * 16 + "]" in html
+    html = risk_block_html(_rec(), narr, _EMPTY_IDX)
+    assert "回撤风险上升" in html
+    assert "[ref:" not in html  # raw markers suppressed by empty idx
 
 
 def test_risk_block_empty_renders_muted_placeholder():
-    html = risk_block_html(_rec(div=()), _narr())
+    html = risk_block_html(_rec(div=()), _narr(), _EMPTY_IDX)
     assert "无显著风险信号" in html
 
 
@@ -80,7 +88,50 @@ def test_narrative_sections_only_price_action():
     narr = _narr(pa=(Claim("价格上行", "consistent_with", ()),),
                  sig=(Claim("不应在此", "consistent_with", ()),),
                  risk=(Claim("也不应在此", "consistent_with", ()),))
-    html = narrative_sections_html(narr)
+    html = narrative_sections_html(narr, _EMPTY_IDX)
     assert "价格上行" in html
     assert "不应在此" not in html  # signal_rationale lives in verdict block
     assert "也不应在此" not in html  # risk lives in risk block
+
+
+def test_claim_html_renders_numbered_superscript_with_title():
+    cid = "0123456789abcdef"
+    idx = CitationIndex(((cid, "Reuters", "real yields up"),))
+    claim = Claim("金价承压", "consistent_with", (cid,))
+    html = _claim_html(claim, idx)
+    assert f'href="#ev-{cid}"' in html
+    assert "<sup>" in html and "</sup>" in html
+    assert ">1</a>" in html
+    assert 'title="Reuters — real yields up"' in html
+    assert "[ref:" not in html  # no raw marker leaks
+
+
+def test_claim_html_unknown_cid_drops_marker_no_raw_ref():
+    idx = CitationIndex(())
+    claim = Claim("x", "unknown", ("ffffffffffffffff",))
+    html = _claim_html(claim, idx)
+    assert "[ref:" not in html
+
+
+def test_decision_line_market_bias_composite_news_and_honesty():
+    mv = MarketCompositeView(composite=0.24, bias="NEUTRAL", news_delta=0.20,
+                             eligible_market_factors=4)
+    html = decision_line_html(mv, purchase_tag="限购 ¥100/日")
+    assert "市场面" in html and "决策锚" in html
+    assert "NEUTRAL" in html
+    assert "+0.24" in html
+    assert "新闻叠加" in html and "+0.20" in html and "易变" in html
+    assert "限购 ¥100/日" in html
+    # honesty line: 0.54 is trend-only, NOT the market composite
+    assert "前瞻验证累积中" in html
+    assert "趋势单因子" in html and "0.54" in html
+
+
+def test_decision_line_none_market_view_renders_nothing():
+    assert decision_line_html(None, purchase_tag=None) == ""
+
+
+def test_decision_line_no_tag_when_open():
+    mv = MarketCompositeView(0.1, "NEUTRAL", 0.0, 2)
+    html = decision_line_html(mv, purchase_tag=None)
+    assert "限购" not in html

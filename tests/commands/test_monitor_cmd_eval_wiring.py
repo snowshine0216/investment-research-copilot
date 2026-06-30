@@ -132,7 +132,6 @@ def test_valuation_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path
     """Task 4.2: a per-fund exception in valuation_reconciliation must not crash
     _compute_gates — degrades to WARN, run still completes."""
     import irc.commands.monitor_cmd as mc
-    from irc.monitor.eval.types import StageHealth
 
     def _local_fund(fid="008986"):
         return MonitorFund(id=fid, name_cn="测试", market="CN", analysis_profile="gold_etf",
@@ -163,3 +162,48 @@ def test_valuation_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path
     # (gates, signal_h, det_h, flow_recon_h, flow_cov_h, val_recon_h, val_cov_h)
     val_recon = result[5]
     assert val_recon[fund.id].status == "WARN"
+
+
+def test_ledger_row_carries_market_composite(tmp_path):
+    """_write_eval_artifacts ledger rows include market_composite from view.market_view."""
+    import json
+    from irc.monitor.market_composite import MarketCompositeView
+    import dataclasses
+    from irc.monitor.eval.types import GateDecision, FundTraceBundle
+    from irc.commands.monitor_cmd import _write_eval_artifacts
+
+    fund = _fund("519069")
+    mv = MarketCompositeView(composite=0.55, bias="ADD_BIAS", news_delta=0.10,
+                             eligible_market_factors=3)
+    view = dataclasses.replace(_view("519069"), market_view=mv)
+    gate = GateDecision("519069", False, (), "validated", "")
+    bundle = FundTraceBundle("519069", (), (), ())
+    out = tmp_path / "monitor"
+    out.mkdir()
+    _write_eval_artifacts(out, tmp_path, [fund], [view], [bundle], (gate,),
+                          run_date="2026-06-30", trading_days=None)
+    ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert len(rows) == 1
+    assert rows[0]["market_composite"] == 0.55
+    assert rows[0]["market_bias"] == "ADD_BIAS"
+
+
+def test_ledger_row_market_composite_none_when_no_market_view(tmp_path):
+    """View without market_view → market_composite/market_bias are None in ledger."""
+    import json
+    from irc.monitor.eval.types import GateDecision, FundTraceBundle
+    from irc.commands.monitor_cmd import _write_eval_artifacts
+
+    fund = _fund("519069")
+    view = _view("519069")   # market_view=None by default
+    gate = GateDecision("519069", False, (), "validated", "")
+    bundle = FundTraceBundle("519069", (), (), ())
+    out = tmp_path / "monitor"
+    out.mkdir()
+    _write_eval_artifacts(out, tmp_path, [fund], [view], [bundle], (gate,),
+                          run_date="2026-06-30", trading_days=None)
+    ledger = tmp_path / "data" / "monitor" / "forward_ledger.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text().splitlines()]
+    assert rows[0]["market_composite"] is None
+    assert rows[0]["market_bias"] is None

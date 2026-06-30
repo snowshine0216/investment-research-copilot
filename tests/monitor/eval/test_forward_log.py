@@ -83,3 +83,42 @@ def test_latest_per_key_missing_written_at_does_not_raise():
     assert len(out) == 1
     # The row with written_at should win (greater than "")
     assert out[0].get("written_at") == "2026-06-16T09:00:00"
+
+
+def test_ledger_row_carries_market_composite():
+    from irc.monitor.eval.types import GateDecision
+    gate = GateDecision("519069", False, (), "validated", "")
+    sig = SignalRecord("519069", "ok", "ADD_BIAS", 0.7, 1.0, 1.0, (), (), ())
+    row = ledger_row(run_date="2026-06-30", fund_id="519069", written_at="t",
+                     signal=sig, nav_acc=2.0, nav_unit=2.0, as_of_date="2026-06-30",
+                     published_state="ADD_BIAS", gate=gate,
+                     manifest_versions={"engine": "3"},
+                     market_composite=0.6, market_bias="ADD_BIAS")
+    assert row["market_composite"] == 0.6
+    assert row["market_bias"] == "ADD_BIAS"
+
+
+def test_ledger_row_market_composite_defaults_none():
+    from irc.monitor.eval.types import GateDecision
+    gate = GateDecision("519069", False, (), "validated", "")
+    sig = SignalRecord("519069", "ok", "ADD_BIAS", 0.7, 1.0, 1.0, (), (), ())
+    row = ledger_row(run_date="2026-06-30", fund_id="519069", written_at="t",
+                     signal=sig, nav_acc=2.0, nav_unit=2.0, as_of_date="2026-06-30",
+                     published_state="ADD_BIAS", gate=gate,
+                     manifest_versions={"engine": "3"})
+    assert row["market_composite"] is None
+    assert row["market_bias"] is None
+
+
+def test_latest_per_key_ignores_new_field():
+    from irc.monitor.eval.types import GateDecision
+    gate = GateDecision("f", False, (), "validated", "")
+    sig = SignalRecord("f", "ok", "ADD_BIAS", 0.5, 1.0, 1.0, (), (), ())
+    a = ledger_row(run_date="d", fund_id="f", written_at="1", signal=sig,
+                   nav_acc=1.0, nav_unit=1.0, as_of_date="d", published_state="x",
+                   gate=gate, manifest_versions={}, market_composite=0.1)
+    b = ledger_row(run_date="d", fund_id="f", written_at="2", signal=sig,
+                   nav_acc=1.0, nav_unit=1.0, as_of_date="d", published_state="x",
+                   gate=gate, manifest_versions={}, market_composite=0.2)
+    kept = latest_per_key([a, b])
+    assert len(kept) == 1 and kept[0]["market_composite"] == 0.2

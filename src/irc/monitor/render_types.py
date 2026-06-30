@@ -2,6 +2,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from irc.monitor.types import EvidenceItem, FactorScore, NarrativeDoc, SignalRecord
 from irc.monitor.holding_metrics import HoldingMetric
+from irc.monitor.market_composite import MarketCompositeView
 
 
 @dataclass(frozen=True)
@@ -28,3 +29,5 @@ class FundView:
     factor_scores: tuple[FactorScore, ...] = ()
     impacts_status: str = "ok"   # mirrors impacts.status; surfaced so schema/provider errors aren't silently dropped
     holding_metrics: tuple[HoldingMetric, ...] = ()  # per-stock drill-down (Slice 2+)
+    market_view: MarketCompositeView | None = None   # Comp 1: render-derived anchor
+    purchase_tag: str | None = None                  # Comp 5: 限购 actionability tag

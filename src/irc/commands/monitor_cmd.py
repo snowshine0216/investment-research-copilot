@@ -14,7 +14,8 @@ from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
 from irc.data.duckdb_helper import connect
-from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for
+from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for, purchase_tag_for
+from irc.monitor.market_composite import market_composite_view
 from irc.monitor.valuation import resolve_valuation_state
 from irc.fundamentals.snapshot import build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -52,7 +53,8 @@ from irc.monitor.eval.structural import (
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
 from irc.monitor.eval.trace import build_eval_trace
 from irc.monitor.trading_calendar import load_trading_days
-from irc.monitor.eval.forward_log import append_ledger, ledger_row
+from irc.monitor.eval.forward_log import append_ledger, ledger_row, latest_per_key
+from irc.monitor.render_timeline import BiasTimeline
 from irc.monitor.eval.nav_history import nav_history_append_rows, append_nav_history
 from irc.monitor.eval.constants import NAV_APPEND_DAYS, REVIEW_TRIGGER_K, STALE_EVAL_DAYS
 from irc.monitor.eval.types import (
@@ -64,6 +66,7 @@ from irc.monitor.eval.review import dedup_iso_weeks, review_trigger
 from evals._shared.latest_report import (
     latest_stage_report, latest_stage_report_entry, list_stage_reports,
 )
+from evals.monitor_forward.runner import run as _forward_eval_run
 from irc.monitor.types import MonitorFund, NarrativeDoc, SignalRecord
 from irc.research.search.factory import build_providers
 from irc.settings import Settings
@@ -279,7 +282,9 @@ def _make_view(
     impacts_status: str = "ok",
     *,
     holding_metrics: tuple = (),
+    purchase_table=None,
 ) -> FundView:
+    mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
         fund_id=fund.id,
         name_cn=fund.name_cn,
@@ -297,6 +302,8 @@ def _make_view(
         factor_scores=tuple(scores),
         impacts_status=impacts_status,
         holding_metrics=holding_metrics,
+        market_view=mv,
+        purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
     )
 
 
@@ -364,12 +371,13 @@ def _machine_summary(views: list[FundView]) -> dict:
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple[GateDecision, ...] = (),
                    panel_rows: tuple[ValidationPanelRow, ...] = (),
-                   predictive_panel: PredictivePanelModel | None = None) -> None:
+                   predictive_panel: PredictivePanelModel | None = None,
+                   timeline: BiasTimeline | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "1", "1", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
-                         predictive_panel=predictive_panel)
+                         predictive_panel=predictive_panel, timeline=timeline)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -549,6 +557,8 @@ def _write_eval_artifacts(
                 nav_unit=view.latest_nav, as_of_date=view.as_of_date,
                 published_state=published_state(view.signal, gate), gate=gate,
                 manifest_versions={"engine": _ENGINE_VERSION},
+                market_composite=(view.market_view.composite if view.market_view else None),
+                market_bias=(view.market_view.bias if view.market_view else None),
             )
             for fund, view, gate in zip(funds, views, gates)
         ]
@@ -556,6 +566,71 @@ def _write_eval_artifacts(
     except Exception:  # noqa: BLE001 — append_ledger already swallows, this guards ledger_row
         _log.warning("forward ledger write failed", exc_info=True)
     _append_nav_history_for_views(root, views, run_date=run_date, written_at=written_at)
+
+
+def _run_forward_eval(root: Path, today: str) -> int | None:
+    """EDGE (Comp 0): run the monitor_forward scorer inline so its artifact is
+    same-day fresh. `today` is unused by the runner (it computes its own) but kept
+    for symmetry with the spec + the staleness contract. Contained: a non-zero rc
+    or any exception MUST NOT change `irc monitor`'s exit code — degrade to the
+    pre-existing 'read latest artifact' path. Returns the scorer rc, or None on
+    exception."""
+    try:
+        return _forward_eval_run(root)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("inline monitor_forward eval failed", exc_info=True)
+        return None
+
+
+_TIMELINE_MAX_DATES = 20
+
+
+def _read_ledger_rows(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    rows: list[dict] = []
+    dropped = 0
+    for ln in path.read_text(encoding="utf-8").splitlines():
+        if ln.strip():
+            try:
+                rows.append(json.loads(ln))
+            except json.JSONDecodeError:
+                dropped += 1
+    if dropped:
+        _log.warning("_read_ledger_rows: skipped %d malformed line(s) in %s", dropped, path)
+    return rows
+
+
+def _build_bias_timeline(root: Path) -> BiasTimeline:
+    """EDGE-read Comp 3b: forward_ledger → deduped one row per (fund, run_date)
+    (latest written_at wins), bounded to the most recent _TIMELINE_MAX_DATES run
+    dates. Engine tag from manifest_versions.engine (default '0').
+
+    Absent (fund, date) cells carry (None, '0') — a distinct no-data sentinel
+    that renders differently from a real NEUTRAL signal (Finding B).
+    Any exception degrades to an empty BiasTimeline — never crash the brief."""
+    try:
+        all_rows = _read_ledger_rows(root / "data" / "monitor" / "forward_ledger.jsonl")
+        # Filter: keep only rows with BOTH run_date and fund_id (Finding A)
+        well_formed = [r for r in all_rows if "run_date" in r and "fund_id" in r]
+        rows = latest_per_key(well_formed)
+        dates = sorted({r["run_date"] for r in rows})[-_TIMELINE_MAX_DATES:]
+        by_fund: dict[str, dict[str, tuple[str | None, str]]] = {}
+        for r in rows:
+            if r["run_date"] not in dates:
+                continue
+            eng = str((r.get("manifest_versions") or {}).get("engine", "0"))
+            by_fund.setdefault(r["fund_id"], {})[r["run_date"]] = (
+                r.get("raw_bias") or "NEUTRAL", eng)
+        # Absent cells use (None, "0") sentinel — NOT "NEUTRAL" (Finding B)
+        out_rows = tuple(
+            (fid, tuple(by_fund[fid].get(d, (None, "0")) for d in dates))
+            for fid in sorted(by_fund)
+        )
+        return BiasTimeline(run_dates=tuple(dates), rows=out_rows)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_build_bias_timeline failed; returning empty timeline", exc_info=True)
+        return BiasTimeline(run_dates=(), rows=())
 
 
 def _is_stale(artifact_date: str, today: str) -> bool:
@@ -715,7 +790,7 @@ def _process_fund(
     )
     cost_history.extend(narr.cost_entries)
     view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status,
-                      holding_metrics=holding_metrics)
+                      holding_metrics=holding_metrics, purchase_table=purchase_table)
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -783,8 +858,11 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days)
+    _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
+    timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
-    _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel)
+    _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
+                   timeline=timeline)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

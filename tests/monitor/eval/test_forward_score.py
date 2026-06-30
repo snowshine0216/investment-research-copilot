@@ -135,3 +135,36 @@ def test_target_engine_missing_field_is_legacy_zero():
 
 def test_target_engine_empty_ledger_is_none():
     assert _target_engine([]) is None
+
+
+def test_forward_row_carries_market_composite():
+    """score_forward propagates market_composite / market_bias onto ForwardRow."""
+    from irc.monitor.eval.forward_score import score_forward
+    rows = [{
+        "run_date": "2026-01-01", "fund_id": "a", "nav_acc": 1.0,
+        "as_of_date": "2026-01-01", "raw_status": "ok",
+        "raw_composite": 0.5, "raw_bias": "ADD_BIAS",
+        "manifest_versions": {"engine": "3"},
+        "market_composite": 0.3, "market_bias": "NEUTRAL",
+    }]
+    nav = _nav(200, fund="a", start="2025-10-01")
+    out, _ = score_forward(rows, {"a": nav}, h=90, today="2026-04-30")
+    assert len(out) == 1
+    assert out[0].market_composite == 0.3
+    assert out[0].market_bias == "NEUTRAL"
+
+
+def test_forward_row_market_composite_backcompat_none():
+    """Rows without market_composite (legacy) → field is None (backcompat)."""
+    from irc.monitor.eval.forward_score import score_forward
+    rows = [{
+        "run_date": "2026-01-01", "fund_id": "a", "nav_acc": 1.0,
+        "as_of_date": "2026-01-01", "raw_status": "ok",
+        "raw_composite": 0.5, "raw_bias": "ADD_BIAS",
+        "manifest_versions": {"engine": "3"},
+    }]
+    nav = _nav(200, fund="a", start="2025-10-01")
+    out, _ = score_forward(rows, {"a": nav}, h=90, today="2026-04-30")
+    assert len(out) == 1
+    assert out[0].market_composite is None
+    assert out[0].market_bias is None
