@@ -59,3 +59,23 @@ def test_build_bias_timeline_dedups_and_bounds(tmp_path):
 def test_build_bias_timeline_missing_ledger_empty(tmp_path):
     tl = monitor_cmd._build_bias_timeline(tmp_path)
     assert tl.run_dates == () and tl.rows == ()
+
+
+import pandas as pd
+
+
+def test_make_view_populates_purchase_tag():
+    """_make_view with a purchase_table containing the fund → purchase_tag set."""
+    import pandas as pd
+    fund = _fund()
+    table = pd.DataFrame([{"基金代码": "519069", "申购状态": "暂停申购", "日累计限定金额": 1e11}])
+    view = _make_view(fund, None, _signal(), (), NarrativeDoc("519069", (), (), (), "ok"), (),
+                      purchase_table=table)
+    assert view.purchase_tag == "限购"
+
+
+def test_make_view_purchase_tag_none_when_no_table():
+    """_make_view with no purchase_table → purchase_tag is None."""
+    fund = _fund()
+    view = _make_view(fund, None, _signal(), (), NarrativeDoc("519069", (), (), (), "ok"), ())
+    assert view.purchase_tag is None

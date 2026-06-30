@@ -14,7 +14,7 @@ from pathlib import Path
 
 from irc.config_loader import load_monitor_config, load_yaml
 from irc.data.duckdb_helper import connect
-from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for
+from irc.monitor.heat_fetch import fetch_purchase_table, heat_inputs_for, purchase_tag_for
 from irc.monitor.market_composite import market_composite_view
 from irc.monitor.valuation import resolve_valuation_state
 from irc.fundamentals.snapshot import build_snapshot
@@ -282,6 +282,7 @@ def _make_view(
     impacts_status: str = "ok",
     *,
     holding_metrics: tuple = (),
+    purchase_table=None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -302,6 +303,7 @@ def _make_view(
         impacts_status=impacts_status,
         holding_metrics=holding_metrics,
         market_view=mv,
+        purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
     )
 
 
@@ -774,7 +776,7 @@ def _process_fund(
     )
     cost_history.extend(narr.cost_entries)
     view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status,
-                      holding_metrics=holding_metrics)
+                      holding_metrics=holding_metrics, purchase_table=purchase_table)
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
