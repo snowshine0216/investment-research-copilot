@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Monitor CN-egress data-plane light-up: `IRC_CN_PROXY` egress (`resolve_cn_proxy`/`proxy_env` single source of truth), batch-first flow via one `ulist.np` call into a completed-day series store, a 15:45 `irc monitor flow-capture` launchd job, industry-leg raw EastMoney JSON fetchers (`em_raw.py`), and per-stock PE/PB fetch routed through the proxy. Eval schema 4→5 with a `flow_source` marker + warm-up curve. `_ENGINE_VERSION` unchanged (data availability returning); GATE-2 4dp equivalence gate OPEN post-merge (ADR 0019/0020 addenda).
+
 ### Added — monitor report v2: market-composite decision anchor + news overlay, annotations, charts, numbered citations, 限购 tag, inline anti-staleness (ADR 0021, 2026-06-30)
 
 - **Market composite (市场面综合分) decision anchor + news overlay (新闻叠加).** Per fund, a

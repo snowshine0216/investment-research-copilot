@@ -96,3 +96,24 @@ The 2026-06-26 resolution (ADR 0019 addendum) accepted flow as best-effort/DARK 
 - "Promising, not-yet-heated" fund scout (`irc scout` staged funnel over the ~380-fund universe) — next spec; depends on this one only for the flow/valuation data quality.
 - TTL cross-day caching for the (essentially static) stock→industry map — note only; revisit if ~20 proxied calls/run ever matters.
 - Retiring the per-symbol `daykline` library code — after B2 proves out (D10 keeps it for seed/spot-checks).
+
+## Tier-0 findings
+
+**GATE-1 (reachability) — PASS at plan authoring (2026-07-02 12:05 CST).** Live probes through `IRC_CN_PROXY` from the planning session returned three clean results, none retried:
+
+- `ulist.np` batch: one call returned valid numeric `f184` for all probed symbols.
+- `clist/get` (`f9`, board PE): 100 boards returned, sane PE range on hand-inspection — the D4 range-sanity check.
+- `stock/get` (`f127`, stock→industry): `600690` → `白色家电`, correct against the EastMoney web UI.
+
+Full command transcripts live outside this doc (`.superpowers/sdd/gate1-evidence.md`, not committed to docs/); this appendix records only the verdict and the three checks, per the "no secrets in docs" rule (proxy host/port never printed).
+
+**Implementation-session re-confirmation (2026-07-02 ~13:00 CST) — DEFERRED, not a regression.** Re-running the same two probes (GATE-1 reachability + D4 f9 range-sanity) through the proxy from the implementation session both hit `RemoteDisconnected: Remote end closed connection without response` — the documented EastMoney `push2*` burst-then-block pattern (ADR 0019). Per ADR 0019's explicit rule, **no retry was attempted** (retries extend the ban); total live HTTP calls this session: 2, both within the ≤3 budget. The proxy path itself was confirmed live and reaching egress (`proxy_used=True` was logged before the remote reset the connection) — the block is at EastMoney's edge, not in `resolve_cn_proxy()` / `proxy_env()` wiring. This DEFERRED result does not invalidate the authoring-session PASS above; it reflects a transient rested-IP-state block at the specific re-confirmation time, consistent with "wait until the IP is fully rested (overnight), retry once at ~15:45 CN."
+
+**GATE-2 (4dp same-day `f184` ≈ `daykline.净占比` equivalence) — OPEN (deferred post-merge).** Reason: GATE-2 requires a post-close capture compared against the *same completed day's* daykline series the next day — structurally not completable inside a single plan/implementation session that ends before the 15:00 CN close. **Escalation path (D-B3):**
+
+1. Run the spike post-close (`uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy`) to capture today's batch `f184`.
+2. The next day, run `uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy --equiv-against <capture>` to compare against the completed day's per-symbol daykline series.
+3. If `max|Δ| ≤ 4dp` across the compared symbols → keep `_ENGINE_VERSION="3"` (no bump; the batch and per-symbol paths are numerically equivalent at the digits that matter).
+4. If a material (>4dp) gap surfaces → escalate to an `_ENGINE_VERSION` bump **and** a fresh ADR 0019 addendum **before** trusting the flow factor's forward metrics — do not ship the batch path's values into the forward ledger as if they were engine-"3"-equivalent without this check passing.
+
+See the README "GATE-2 post-merge ops step" for the exact commands to run this check in production, and ADR 0019's 2026-07-02 addendum for the BUILT/gated summary.
