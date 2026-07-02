@@ -30,6 +30,7 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
+from irc.monitor.source_tiers import SourceTiers, classify, tiers_from_config
 from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
 from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
@@ -120,8 +121,10 @@ def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
 # ── Evidence pool (EDGE) ──────────────────────────────────────────────────────
 
 
-def _search_theme(provider, query: str, fund_id: str) -> tuple:
-    """Run one theme search; convert hits to EvidenceItems. Returns () on failure."""
+def _search_theme(provider, query: str, fund_id: str, *, tiers: SourceTiers) -> tuple:
+    """Run one theme search; convert hits to EvidenceItems. Blocked-tier hits are
+    dropped before make_evidence_item (ADR 0022) — never scored, never cited.
+    Returns () on search failure."""
     result = provider.search(query, max_results=5, freshness_days=7)
     if result.failure_reason:
         _log.warning(
@@ -130,18 +133,40 @@ def _search_theme(provider, query: str, fund_id: str) -> tuple:
         )
         return ()
     items = []
+    dropped = 0
     for hit in result.hits:
+        domain = hit.source_domain or provider.name
+        if classify(domain, tiers) == "blocked":
+            dropped += 1
+            continue
         items.append(make_evidence_item(
-            hit.source_domain or provider.name,
-            hit.title, hit.published_iso or "", hit.url,
+            domain, hit.title, hit.published_iso or "", hit.url,
             owner_fund_id=fund_id,
         ))
+    if dropped:
+        _log.warning("monitor theme search: dropped %d blocked-tier hit(s) for %s (%r)",
+                     dropped, fund_id, query)
     return tuple(items)
 
 
+def _load_source_tiers_config(repo_root: Path) -> dict | None:
+    """EDGE-read: `source_tiers:` section of config/monitor.yaml as a raw dict
+    (already pydantic-validated by load_monitor_config elsewhere; this is a
+    second narrow read local to the evidence edge to avoid threading cfg through
+    every build_evidence_pool call site — matches the existing load_monitor_config
+    pattern of a narrow, single-purpose read). None on any read/parse failure."""
+    try:
+        cfg = load_monitor_config(repo_root)
+        st = cfg.source_tiers
+        return {"blocked": list(st.blocked), "tier1": list(st.tier1), "tier2": list(st.tier2)}
+    except Exception:  # noqa: BLE001 — degrade to tier-3-everything, never crash
+        return None
+
+
 def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
-    """EDGE: run theme searches via configured providers → owner-bound EvidenceItems.
-    Returns () when no providers are configured or on any failure (factor gate surfaces gap).
+    """EDGE: run theme searches via configured providers -> owner-bound EvidenceItems,
+    filtered through the source-tier gate (ADR 0022). Returns () when no providers
+    are configured or on any failure (factor gate surfaces gap).
     This is the ONLY place the monitor touches search providers."""
     try:
         settings = Settings()
@@ -149,10 +174,14 @@ def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
         if not providers:
             return ()
         provider = providers[0]   # use first available provider
+        raw_tiers = _load_source_tiers_config(repo_root)
+        tiers = tiers_from_config(raw_tiers)
+        if raw_tiers is None:
+            _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
         items: list = []
         for theme in fund.themes:
             query = theme_query_seed(theme)
-            items.extend(_search_theme(provider, query, fund.id))
+            items.extend(_search_theme(provider, query, fund.id, tiers=tiers))
         return tuple(items)
     except Exception as exc:
         _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc, exc_info=True)

@@ -158,6 +158,51 @@ def test_build_evidence_pool_provider_exception_returns_empty(monkeypatch):
     assert items == ()
 
 
+def test_build_evidence_pool_drops_blocked_tier_hits(monkeypatch, tmp_path):
+    """ADR 0022: a facebook.com hit is dropped before it becomes an EvidenceItem."""
+    import dataclasses
+    import irc.commands.monitor_cmd as mc
+    from irc.research.search.types import SearchHit
+
+    good = SearchHit(title="Gold up", url="https://reuters.com/gold", snippet="x",
+                     published_iso="2026-06-15", source_domain="reuters.com")
+    blocked = SearchHit(title="junk post", url="https://facebook.com/x", snippet="y",
+                        published_iso="2026-06-15", source_domain="facebook.com")
+    prov = _fake_provider([good, blocked])
+    monkeypatch.setattr(mc, "build_providers", lambda settings: (prov,))
+    monkeypatch.setattr(mc, "Settings", lambda: object())
+    monkeypatch.setattr(mc, "_load_source_tiers_config", lambda repo_root: {
+        "blocked": ["facebook.com"], "tier1": ["reuters.com"], "tier2": [],
+    })
+
+    # _make_fund() carries 2 themes; the fake provider returns the same canned
+    # hits per search() call regardless of query, so pin to a single theme here
+    # to keep this a clean 1-search-call, drop-one-keep-one assertion.
+    fund = dataclasses.replace(_make_fund(), themes=("gold_drivers",))
+    items = mc.build_evidence_pool(fund, repo_root=".")
+    assert len(items) == 1
+    assert items[0].source == "reuters.com"
+
+
+def test_build_evidence_pool_missing_tier_config_keeps_everything_as_tier3(monkeypatch):
+    """Malformed/missing source_tiers config -> fail-open: nothing dropped."""
+    import dataclasses
+    import irc.commands.monitor_cmd as mc
+    from irc.research.search.types import SearchHit
+
+    hit = SearchHit(title="junk post", url="https://facebook.com/x", snippet="y",
+                    published_iso="2026-06-15", source_domain="facebook.com")
+    prov = _fake_provider([hit])
+    monkeypatch.setattr(mc, "build_providers", lambda settings: (prov,))
+    monkeypatch.setattr(mc, "Settings", lambda: object())
+    monkeypatch.setattr(mc, "_load_source_tiers_config", lambda repo_root: None)
+
+    # single theme, see note above
+    fund = dataclasses.replace(_make_fund(), themes=("gold_drivers",))
+    items = mc.build_evidence_pool(fund, repo_root=".")
+    assert len(items) == 1   # kept as tier 3, not dropped
+
+
 # ── End-to-end real gather path tests (Fix 5) ────────────────────────────────
 
 
