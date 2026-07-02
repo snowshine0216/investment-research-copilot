@@ -1,5 +1,14 @@
 # PROGRESS — Monitor Report v3 readability
 
+## FINAL STATUS — RUN COMPLETE (2026-07-02)
+
+- Items merged: 1/1 (001 → PR [#192](https://github.com/snowshine0216/investment-research-copilot/pull/192), squash `bc236b58` into the feature branch). Skipped: 0. Blocked: 0.
+- Phase 3: workflow-completeness audit PASS (all verdict artifacts present + markers valid; qa/verify XOR clean; grill absence-OK per spec mode); build/test sanity PASS (`irc config validate` OK, targeted suites green, ruff clean); doc-sync PASS ([doc-sync.md](doc-sync.md)); run-level verify ≡ item verify (N=1, squash-identical tree — evidence [items/001-verify.md](items/001-verify.md), real entry-point run).
+- Feature branch: `autodev/monitor-report-v3-readability-feature`
+- Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/193
+- Merged into protected branch: **no** (PR #193 left open for user review)
+- Follow-ups: 3 TODOS.md entries (P2 attribution_strength hardening; config/symbols read consolidation; dead `_read_prior_signal` cleanup) + 3 spawned task chips (irc-init MiniMax-route template gap [pre-existing, verify-found]; metrics_narrative live corpus; hover-date chips — latter two pre-dated this run).
+
 Mode: spec · Project type: non-web · PR shape: A · Feature branch: `autodev/monitor-report-v3-readability-feature`
 
 | id | title | spec | grill | plan | branch | impl | drift | PR | qa | verify | review | pr-review | fix | merge |
