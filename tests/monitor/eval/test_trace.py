@@ -260,10 +260,10 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_4():
+def test_schema_version_is_5():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
                          engine_version="3", run_date="2026-06-21")
-    assert t["schema_version"] == "4"
+    assert t["schema_version"] == "5"
 
 
 def test_trace_emits_holding_metrics_block():
@@ -293,3 +293,49 @@ def test_trace_emits_holding_metrics_block():
     assert block["aggregate"]["covered_weight_ratio"] == 1.0
     assert "valuation_aggregate" in block
     assert block["valuation_aggregate"]["value"] == pytest.approx(-0.7)
+
+
+# ── flow_rows warm-up curve: REAL builder → REAL trace → REAL structural check ──
+
+
+def test_flow_rows_flows_through_real_builder_into_trace_and_warmup_check():
+    """P0 regression: flow_rows must be POPULATED by the real per-stock builder
+    (build_holding_metrics), survive the real trace serialization (_holding_metrics
+    via build_eval_trace), and be read by the real structural warm-up check
+    (flow_coverage_health) — not a hand-built dict. Before the fix, HoldingMetric
+    has no flow_rows field, so trace.py's getattr(m, "flow_rows", 0) is always 0 and
+    flow_rows_min is permanently inert."""
+    from irc.monitor.eval.structural import flow_coverage_health
+    from irc.monitor.holding_metrics import build_holding_metrics
+
+    class _Holding:
+        def __init__(self, symbol, name_cn, weight_pct):
+            self.symbol, self.name_cn, self.weight_pct = symbol, name_cn, weight_pct
+
+    top_holdings = (
+        _Holding("600519", "贵州茅台", 60.0),
+        _Holding("000858", "五粮液", 40.0),
+    )
+    # 600519 has a real 3-row flow series; 000858 has none (flow_no_data).
+    flow_series_by_code = {
+        "600519": (("2026-06-14", 1.0), ("2026-06-15", 2.0), ("2026-06-16", 3.0)),
+        "000858": None,
+    }
+    metrics = build_holding_metrics(top_holdings, series_by_code={},
+                                    flow_series_by_code=flow_series_by_code)
+
+    view = dataclasses.replace(_good_view(), holding_metrics=metrics)
+    fund = _fund("519069", profile="active_cn_equity")
+    bundle = FundTraceBundle("519069", (), (), ())
+    gate = apply_eval_gate(view.signal, health=(), gating_stages=GATING_STAGES_M0)
+    t = build_eval_trace(((fund, view, gate, bundle),), engine_version="3",
+                         run_date="2026-06-21")
+
+    rows = t["funds"]["519069"]["holding_metrics"]["rows"]
+    by_symbol = {r["symbol"]: r["flow_rows"] for r in rows}
+    assert by_symbol["600519"] == 3
+    assert by_symbol["000858"] == 0
+
+    health = flow_coverage_health(t["funds"]["519069"])
+    assert health.status == "PASS"
+    assert "flow_rows_min 0" in health.reasons

@@ -91,7 +91,7 @@ Four registered stages:
 `irc monitor` itself (the producer, M0 "spine") emits the inputs the eval reads — this is a
 *serialization* of the in-memory `FundView`, not new computation:
 
-- **`outputs/<date>/monitor/eval_trace.json`** — `schema_version "1"`, per-fund projection:
+- **`outputs/<date>/monitor/eval_trace.json`** — `schema_version "5"`, per-fund projection:
   `resolved` (profile/weights/bands/min-confidence) · `nav` · `evidence_pool` · `factor_scores` ·
   `signal` (with `contributions`) · `impacts` · `narrative` · `gate` · `published_state` ·
   `validation_badge`. Built by [`monitor/eval/trace.py`](../src/irc/monitor/eval/trace.py).

@@ -28,8 +28,10 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import glob
 import json
+import os
 import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -61,6 +63,14 @@ def _coerce(value: object) -> float | None:
         return None
 
 
+def _normalize_proxy(raw: object) -> str | None:
+    """Bare host:port or URL → http://host:port, or None for blank/unset."""
+    text = (str(raw).strip() if raw is not None else "")
+    if not text:
+        return None
+    return text if "://" in text else "http://" + text
+
+
 def _parse_ulist(payload: dict) -> dict[str, float | None]:
     """{f12 → f184} from a ulist.np body; tolerant of list/dict diff shape."""
     diff = (payload.get("data") or {}).get("diff")
@@ -87,8 +97,17 @@ def _monitored_symbols(root: Path, override: str | None) -> list[str]:
     return sorted(syms)
 
 
+# ── network: proxy-aware opener ────────────────────────────────────────────
+def _opener(proxy: str | None):
+    """urllib opener that routes through the CN proxy when set, else direct."""
+    if proxy is None:
+        return urllib.request.build_opener()
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({"http": proxy, "https": proxy}))
+
+
 # ── GATE 1: reachability capture ───────────────────────────────────────────
-def capture(symbols: list[str], out_path: Path) -> int:
+def capture(symbols: list[str], out_path: Path, *, proxy: str | None = None) -> int:
     now = datetime.now(_TZ)
     after_close = (now.hour, now.minute) >= (15, 0)
     secids = ",".join(_secid(s) for s in symbols)
@@ -96,13 +115,14 @@ def capture(symbols: list[str], out_path: Path) -> int:
               "secids": secids, "fields": "f12,f14,f184"}
     url = "https://push2.eastmoney.com/api/qt/ulist.np/get?" + urllib.parse.urlencode(params)
     print(f"GATE 1 — reachability: ONE call for {len(symbols)} symbols "
-          f"@ {now.isoformat(timespec='seconds')} (after_close={after_close})")
+          f"@ {now.isoformat(timespec='seconds')} (after_close={after_close}, "
+          f"proxy_used={proxy is not None})")
     if not after_close:
         print("  ⚠ run is BEFORE the 15:00 close — f184 is intraday-provisional; "
               "rerun after close for a valid capture.")
     try:
         req = urllib.request.Request(url, headers=_HEADERS)
-        with urllib.request.urlopen(req, timeout=20) as r:  # SINGLE call, no retry
+        with _opener(proxy).open(req, timeout=20) as r:  # SINGLE call, no retry
             body = r.read().decode("utf-8")
     except Exception as exc:  # noqa: BLE001 — abort, never retry
         print(f"  ✗ GATE 1 FAIL: {type(exc).__name__}: {exc}\n  {_BLOCK_HINT}")
@@ -117,7 +137,8 @@ def capture(symbols: list[str], out_path: Path) -> int:
         print(f"    {s}  f184={covered[s]}")
     record = {"run_date": now.date().isoformat(), "run_time_cst": now.isoformat(timespec="seconds"),
               "after_close": after_close, "endpoint": "ulist.np", "requested": len(symbols),
-              "numeric": len(numeric), "by_symbol": covered, "missing": missing}
+              "numeric": len(numeric), "by_symbol": covered, "missing": missing,
+              "proxy_used": proxy is not None}
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(record, ensure_ascii=False, indent=2, sort_keys=True),
                         encoding="utf-8")
@@ -128,35 +149,42 @@ def capture(symbols: list[str], out_path: Path) -> int:
 
 
 # ── GATE 2: same-day equivalence ───────────────────────────────────────────
-def equiv(prior_path: Path, n: int) -> int:
+def equiv(prior_path: Path, n: int, *, proxy: str | None = None) -> int:
     prior = json.loads(prior_path.read_text(encoding="utf-8"))
     target_date = prior["run_date"]
     candidates = [(s, v) for s, v in sorted(prior["by_symbol"].items()) if v is not None][:n]
     print(f"GATE 2 — equivalence: daykline 净占比({target_date}) vs stored f184, "
-          f"{len(candidates)} symbols (single pass, abort on first block)")
+          f"{len(candidates)} symbols (single pass, abort on first block, "
+          f"proxy_used={proxy is not None})")
     if not candidates:
         print("  ✗ prior capture has no numeric f184 — nothing to compare.")
         return 1
     import akshare as ak  # lazy, house pattern
+    ctx = contextlib.nullcontext()
+    if proxy is not None:
+        from irc.http_proxy import proxy_env  # lazy — production helper (Task 3)
+        ctx = proxy_env(proxy)
     max_abs = 0.0
     compared = 0
-    for symbol, f184 in candidates:
-        try:
-            df = ak.stock_individual_fund_flow(stock=symbol, market=_daykline_market(symbol))
-        except Exception as exc:  # noqa: BLE001 — abort, never retry
-            print(f"    {symbol}: ✗ {type(exc).__name__} — ABORT.\n  {_BLOCK_HINT}")
-            return 1
-        match = df[df["日期"].astype(str).str.strip() == target_date] if "日期" in df.columns else df.iloc[0:0]
-        if match.empty:
-            print(f"    {symbol}: f184={f184}  daykline({target_date})=ABSENT "
-                  "(EOD row not posted yet — rerun later this evening)")
-            continue
-        dk = _coerce(match["主力净流入-净占比"].iloc[0])
-        diff = None if dk is None else round(f184 - dk, 6)
-        if diff is not None:
-            max_abs = max(max_abs, abs(diff))
-            compared += 1
-        print(f"    {symbol}: f184={f184}  daykline={dk}  Δ={diff}")
+    with ctx:  # single activation for the whole GATE-2 pass
+        for symbol, f184 in candidates:
+            try:
+                df = ak.stock_individual_fund_flow(stock=symbol, market=_daykline_market(symbol))
+            except Exception as exc:  # noqa: BLE001 — abort, never retry
+                print(f"    {symbol}: ✗ {type(exc).__name__} — ABORT.\n  {_BLOCK_HINT}")
+                return 1
+            match = (df[df["日期"].astype(str).str.strip() == target_date]
+                     if "日期" in df.columns else df.iloc[0:0])
+            if match.empty:
+                print(f"    {symbol}: f184={f184}  daykline({target_date})=ABSENT "
+                      "(EOD row not posted yet — rerun later this evening)")
+                continue
+            dk = _coerce(match["主力净流入-净占比"].iloc[0])
+            diff = None if dk is None else round(f184 - dk, 6)
+            if diff is not None:
+                max_abs = max(max_abs, abs(diff))
+                compared += 1
+            print(f"    {symbol}: f184={f184}  daykline={dk}  Δ={diff}")
     if compared == 0:
         print("  → GATE 2 INCONCLUSIVE: no overlapping completed-day rows yet.")
         return 1
@@ -166,6 +194,18 @@ def equiv(prior_path: Path, n: int) -> int:
     return 0
 
 
+def _resolve_cn_proxy_for_spike(root: Path) -> str | None:
+    """IRC_CN_PROXY from env, else the first matching line in <root>/.env; normalized."""
+    raw = os.environ.get("IRC_CN_PROXY", "")
+    env_path = root / ".env"
+    if not raw and env_path.is_file():
+        for ln in env_path.read_text(encoding="utf-8").splitlines():
+            if ln.startswith("IRC_CN_PROXY="):
+                raw = ln.split("=", 1)[1].strip()
+                break
+    return _normalize_proxy(raw)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Phase-0 flow batch-transport spike (ADR 0019).")
     ap.add_argument("--symbols", default=None, help="comma list; default = fund_flow cache union")
@@ -173,17 +213,25 @@ def main() -> int:
     ap.add_argument("--equiv-n", type=int, default=5, help="symbols to daykline-check (keep ≤ burst ceiling)")
     ap.add_argument("--out", default=None, help="GATE-1 capture output path")
     ap.add_argument("--root", default=".", help="repo root")
+    ap.add_argument("--use-cn-proxy", action="store_true",
+                     help="route EastMoney through IRC_CN_PROXY (.env / env)")
     args = ap.parse_args()
     root = Path(args.root)
+    proxy = None
+    if args.use_cn_proxy:
+        proxy = _resolve_cn_proxy_for_spike(root)
+        if proxy is None:
+            print("--use-cn-proxy set but IRC_CN_PROXY is empty/unset")
+            return 2
     if args.equiv_against:
-        return equiv(Path(args.equiv_against), args.equiv_n)
+        return equiv(Path(args.equiv_against), args.equiv_n, proxy=proxy)
     symbols = _monitored_symbols(root, args.symbols)
     if not symbols:
         print("no symbols (empty fund_flow cache) — pass --symbols")
         return 2
     run_date = datetime.now(_TZ).date().isoformat()
     out = Path(args.out) if args.out else root / "data" / "monitor" / "phase0_flow_spike" / f"{run_date}.json"
-    return capture(symbols, out)
+    return capture(symbols, out, proxy=proxy)
 
 
 if __name__ == "__main__":

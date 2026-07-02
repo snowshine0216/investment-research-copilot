@@ -162,3 +162,29 @@ def test_fetch_stock_industry_map_transient_not_persisted_and_retried(tmp_path: 
                                     fetch=lambda symbol: _info_df("酿酒行业"),
                                     sleep=lambda _s: None)
     assert out2 == {"600519": "酿酒行业"}  # retried, recovered
+
+
+def test_default_fetch_uses_em_raw_board_frame(tmp_path, monkeypatch):
+    """Contract-preservation: with NO fetch injected, fetch_industry_pe pulls the
+    board frame from em_raw (raw JSON) and the EXISTING parse_industry_pe yields
+    the same {name: pe} mapping — no akshare wrapper involved."""
+    import irc.monitor.industry_valuation as iv
+
+    monkeypatch.setattr(
+        iv, "fetch_board_pe_frame",
+        lambda **_kw: pd.DataFrame({"板块名称": ["电力"], "市盈率": [19.68]}))
+    out = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
+                               sleep=lambda _s: None)
+    assert out == {"电力": 19.68}
+
+
+def test_empty_parse_is_returned_but_not_cached(tmp_path, monkeypatch):
+    """D3: {} from an empty parse is returned but NOT written (kills the
+    '{} frozen for the day' wart, F4)."""
+    import irc.monitor.industry_valuation as iv
+
+    monkeypatch.setattr(iv, "fetch_board_pe_frame", lambda **_kw: pd.DataFrame())
+    out = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
+                               sleep=lambda _s: None)
+    assert out == {}
+    assert not (tmp_path / "ip" / "2026-07-02.json").is_file()  # NOT cached

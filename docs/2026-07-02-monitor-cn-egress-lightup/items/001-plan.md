@@ -89,6 +89,8 @@ Rationale and evidence:
 
 ### Task 1: Extend `phase0_flow_batch_spike.py` with `IRC_CN_PROXY` support
 
+> **Drift-review amendment (2026-07-02):** as-built extracts `_resolve_cn_proxy_for_spike(root)` resolving `<root>/.env` (root-relative — the Step-4 sketch's bare `Path(".env")` broke under `--root`; regression-tested, commit 9235d9ce), and `equiv` enters `proxy_env` ONCE around the whole pass rather than per akshare call (same single-call/abort posture). Sketch-level divergences corrected in the tests' favor.
+
 **Files:**
 - Modify: `scripts/phase0_flow_batch_spike.py`
 - Test: `tests/scripts/test_phase0_flow_batch_spike.py` (create)
@@ -205,6 +207,8 @@ git commit -m "feat(monitor): phase0 spike gains IRC_CN_PROXY support (slice 0)"
 
 ### Task 2: GATE-1 live reachability + D4 f9 range-sanity (single live execution)
 
+> **Orchestrator amendment (2026-07-02):** executed AFTER Task 3 — the spike's `--use-cn-proxy` path lazily imports `irc.http_proxy.proxy_env`, which Task 3 delivers. Pure execution-order swap; no content change.
+
 **Files:** none (execution + evidence capture only).
 
 - [ ] **Step 1: Run GATE-1 through the proxy (small volume, breaker/abort-on-block, runnable at any hour)**
@@ -251,6 +255,8 @@ If both steps passed: note "GATE-1 PASS + D4 sanity OK via proxy, <date> <time> 
 # Slice 1 — `http_proxy` (CN egress single source of truth)
 
 ### Task 3: `resolve_cn_proxy()` + `proxy_env()` in `http_proxy.py`; dedupe akshare_client
+
+> **Drift-review amendment (2026-07-02):** as-built `proxy_env` accepts `str | None` (`None` → no-op passthrough, covered by `test_proxy_env_none_is_noop`) — a compatible widening of the plan's `str`-only signature that simplifies conditional call sites; behavior for `str` inputs is exactly as specified.
 
 **Files:**
 - Modify: `src/irc/http_proxy.py`
@@ -413,6 +419,8 @@ git commit -m "feat(monitor): resolve_cn_proxy + proxy_env single source of trut
 # Slice 2 — Industry light-up (raw EastMoney JSON, contract-preserving)
 
 ### Task 4: `em_raw.py` pure parsers (`parse_clist_boards`, `parse_stock_info`)
+
+> **Drift-review amendment (2026-07-02):** the Step-3 code block's `from irc.http_proxy import proxy_env, resolve_cn_proxy` ships as `resolve_cn_proxy` only — em_raw passes explicit `proxies=` kwargs to requests and never calls `proxy_env`, so importing it would be F401 dead weight (unused `logging`/`Callable` dropped likewise; ruff-verified).
 
 **Files:**
 - Create: `src/irc/monitor/em_raw.py`
@@ -1108,6 +1116,8 @@ git commit -m "feat(monitor): flow_batch_fetch — one ulist.np call via proxy (
 
 ### Task 9: `flow_series_store.py` — completed-day-only append, prune, idempotency, corrupt-degrade, D7 seed
 
+> **Orchestrator amendment (2026-07-02):** this task's illustrative `_prune` sketch was buggy (anchored the keep-window to the calendar tail, not the written day) and failed this task's own test fixture — independently reproduced at review. As-built `_prune_window(anchor, ...)` filters the calendar to `d <= written day` before taking the last `keep_td`. The test was the contract; code sketch corrected in its favor.
+
 **Files:**
 - Create: `src/irc/monitor/flow_series_store.py`
 - Test: `tests/monitor/test_flow_series_store.py` (create)
@@ -1314,6 +1324,8 @@ git commit -m "feat(monitor): flow_series_store — completed-day append/prune/s
 # Slice 4 — Capture job + monitor_cmd swap + launchd
 
 ### Task 10: `monitor_cmd` swaps to store-consumption; provisional 12:15 annotation; D10 per-fund fetch removed
+
+> **Drift-review amendment (2026-07-02):** the Interfaces' "Consumes: `flow_batch_fetch.fetch_flow_today_batch`" import is NOT pre-staged by this task's commit (db16204a imports only the store names); Task 11's commit (567af8ea) adds it alongside its own first use. This task has no call site for it, so pre-staging would have been an unused import; the final tree matches the plan's end state.
 
 **Files:**
 - Modify: `src/irc/commands/monitor_cmd.py`
@@ -1818,6 +1830,8 @@ git commit -m "feat(monitor): 15:45 flow-capture launchd job (slice 4, D6)"
 
 ### Task 14: Eval-trace `_SCHEMA_VERSION` bump + `flow_source` marker + warm-up curve
 
+> **Drift-review amendment (2026-07-02):** the Files list omitted `tests/monitor/test_acceptance_eval.py` — its line-79 `schema_version == "4"` assert necessarily moves to `"5"` with this bump (updated in the same commit; without it the bump breaks the acceptance test).
+
 **Files:**
 - Modify: `src/irc/monitor/eval/trace.py`
 - Modify: `src/irc/monitor/eval/structural.py`
@@ -1928,6 +1942,8 @@ git commit -m "feat(monitor): eval schema 4→5 + flow_source marker + warm-up c
 ```
 
 ### Task 15: Docs — CONTEXT.md Flow-freshness rewrite, ADR addenda, README ops rows, CHANGELOG, Tier-0 findings appendix
+
+> **Drift-review amendment (2026-07-02):** the Step-4 ops-table edit also corrected the stale `com.irc.monitor` row (Mon–Fri 09:00 + 13:00-retry → daily 12:15, the as-installed schedule since PR #178) plus its surrounding rationale prose — an adjacent staleness fix required for the table to be internally consistent, not new behavior.
 
 **Files:**
 - Modify: `CONTEXT.md`

@@ -317,3 +317,54 @@ def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
         (tmp_path / "outputs" / "2026-06-15" / "monitor" / "signal.json").read_text(encoding="utf-8")
     )
     assert "008986" in signal_data
+
+
+# ── P1b: run_monitor reads the flow store slice ONCE for the fund-loop union ──
+
+_YAML_TWO_ACTIVE_FUNDS = textwrap.dedent("""
+schema_version: 1
+history: { minimum_observations: 10, fetch_calendar_days: 550 }
+defaults: { signal_bands: { buy: 0.40, sell: -0.40 }, minimum_confidence: 0.50 }
+funds:
+  - { id: "110011", name_cn: 易方达蓝筹, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_equity_property_policy], constituent_news: true }
+  - { id: "519069", name_cn: 交银成长, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_equity_property_policy], constituent_news: true }
+""")
+
+
+def test_run_monitor_loads_flow_store_slice_once_for_fund_loop(tmp_path, monkeypatch):
+    """P1b (RED pre-fix): run_monitor must load the flow store slice ONCE for the
+    union of active-fund top-5 symbols across the whole fund loop, then pass it
+    into each _process_fund call — not re-read the store once per fund."""
+    import irc.commands.monitor_cmd as mc
+    from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
+
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML_TWO_ACTIVE_FUNDS, encoding="utf-8")
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
+
+    def _snap(fid):
+        return ActiveFundSnapshot(
+            fund_id=fid, source_report_date="2026-03-31", source_report_quarter="2026Q1",
+            cache_probed_at="2026-06-15T09:00:00",
+            constituent_analyses=(
+                ConstituentAnalysis(symbol="600519", name_cn="贵州茅台", weight_pct=30.0,
+                                    evidence=(), failure_reasons=(), one_line_view="x"),
+            ),
+            failure_reasons_by_symbol={},
+        )
+    monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: _snap(fid))
+
+    calls: list[tuple] = []
+    real_slice = mc._load_flow_store_slice
+
+    def _counting_slice(root, symbols):
+        calls.append(tuple(symbols))
+        return real_slice(root, symbols)
+    monkeypatch.setattr(mc, "_load_flow_store_slice", _counting_slice)
+
+    rc = run_monitor(repo_root=str(tmp_path), today="2026-06-15")
+    assert rc == 0
+    assert len(calls) == 1, f"expected exactly 1 store read, got {len(calls)}: {calls}"
+    assert "600519" in calls[0]

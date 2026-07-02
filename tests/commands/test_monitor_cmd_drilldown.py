@@ -81,8 +81,8 @@ def test_flow_wired_into_composite_for_active_cn_equity(monkeypatch, tmp_path: P
     monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
     monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: _fake_snap())
-    monkeypatch.setattr(mc, "fetch_flow_series",
-                        lambda symbols, cache_dir, today: _flow_series_with_coverage())
+    monkeypatch.setattr(mc, "_load_flow_store_slice",
+                        lambda root, symbols: _flow_series_with_coverage())
     monkeypatch.setattr(mc, "resolve_valuation_state",
                         lambda fund, con, root: ValuationResolution(None, False, "valuation_no_anchor"))
     monkeypatch.setattr(mc, "heat_inputs_for", lambda fid, purchase_table: (None, None))

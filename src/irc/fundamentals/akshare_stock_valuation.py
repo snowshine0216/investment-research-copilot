@@ -3,7 +3,7 @@
 `stock_value_em(symbol="<6-digit>")` returns the full daily history with
 columns `数据日期` (date), `PE(TTM)`, `市净率` (PB), plus 总市值/PEG/etc. One call
 returns ~2000+ trading days — ample for the 120/180 maturity gate. Free, no
-token, A-share only, CN-direct (NOT proxied — it is a CN domain).
+token, A-share only, routed through IRC_CN_PROXY when set (D2), else CN-direct.
 
 `dividend_yield` is left None: EastMoney exposes no per-stock dividend yield
 (mirrors the index fetcher; the column stays nullable). Degrade-to-None
@@ -14,6 +14,7 @@ EXACT column strings are pinned by the gate-#4 live test
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 
@@ -23,6 +24,7 @@ from irc.fundamentals.stock_valuation_types import (
     StockValuationHistory,
     StockValuationPoint,
 )
+from irc.http_proxy import AKSHARE_PROXY_LOCK, proxy_env, resolve_cn_proxy
 
 _log = logging.getLogger(__name__)
 
@@ -67,8 +69,14 @@ def _series_maps(
 
 
 def _fetch_frame(symbol: str) -> pd.DataFrame | None:
+    proxy = resolve_cn_proxy()
+    ctx = proxy_env(proxy) if proxy else contextlib.nullcontext()
     try:
-        df = _ak_call("stock_value_em", symbol=symbol)
+        # proxy_env mutates the process-global env; lock to avoid cross-thread
+        # bleed with other proxy_env callers (mirrors akshare_client's DXY path).
+        with AKSHARE_PROXY_LOCK:
+            with ctx:
+                df = _ak_call("stock_value_em", symbol=symbol)
     except Exception as exc:
         _log.warning("stock_value_em(%r) failed: %s: %s", symbol, type(exc).__name__, exc)
         return None

@@ -10,7 +10,7 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "4"
+_SCHEMA_VERSION = "5"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -129,21 +129,26 @@ def _holding_metrics(view: FundView) -> dict:
     metrics = view.holding_metrics
     flow_agg = aggregate_flow(metrics)
     val_agg = aggregate_valuation(metrics)
+    rows = [{"symbol": m.symbol, "name": m.name, "weight_pct": m.weight_pct,
+             "pe": m.pe, "pb": m.pb, "pe_percentile": m.pe_percentile,
+             "valuation_state": m.valuation_state, "valuation_reason": m.valuation_reason,
+             "flow_pct_5d": m.flow_pct_5d, "flow_pct_20d": m.flow_pct_20d,
+             "flow_score": m.flow_score, "flow_reason": m.flow_reason,
+             "self_score": m.self_score, "industry": m.industry,
+             "industry_pe": m.industry_pe, "industry_richness": m.industry_richness,
+             "industry_score": m.industry_score, "val_score": m.val_score,
+             "false_cheap": m.false_cheap, "industry_reason": m.industry_reason,
+             "flow_rows": m.flow_rows}
+            for m in metrics]
     return {
-        "rows": [{"symbol": m.symbol, "name": m.name, "weight_pct": m.weight_pct,
-                  "pe": m.pe, "pb": m.pb, "pe_percentile": m.pe_percentile,
-                  "valuation_state": m.valuation_state, "valuation_reason": m.valuation_reason,
-                  "flow_pct_5d": m.flow_pct_5d, "flow_pct_20d": m.flow_pct_20d,
-                  "flow_score": m.flow_score, "flow_reason": m.flow_reason,
-                  "self_score": m.self_score, "industry": m.industry,
-                  "industry_pe": m.industry_pe, "industry_richness": m.industry_richness,
-                  "industry_score": m.industry_score, "val_score": m.val_score,
-                  "false_cheap": m.false_cheap, "industry_reason": m.industry_reason}
-                 for m in metrics],
+        "rows": rows,
         "aggregate": {"value": flow_agg.value, "reason": flow_agg.reason,
                       "covered_weight_ratio": flow_agg.covered_weight_ratio},
         "valuation_aggregate": {"value": val_agg.value, "reason": val_agg.reason,
                                 "covered_weight_ratio": val_agg.covered_weight_ratio},
+        "flow_source": ("batch_today"
+                        if any(r.get("flow_score") is not None for r in rows)
+                        else None),
     }
 
 

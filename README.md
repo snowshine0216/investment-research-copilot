@@ -187,6 +187,7 @@ disclosed basket. The per-stock drill-down board carries PB/PE, the industry leg
 ```bash
 uv run irc monitor                          # run the daily brief (reads config/monitor.yaml)
 uv run irc monitor snapshot                 # quarterly: refresh per-fund constituent caches
+uv run irc monitor flow-capture             # daily 15:45 (post-close): append today's completed-day flow to the store
 ```
 
 `irc monitor` is self-contained for NAV + news + valuation (narrow-prefetch for the
@@ -258,15 +259,21 @@ notes, and the Feishu webhook option (ADR 0016).
 
 | Agent | Schedule (Asia/Shanghai) | What it runs |
 |---|---|---|
-| `com.irc.monitor` | Mon–Fri 09:00 (primary) + 13:00 (retry; skips if `report.html` already exists) | `irc monitor`, then `irc notify-status --run-kind monitor` |
+| `com.irc.monitor` | Daily 12:15 (weekends + CN holidays skipped by the wrapper; once-per-day idempotency guard on today's `monitor.json`) | `irc monitor`, then `irc notify-status --run-kind monitor` |
+| `com.irc.flow-capture` | Daily 15:45, after the 15:00 CN close (weekends + CN holidays skipped by the wrapper) | `irc monitor flow-capture` — appends today's completed-day capital-flow batch to the flow series store |
 | `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct | `irc monitor snapshot` |
 
-The monitor job fires at 09:00 because at that time the prior trading day's NAV is
-fully published (CN open-end funds publish in the evening; the morning brief reads
-*complete* data). The 13:00 fire is a no-op if 09:00 succeeded (idempotency guard on
-`report.html`) and retries if it failed. A single-instance lock prevents overlapping
-runs. You get a macOS notification (plus Feishu when `IRC_FEISHU_WEBHOOK_URL` is set
-in `.env`) on any actionable result or failure; clean runs are quiet by default.
+The monitor job fires at 12:15 because the CN market's morning session has closed by
+then, giving the brief same-day intraday context while still leaving the 15:00 close
+ahead for same-day order decisions. A single-instance lock prevents overlapping runs.
+The flow-capture job fires at 15:45, strictly **after** the 15:00 close, so the
+`ulist.np` batch it appends to the store is always a completed-day value — never a
+provisional intraday one. `com.irc.flow-capture` is the only recurring writer to the
+flow series store; its wrapper owns the weekend/CN-holiday guard. **Do not invoke
+`irc monitor flow-capture` manually before 15:00 CST** — it is a post-close job and
+the manual path is unguarded (single-operator trust model). You get a macOS
+notification (plus Feishu when `IRC_FEISHU_WEBHOOK_URL` is set in `.env`) on any
+actionable result or failure; clean runs are quiet by default.
 
 Each fire writes its own log at `outputs/_logs/run-monitor.<timestamp>.log`
 (launchd's own StandardOut/Err go to `/dev/null` — see
@@ -274,10 +281,40 @@ Each fire writes its own log at `outputs/_logs/run-monitor.<timestamp>.log`
 reason).
 
 ```bash
-bash ops/launchd/install.sh             # install monitor + quarterly launchd agents
+bash ops/launchd/install.sh             # install monitor + flow-capture + quarterly launchd agents
 bash ops/launchd/uninstall.sh           # remove all agents
 uv run irc notify-status --run-kind monitor --last-exit-code 0   # manual dry-run
 ```
+
+**Post-merge op order (CN-egress data-plane light-up, run once after the flow-capture
+job ships):**
+
+1. Install the 15:45 job — `bash ops/launchd/install.sh` (installs `com.irc.flow-capture`
+   alongside the existing agents).
+2. Run the D7 seed once after close — `uv run irc monitor flow-capture` after seeding
+   (or the seed helper), so the flow series store has a first completed-day row instead
+   of warming up organically from zero.
+3. Backfill valuation — `uv run irc fundamentals stock-valuation --force` (D8), so the
+   industry re-transport (ADR 0020 addendum) has a fresh per-stock valuation cache to
+   read from immediately rather than waiting out the normal staleness threshold.
+4. At the next 12:15 brief, verify Tier-2 (flow renders for ≥5/7 active funds,
+   `industry_cover > 0` for every fund above the 0.40 NAV floor — see the design spec's
+   exit gates).
+
+**GATE-2 post-merge ops step (4dp equivalence check, run once — do not skip before
+trusting flow forward metrics):**
+
+```bash
+# after close, capture today's batch f184:
+uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy
+# next day, confirm same-day f184 ≈ daykline.净占比 to 4 decimal places:
+uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy --equiv-against <capture>
+```
+
+If `max|Δ| ≤ 4dp`, GATE-2 passes and `_ENGINE_VERSION` stays `"3"` (no bump needed). A
+material (>4dp) gap escalates to an `_ENGINE_VERSION` bump plus a fresh ADR 0019
+addendum **before** the flow factor's forward metrics are trusted — see the D-B3
+escalation path in the design spec's Tier-0 findings appendix.
 
 ### Monthly universe maintenance
 
