@@ -20,7 +20,7 @@ def _fund(profile="gold"):
 def test_process_fund_returns_three_tuple_with_bundle(monkeypatch, tmp_path: Path):
     # Stub all edges so no network/LLM fires; non-lookthrough → constituent legs empty.
     monkeypatch.setattr(monitor_cmd, "nav_series_for", lambda fid: None)
-    monkeypatch.setattr(monitor_cmd, "build_evidence_pool", lambda fund, repo_root: ())
+    monkeypatch.setattr(monitor_cmd, "build_evidence_pool", lambda fund, **k: ())
 
     class _Imp:
         impacts = ()

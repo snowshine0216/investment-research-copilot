@@ -121,32 +121,40 @@ def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
 # ── Evidence pool (EDGE) ──────────────────────────────────────────────────────
 
 
-def _search_theme(provider, query: str, fund_id: str, *, tiers: SourceTiers) -> tuple:
-    """Run one theme search; convert hits to EvidenceItems. Blocked-tier hits are
-    dropped before make_evidence_item (ADR 0022) — never scored, never cited.
-    Returns () on search failure."""
-    result = provider.search(query, max_results=5, freshness_days=7)
-    if result.failure_reason:
-        _log.warning(
-            "monitor theme search failed for %s (%r): %s",
-            fund_id, query, result.failure_reason,
-        )
-        return ()
-    items = []
-    dropped = 0
-    for hit in result.hits:
-        domain = hit.source_domain or provider.name
-        if classify(domain, tiers) == "blocked":
-            dropped += 1
+def _unique_themes(funds: list[MonitorFund]) -> tuple[str, ...]:
+    """Stable-sorted union of themes across the monitor set (Comp 2)."""
+    return tuple(sorted({t for fund in funds for t in fund.themes}))
+
+
+def _search_all_themes(
+    provider, themes: tuple[str, ...], *, tiers: SourceTiers,
+) -> dict[str, tuple]:
+    """EDGE: search once per unique theme (Comp 2 — 28->8 provider calls). Tier
+    gate (ADR 0022) applied here, once per theme, not per fund. Returns
+    {theme: tuple[SearchHit, ...]} with blocked hits dropped; a theme whose
+    search failed maps to () (logged, never raises)."""
+    out: dict[str, tuple] = {}
+    for theme in themes:
+        query = theme_query_seed(theme)
+        result = provider.search(query, max_results=5, freshness_days=7)
+        if result.failure_reason:
+            _log.warning("monitor theme search failed for theme %r: %s",
+                         theme, result.failure_reason)
+            out[theme] = ()
             continue
-        items.append(make_evidence_item(
-            domain, hit.title, hit.published_iso or "", hit.url,
-            owner_fund_id=fund_id,
-        ))
-    if dropped:
-        _log.warning("monitor theme search: dropped %d blocked-tier hit(s) for %s (%r)",
-                     dropped, fund_id, query)
-    return tuple(items)
+        kept = []
+        dropped = 0
+        for hit in result.hits:
+            domain = hit.source_domain or provider.name
+            if classify(domain, tiers) == "blocked":
+                dropped += 1
+                continue
+            kept.append(hit)
+        if dropped:
+            _log.warning("monitor theme search: dropped %d blocked-tier hit(s) for theme %r",
+                         dropped, theme)
+        out[theme] = tuple(kept)
+    return out
 
 
 def _load_source_tiers_config(repo_root: Path) -> dict | None:
@@ -163,29 +171,19 @@ def _load_source_tiers_config(repo_root: Path) -> dict | None:
         return None
 
 
-def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
-    """EDGE: run theme searches via configured providers -> owner-bound EvidenceItems,
-    filtered through the source-tier gate (ADR 0022). Returns () when no providers
-    are configured or on any failure (factor gate surfaces gap).
-    This is the ONLY place the monitor touches search providers."""
-    try:
-        settings = Settings()
-        providers = build_providers(settings)
-        if not providers:
-            return ()
-        provider = providers[0]   # use first available provider
-        raw_tiers = _load_source_tiers_config(repo_root)
-        tiers = tiers_from_config(raw_tiers)
-        if raw_tiers is None:
-            _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
-        items: list = []
-        for theme in fund.themes:
-            query = theme_query_seed(theme)
-            items.extend(_search_theme(provider, query, fund.id, tiers=tiers))
-        return tuple(items)
-    except Exception as exc:
-        _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc, exc_info=True)
-        return ()
+def build_evidence_pool(fund: MonitorFund, *, theme_results: dict[str, tuple]) -> tuple:
+    """PURE assembly (Comp 2): each fund's pool from the SHARED theme_results map
+    built once by _search_all_themes. Owner-binds per fund exactly as before (cid
+    preimage includes owner_fund_id, ADR 0017) — same hits -> same cids as the
+    status quo. Missing/failed theme key -> no hits for that theme (not KeyError)."""
+    items: list = []
+    for theme in fund.themes:
+        for hit in theme_results.get(theme, ()):
+            items.append(make_evidence_item(
+                hit.source_domain or "unknown", hit.title, hit.published_iso or "",
+                hit.url, owner_fund_id=fund.id,
+            ))
+    return tuple(items)
 
 
 # ── Constituent pool (EDGE — snapshot I/O) ───────────────────────────────────
@@ -779,17 +777,20 @@ def _append_nav_history_for_views(
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
     today: str | None = None, flow_slice: dict | None = None,
+    theme_results: dict[str, tuple] | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle).
 
-    `flow_slice` is the run-level flow-store slice loaded ONCE by `run_monitor`
-    for the union of all active-fund top-5 symbols (read-once intent, D10). When
-    None (e.g. a caller/test invoking this function directly), falls back to a
-    per-fund `_load_flow_store_slice` read for library robustness."""
+    `flow_slice` is the run-level flow-store slice (see prior docstring, unchanged).
+    `theme_results` is the run-level shared theme-search results map (Comp 2,
+    built ONCE by run_monitor for the union of all funds' themes) — when None
+    (e.g. a caller/test invoking this function directly), falls back to an
+    empty dict so build_evidence_pool degrades to an empty pool, mirroring the
+    prior "no providers configured" empty-pool behavior for library robustness."""
     from irc.monitor.profiles import PROFILES
     from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
-    pool = build_evidence_pool(fund, repo_root=root)
+    pool = build_evidence_pool(fund, theme_results=theme_results or {})
     impacts = gather_impacts(
         fund_id=fund.id, themes=fund.themes, pool=pool,
         route=llm_config, call=llm_call,
@@ -864,6 +865,28 @@ def _process_fund(
     return view, cost_history, bundle
 
 
+def _build_theme_results(root: Path, funds: list[MonitorFund]) -> dict[str, tuple]:
+    """EDGE: resolve the search provider + source tiers ONCE per run, search once
+    per unique theme across the whole monitor set (Comp 2). Empty dict when no
+    providers configured or on any failure — every fund's build_evidence_pool then
+    degrades to an empty pool exactly as the old per-fund failure path did."""
+    try:
+        settings = Settings()
+        providers = build_providers(settings)
+        if not providers:
+            return {}
+        provider = providers[0]
+        raw_tiers = _load_source_tiers_config(root)
+        if raw_tiers is None:
+            _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
+        tiers = tiers_from_config(raw_tiers)
+        themes = _unique_themes(funds)
+        return _search_all_themes(provider, themes, tiers=tiers)
+    except Exception as exc:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_build_theme_results failed: %s", exc, exc_info=True)
+        return {}
+
+
 def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     """EDGE orchestrator for `irc monitor`."""
     root = Path(repo_root)
@@ -886,6 +909,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
+    theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
@@ -893,7 +917,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         for fund in funds:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
-                today=_today, flow_slice=flow_slice,
+                today=_today, flow_slice=flow_slice, theme_results=theme_results,
             )
             views.append(view)
             bundles.append(bundle)

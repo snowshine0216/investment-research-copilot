@@ -30,7 +30,7 @@ def _fund(fund_id: str, profile: str = "active_cn_equity") -> MonitorFund:
 def _patch_edges(monkeypatch, fund_id: str) -> None:
     """Stub all I/O in _process_fund except the heat path."""
     monkeypatch.setattr(mc, "nav_series_for", lambda fid: None)
-    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, repo_root: ())
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
 
     class _Imp:
         impacts = ()

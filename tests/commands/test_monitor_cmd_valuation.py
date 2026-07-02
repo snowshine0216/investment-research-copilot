@@ -68,7 +68,7 @@ def _mature_series_map(*codes):
 
 def _patch_common(monkeypatch, mc):
     monkeypatch.setattr(mc, "nav_series_for", lambda _fid: None)
-    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, repo_root: ())
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
     monkeypatch.setattr(mc, "gather_impacts", lambda **_kw: _FakeImpacts())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
     monkeypatch.setattr(mc, "heat_inputs_for", lambda fid, purchase_table: (None, None))

@@ -76,7 +76,7 @@ def test_flow_wired_into_composite_for_active_cn_equity(monkeypatch, tmp_path: P
     import irc.commands.monitor_cmd as mc
 
     monkeypatch.setattr(mc, "nav_series_for", lambda _fid: None)
-    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, repo_root: ())
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
     monkeypatch.setattr(mc, "gather_impacts", lambda **_kw: _FakeImpacts())
     monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
