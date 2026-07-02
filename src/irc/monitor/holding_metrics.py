@@ -185,6 +185,9 @@ class HoldingMetric:
     val_score: float | None = None
     false_cheap: bool = False
     industry_reason: str | None = None
+    # Warm-up curve (D9/B2 §5.E): rows in this symbol's FlowSeries. 0 when the
+    # series is None/absent — NEVER fabricated.
+    flow_rows: int = 0
 
 
 def _flow_metric(series) -> tuple[float | None, float | None, float | None, str | None]:
@@ -215,7 +218,8 @@ def per_stock_metrics(
         val = per_stock_valuation_dual(
             h.symbol, series_by_code.get(h.symbol),
             industry=industry, industry_avg_pe=industry_avg_pe)
-        p5, p20, score, reason = _flow_metric(flow_series_by_code.get(h.symbol))
+        flow_series = flow_series_by_code.get(h.symbol)
+        p5, p20, score, reason = _flow_metric(flow_series)
         out.append(HoldingMetric(
             symbol=h.symbol, name=h.name_cn, weight_pct=h.weight_pct,
             pe=val.pe, pb=val.pb, pe_percentile=val.pe_percentile,
@@ -225,6 +229,7 @@ def per_stock_metrics(
             industry_richness=val.industry_richness, industry_score=val.industry_score,
             val_score=val.val_score, false_cheap=val.false_cheap,
             industry_reason=val.industry_reason,
+            flow_rows=len(flow_series) if flow_series is not None else 0,
         ))
     return tuple(out)
 

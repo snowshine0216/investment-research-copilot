@@ -24,7 +24,7 @@ from irc.fundamentals.stock_valuation_types import (
     StockValuationHistory,
     StockValuationPoint,
 )
-from irc.http_proxy import proxy_env, resolve_cn_proxy
+from irc.http_proxy import AKSHARE_PROXY_LOCK, proxy_env, resolve_cn_proxy
 
 _log = logging.getLogger(__name__)
 
@@ -72,8 +72,11 @@ def _fetch_frame(symbol: str) -> pd.DataFrame | None:
     proxy = resolve_cn_proxy()
     ctx = proxy_env(proxy) if proxy else contextlib.nullcontext()
     try:
-        with ctx:
-            df = _ak_call("stock_value_em", symbol=symbol)
+        # proxy_env mutates the process-global env; lock to avoid cross-thread
+        # bleed with other proxy_env callers (mirrors akshare_client's DXY path).
+        with AKSHARE_PROXY_LOCK:
+            with ctx:
+                df = _ak_call("stock_value_em", symbol=symbol)
     except Exception as exc:
         _log.warning("stock_value_em(%r) failed: %s: %s", symbol, type(exc).__name__, exc)
         return None

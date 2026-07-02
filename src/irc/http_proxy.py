@@ -16,9 +16,18 @@ from __future__ import annotations
 
 import contextlib
 import os
+import threading
 from typing import Generator
 
 _ENV_VAR = "IRC_HTTPS_PROXY"
+
+# Shared lock for callers that mutate the process-global proxy env via
+# `proxy_env` (below). `proxy_env` itself does not lock — env mutation +
+# restore is not atomic across threads, so any call site that could run
+# concurrently with another proxy_env user must hold this lock around the
+# `with proxy_env(...):` block. Single source of truth (was duplicated as
+# akshare_client._AKSHARE_PROXY_LOCK).
+AKSHARE_PROXY_LOCK = threading.Lock()
 
 
 def resolve_proxy() -> str | None:

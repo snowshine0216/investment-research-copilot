@@ -6,12 +6,12 @@ from datetime import date
 from functools import lru_cache
 import logging
 import re
-import threading
 import time
 from typing import Any, TypeVar
 
 import pandas as pd
 
+from irc.http_proxy import AKSHARE_PROXY_LOCK as _AKSHARE_PROXY_LOCK
 from irc.http_proxy import proxy_env as _proxy_env
 from irc.http_proxy import resolve_proxy
 
@@ -20,7 +20,6 @@ _log = logging.getLogger(__name__)
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
-_AKSHARE_PROXY_LOCK = threading.Lock()
 
 
 class FundNotFound(LookupError):

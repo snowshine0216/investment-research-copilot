@@ -122,3 +122,31 @@ def test_fetch_frame_direct_when_no_cn_proxy(monkeypatch):
     monkeypatch.setattr(asv, "_ak_call", fake_ak_call)
     asv._fetch_frame("600690")
     assert seen["https_proxy"] is None   # no proxy injected
+
+
+def test_fetch_frame_holds_shared_akshare_proxy_lock(monkeypatch):
+    """P1a: _fetch_frame must hold the SAME shared lock as the DXY path
+    (irc.http_proxy.AKSHARE_PROXY_LOCK) around its proxy_env block — smoke test,
+    no deadlock, single-threaded call count only."""
+    monkeypatch.setenv("IRC_CN_PROXY", "9.9.9.9:1")
+
+    class _LockProbe:
+        def __init__(self) -> None:
+            self.entered = 0
+
+        def __enter__(self):
+            self.entered += 1
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+    probe = _LockProbe()
+    monkeypatch.setattr(asv, "AKSHARE_PROXY_LOCK", probe)
+    monkeypatch.setattr(
+        asv, "_ak_call",
+        lambda fn_name, **kwargs: pd.DataFrame(
+            {"数据日期": ["2026-07-01"], "PE(TTM)": [10.0], "市净率": [1.0]}),
+    )
+    asv._fetch_frame("600690")
+    assert probe.entered == 1

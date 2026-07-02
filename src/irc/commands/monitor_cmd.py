@@ -270,10 +270,11 @@ def _make_constituent_rows(
 
 def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
     """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
-    (full basket) → full-basket HoldingMetrics. Flow no longer fetched per fund
-    (D10); each _process_fund call falls back to _load_flow_store_slice itself
-    when no slice is passed in (read-once across funds is a possible future
-    optimization, not the current shape)."""
+    (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
+    loads the store slice for the union of all active-fund symbols and passes it
+    through to every _process_fund call (see `run_monitor`); a caller invoking
+    _process_fund directly (e.g. tests) without a slice still falls back to
+    _load_flow_store_slice for library robustness."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
     flow_series = {s: flow_slice.get(s) for s in flow_symbols}
@@ -750,7 +751,12 @@ def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
     today: str | None = None, flow_slice: dict | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
-    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
+    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle).
+
+    `flow_slice` is the run-level flow-store slice loaded ONCE by `run_monitor`
+    for the union of all active-fund top-5 symbols (read-once intent, D10). When
+    None (e.g. a caller/test invoking this function directly), falls back to a
+    per-fund `_load_flow_store_slice` read for library robustness."""
     from irc.monitor.profiles import PROFILES
     from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
@@ -850,6 +856,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     purchase_table = fetch_purchase_table()  # ONE akshare call/run; None on failure → heat_no_data
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
+    flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
@@ -857,7 +864,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         for fund in funds:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
-                today=_today,
+                today=_today, flow_slice=flow_slice,
             )
             views.append(view)
             bundles.append(bundle)

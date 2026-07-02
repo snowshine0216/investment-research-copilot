@@ -138,7 +138,7 @@ def _holding_metrics(view: FundView) -> dict:
              "industry_pe": m.industry_pe, "industry_richness": m.industry_richness,
              "industry_score": m.industry_score, "val_score": m.val_score,
              "false_cheap": m.false_cheap, "industry_reason": m.industry_reason,
-             "flow_rows": getattr(m, "flow_rows", 0)}
+             "flow_rows": m.flow_rows}
             for m in metrics]
     return {
         "rows": rows,
