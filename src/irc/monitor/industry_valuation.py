@@ -3,7 +3,7 @@
 Two cached/day reads, mirroring flow_fetch.py's contract (never raises, parsed
 rows, per-day JSON cache, light pacing). Default fetch is wired to
 `irc.monitor.em_raw`'s raw-JSON EastMoney fetchers (CN-egress light-up,
-routed through IRC_HTTPS_PROXY when configured — no akshare wrapper on this
+routed through IRC_CN_PROXY when configured — no akshare wrapper on this
 leg; `fetch` stays injectable for tests):
 
 - `fetch_board_pe_frame` — paginated market-wide call → 东财 industry → avg PE.
@@ -111,7 +111,7 @@ def fetch_industry_pe(
     """EDGE: ONE market-wide board PE call/day, cached. NEVER raises — any
     failure → {} (→ industry leg N/A). fetch injectable for tests; default
     wraps em_raw.fetch_board_pe_frame (raw JSON via proxy, D3). CN endpoint
-    routes through IRC_HTTPS_PROXY when configured (ADR 0017/0021 CN-egress)."""
+    routes through IRC_CN_PROXY when configured (ADR 0017/0021 CN-egress)."""
     cached = _read_json(cache_dir, today)
     if cached is not None:
         return {str(k): float(v) for k, v in cached.items()}

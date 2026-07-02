@@ -242,7 +242,9 @@ def build_holding_metrics(
     industry_pe_by_industry: dict | None = None,
 ) -> tuple[HoldingMetric, ...]:
     """Pure assembly entry called from the edge (monitor_cmd). Effects
-    (fetch_flow_series, _stock_series_by_code, industry fetch) stay in monitor_cmd."""
+    (_stock_series_by_code, industry fetch) stay in monitor_cmd; flow series
+    arrive pre-fetched via the flow_series_store (fetch_flow_series itself is
+    library code used by the seed path, not called from monitor_cmd)."""
     return per_stock_metrics(
         top_holdings, series_by_code, flow_series_by_code,
         industry_by_symbol=industry_by_symbol,

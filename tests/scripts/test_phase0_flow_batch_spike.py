@@ -96,9 +96,6 @@ def test_equiv_enters_proxy_context_exactly_once_for_multiple_symbols(tmp_path, 
     monkeypatch.setitem(sys.modules, "irc.http_proxy", fake_http_proxy)
 
     fake_ak = MagicMock()
-    fake_ak.stock_individual_fund_flow.side_effect = AssertionError(
-        "no live network calls expected in this test"
-    )
     monkeypatch.setitem(sys.modules, "akshare", fake_ak)
 
     # Force ABSENT-match branch (not the exception path) for each symbol so the
@@ -107,7 +104,6 @@ def test_equiv_enters_proxy_context_exactly_once_for_multiple_symbols(tmp_path, 
     import pandas as pd
 
     empty_df = pd.DataFrame(columns=["日期", "主力净流入-净占比"])
-    fake_ak.stock_individual_fund_flow.side_effect = None
     fake_ak.stock_individual_fund_flow.return_value = empty_df
 
     rc = equiv(prior, n=3, proxy="http://1.2.3.4:80")

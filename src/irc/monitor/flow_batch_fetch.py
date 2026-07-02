@@ -8,11 +8,7 @@ false-fails through the proxy, F3). f184 is INTRADAY until CN close; the store
 completeness (the caller decides). Percent-points, NO /100."""
 from __future__ import annotations
 
-import logging
-
 from irc.http_proxy import resolve_cn_proxy
-
-_log = logging.getLogger(__name__)
 
 _UT = "fa5fd1943c7b386f172d6893dbfba10b"
 _HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}

@@ -46,6 +46,22 @@ def test_mode_on_is_default(monkeypatch):
     assert resolve_cn_proxy() == "http://h:1"
 
 
+def test_mode_garbage_value_fails_open_to_on(monkeypatch):
+    monkeypatch.setenv(_URL, "h:1")
+    monkeypatch.setenv(_MODE, "garbage")
+    assert resolve_cn_proxy() == "http://h:1"
+
+
+def test_proxy_env_none_is_noop(monkeypatch):
+    monkeypatch.setenv("HTTPS_PROXY", "orig")
+    monkeypatch.delenv("HTTP_PROXY", raising=False)
+    with proxy_env(None):
+        assert os.environ["HTTPS_PROXY"] == "orig"
+        assert "HTTP_PROXY" not in os.environ
+    assert os.environ["HTTPS_PROXY"] == "orig"
+    assert "HTTP_PROXY" not in os.environ
+
+
 def test_proxy_env_sets_and_restores(monkeypatch):
     monkeypatch.setenv("HTTPS_PROXY", "orig")
     monkeypatch.delenv("HTTP_PROXY", raising=False)

@@ -250,7 +250,11 @@ def test_uninstall_sh_labels_contain_fundamentals_quarterly() -> None:
 
 @pytest.mark.parametrize(
     "plist_name",
-    ["com.irc.monitor.plist", "com.irc.fundamentals-quarterly.plist"],
+    [
+        "com.irc.monitor.plist",
+        "com.irc.fundamentals-quarterly.plist",
+        "com.irc.flow-capture.plist",
+    ],
 )
 def test_plist_is_valid_xml(plist_name: str) -> None:
     """New plists must be valid XML (plutil -lint)."""

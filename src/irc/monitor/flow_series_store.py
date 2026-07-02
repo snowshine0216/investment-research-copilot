@@ -108,6 +108,8 @@ def _load_day_file(f: Path) -> dict[str, FlowSeries]:
     try:
         payload = json.loads(f.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        _log.warning("flow_series_store: unreadable day file %s; skipping", f,
+                     exc_info=True)
         return {}
     return _ok_series_from_day_file(payload)
 

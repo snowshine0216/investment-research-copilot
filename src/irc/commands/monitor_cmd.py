@@ -271,7 +271,9 @@ def _make_constituent_rows(
 def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
     """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
     (full basket) → full-basket HoldingMetrics. Flow no longer fetched per fund
-    (D10); the store slice is fed in by run_monitor."""
+    (D10); each _process_fund call falls back to _load_flow_store_slice itself
+    when no slice is passed in (read-once across funds is a possible future
+    optimization, not the current shape)."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
     flow_series = {s: flow_slice.get(s) for s in flow_symbols}
