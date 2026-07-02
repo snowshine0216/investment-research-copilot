@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 import pandas as pd
 
+import irc.fundamentals.akshare_stock_valuation as asv
 from irc.fundamentals.akshare_stock_valuation import (
     _series_maps,
     fetch_stock_valuation_history,
@@ -92,3 +94,31 @@ def test_fetch_logs_warn_on_unexpected_type(caplog) -> None:
         "000001" in r.message and "dict" in r.message
         for r in caplog.records
     ), f"expected WARN with symbol+type; got: {[r.message for r in caplog.records]}"
+
+
+def test_fetch_frame_wraps_proxy_env_when_cn_proxy_set(monkeypatch):
+    monkeypatch.setenv("IRC_CN_PROXY", "9.9.9.9:1")
+    seen = {}
+
+    def fake_ak_call(fn_name, **kwargs):
+        seen["https_proxy"] = os.environ.get("HTTPS_PROXY")
+        return pd.DataFrame({"数据日期": ["2026-07-01"], "PE(TTM)": [10.0], "市净率": [1.0]})
+
+    monkeypatch.setattr(asv, "_ak_call", fake_ak_call)
+    df = asv._fetch_frame("600690")
+    assert seen["https_proxy"] == "http://9.9.9.9:1"   # proxy active during the call
+    assert "HTTPS_PROXY" not in os.environ or os.environ.get("HTTPS_PROXY") != "http://9.9.9.9:1"
+    assert not df.empty
+
+
+def test_fetch_frame_direct_when_no_cn_proxy(monkeypatch):
+    monkeypatch.delenv("IRC_CN_PROXY", raising=False)
+    seen = {}
+
+    def fake_ak_call(fn_name, **kwargs):
+        seen["https_proxy"] = os.environ.get("HTTPS_PROXY")
+        return pd.DataFrame({"数据日期": ["2026-07-01"], "PE(TTM)": [10.0], "市净率": [1.0]})
+
+    monkeypatch.setattr(asv, "_ak_call", fake_ak_call)
+    asv._fetch_frame("600690")
+    assert seen["https_proxy"] is None   # no proxy injected
