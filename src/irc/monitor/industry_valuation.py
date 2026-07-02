@@ -1,17 +1,21 @@
-"""EDGE + pure parse: monitor industry valuation leg via AkShare (ADR 0020).
+"""EDGE + pure parse: monitor industry valuation leg (ADR 0020 / ADR 0021).
 
 Two cached/day reads, mirroring flow_fetch.py's contract (never raises, parsed
-rows, per-day JSON cache, DIRECT CN endpoint, light pacing):
+rows, per-day JSON cache, light pacing). Default fetch is wired to
+`irc.monitor.em_raw`'s raw-JSON EastMoney fetchers (CN-egress light-up,
+routed through IRC_HTTPS_PROXY when configured — no akshare wrapper on this
+leg; `fetch` stays injectable for tests):
 
-- `stock_board_industry_name_em` — ONE market-wide call → 东财 industry → avg PE.
-- `stock_individual_info_em(symbol)` — per-symbol → the symbol's 东财 industry
+- `fetch_board_pe_frame` — paginated market-wide call → 东财 industry → avg PE.
+- `fetch_stock_info_frame(symbol)` — per-symbol → the symbol's 东财 industry
   (~15-25 deduped cached calls/run, same volume + contract as flow_fetch).
 
 Industry-average PE is from a single 市盈率 column (cap-weighting unverified at
 the source; see ADR 0020 denominator-robustness risk). NON-positive / NaN PE →
 dropped (→ industry_no_data per-stock). No DataFrame on disk; the cache stores
-parsed primitives so the on-disk form is byte-stable. CN endpoints stay DIRECT
-(no IRC_HTTPS_PROXY) per ADR 0017.
+parsed primitives so the on-disk form is byte-stable. An empty board-PE parse
+is returned but never cached (D3) — a soft-throttle empty page doesn't freeze
+the leg dark for the day.
 """
 from __future__ import annotations
 
@@ -24,6 +28,7 @@ from pathlib import Path
 import pandas as pd
 
 from irc.monitor.cached_fetch import DEAD, OK, TRANSIENT, Outcome, cache_first_fetch
+from irc.monitor.em_raw import fetch_board_pe_frame, fetch_stock_info_frame
 
 _log = logging.getLogger(__name__)
 
@@ -76,9 +81,6 @@ def parse_stock_industry(df: pd.DataFrame | None) -> str | None:
     return None
 
 
-_PACING_SECONDS = 0.3  # light pacing between live CN calls (ADR 0014 posture)
-
-
 def _cache_path(cache_dir: Path, today: str) -> Path:
     return cache_dir / f"{today}.json"
 
@@ -106,24 +108,23 @@ def _read_json(cache_dir: Path, today: str) -> dict | None:
 def fetch_industry_pe(
     *, cache_dir: Path, today: str, fetch=None, sleep=time.sleep,
 ) -> dict[str, float]:
-    """EDGE: ONE market-wide stock_board_industry_name_em call/day, cached.
-    NEVER raises — any failure → {} (→ industry leg N/A). fetch injectable for
-    tests; default lazy-imports akshare (house pattern). CN endpoint DIRECT."""
+    """EDGE: ONE market-wide board PE call/day, cached. NEVER raises — any
+    failure → {} (→ industry leg N/A). fetch injectable for tests; default
+    wraps em_raw.fetch_board_pe_frame (raw JSON via proxy, D3). CN endpoint
+    routes through IRC_HTTPS_PROXY when configured (ADR 0017/0021 CN-egress)."""
     cached = _read_json(cache_dir, today)
     if cached is not None:
         return {str(k): float(v) for k, v in cached.items()}
     if fetch is None:
-        import akshare as ak  # local import — house pattern
-        fetch = ak.stock_board_industry_name_em
+        fetch = lambda: fetch_board_pe_frame(sleep=sleep)  # noqa: E731 — raw JSON via proxy (D3)
     try:
         df = fetch()
     except Exception:  # noqa: BLE001 — degrade to {}, never crash the brief
-        _log.warning("industry_valuation: stock_board_industry_name_em failed",
-                     exc_info=True)
+        _log.warning("industry_valuation: board PE fetch failed", exc_info=True)
         return {}
-    sleep(_PACING_SECONDS)
     parsed = parse_industry_pe(df)
-    _write_json(cache_dir, today, parsed)
+    if parsed:                       # D3: never cache an empty parse (F4 wart)
+        _write_json(cache_dir, today, parsed)
     return parsed
 
 
@@ -195,10 +196,10 @@ def fetch_stock_industry_map(
     """EDGE: dedup symbols → cache-first per-day per-symbol fetch (cached_fetch) →
     byte-stable write of ok+dead only. Idempotent within a day for settled symbols;
     transient throttles retry next run. Same contract + volume as
-    flow_fetch.fetch_flow_series. fetch injectable; default lazy-imports akshare."""
+    flow_fetch.fetch_flow_series. fetch injectable; default wraps
+    em_raw.fetch_stock_info_frame (raw JSON via proxy, D3)."""
     if fetch is None:
-        import akshare as ak  # local import — house pattern
-        fetch = ak.stock_individual_info_em
+        fetch = lambda symbol: fetch_stock_info_frame(symbol)  # noqa: E731 — raw JSON (D3)
     return cache_first_fetch(
         symbols, cache_dir=cache_dir, today=today,
         fetch_one=lambda symbol: _classify_industry(symbol, fetch),
