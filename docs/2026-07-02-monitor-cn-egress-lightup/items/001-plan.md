@@ -205,6 +205,8 @@ git commit -m "feat(monitor): phase0 spike gains IRC_CN_PROXY support (slice 0)"
 
 ### Task 2: GATE-1 live reachability + D4 f9 range-sanity (single live execution)
 
+> **Orchestrator amendment (2026-07-02):** executed AFTER Task 3 — the spike's `--use-cn-proxy` path lazily imports `irc.http_proxy.proxy_env`, which Task 3 delivers. Pure execution-order swap; no content change.
+
 **Files:** none (execution + evidence capture only).
 
 - [ ] **Step 1: Run GATE-1 through the proxy (small volume, breaker/abort-on-block, runnable at any hour)**
