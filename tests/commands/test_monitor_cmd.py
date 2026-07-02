@@ -461,3 +461,29 @@ def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
     narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
     assert narrative["__macro__"]["status"] == "ok"
     assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
+
+
+def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_health(
+    tmp_path, monkeypatch,
+):
+    """spec §11 acceptance criterion, flow-wiring trap: assert through the REAL
+    run_monitor -> _compute_gates -> render_report chain, not a hand-built
+    ActionableFund/DataHealthCounts fixture."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    # Force the monitor_signal stage to FAIL so apply_eval_gate suppresses the fund
+    # (gate.suppressed=True) while its raw bias stays ADD_BIAS.
+    monkeypatch.setattr(mc, "_compute_gates", lambda funds, views, bundles, **k: (
+        tuple(mc.GateDecision(v.fund_id, True, ("monitor_signal",), "gated", "forced-fail")
+              for v in views),
+        {}, {}, {}, {}, {}, {},
+    ))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "可操作" not in html or "EVAL-GATED" not in html.split("可操作")[1].split("</div>")[0]
+    assert "被评估门禁" in html   # 数据健康 row still counts the gated fund

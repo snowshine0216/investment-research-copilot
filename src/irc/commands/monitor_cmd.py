@@ -374,6 +374,24 @@ def _read_prior_signal(root: Path, today: str) -> dict | None:
         return None
 
 
+def _read_prior_signal_with_date(root: Path, today: str) -> tuple[dict | None, str | None]:
+    """Comp 5: like _read_prior_signal but also returns the prior run's date
+    label (for the 偏向变化 row's '(vs 2026-06-15)' annotation — on Monday
+    that's Friday, not a calendar 'yesterday', since it's the latest run
+    strictly before today)."""
+    import glob
+    pattern = str(root / "outputs" / "*" / "monitor" / "signal.json")
+    files = sorted(p for p in glob.glob(pattern) if today not in p)
+    if not files:
+        return None, None
+    latest = Path(files[-1])
+    prior_date = latest.parent.parent.name   # outputs/<date>/monitor/signal.json
+    try:
+        return json.loads(latest.read_text(encoding="utf-8")), prior_date
+    except Exception:
+        return None, None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone(timedelta(hours=8))).isoformat(timespec="seconds")
 
@@ -442,14 +460,18 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    macro_doc: MacroNarrativeDoc | None = None,
                    macro_pool_items: tuple = (),
                    tiers: SourceTiers | None = None,
-                   constituent_pool_items: tuple = ()) -> None:
+                   constituent_pool_items: tuple = (),
+                   prior_run_date: str | None = None,
+                   purchase_tags: dict | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
                          predictive_panel=predictive_panel, timeline=timeline,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
-                         tiers=tiers, constituent_pool_items=constituent_pool_items)
+                         tiers=tiers, constituent_pool_items=constituent_pool_items,
+                         prior_run_date=prior_run_date, purchase_tags=purchase_tags,
+                         stale_eval_days=STALE_EVAL_DAYS)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -967,7 +989,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         valuation_reconciliation_healths=val_recon_healths,
         valuation_coverage_healths=val_cov_healths,
     )
-    prior = _read_prior_signal(root, _today)
+    prior, prior_run_date = _read_prior_signal_with_date(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
@@ -980,10 +1002,13 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     constituent_pool_items = tuple(
         ev for b in bundles for ev in b.constituent_pool
     )
+    purchase_tags = {v.fund_id: v.purchase_tag for v in views}
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
                    timeline=timeline, macro_doc=macro_result.doc,
                    macro_pool_items=macro_pool_items, tiers=tiers,
-                   constituent_pool_items=constituent_pool_items)
+                   constituent_pool_items=constituent_pool_items,
+                   prior_run_date=prior_run_date,
+                   purchase_tags=purchase_tags)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

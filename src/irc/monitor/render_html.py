@@ -21,6 +21,9 @@ from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictiveP
 from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
+from irc.monitor.render_overview import (
+    compute_actionable, compute_data_health, compute_flips, overview_html,
+)
 
 
 @dataclass(frozen=True)
@@ -182,6 +185,10 @@ _CSS = (
     ".engine-boundary{border-left:2px solid #bf8700}"
     ".contrib{width:100%;max-width:280px;height:auto;display:block;margin:6px 0}"
     ".heatmap-legend{font-size:11px}"
+    ".overview{margin:8px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa}"
+    ".overview-row{margin:4px 0}"
+    ".flip-from{color:#6e7781}.flip-to{font-weight:600}"
+    ".restricted-tag{font-size:11px;color:#9a6700;background:#fff8c5;padding:0 4px;border-radius:3px}"
     "</style>"
 )
 
@@ -411,6 +418,9 @@ def render_report(
     macro_pool_items: tuple[EvidenceItem, ...] = (),
     tiers: SourceTiers | None = None,
     constituent_pool_items: tuple[EvidenceItem, ...] = (),
+    prior_run_date: str | None = None,
+    purchase_tags: dict[str, str | None] | None = None,
+    stale_eval_days: int = 10,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -428,6 +438,17 @@ def render_report(
     )
     idx = build_citation_index(views, macro_pool_items + constituent_pool_items,
                                tier_badges=tier_badges)
+    flips = compute_flips(views, prior_signal, prior_run_date)
+    actionable = compute_actionable(views, g, purchase_tags or {})
+    # `today` derived PURELY from the as_of stamp (first 10 chars of the ISO
+    # `now` string); `predictive_stale` from the already-computed
+    # PredictivePanelModel — NO clock read anywhere under render_* (spec §2,
+    # Global Constraints).
+    health = compute_data_health(
+        views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
+        predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
+    )
+    overview = overview_html(flips=flips, actionable=actionable, health=health)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
@@ -448,7 +469,7 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + outage_note + _EXPLAINER + summary + heatmap + timeline_html
+        + header + outage_note + overview + _EXPLAINER + summary + heatmap + timeline_html
         + macro_html + cards + panel + predictive
         + _appendix(idx) + "</body></html>"
     )
