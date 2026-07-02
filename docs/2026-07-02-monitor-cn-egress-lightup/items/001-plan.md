@@ -1110,6 +1110,8 @@ git commit -m "feat(monitor): flow_batch_fetch — one ulist.np call via proxy (
 
 ### Task 9: `flow_series_store.py` — completed-day-only append, prune, idempotency, corrupt-degrade, D7 seed
 
+> **Orchestrator amendment (2026-07-02):** this task's illustrative `_prune` sketch was buggy (anchored the keep-window to the calendar tail, not the written day) and failed this task's own test fixture — independently reproduced at review. As-built `_prune_window(anchor, ...)` filters the calendar to `d <= written day` before taking the last `keep_td`. The test was the contract; code sketch corrected in its favor.
+
 **Files:**
 - Create: `src/irc/monitor/flow_series_store.py`
 - Test: `tests/monitor/test_flow_series_store.py` (create)
