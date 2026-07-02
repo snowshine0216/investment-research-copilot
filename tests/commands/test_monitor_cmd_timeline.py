@@ -86,6 +86,36 @@ def test_build_bias_timeline_absent_cell_sentinel(tmp_path):
 # Finding C: silent drop of malformed JSON lines must log a warning with count
 # ---------------------------------------------------------------------------
 
+def test_run_monitor_timeline_renders_fund_name_end_to_end(tmp_path, monkeypatch):
+    """Flow-wiring trap: fund_names must reach bias_timeline_html through the
+    real run_monitor -> render_report chain, not a hand-built BiasTimeline.
+    The ledger is SEEDED with a prior-day row so the timeline section is
+    guaranteed present — every assertion below is unconditional."""
+    import irc.commands.monitor_cmd as mc
+    from tests.commands.test_monitor_cmd import _YAML, _patch_edges
+
+    _write_ledger(tmp_path, [
+        {"run_date": "2026-06-15", "fund_id": "008986", "raw_bias": "ADD_BIAS",
+         "written_at": "2026-06-15T09:00:00+08:00",
+         "manifest_versions": {"engine": "3"}},
+    ])
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "方向性倾向历史" in html      # seeded ledger -> timeline MUST be present
+    assert "金(008986)" in html          # 名称(代码): name_cn from _YAML's fund config
+    # the timeline table's row label must not be a bare code
+    timeline_table = html.split("方向性倾向历史")[1].split("</table>")[0]
+    assert ">008986<" not in timeline_table
+
+
 def test_read_ledger_rows_logs_warning_on_malformed(tmp_path, caplog):
     """A ledger file with some malformed lines must log a warning containing
     the dropped count and still return the valid rows."""

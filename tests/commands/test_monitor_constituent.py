@@ -335,8 +335,6 @@ def _patch_process_fund_edges(monkeypatch, fund_id: str, series_len: int = 300):
     import irc.commands.monitor_cmd as mc
     from irc.monitor.fetch import NavFetchResult
     from irc.monitor.evidence import make_evidence_item
-    from irc.monitor.narrative import NarrativeResult
-    from irc.monitor.types import NarrativeDoc
 
     series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(series_len))
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.0, "2026-06-15", series))
@@ -344,9 +342,6 @@ def _patch_process_fund_edges(monkeypatch, fund_id: str, series_len: int = 300):
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     # gather_impacts returns two macro theme impacts for the main pool;
     # build_constituent_pool runs real disk I/O, gather_impacts for const_pool is also real.
-    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "ok"), (),
-    ))
 
 
 def _stub_gather_impacts_for_macro_only(monkeypatch, fund_id: str, themes: tuple):
@@ -461,3 +456,52 @@ def test_process_fund_active_no_snapshot_constituent_rows_empty(tmp_path, monkey
     fund = _make_active_fund()
     view, costs, _bundle = mc._process_fund(fund, _MinCfg(), tmp_path, object())
     assert captured_inputs["inp"].constituent_rows == ()
+
+
+def test_run_monitor_constituent_citation_gets_snapshot_badge_in_appendix(tmp_path, monkeypatch):
+    """Comp 4 wiring (flow-wiring trap): a constituent-pool citation renders the
+    快照 badge in the appendix through the REAL run_monitor -> _write_outputs ->
+    render_report chain — real snapshot cache on disk, real build_constituent_pool,
+    constituent items threaded via FundTraceBundle.constituent_pool (Step 4.13)."""
+    import textwrap
+    import irc.commands.monitor_cmd as mc
+
+    yaml_cfg = textwrap.dedent("""
+    schema_version: 1
+    history: { minimum_observations: 10, fetch_calendar_days: 550 }
+    defaults: { signal_bands: { buy: 0.40, sell: -0.40 }, minimum_confidence: 0.50 }
+    funds:
+      - { id: "519069", name_cn: 汇添富价值精选, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+    """)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(yaml_cfg, encoding="utf-8")
+    snap = _make_active_snapshot("519069")            # this file's real fixture
+    write_active_fund_cache(snap, tmp_path / "data")  # cache root run_monitor reads
+
+    _patch_process_fund_edges(monkeypatch, "519069")  # _process_fund edges (real helper)
+    _stub_gather_impacts_for_macro_only(
+        monkeypatch, "519069", ("cn_monetary", "cn_equity_property_policy"))
+    # run_monitor-level edges (the helper above only covers _process_fund's):
+    monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
+    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: object())
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
+    # 盘中提示 fetch is only WIRED into run_monitor in Phase 6, but the attribute
+    # exists today (monitor_cmd.py:181) — patch it now so the Phase-6 sweep
+    # re-running this file stays offline (active-fund symbols would otherwise
+    # trigger a real fetch_flow_today_batch call there).
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "快照" in html
+
+    # the snapshot entry's own <li> carries 快照 and NOT 未分级 (ADR 0022:
+    # snapshot-grounded evidence must never read as an unvetted web source)
+    snapshot_li = next(li for li in html.split("<li") if "Q1 summary" in li)
+    assert "快照" in snapshot_li
+    assert "未分级" not in snapshot_li

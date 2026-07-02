@@ -10,9 +10,8 @@ def _case(category, expected, pool_cids=("bbbb000000000001",)):
             "evidence_pool": [{"citation_id": c} for c in pool_cids]}
 
 
-def _doc(claims):
-    return {"price_action_commentary": list(claims),
-            "signal_rationale_commentary": [], "risk_commentary": []}
+def _doc(claims, theme="geopolitics"):
+    return {theme: list(claims)}
 
 
 def _claim(text, strength="consistent_with", cids=()):
@@ -30,6 +29,17 @@ def test_citation_resolution_one_unresolved():
     cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
     outs = [_doc([_claim("估值偏低", cids=["bbbb000000000001", "ffff000000000000"])])]
     assert citation_resolution(cases, outs) == 0.5
+
+
+def test_citation_resolution_flattens_across_arbitrary_theme_keys():
+    """Theme-keyed output (Phase 3): arbitrary theme names, not the retired
+    *_commentary fields — claims must be flattened across ALL top-level keys."""
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001", "bbbb000000000002"))]
+    outs = [{
+        "cn_monetary": [_claim("流动性宽松", cids=["bbbb000000000001"])],
+        "gold_drivers": [_claim("避险需求上升", cids=["bbbb000000000002"])],
+    }]
+    assert citation_resolution(cases, outs) == 1.0
 
 
 # ---- entailment_ablation_pass ----

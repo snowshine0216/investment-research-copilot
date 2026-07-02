@@ -1,8 +1,21 @@
 {
   "category": "entailment-ablation",
-  "messages_seed": { "fund_id": "000103" },
+  "messages_seed": {
+    "fund_id": "000103",
+    "theme": "geopolitics"
+  },
   "evidence_pool": [
-    {"source": "eastmoney", "title": "板块估值处于历史低位区间", "date": "2026-06-12", "url": "https://example.com/n-val-1", "owner_fund_id": "000103", "citation_id": "bbbb000000000003"}
+    {
+      "source": "eastmoney",
+      "title": "板块估值处于历史低位区间",
+      "date": "2026-06-12",
+      "url": "https://example.com/n-val-1",
+      "owner_fund_id": "000103",
+      "citation_id": "bbbb000000000003"
+    }
   ],
-  "expected": { "present_iff_item": "bbbb000000000003", "claim_probe": "估值" }
+  "expected": {
+    "present_iff_item": "bbbb000000000003",
+    "claim_probe": "估值"
+  }
 }

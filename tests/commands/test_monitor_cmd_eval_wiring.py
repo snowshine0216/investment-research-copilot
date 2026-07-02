@@ -45,6 +45,9 @@ def _patch_pipeline(monkeypatch, funds, views):
     monkeypatch.setattr(monitor_cmd, "record_command_run", lambda **k: None)
     monkeypatch.setattr(monitor_cmd, "_read_prior_signal", lambda root, today: None)
     monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: None)
+    # Report v3: run_monitor consumes theme_results at run level (macro narrative).
+    # Empty map -> empty macro pool -> gather_macro_narrative early-returns (no LLM).
+    monkeypatch.setattr(monitor_cmd, "_build_theme_results", lambda root, funds: {})
     view_iter = iter(views)
     monkeypatch.setattr(
         monitor_cmd, "_process_fund",

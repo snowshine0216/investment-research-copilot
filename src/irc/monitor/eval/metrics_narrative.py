@@ -1,10 +1,14 @@
 """PURE narrative scorers (M1 §3.2). f(cases, outputs) -> float in [0,1].
-No I/O, no network, no LLM. Narrative output shape matches
-narrative._build_messages: three *_commentary fields of claim dicts."""
+No I/O, no network, no LLM. Narrative output shape matches the theme-keyed
+macro narrative block (Phase 3, spec report-v3-readability): a dict keyed
+by arbitrary theme name (see narrative_macro.THEME_DISPLAY_NAME), each value
+a list of claim dicts. Authoritative shape source:
+evals/monitor_narrative/runner.py::run (via drive_case + extract_json) and
+src/irc/monitor/narrative_macro.py::_build_macro_messages /
+gather_macro_narrative. A degraded output is {} (no theme keys)."""
 from __future__ import annotations
 import re
 
-_FIELDS = ("price_action_commentary", "signal_rationale_commentary", "risk_commentary")
 _BANNED_VERBS = ("主因", "导致", "由于")  # narrative._banned_verb_present, verbatim
 _DIGIT = re.compile(r"\d")
 _REF = re.compile(r"\[ref:[0-9a-f]{16}\]")
@@ -15,7 +19,9 @@ def _frac(numer: int, denom: int) -> float:
 
 
 def _all_claims(output: dict) -> list[dict]:
-    return [c for f in _FIELDS for c in output.get(f, [])]
+    """Flatten claims across ALL top-level theme keys (arbitrary theme names;
+    do not hardcode). A degraded {} output yields []."""
+    return [c for claims in output.values() for c in claims]
 
 
 def _pool_cids(case: dict) -> set[str]:

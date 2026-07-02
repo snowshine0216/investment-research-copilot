@@ -1,10 +1,12 @@
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from irc.monitor.render_types import FundView, Provenance
-from irc.monitor.eval.types import GateDecision
+from irc.monitor.eval.types import GateDecision, StageHealth
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS  # noqa: F401 (import sanity)
 from irc.monitor.types import SignalRecord, FactorContribution, NarrativeDoc
 
 _NOW = "2026-06-16T09:00:00+08:00"
+_NOW_DT = datetime(2026, 6, 16, 9, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 def _signal(status="ok", bias="ADD_BIAS"):
@@ -38,7 +40,7 @@ def _render(view, gate):
     sig_health = {"008986": StageHealth("monitor_signal", "PASS", ())}
     det_health = {"008986": StageHealth("deterministic_scoring", "PASS", ())}
     rows = build_panel_rows(sig_health, det_health, now=_NOW)
-    return render_report((view,), prov, prior_signal=None, now=_NOW,
+    return render_report((view,), prov, prior_signal=None, now=_NOW, now_dt=_NOW_DT,
                          gates={"008986": gate}, panel_rows=rows)
 
 
@@ -76,7 +78,7 @@ def test_render_report_backwards_compatible_without_gates():
     # gates defaults to None → falls back to bare bias badge (no chip/panel crash)
     from irc.monitor.render_html import render_report
     prov = Provenance("1", "1", "1", "")
-    html = render_report((_view(),), prov, prior_signal=None, now=_NOW)
+    html = render_report((_view(),), prov, prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "ADD_BIAS" in html
 
 
@@ -94,3 +96,37 @@ def test_validation_panel_overall_pass_when_all_validated():
     html = _render(_view(), _gate(badge="validated", suppressed=False))
     # With all gates validated (no suppressed, no caveated), panel overall is PASS
     assert "Validation" in html
+
+
+def test_panel_vocabulary_and_age_e2e_through_real_render_report():
+    """e2e wiring check (Phase 6 review fix): seeds a REAL flow_coverage
+    informational row (flow_cover below the 0.50 floor) plus the gate-relevant
+    monitor_signal row through build_panel_rows -> render_report, and a stale
+    ran_at on the gate-relevant row to exercise the age-amber path. Prior to this
+    test, panel vocabulary/board-collapse render surfaces had zero coverage
+    through a real rendered report (unit tests only used hand-built
+    ValidationPanelRow fixtures directly against validation_panel_html)."""
+    from irc.monitor.render_html import render_report
+    from irc.monitor.eval.determinism import build_panel_rows
+    view = _view()
+    gate = _gate(badge="validated")
+    prov = Provenance("1", "1", "1", "")
+    sig_health = {"008986": StageHealth("monitor_signal", "PASS", ())}
+    det_health = {"008986": StageHealth("deterministic_scoring", "PASS", ())}
+    # Stale ran_at (>=10d before now) so monitor_signal's row exercises age-amber.
+    stale_now = "2026-06-06T09:00:00+08:00"  # 10 days before _NOW (2026-06-16)
+    rows = build_panel_rows(
+        sig_health, det_health, now=stale_now,
+        flow_coverage_healths={
+            "008986": StageHealth("flow_coverage", "PASS", ("flow_cover 0.2",)),
+        },
+    )
+    html = render_report((view,), prov, prior_signal=None, now=_NOW, now_dt=_NOW_DT,
+                         gates={"008986": gate}, panel_rows=rows)
+    flow_row_html = html.split("flow_coverage")[1].split("</tr>")[0]
+    assert "观测" in flow_row_html
+    assert ">PASS<" not in flow_row_html
+    assert "panel-amber" in html
+    sig_row_html = html.split("monitor_signal")[1].split("</tr>")[0]
+    assert ">PASS<" in sig_row_html  # gate-relevant stage keeps raw vocabulary
+    assert "age-amber" in html

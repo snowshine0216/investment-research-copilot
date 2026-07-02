@@ -46,6 +46,23 @@ def test_timeline_no_script_no_remote():
 # Finding B: absent (fund, date) cells must render distinctly from NEUTRAL
 # ---------------------------------------------------------------------------
 
+def test_bias_timeline_html_renders_name_and_code_not_bare_code():
+    timeline = BiasTimeline(
+        run_dates=("2026-06-15", "2026-06-16"),
+        rows=(("519069", (("ADD_BIAS", "3"), ("NEUTRAL", "3"))),),
+    )
+    names = {"519069": "汇添富价值精选混合"}
+    html = bias_timeline_html(timeline, fund_names=names)
+    assert "汇添富价值精选混合(519069)" in html
+    assert ">519069<" not in html   # bare code alone must not appear as a cell label
+
+
+def test_bias_timeline_html_missing_name_falls_back_to_bare_code():
+    timeline = BiasTimeline(run_dates=("2026-06-15",), rows=(("999999", (("NEUTRAL", "3"),)),))
+    html = bias_timeline_html(timeline, fund_names={})
+    assert "999999" in html   # degrades to bare code, never crashes
+
+
 def test_timeline_absent_cell_distinct_from_neutral():
     """A cell with no-data sentinel (None bias) must render differently from a
     real NEUTRAL cell — it must not carry class 'neutral' and must use a

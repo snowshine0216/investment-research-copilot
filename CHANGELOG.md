@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor report v3 readability: source tiers, one macro narrative, citation dedup, 今日速览, honest dark-data (ADR 0022 / ADR 0017 addendum, 2026-07-02)
+
+- **Evidence source tiers gate ingest** (`src/irc/monitor/source_tiers.py`, `source_tiers:` in `config/monitor.yaml` + template): blocked domains (facebook/x/letsdatascience/…) are dropped at the theme-search edge before becoming evidence (drop counts logged); tier 1 权威 / tier 2 财经媒体 badge in the appendix; unknown domains KEPT and badged 未分级; snapshot-derived constituent evidence badges 快照 (outside the tier system). Config missing/malformed → everything tier 3 + logged warning, never fatal.
+- **Theme-search consolidation 28 → 8 provider calls**: `run_monitor` searches once per unique theme (stable-sorted) and passes the shared results map down; `build_evidence_pool(fund, theme_results=...)` is now pure assembly; identical hits share `(url, date)` across funds while cids stay owner-bound per fund (ADR 0017).
+- **Narrative v3**: the 10 near-duplicate per-fund LLM narratives are replaced by ONE 宏观面速览 macro block — theme-keyed claims (≤3/theme, capped 10 most-recent items/theme) with synthetic `theme:<name>` owners (ADR 0017 addendum), CJK ≥30% language guard (hardened retry then drop — absent > English), attribution-verb bans and citation resolution reused wholesale. Fund cards render theme chips → `#macro-<theme>` anchors + deterministic annotations + constituent drill-down. `narrative.json` keeps per-fund keys (now empty docs) + `"__macro__"`; `eval_trace.json` gains run-level `macro_narrative`, schema 5→6 additive (old traces still load). Narrative LLM calls per run: 10 → 1.
+- **Citation UX v2**: appendix deduped by `(url or title, date)` — one `<li>` per article (`N. {title} — {source} · {date} · {tier badge}`), first-seen order, superscripts link the canonical entry, hover titles carry source + date in both fund cards and the macro block (134 → ~36 entries on the 2026-07-01 shape).
+- **今日速览 strip** (`src/irc/monitor/render_overview.py`): 偏向变化 (vs the prior run's actual date), 可操作 (gate-respecting — EVAL-GATED leans never actionable; 限购 marked), 数据健康 (因子暗 fractions with profile-ineligible excluded · gated count · 过期评估); rows drop when empty; all-empty → 今日无变化，数据健康.
+- **Dark data & staleness honesty**: informational stages render 观测 (never PASS) with coverage reasons inline and amber below the 0.50 flow floor; all-N/A board columns collapse to a header note with an honest per-family reason code; suite `ran_at` always shows age with amber at ≥10d (UNKNOWN(stale) >14d gate behavior unchanged); bias timeline shows 名称(代码); 盘中提示 provisional flow note (actual fetch HH:MM, render-only, never persisted).
+- **No scoring change**: `_ENGINE_VERSION` stays 3; composite math, weights, bands, gating and `published_state` untouched — the tier gate changes macro_tilt's *inputs* only.
+- Ship-review hardening: macro LLM output shape-validation + call-site isolation (a malformed LLM response can no longer crash the daily run — degrades to an absent macro section with all report/trace/ledger writes intact), typed `citation_ids` rejection, tier-read failure logging at both call sites, honest dark-column reason mapping.
+
 ### Fixed — flow-series seeder pruned every row when the trade calendar extends past today (2026-07-02)
 
 - **`seed_from_per_symbol` prune anchor clamped to the newest trading day at-or-before today.**

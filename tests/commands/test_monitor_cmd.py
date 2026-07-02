@@ -41,8 +41,6 @@ def _patch_edges(monkeypatch):
     from irc.monitor.evidence import make_evidence_item
     from irc.monitor.impacts import ImpactsResult
     from irc.monitor.impact_validate import ValidatedImpact
-    from irc.monitor.narrative import NarrativeResult
-    from irc.monitor.types import NarrativeDoc
 
     series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(60))
     monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
@@ -51,6 +49,9 @@ def _patch_edges(monkeypatch):
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
     # Degrade calendar to None so no test reaches AkShare network
     monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    # Comp 2: run_monitor now searches once per unique theme OUTSIDE
+    # build_evidence_pool — stub the run-level edge so e2e tests stay offline.
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
     ev = make_evidence_item("Reuters", "yields", "2026-06-15", "https://r", "008986")
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(
@@ -59,9 +60,6 @@ def _patch_edges(monkeypatch):
          ValidatedImpact("geopolitics", 0.4, 0.8, (ev.citation_id,))),
         "ok",
         (),
-    ))
-    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "ok"), (),
     ))
 
 
@@ -114,48 +112,73 @@ def _fake_provider(hits):
     return _FakeProv()
 
 
-def test_build_evidence_pool_converts_hits_to_evidence_items(monkeypatch):
-    """Fix 4: fake provider with canned hits → EvidenceItems with owner_fund_id set."""
+def test_build_evidence_pool_converts_hits_to_evidence_items():
+    """Fix 4 (superseded by Comp 2): shared theme_results -> EvidenceItems with
+    owner_fund_id set."""
     import irc.commands.monitor_cmd as mc
     from irc.research.search.types import SearchHit
 
     hit = SearchHit(title="Gold up", url="https://reuters.com/gold", snippet="x",
                     published_iso="2026-06-15", source_domain="reuters.com")
-    prov = _fake_provider([hit])
-    monkeypatch.setattr(mc, "build_providers", lambda settings: (prov,))
-    monkeypatch.setattr(mc, "Settings", lambda: object())
-
     fund = _make_fund()
-    items = mc.build_evidence_pool(fund, repo_root=".")
+    items = mc.build_evidence_pool(fund, theme_results={"gold_drivers": (hit,), "geopolitics": ()})
     assert len(items) > 0
     assert all(it.owner_fund_id == "008986" for it in items)
     assert all(len(it.citation_id) == 16 for it in items)
 
 
-def test_build_evidence_pool_no_providers_returns_empty(monkeypatch):
-    """Fix 4: when build_providers returns [] → return () gracefully."""
+def test_build_evidence_pool_no_theme_results_returns_empty():
+    """Empty theme_results map (e.g. no providers configured upstream) -> ()."""
     import irc.commands.monitor_cmd as mc
-    monkeypatch.setattr(mc, "build_providers", lambda settings: ())
-    monkeypatch.setattr(mc, "Settings", lambda: object())
 
     fund = _make_fund()
-    items = mc.build_evidence_pool(fund, repo_root=".")
+    items = mc.build_evidence_pool(fund, theme_results={})
     assert items == ()
 
 
-def test_build_evidence_pool_provider_exception_returns_empty(monkeypatch):
-    """Fix 4: any exception inside → return () (never crash)."""
+def test_build_evidence_pool_missing_theme_key_skips_not_crashes():
+    """A fund theme absent from theme_results (that theme's search failed
+    upstream) contributes no items for that theme rather than raising."""
     import irc.commands.monitor_cmd as mc
 
-    def _boom(settings):
-        raise RuntimeError("network down")
-
-    monkeypatch.setattr(mc, "build_providers", _boom)
-    monkeypatch.setattr(mc, "Settings", lambda: object())
-
     fund = _make_fund()
-    items = mc.build_evidence_pool(fund, repo_root=".")
+    items = mc.build_evidence_pool(fund, theme_results={"geopolitics": ()})
     assert items == ()
+
+
+def test_search_all_themes_drops_blocked_tier_hits(monkeypatch):
+    """ADR 0022 (superseded location, Comp 2): a facebook.com hit is dropped by
+    _search_all_themes before it ever reaches build_evidence_pool."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.source_tiers import SourceTiers
+    from irc.research.search.types import SearchHit
+
+    good = SearchHit(title="Gold up", url="https://reuters.com/gold", snippet="x",
+                     published_iso="2026-06-15", source_domain="reuters.com")
+    blocked = SearchHit(title="junk post", url="https://facebook.com/x", snippet="y",
+                        published_iso="2026-06-15", source_domain="facebook.com")
+    prov = _fake_provider([good, blocked])
+    tiers = SourceTiers(blocked=("facebook.com",), tier1=("reuters.com",), tier2=())
+
+    result = mc._search_all_themes(prov, ("gold_drivers",), tiers=tiers)
+    assert len(result["gold_drivers"]) == 1
+    assert result["gold_drivers"][0].source_domain == "reuters.com"
+
+
+def test_build_theme_results_missing_tier_config_keeps_everything_as_tier3(monkeypatch):
+    """Malformed/missing source_tiers config -> fail-open: nothing dropped."""
+    import irc.commands.monitor_cmd as mc
+    from irc.research.search.types import SearchHit
+
+    hit = SearchHit(title="junk post", url="https://facebook.com/x", snippet="y",
+                    published_iso="2026-06-15", source_domain="facebook.com")
+    prov = _fake_provider([hit])
+    monkeypatch.setattr(mc, "build_providers", lambda settings: (prov,))
+    monkeypatch.setattr(mc, "Settings", lambda: object())
+    monkeypatch.setattr(mc, "_load_source_tiers_config", lambda repo_root: None)
+
+    result = mc._build_theme_results(mc.Path("."), [_make_fund()])
+    assert len(result["gold_drivers"]) == 1   # kept as tier 3, not dropped
 
 
 # ── End-to-end real gather path tests (Fix 5) ────────────────────────────────
@@ -178,6 +201,10 @@ def test_real_gather_path_empty_pool_degrades_gracefully(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
     # Degrade calendar to None so no test reaches AkShare network
     monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    # Comp 2: run_monitor now searches once per unique theme OUTSIDE
+    # build_evidence_pool — stub the run-level edge so this test stays offline
+    # even on a machine with real search-provider keys in .env.
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
     # Return empty pool — no monkeypatch on gather_impacts / gather_narrative
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
 
@@ -210,6 +237,8 @@ def test_monitor_json_contains_impacts_status_degraded(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
     # Degrade calendar to None so no test reaches AkShare network
     monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    # Comp 2: stub the run-level theme-search edge so this test stays offline.
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
 
     rc = run_monitor(repo_root=str(tmp_path), today="2026-06-15")
@@ -278,6 +307,8 @@ def test_real_gather_path_fake_call_produces_ok_impacts(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _make_llm_config())
+    # Comp 2: stub the run-level theme-search edge so this test stays offline.
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
     # Degrade calendar to None so no test reaches AkShare network
@@ -368,3 +399,220 @@ def test_run_monitor_loads_flow_store_slice_once_for_fund_loop(tmp_path, monkeyp
     assert rc == 0
     assert len(calls) == 1, f"expected exactly 1 store read, got {len(calls)}: {calls}"
     assert "600519" in calls[0]
+
+
+def test_run_monitor_fund_card_carries_theme_chips_end_to_end(tmp_path, monkeypatch):
+    """Flow-wiring trap: assert theme chips reach the rendered HTML through the
+    REAL _make_view/run_monitor call chain, not a hand-built FundView."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "#macro-gold_drivers" in html
+    assert "#macro-geopolitics" in html
+
+
+def test_run_monitor_never_calls_gather_narrative_per_fund(tmp_path, monkeypatch):
+    """Report v3: per-fund gather_narrative is DROPPED entirely (spec §5).
+    Assert the function is not even imported/callable from monitor_cmd's
+    namespace anymore — its absence IS the assertion."""
+    import irc.commands.monitor_cmd as mc
+    assert not hasattr(mc, "gather_narrative")
+
+
+def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
+    tmp_path, monkeypatch,
+):
+    """Flow-wiring trap (dark-factor class): the run-level macro_narrative must
+    reach BOTH eval_trace.json (run-level field, schema 6) AND narrative.json's
+    reserved "__macro__" key through the REAL run_monitor -> _write_eval_artifacts
+    / _write_outputs chain — not just exist in gather_macro_narrative's return."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.narrative_macro import (
+        MacroNarrativeDoc, MacroNarrativeResult, MacroThemeBlock,
+    )
+    from irc.monitor.types import Claim
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("gold_drivers", (
+            Claim("黄金受实际利率下行支撑。", "consistent_with", ()),
+        )),),
+        status="ok",
+    )
+    monkeypatch.setattr(mc, "gather_macro_narrative",
+                        lambda **k: MacroNarrativeResult(doc, ()))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["macro_narrative"]["status"] == "ok"
+    assert trace["macro_narrative"]["blocks"][0]["theme"] == "gold_drivers"
+    narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
+    assert narrative["__macro__"]["status"] == "ok"
+    assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
+
+
+def test_run_monitor_survives_gather_macro_narrative_raising(tmp_path, monkeypatch, caplog):
+    """F1 (P0, ship-review round 1): gather_macro_narrative raising ANY exception
+    (valid-JSON-wrong-shape LLM output, provider bug, etc.) must never kill the
+    whole run. The call site degrades to the absent-macro-block shape and the
+    run completes rc-clean with report.html + eval_trace.json still written."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+
+    def _boom(**k):
+        raise RuntimeError("valid-JSON-wrong-shape simulated crash")
+
+    monkeypatch.setattr(mc, "gather_macro_narrative", _boom)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    assert (out / "report.html").exists()
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["macro_narrative"]["status"] != "ok"
+    assert trace["macro_narrative"]["blocks"] == []
+    narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
+    assert narrative["__macro__"]["blocks"] == []
+    assert "gather_error" in trace["macro_narrative"]["status"]
+    assert any("gather_macro_narrative failed" in r.message for r in caplog.records)
+
+
+def test_run_monitor_logs_warning_when_second_tier_read_fails(tmp_path, monkeypatch, caplog):
+    """F3 (P1, ship-review round 1): the SECOND `_load_source_tiers_config` read
+    (used for the drilldown/constituent tiers, distinct from the first read
+    inside _build_theme_results) must log the same warning when it returns
+    None, instead of silently degrading badges to 未分级 with no breadcrumb."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "_load_source_tiers_config", lambda root: None)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    # _patch_edges stubs _build_theme_results entirely, so the FIRST tier read
+    # (inside _build_theme_results) never runs in this test — isolating the
+    # assertion to the SECOND call site (drilldown/constituent tiers), which
+    # must log the same warning instead of swallowing the None silently.
+    warnings = [r.message for r in caplog.records
+                if "source_tiers config missing/malformed" in r.message]
+    assert len(warnings) >= 1
+
+
+def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_health(
+    tmp_path, monkeypatch,
+):
+    """spec §11 acceptance criterion, flow-wiring trap: assert through the REAL
+    run_monitor -> _compute_gates -> render_report chain, not a hand-built
+    ActionableFund/DataHealthCounts fixture."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    # Force the monitor_signal stage to FAIL so apply_eval_gate suppresses the fund
+    # (gate.suppressed=True) while its raw bias stays ADD_BIAS.
+    monkeypatch.setattr(mc, "_compute_gates", lambda funds, views, bundles, **k: (
+        tuple(mc.GateDecision(v.fund_id, True, ("monitor_signal",), "gated", "forced-fail")
+              for v in views),
+        {}, {}, {}, {}, {}, {},
+    ))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "可操作" not in html or "EVAL-GATED" not in html.split("可操作")[1].split("</div>")[0]
+    assert "被评估门禁" in html   # 数据健康 row still counts the gated fund
+
+
+# ── Phase 6: 盘中提示 provisional flow wiring ───────────────────────────────────
+
+
+def test_provisional_flow_for_fund_means_top5_values():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    top5 = (_H("600000"), _H("600001"))
+    provisional = {"600000": 2.0, "600001": 4.0}
+    assert mc._provisional_flow_for_fund(top5, provisional) == 3.0
+
+
+def test_provisional_flow_for_fund_none_provisional_returns_none():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    assert mc._provisional_flow_for_fund((_H("600000"),), None) is None
+
+
+def test_provisional_flow_for_fund_no_values_present_returns_none():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    top5 = (_H("600000"),)
+    assert mc._provisional_flow_for_fund(top5, {"999999": 1.0}) is None
+
+
+def test_run_monitor_calls_provisional_flow_note_once_per_run(tmp_path, monkeypatch):
+    """Budget note (spec §8): +1 proxied data-plane call at 12:15, not per-fund."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    calls = []
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: (
+        calls.append(symbols) or None
+    ))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    assert len(calls) == 1   # exactly once per run, not once per fund
+
+
+def test_run_monitor_provisional_flow_note_error_degrades_to_no_annotation(tmp_path, monkeypatch):
+    """_provisional_flow_note already degrades to None on any error (existing
+    contract) — assert run_monitor still succeeds and simply omits the
+    annotation."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "盘中主力净流入" not in html   # no annotation, no crash

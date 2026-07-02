@@ -28,3 +28,37 @@ funds:
   - { id: "519770", name_cn: 交银择优回报, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
   - { id: "018132", name_cn: 博时中证有色金属矿业主题指数A, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [global_growth, geopolitics, cn_equity_property_policy], constituent_news: true }
   - { id: "161903", name_cn: 万家行业优选, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+
+# Web-search (theme pool) evidence source classification (ADR 0022). Domain-suffix
+# match; unknown domains classify tier 3 (kept, badged 未分级), never dropped.
+# Constituent-pool (snapshot) evidence is OUTSIDE this system — see ADR 0022.
+source_tiers:
+  blocked:
+    - facebook.com
+    - x.com
+    - twitter.com
+    - reddit.com
+    - letsdatascience.com
+    - mezha.net
+  tier1:
+    - reuters.com
+    - bloomberg.com
+    - xinhuanet.com
+    - gov.cn
+    - pbc.gov.cn
+    - people.com.cn
+    - chinadaily.com.cn
+    - imf.org
+    - federalreserve.gov
+  tier2:
+    - cnbc.com
+    - ft.com
+    - wsj.com
+    - kitco.com
+    - mining.com
+    - axios.com
+    - eastmoney.com
+    - caixin.com
+    - yicai.com
+    - sina.com.cn
+    - 21jingji.com
