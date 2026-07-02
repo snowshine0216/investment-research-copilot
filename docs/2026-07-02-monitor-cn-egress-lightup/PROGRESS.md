@@ -2,7 +2,9 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/monitor-cn-egress-lightup-001 | ✅ a0d7f8a4 | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+
+Impl: 16/16 plan tasks via SDD (implementer+reviewer per task; 2 fix rounds mid-loop), Opus whole-branch final review READY (0 Critical/Important), final fix round a0d7f8a4 (9 minors). Ledger: .superpowers/sdd/progress.md. GATE-1 dual outcome + GATE-2 OPEN documented in spec appendix.
 
 Plan: [items/001-plan.md](items/001-plan.md) (commit 22b50ca6, 16 tasks / 88 steps; Slice-0 GATE-1 live-PASS at authoring, GATE-2 deferred-documented)
 
