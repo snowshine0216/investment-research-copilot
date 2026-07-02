@@ -135,3 +135,60 @@ def test_decision_line_no_tag_when_open():
     mv = MarketCompositeView(0.1, "NEUTRAL", 0.0, 2)
     html = decision_line_html(mv, purchase_tag=None)
     assert "限购" not in html
+
+
+def test_verdict_block_renders_with_empty_narrative_doc():
+    """Report v3: every fund's NarrativeDoc is now always the empty degraded
+    doc (status='empty_pool', no LLM call). verdict_block_html must still
+    render the deterministic clause; the MiniMax-comment blockquote is simply
+    absent (degrades through the EXISTING narr.status != 'ok' path)."""
+    from irc.monitor.render_cards import verdict_block_html
+    from irc.monitor.types import NarrativeDoc, SignalRecord
+
+    sig = SignalRecord(
+        fund_id="008986", status="ok", bias="ADD_BIAS", composite=0.55,
+        signal_confidence=0.9, available_weight=1.0, present_families=("trend",),
+        contributions=(), divergence_codes=(),
+    )
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    html = verdict_block_html(sig, empty_narr, idx=None)
+    assert "ADD_BIAS" in html
+    assert "综合分 C = 0.5500" in html
+    assert "narr-degraded" not in html   # not an ERROR state, just an intentionally empty doc
+
+
+def test_risk_block_renders_muted_placeholder_with_empty_narrative_doc():
+    from irc.monitor.render_cards import risk_block_html
+    from irc.monitor.types import NarrativeDoc, SignalRecord
+
+    sig = SignalRecord(
+        fund_id="008986", status="ok", bias="NEUTRAL", composite=0.05,
+        signal_confidence=0.9, available_weight=1.0, present_families=("trend",),
+        contributions=(), divergence_codes=(),
+    )
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    html = risk_block_html(sig, empty_narr, idx=None)
+    assert "无显著风险信号" in html
+
+
+def test_narrative_sections_html_empty_narrative_doc_renders_nothing():
+    from irc.monitor.render_cards import narrative_sections_html
+    from irc.monitor.types import NarrativeDoc
+
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    assert narrative_sections_html(empty_narr, idx=None) == ""
+
+
+def test_theme_chips_html_renders_one_chip_per_fund_theme():
+    from irc.monitor.render_cards import theme_chips_html
+
+    html = theme_chips_html(("us_monetary", "geopolitics"))
+    assert '#macro-us_monetary' in html
+    assert '#macro-geopolitics' in html
+    assert "美联储政策" in html
+    assert "地缘政治" in html
+
+
+def test_theme_chips_html_empty_themes_renders_empty_string():
+    from irc.monitor.render_cards import theme_chips_html
+    assert theme_chips_html(()) == ""

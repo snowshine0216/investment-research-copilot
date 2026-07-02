@@ -1,7 +1,7 @@
 # tests/commands/test_monitor_cmd_valuation.py
 from __future__ import annotations
 
-from irc.monitor.types import MonitorFund, NarrativeDoc
+from irc.monitor.types import MonitorFund
 from irc.monitor.valuation import ValuationResolution
 from irc.fundamentals.types import ActiveFundSnapshot, ConstituentAnalysis
 
@@ -15,12 +15,6 @@ class _FakeImpacts:
     impacts = ()
     cost_entries = []
     status = "ok"
-
-
-class _FakeNarr:
-    cost_entries = []
-    def __init__(self, fid):
-        self.doc = NarrativeDoc(fid, (), (), (), "ok")
 
 
 def _active_fund(fid="110011"):
@@ -86,7 +80,6 @@ def test_lookthrough_active_fund_gets_eligible_bottomup_valuation(monkeypatch, t
     import irc.commands.monitor_cmd as mc
     import irc.opportunity.inputs_loader as il
     _patch_common(monkeypatch, mc)
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr("110011"))
     monkeypatch.setattr(mc, "load_latest_active_fund_cached",
                         lambda fid, data_dir: _snap("110011", [("600519", "茅台", 60.0)]))
     # look-through path (no tracked_index)
@@ -107,7 +100,6 @@ def test_qdii_009225_stays_valuation_no_anchor_via_state_path(monkeypatch, tmp_p
     builds none) → valuation_aggregate stays None → state path → valuation_no_anchor."""
     import irc.commands.monitor_cmd as mc
     _patch_common(monkeypatch, mc)
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr("009225"))
     # qdii_china_us_internet profile.lookthrough == "fund_level" → NO active_fund
     # holdings branch → holding_metrics empty.
     monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: None)
@@ -127,7 +119,6 @@ def test_synthetic_index_path_fund_rides_index_state(monkeypatch, tmp_path):
     import irc.commands.monitor_cmd as mc
     import irc.opportunity.inputs_loader as il
     _patch_common(monkeypatch, mc)
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr("510300"))
     monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: None)
     monkeypatch.setattr(il, "_stock_series_by_code", lambda con, syms: {})
     # index path resolves a real state
@@ -166,7 +157,6 @@ def test_con_none_valuation_fallback_path_is_lookthrough(monkeypatch, tmp_path):
         return original_build(profile, inp)
 
     _patch_common(monkeypatch, mc)
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr("110011"))
     # Provide a snapshot so full_holdings is non-empty → holding_metrics built.
     monkeypatch.setattr(mc, "load_latest_active_fund_cached",
                         lambda fid, data_dir: _snap("110011", [("600519", "茅台", 60.0)]))

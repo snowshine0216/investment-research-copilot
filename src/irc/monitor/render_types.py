@@ -31,3 +31,4 @@ class FundView:
     holding_metrics: tuple[HoldingMetric, ...] = ()  # per-stock drill-down (Slice 2+)
     market_view: MarketCompositeView | None = None   # Comp 1: render-derived anchor
     purchase_tag: str | None = None                  # Comp 5: 限购 actionability tag
+    themes: tuple[str, ...] = ()   # Comp 3: theme chips -> #macro-<theme> anchors

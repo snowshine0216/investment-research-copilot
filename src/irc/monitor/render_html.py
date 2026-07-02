@@ -4,7 +4,10 @@ from html import escape
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.render_cards import (
     narrative_sections_html, risk_block_html, verdict_block_html, decision_line_html,
+    theme_chips_html,
 )
+from irc.monitor.narrative_macro import MacroNarrativeDoc, theme_display_name
+from irc.monitor.types import EvidenceItem
 from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
 from irc.monitor.holding_metrics import aggregate_flow
@@ -42,9 +45,13 @@ class CitationIndex:
         return None if p is None else self.entries[p][2]
 
 
-def build_citation_index(views: tuple[FundView, ...]) -> CitationIndex:
-    """PURE: appendix-order (first-seen) cid index over every fund's evidence pool.
-    Same iteration order as _appendix so superscript-N == appendix-N."""
+def build_citation_index(
+    views: tuple[FundView, ...], macro_pool_items: tuple[EvidenceItem, ...] = (),
+) -> CitationIndex:
+    """PURE: appendix-order (first-seen) cid index over every fund's evidence
+    pool PLUS the macro pool's evidence items (so 宏观面速览 superscripts
+    resolve too). Same iteration order as _appendix so superscript-N ==
+    appendix-N."""
     seen: set[str] = set()
     out: list[tuple[str, str, str]] = []
     for v in views:
@@ -53,6 +60,11 @@ def build_citation_index(views: tuple[FundView, ...]) -> CitationIndex:
                 continue
             seen.add(ev.citation_id)
             out.append((ev.citation_id, ev.source, ev.title))
+    for ev in macro_pool_items:
+        if ev.citation_id in seen:
+            continue
+        seen.add(ev.citation_id)
+        out.append((ev.citation_id, ev.source, ev.title))
     return CitationIndex(tuple(out))
 
 
@@ -238,6 +250,7 @@ def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
         f"{_drilldown_block(view)}"
+        f"{theme_chips_html(view.themes)}"
         f"{narrative_sections_html(view.narrative, idx)}"
         f"{risk_block_html(view.signal, view.narrative, idx)}"
         "</section>"
@@ -275,6 +288,59 @@ def _panel(
     return validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))
 
 
+def _macro_claim_html(claim, idx: "CitationIndex") -> str:
+    text = escape(claim.claim)
+    refs = "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
+    return f"<p>{text} {refs}</p>"
+
+
+def _sup_local(cid: str, idx: "CitationIndex") -> str:
+    n = idx.number(cid)
+    if n is None:
+        return ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}")
+    return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+
+
+def _macro_theme_section(
+    block, fund_themes_by_theme: dict[str, tuple[str, ...]], idx: "CitationIndex | None",
+) -> str:
+    label = escape(theme_display_name(block.theme))
+    funds = fund_themes_by_theme.get(block.theme, ())
+    chips = "".join(f'<span class="fund-chip">{escape(fid)}</span>' for fid in funds)
+    body = "".join(_macro_claim_html(c, idx) if idx is not None else f"<p>{escape(c.claim)}</p>"
+                   for c in block.claims)
+    return (
+        f'<div class="macro-theme" id="macro-{escape(block.theme)}">'
+        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{body}</div>"
+    )
+
+
+def macro_narrative_html(
+    doc: MacroNarrativeDoc | None,
+    *, fund_themes_by_theme: dict[str, tuple[str, ...]],
+    idx: "CitationIndex | None" = None,
+) -> str:
+    """PURE: 宏观面速览 section, theme-labeled Chinese subsections with #macro-<theme>
+    anchors + affected-fund chips (spec §5). None doc or 'empty_pool'/non-'ok'
+    status or zero blocks -> '' (degrades like the timeline/predictive panel)."""
+    if doc is None or doc.status != "ok" or not doc.blocks:
+        return ""
+    sections = "".join(_macro_theme_section(b, fund_themes_by_theme, idx) for b in doc.blocks)
+    return f'<section class="macro-narrative"><h2>宏观面速览</h2>{sections}</section>'
+
+
+def _invert_fund_themes(views: tuple[FundView, ...]) -> dict[str, tuple[str, ...]]:
+    """PURE: theme -> tuple of fund_ids whose fund.themes include it (deterministic
+    from config, spec §5 — 'affected-fund chips ... reverse of the card→anchor
+    links'). Stable order: iteration order of views."""
+    out: dict[str, list[str]] = {}
+    for v in views:
+        for theme in v.themes:
+            out.setdefault(theme, []).append(v.fund_id)
+    return {theme: tuple(fids) for theme, fids in out.items()}
+
+
 def render_report(
     views: tuple[FundView, ...],
     provenance: Provenance,
@@ -285,6 +351,8 @@ def render_report(
     panel_rows: tuple[ValidationPanelRow, ...] = (),
     predictive_panel: PredictivePanelModel | None = None,
     timeline: BiasTimeline | None = None,
+    macro_narrative: MacroNarrativeDoc | None = None,
+    macro_pool_items: tuple[EvidenceItem, ...] = (),
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -293,7 +361,7 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
-    idx = build_citation_index(views)
+    idx = build_citation_index(views, macro_pool_items)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
@@ -301,6 +369,9 @@ def render_report(
     )
     heatmap = factor_heatmap_html(views)
     timeline_html = bias_timeline_html(timeline) if timeline is not None else ""
+    fund_themes_by_theme = _invert_fund_themes(views)
+    macro_html = macro_narrative_html(
+        macro_narrative, fund_themes_by_theme=fund_themes_by_theme, idx=idx)
     cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
     panel = _panel(views, gates, panel_rows)
     outage_note = _flow_outage_note(views)
@@ -312,6 +383,6 @@ def render_report(
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
         + header + outage_note + _EXPLAINER + summary + heatmap + timeline_html
-        + cards + panel + predictive
+        + macro_html + cards + panel + predictive
         + _appendix(idx) + "</body></html>"
     )

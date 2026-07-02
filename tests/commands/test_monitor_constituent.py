@@ -335,8 +335,6 @@ def _patch_process_fund_edges(monkeypatch, fund_id: str, series_len: int = 300):
     import irc.commands.monitor_cmd as mc
     from irc.monitor.fetch import NavFetchResult
     from irc.monitor.evidence import make_evidence_item
-    from irc.monitor.narrative import NarrativeResult
-    from irc.monitor.types import NarrativeDoc
 
     series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(series_len))
     monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.0, "2026-06-15", series))
@@ -344,9 +342,6 @@ def _patch_process_fund_edges(monkeypatch, fund_id: str, series_len: int = 300):
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
     # gather_impacts returns two macro theme impacts for the main pool;
     # build_constituent_pool runs real disk I/O, gather_impacts for const_pool is also real.
-    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "ok"), (),
-    ))
 
 
 def _stub_gather_impacts_for_macro_only(monkeypatch, fund_id: str, themes: tuple):

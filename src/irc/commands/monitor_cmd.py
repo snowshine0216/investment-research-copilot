@@ -38,7 +38,7 @@ from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_indust
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
-from irc.monitor.narrative import gather_narrative
+from irc.monitor.narrative_macro import build_macro_pool, gather_macro_narrative, MacroNarrativeDoc
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
 from irc.monitor.render_html import render_report
@@ -358,6 +358,7 @@ def _make_view(
         holding_metrics=holding_metrics,
         market_view=mv,
         purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
+        themes=fund.themes,
     )
 
 
@@ -394,8 +395,8 @@ def _impacts_dump(views: list[FundView]) -> dict:
     }
 
 
-def _narrative_dump(views: list[FundView]) -> dict:
-    return {
+def _narrative_dump(views: list[FundView], macro_doc: MacroNarrativeDoc | None) -> dict:
+    out = {
         v.fund_id: {
             "status": v.narrative.status,
             "price_action": [c.claim for c in v.narrative.price_action_commentary],
@@ -404,6 +405,17 @@ def _narrative_dump(views: list[FundView]) -> dict:
         }
         for v in views
     }
+    out["__macro__"] = (
+        {
+            "status": macro_doc.status,
+            "blocks": [
+                {"theme": b.theme, "claims": [c.claim for c in b.claims]}
+                for b in macro_doc.blocks
+            ],
+        }
+        if macro_doc is not None else {"status": "empty_pool", "blocks": []}
+    )
+    return out
 
 
 def _machine_summary(views: list[FundView]) -> dict:
@@ -426,12 +438,15 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple[GateDecision, ...] = (),
                    panel_rows: tuple[ValidationPanelRow, ...] = (),
                    predictive_panel: PredictivePanelModel | None = None,
-                   timeline: BiasTimeline | None = None) -> None:
-    prov = Provenance(_ENGINE_VERSION, "1", "1", "")
+                   timeline: BiasTimeline | None = None,
+                   macro_doc: MacroNarrativeDoc | None = None,
+                   macro_pool_items: tuple = ()) -> None:
+    prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
-                         predictive_panel=predictive_panel, timeline=timeline)
+                         predictive_panel=predictive_panel, timeline=timeline,
+                         macro_narrative=macro_doc, macro_pool_items=macro_pool_items)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -443,7 +458,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
     )
     atomic_write_text(
         out / "narrative.json",
-        json.dumps(_narrative_dump(views), indent=2, sort_keys=True),
+        json.dumps(_narrative_dump(views, macro_doc), indent=2, sort_keys=True),
     )
     atomic_write_text(
         out / "monitor.json",
@@ -587,14 +602,16 @@ def _compute_gates(
 def _write_eval_artifacts(
     out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
-    trading_days: frozenset[date] | None,
+    trading_days: frozenset[date] | None, macro_narrative=None,
 ) -> None:
-    """EDGE: serialize eval_trace.json + append the forward ledger. Failures are
-    logged and swallowed — the brief must still render."""
+    """EDGE: serialize eval_trace.json (now carrying the run-level macro_narrative
+    field, schema 5->6) + append the forward ledger. Failures are logged and
+    swallowed — the brief must still render."""
     try:
         trace = build_eval_trace(
             tuple(zip(funds, views, gates, bundles)),
             engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
+            macro_narrative=macro_narrative,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -779,7 +796,11 @@ def _process_fund(
     today: str | None = None, flow_slice: dict | None = None,
     theme_results: dict[str, tuple] | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
-    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle).
+    """Process one fund: fetch → impacts → signal → view (+ eval bundle).
+
+    Report v3: the per-fund LLM narrative call is GONE — every view carries the
+    empty degraded NarrativeDoc; the run-level 宏观面 macro block (built once in
+    run_monitor via gather_macro_narrative) replaces it (spec §5).
 
     `flow_slice` is the run-level flow-store slice (see prior docstring, unchanged).
     `theme_results` is the run-level shared theme-search results map (Comp 2,
@@ -850,11 +871,8 @@ def _process_fund(
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
-    narr = gather_narrative(
-        fund_id=fund.id, pool=pool, route=llm_config, call=llm_call,
-    )
-    cost_history.extend(narr.cost_entries)
-    view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status,
+    empty_narr = NarrativeDoc(fund.id, (), (), (), "empty_pool")
+    view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
                       holding_metrics=holding_metrics, purchase_table=purchase_table)
     bundle = FundTraceBundle(
         fund_id=fund.id,
@@ -925,6 +943,10 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     finally:
         if con is not None:
             con.close()
+    macro_pool = build_macro_pool(theme_results)
+    macro_result = gather_macro_narrative(theme_pool=macro_pool, route=llm_config, call=llm_call)
+    all_costs.extend(macro_result.cost_entries)
+    macro_pool_items = tuple(ev for items in macro_pool.values() for ev in items)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
@@ -946,12 +968,14 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
-                          run_date=_today, trading_days=trading_days)
+                          run_date=_today, trading_days=trading_days,
+                          macro_narrative=macro_result.doc)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
-                   timeline=timeline)
+                   timeline=timeline, macro_doc=macro_result.doc,
+                   macro_pool_items=macro_pool_items)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

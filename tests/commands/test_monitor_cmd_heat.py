@@ -11,7 +11,7 @@ from pathlib import Path
 import pandas as pd
 
 from irc.commands import monitor_cmd as mc
-from irc.monitor.types import MonitorFund, NarrativeDoc
+from irc.monitor.types import MonitorFund
 
 
 class _MinCfg:
@@ -38,12 +38,6 @@ def _patch_edges(monkeypatch, fund_id: str) -> None:
         cost_entries = ()
 
     monkeypatch.setattr(mc, "gather_impacts", lambda **kw: _Imp())
-
-    class _Narr:
-        doc = NarrativeDoc(fund_id, (), (), (), "empty_pool")
-        cost_entries = ()
-
-    monkeypatch.setattr(mc, "gather_narrative", lambda **kw: _Narr())
 
 
 def _heat_score(view):

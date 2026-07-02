@@ -1,6 +1,7 @@
 from __future__ import annotations
 from html import escape
 from irc.monitor.types import Claim, NarrativeDoc, SignalRecord
+from irc.monitor.narrative_macro import theme_display_name
 from irc.monitor.render_factors import divergence_caveat
 from irc.monitor.market_composite import MarketCompositeView
 
@@ -76,6 +77,10 @@ def _gate_clause(rec: SignalRecord) -> str:
 
 
 def _comment(narr: NarrativeDoc, idx) -> str:
+    if narr.status == "empty_pool":
+        # Report v3: per-fund narrative is intentionally the empty degraded doc
+        # (macro block replaces it) — not an error, render no note.
+        return ""
     if narr.status != "ok":
         return f'<p class="narr-degraded">narrative unavailable: {escape(narr.status)}</p>'
     lead = narr.signal_rationale_commentary[:1]
@@ -111,3 +116,16 @@ def narrative_sections_html(narr: NarrativeDoc, idx) -> str:
         return ""
     body = "".join(_claim_html(c, idx) for c in narr.price_action_commentary)
     return f'<div class="price-action"><h3>价格走势 / Price action</h3>{body}</div>'
+
+
+def theme_chips_html(themes: tuple[str, ...]) -> str:
+    """PURE: one chip per fund theme, linking to its #macro-<theme> anchor in
+    the 宏观面速览 section (spec §5 — fund cards link instead of repeating
+    macro text 10x). Empty themes -> ''."""
+    if not themes:
+        return ""
+    chips = "".join(
+        f'<a class="theme-chip" href="#macro-{theme}">{theme_display_name(theme)}</a>'
+        for theme in themes
+    )
+    return f'<div class="theme-chips">{chips}</div>'

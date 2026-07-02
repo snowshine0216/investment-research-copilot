@@ -78,7 +78,6 @@ def test_flow_wired_into_composite_for_active_cn_equity(monkeypatch, tmp_path: P
     monkeypatch.setattr(mc, "nav_series_for", lambda _fid: None)
     monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
     monkeypatch.setattr(mc, "gather_impacts", lambda **_kw: _FakeImpacts())
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
     monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: _fake_snap())
     monkeypatch.setattr(mc, "_load_flow_store_slice",
@@ -115,11 +114,6 @@ class _FakeImpacts:
 
     def _impact_rows_from(self, fund):
         return ()
-
-
-class _FakeNarr:
-    doc = NarrativeDoc("110011", (), (), (), "ok")
-    cost_entries = []
 
 
 # ── Finding 2: exception in flow_reconciliation must yield WARN, not PASS ─────

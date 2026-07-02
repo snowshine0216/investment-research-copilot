@@ -280,3 +280,56 @@ def test_render_report_includes_charts():
     assert 'class="contrib"' in html
     # heatmap appears after the summary table, before cards
     assert html.index("summary") < html.index('class="heatmap"') < html.index("fund-card")
+
+
+def test_macro_narrative_html_renders_theme_labeled_sections_with_anchors():
+    from irc.monitor.render_html import macro_narrative_html
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    from irc.monitor.types import Claim
+
+    doc = MacroNarrativeDoc(
+        blocks=(
+            MacroThemeBlock("us_monetary", (
+                Claim("美联储本周维持利率不变。", "consistent_with", ()),
+            )),
+        ),
+        status="ok",
+    )
+    html = macro_narrative_html(doc, fund_themes_by_theme={"us_monetary": ("270023", "009225")})
+    assert 'id="macro-us_monetary"' in html
+    assert "美联储政策" in html
+    assert "美联储本周维持利率不变。" in html
+    assert "270023" in html and "009225" in html   # affected-fund chips
+
+
+def test_macro_narrative_html_none_doc_renders_empty_string():
+    from irc.monitor.render_html import macro_narrative_html
+    assert macro_narrative_html(None, fund_themes_by_theme={}) == ""
+
+
+def test_macro_narrative_html_empty_pool_status_renders_empty_string():
+    from irc.monitor.render_html import macro_narrative_html
+    from irc.monitor.narrative_macro import MacroNarrativeDoc
+
+    doc = MacroNarrativeDoc(blocks=(), status="empty_pool")
+    assert macro_narrative_html(doc, fund_themes_by_theme={}) == ""
+
+
+def test_macro_narrative_html_claims_capped_at_3_per_theme_defensively():
+    """Even if a doc somehow carries >3 claims (should never happen post-gather),
+    the renderer only emits what it's given — this test documents that the CAP
+    is gather_macro_narrative's responsibility, not the renderer's, by asserting
+    all provided claims render (renderer is dumb/pure)."""
+    from irc.monitor.render_html import macro_narrative_html
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    from irc.monitor.types import Claim
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("geopolitics", (
+            Claim("声明一。", "consistent_with", ()),
+            Claim("声明二。", "consistent_with", ()),
+        )),),
+        status="ok",
+    )
+    html = macro_narrative_html(doc, fund_themes_by_theme={"geopolitics": ()})
+    assert "声明一。" in html and "声明二。" in html

@@ -41,8 +41,6 @@ def _patch_edges(monkeypatch):
     from irc.monitor.evidence import make_evidence_item
     from irc.monitor.impacts import ImpactsResult
     from irc.monitor.impact_validate import ValidatedImpact
-    from irc.monitor.narrative import NarrativeResult
-    from irc.monitor.types import NarrativeDoc
 
     series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(60))
     monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
@@ -62,9 +60,6 @@ def _patch_edges(monkeypatch):
          ValidatedImpact("geopolitics", 0.4, 0.8, (ev.citation_id,))),
         "ok",
         (),
-    ))
-    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "ok"), (),
     ))
 
 
@@ -404,3 +399,65 @@ def test_run_monitor_loads_flow_store_slice_once_for_fund_loop(tmp_path, monkeyp
     assert rc == 0
     assert len(calls) == 1, f"expected exactly 1 store read, got {len(calls)}: {calls}"
     assert "600519" in calls[0]
+
+
+def test_run_monitor_fund_card_carries_theme_chips_end_to_end(tmp_path, monkeypatch):
+    """Flow-wiring trap: assert theme chips reach the rendered HTML through the
+    REAL _make_view/run_monitor call chain, not a hand-built FundView."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "#macro-gold_drivers" in html
+    assert "#macro-geopolitics" in html
+
+
+def test_run_monitor_never_calls_gather_narrative_per_fund(tmp_path, monkeypatch):
+    """Report v3: per-fund gather_narrative is DROPPED entirely (spec §5).
+    Assert the function is not even imported/callable from monitor_cmd's
+    namespace anymore — its absence IS the assertion."""
+    import irc.commands.monitor_cmd as mc
+    assert not hasattr(mc, "gather_narrative")
+
+
+def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
+    tmp_path, monkeypatch,
+):
+    """Flow-wiring trap (dark-factor class): the run-level macro_narrative must
+    reach BOTH eval_trace.json (run-level field, schema 6) AND narrative.json's
+    reserved "__macro__" key through the REAL run_monitor -> _write_eval_artifacts
+    / _write_outputs chain — not just exist in gather_macro_narrative's return."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.narrative_macro import (
+        MacroNarrativeDoc, MacroNarrativeResult, MacroThemeBlock,
+    )
+    from irc.monitor.types import Claim
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("gold_drivers", (
+            Claim("黄金受实际利率下行支撑。", "consistent_with", ()),
+        )),),
+        status="ok",
+    )
+    monkeypatch.setattr(mc, "gather_macro_narrative",
+                        lambda **k: MacroNarrativeResult(doc, ()))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["macro_narrative"]["status"] == "ok"
+    assert trace["macro_narrative"]["blocks"][0]["theme"] == "gold_drivers"
+    narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
+    assert narrative["__macro__"]["status"] == "ok"
+    assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
