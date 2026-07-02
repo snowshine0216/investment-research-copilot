@@ -30,7 +30,8 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
-from irc.monitor.flow_fetch import fetch_flow_series
+from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
+from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
 from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
@@ -161,6 +162,33 @@ def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
 # ── Constituent pool (EDGE — snapshot I/O) ───────────────────────────────────
 
 _TOP_N_HOLDINGS = 5
+_FLOW_STORE_REL = ("data", "monitor", "fund_flow_series.json")
+
+
+def _load_flow_store_slice(root: Path, symbols) -> dict:
+    """EDGE-read: the persisted completed-day flow store, sliced to `symbols`.
+    The 12:15 brief consumes the store (whose newest row is a COMPLETED day); it
+    NEVER writes a provisional intraday value (D6/trap §8). Degrades to {} on any
+    error — the flow factor then reads all-None (honest N/A)."""
+    try:
+        store = load_store(root.joinpath(*_FLOW_STORE_REL))
+        return series_slice(store, symbols)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_load_flow_store_slice failed", exc_info=True)
+        return {}
+
+
+def _provisional_flow_note(root: Path, symbols) -> dict | None:
+    """EDGE-read only: today's intraday f184 as a 盘中提示 annotation for the 12:15
+    brief. NEVER persisted (no append_today here) — the store's newest row stays a
+    COMPLETED day (D6/trap §8). Degrades to None on any error (no annotation)."""
+    if not symbols:
+        return None
+    try:
+        return fetch_flow_today_batch(tuple(symbols))
+    except Exception:  # noqa: BLE001 — annotation is best-effort
+        _log.warning("_provisional_flow_note failed", exc_info=True)
+        return None
 
 
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
@@ -240,17 +268,16 @@ def _make_constituent_rows(
 # ── Orchestration helpers ─────────────────────────────────────────────────────
 
 
-def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con):
-    """EDGE: fetch flow (top-5) + industry (full basket) → full-basket HoldingMetrics.
-    Flow stays top-5 (byte-identical); valuation/board span the full basket."""
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
+    """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
+    (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
+    loads the store slice for the union of all active-fund symbols and passes it
+    through to every _process_fund call (see `run_monitor`); a caller invoking
+    _process_fund directly (e.g. tests) without a slice still falls back to
+    _load_flow_store_slice for library robustness."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
-    try:
-        flow_series = fetch_flow_series(
-            flow_symbols, cache_dir=root / "data" / "monitor" / "fund_flow", today=today)
-    except Exception:  # noqa: BLE001 — degrade, never crash the brief
-        _log.warning("flow_fetch failed for %s", fund_id, exc_info=True)
-        flow_series = {s: None for s in flow_symbols}
+    flow_series = {s: flow_slice.get(s) for s in flow_symbols}
     full_symbols = tuple(h.symbol for h in full_holdings)
     if con is None:
         return build_holding_metrics(full_holdings, {}, flow_series)
@@ -722,9 +749,14 @@ def _append_nav_history_for_views(
 
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
-    today: str | None = None,
+    today: str | None = None, flow_slice: dict | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
-    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
+    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle).
+
+    `flow_slice` is the run-level flow-store slice loaded ONCE by `run_monitor`
+    for the union of all active-fund top-5 symbols (read-once intent, D10). When
+    None (e.g. a caller/test invoking this function directly), falls back to a
+    per-fund `_load_flow_store_slice` read for library robustness."""
     from irc.monitor.profiles import PROFILES
     from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
@@ -759,7 +791,10 @@ def _process_fund(
             constituent_rows = _make_constituent_rows(const_impacts_result, top5)
         if full_holdings and today is not None:
             holding_metrics = _build_full_basket_metrics(
-                full_holdings, top5, fund.id, root=root, today=today, con=con)
+                full_holdings, top5, fund.id, root=root, today=today, con=con,
+                flow_slice=(flow_slice if flow_slice is not None
+                            else _load_flow_store_slice(
+                                root, tuple(h.symbol for h in top5))))
 
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
@@ -821,6 +856,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     purchase_table = fetch_purchase_table()  # ONE akshare call/run; None on failure → heat_no_data
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
+    flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
@@ -828,7 +864,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         for fund in funds:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
-                today=_today,
+                today=_today, flow_slice=flow_slice,
             )
             views.append(view)
             bundles.append(bundle)
@@ -870,4 +906,49 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         search_units={},
         today=datetime.fromisoformat(_today).date(),
     )
+    return 0
+
+
+_FLOW_KEEP_TD = 25
+
+
+def _capture_union_symbols(funds, root: Path) -> tuple:
+    """The union of the monitor set's active-fund top-5 look-through symbols."""
+    from irc.monitor.profiles import PROFILES
+    syms: list[str] = []
+    for fund in funds:
+        spec = PROFILES.get(fund.analysis_profile)
+        if not (spec and spec.lookthrough == "active_fund"):
+            continue
+        snap = load_latest_active_fund_cached(fund.id, root / "data")
+        if snap is None:
+            continue
+        top = sorted(snap.constituent_analyses, key=lambda c: c.weight_pct,
+                     reverse=True)[:_TOP_N_HOLDINGS]
+        syms.extend(h.symbol for h in top)
+    return tuple(dict.fromkeys(syms))
+
+
+def run_flow_capture(*, repo_root: str, today: str | None = None) -> int:
+    """EDGE (15:45 job, D6): ONE ulist.np batch → append the now-final f184 to the
+    completed-day store. No LLM, no report, no ledger. `today` MUST be a completed
+    CN trading day (the wrapper runs it after the 15:00 close)."""
+    root = Path(repo_root)
+    _today = today or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    funds = resolve_funds(load_monitor_config(root))
+    symbols = _capture_union_symbols(funds, root)
+    if not symbols:
+        _log.warning("flow-capture: no active-fund symbols; nothing to capture")
+        return 0
+    try:
+        by_symbol = fetch_flow_today_batch(symbols)
+    except Exception:  # noqa: BLE001 — degrade, never crash (breaker/abort posture)
+        _log.warning("flow-capture: ulist.np batch failed", exc_info=True)
+        return 0
+    trading_days = load_trading_days(date.today(), root=root)
+    tds = tuple(d.isoformat() for d in (trading_days or ()))
+    append_today(root / "data" / "monitor" / "fund_flow_series.json", _today,
+                 by_symbol, keep_td=_FLOW_KEEP_TD, trading_days=tds)
+    print(f"flow-capture OK: {_today} appended {sum(v is not None for v in by_symbol.values())}"
+          f"/{len(symbols)} symbols")
     return 0

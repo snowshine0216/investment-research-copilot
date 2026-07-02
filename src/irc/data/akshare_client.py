@@ -5,14 +5,14 @@ import contextlib
 from datetime import date
 from functools import lru_cache
 import logging
-import os
 import re
-import threading
 import time
-from typing import Any, Generator, TypeVar
+from typing import Any, TypeVar
 
 import pandas as pd
 
+from irc.http_proxy import AKSHARE_PROXY_LOCK as _AKSHARE_PROXY_LOCK
+from irc.http_proxy import proxy_env as _proxy_env
 from irc.http_proxy import resolve_proxy
 
 _log = logging.getLogger(__name__)
@@ -20,7 +20,6 @@ _log = logging.getLogger(__name__)
 _EM_PROFILE_URL = "https://fundf10.eastmoney.com/jbgk_{symbol}.html"
 _EM_HEADERS = {"User-Agent": "Mozilla/5.0"}
 _T = TypeVar("_T")
-_AKSHARE_PROXY_LOCK = threading.Lock()
 
 
 class FundNotFound(LookupError):
@@ -32,24 +31,6 @@ def _ak_call(fn_name: str, **kwargs: Any) -> Any:
     import akshare as ak  # local import
     fn = getattr(ak, fn_name)
     return fn(**kwargs)
-
-
-@contextlib.contextmanager
-def _proxy_env(proxy_url: str) -> Generator[None, None, None]:
-    """Temporarily inject HTTP/HTTPS proxy env vars so requests-based libs
-    (akshare, etc.) route through the proxy. Restores original values on exit."""
-    keys = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
-    saved = {k: os.environ.get(k) for k in keys}
-    for k in keys:
-        os.environ[k] = proxy_url
-    try:
-        yield
-    finally:
-        for k, v in saved.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
 
 
 def _sleep(seconds: float) -> None:

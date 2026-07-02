@@ -72,7 +72,7 @@ def _patch_common(monkeypatch, mc):
     monkeypatch.setattr(mc, "gather_impacts", lambda **_kw: _FakeImpacts())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
     monkeypatch.setattr(mc, "heat_inputs_for", lambda fid, purchase_table: (None, None))
-    monkeypatch.setattr(mc, "fetch_flow_series", lambda symbols, cache_dir, today: {})
+    monkeypatch.setattr(mc, "_load_flow_store_slice", lambda root, symbols: {})
     # industry edge fetchers — injected to avoid network
     monkeypatch.setattr(mc, "fetch_industry_pe",
                         lambda cache_dir, today: {"酿酒行业": 60.0})
@@ -210,8 +210,6 @@ def test_build_full_basket_metrics_skips_industry_fetch_when_con_none(monkeypatc
 
     monkeypatch.setattr(mc, "fetch_industry_pe", _should_not_call_pe)
     monkeypatch.setattr(mc, "fetch_stock_industry_map", _should_not_call_map)
-    monkeypatch.setattr(mc, "fetch_flow_series",
-                        lambda symbols, cache_dir, today: {s: None for s in symbols})
 
     from dataclasses import dataclass as _dc2
     @_dc2(frozen=True)
@@ -226,7 +224,8 @@ def test_build_full_basket_metrics_skips_industry_fetch_when_con_none(monkeypatc
     from pathlib import Path
     result = mc._build_full_basket_metrics(
         full_holdings, top5, "110011",
-        root=Path("/tmp"), today="2026-06-21", con=None)
+        root=Path("/tmp"), today="2026-06-21", con=None,
+        flow_slice={s.symbol: None for s in full_holdings})
 
     # No industry fetches fired.
     assert industry_pe_called == [], "fetch_industry_pe must NOT be called when con is None"

@@ -407,3 +407,25 @@ def test_valuation_coverage_health_is_informational_pass():
     assert h.status == "PASS"
     assert any("false_cheap 1" in r for r in h.reasons)
     assert any("industry_cover" in r for r in h.reasons)
+
+
+# --- Task 14: warm-up (rows-per-symbol) curve + flow_source marker ---
+
+
+def test_flow_coverage_surfaces_warmup_and_source():
+    t = {"holding_metrics": {
+        "rows": [
+            {"symbol": "600519", "flow_score": 1.0, "flow_reason": None,
+             "pe_percentile": 0.3, "flow_rows": 5},
+            {"symbol": "000858", "flow_score": None, "flow_reason": "flow_no_data",
+             "pe_percentile": None, "flow_rows": 0},
+        ],
+        "aggregate": {"covered_weight_ratio": 0.6, "reason": None},
+        "flow_source": "batch_today",
+    }}
+    from irc.monitor.eval.structural import flow_coverage_health
+    h = flow_coverage_health(t)
+    assert h.status == "PASS"
+    joined = " ".join(h.reasons)
+    assert "flow_source batch_today" in joined
+    assert "flow_rows_min" in joined  # warm-up curve (min rows-per-symbol)
