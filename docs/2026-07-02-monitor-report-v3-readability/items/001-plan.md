@@ -270,7 +270,7 @@ source_tiers:
 
 Append the identical `source_tiers:` YAML block (verbatim, same content as Step 1.5) to the end of `src/irc/templates/config/monitor.yaml`. This is the file `irc init` copies to a fresh repo — omitting this step previously broke `irc init` and ~80 `tests/commands/` tests silently.
 
-- [ ] **Step 1.7: Add `SourceTiersConfig` to the `MonitorConfig` pydantic schema**
+- [ ] **Step 1.7: Add `SourceTiersConfig` to the `MonitorConfig` pydantic schema** *(execute AFTER Steps 1.8–1.9 have produced the red run — listed impl-first for file-locality only)*
 
 In `src/irc/schemas/monitor.py`, add a new model and wire it into `MonitorConfig` (insert after `MonitorDefaults`, before `MonitorConfig`):
 
@@ -328,17 +328,17 @@ def test_monitor_config_source_tiers_defaults_when_absent():
     assert cfg.source_tiers.tier2 == ()
 ```
 
-- [ ] **Step 1.9: Run the test, verify it fails**
+- [ ] **Step 1.9: Run the test, verify it fails (RED — run BEFORE applying Step 1.7)**
 
 Run: `uv run pytest tests/monitor/test_source_tiers.py -v`
-Expected: `AttributeError: 'MonitorConfig' object has no attribute 'source_tiers'` (before Step 1.7's code exists — if executing in strict order Step 1.7 already landed, so instead run this BEFORE Step 1.7 if following true red-green; since Step 1.7 is listed first for file-locality, at minimum re-run after Step 1.7 to confirm both new tests plus the truth table all pass together)
+Expected: `AttributeError: 'MonitorConfig' object has no attribute 'source_tiers'`. TDD ordering is firm: Steps 1.8–1.9 (failing test) execute BEFORE Step 1.7's schema change — Step 1.7 is listed earlier only for file-locality. Only after seeing this red run, apply Step 1.7, then proceed to Step 1.10 for the green run.
 
 - [ ] **Step 1.10: Run full `test_source_tiers.py`, verify all pass**
 
 Run: `uv run pytest tests/monitor/test_source_tiers.py -v`
 Expected: 14 passed
 
-- [ ] **Step 1.11: Wire the tier gate into `_search_theme` at the ingest edge**
+- [ ] **Step 1.11: Wire the tier gate into `_search_theme` at the ingest edge** *(execute AFTER Steps 1.12–1.13 have produced the red run — listed impl-first for file-locality only)*
 
 In `src/irc/commands/monitor_cmd.py`, modify `_search_theme` (currently lines 123-139) to filter blocked hits before `make_evidence_item`, and log drop counts. New signature adds a required `tiers: SourceTiers` keyword parameter:
 
@@ -466,10 +466,10 @@ def test_build_evidence_pool_missing_tier_config_keeps_everything_as_tier3(monke
     assert len(items) == 1   # kept as tier 3, not dropped
 ```
 
-- [ ] **Step 1.13: Run the test, verify it fails**
+- [ ] **Step 1.13: Run the test, verify it fails (RED — run BEFORE applying Step 1.11)**
 
 Run: `uv run pytest tests/commands/test_monitor_cmd.py -v -k "blocked_tier or missing_tier_config"`
-Expected: `AttributeError: <module 'irc.commands.monitor_cmd'> does not have the attribute '_load_source_tiers_config'` (module not yet patched — since Step 1.11 lands before this test in file order for locality, run this check by temporarily verifying on a pre-1.11 checkout, OR treat Steps 1.11 and 1.12 as one red/green pair: write the test first, see it fail against the OLD `_search_theme`/`build_evidence_pool`, then apply 1.11's implementation)
+Expected: `AttributeError: <module 'irc.commands.monitor_cmd'> does not have the attribute '_load_source_tiers_config'` (monkeypatch on a missing attribute errors — that IS the red). TDD ordering is firm: write Step 1.12's tests first, run them to fail against the OLD `_search_theme`/`build_evidence_pool`, and only then apply Step 1.11's implementation (Step 1.11 is listed earlier for file-locality only). The green run follows in Step 1.14.
 
 - [ ] **Step 1.14: Run full test suite for this step, verify passes**
 
@@ -495,7 +495,7 @@ Expected: all passed, 0 failed, 0 errors.
 - [ ] **Step 1.17: Grep for any other caller of `_search_theme` or `build_evidence_pool` outside the two files already touched**
 
 Run: `grep -rn "_search_theme\|build_evidence_pool" src/ tests/ --include="*.py"`
-Expected output: only `src/irc/commands/monitor_cmd.py` (definition) and the test files listed in Step 1.16 plus `tests/commands/test_monitor_cmd_drilldown.py`, `tests/commands/test_monitor_cmd_valuation.py`, `tests/commands/test_monitor_cmd_trace.py`. If any of those three appear, run them individually too:
+Expected output: only `src/irc/commands/monitor_cmd.py` (definition) and the test files listed in Step 1.16 plus `tests/commands/test_monitor_cmd_drilldown.py`, `tests/commands/test_monitor_cmd_valuation.py`, `tests/commands/test_monitor_cmd_trace.py`. **False-positive warning (do NOT modify):** `src/irc/memo/evidence_pool.py:93` defines an UNRELATED same-name memo-pipeline `build_evidence_pool(*, opportunity_rows, scoring_rows, ...)` (memo evidence strings for the weekly memo) — that hit, and any hits under `src/irc/memo/` or in memo tests, must be left untouched. If any of the three monitor test files above appear, run them individually too:
 ```bash
 uv run pytest tests/commands/test_monitor_cmd_drilldown.py -v
 uv run pytest tests/commands/test_monitor_cmd_valuation.py -v
@@ -874,6 +874,18 @@ def _build_theme_results(root: Path, funds: list[MonitorFund]) -> dict[str, tupl
 
 Note `_load_source_tiers_config` (from Phase 1, Step 1.11) takes `repo_root: Path` — `root` here is already a `Path`, matches directly.
 
+- [ ] **Step 2.6b: Keep `_patch_edges`-driven e2e tests offline — stub the new run-level search edge**
+
+`run_monitor` now performs theme searches via `_build_theme_results` (Step 2.6) OUTSIDE `build_evidence_pool`, so the existing e2e helper `_patch_edges` in `tests/commands/test_monitor_cmd.py` (real helper, starts at line 38) no longer fences all search I/O: on a machine with real search-provider keys in `.env`, `Settings()`/`build_providers()` inside `_build_theme_results` would fire real theme searches from unit tests. Add one line to `_patch_edges` (after its `load_trading_days` line):
+
+```python
+    # Comp 2: run_monitor now searches once per unique theme OUTSIDE
+    # build_evidence_pool — stub the run-level edge so e2e tests stay offline.
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
+```
+
+Run: `uv run pytest tests/commands/test_monitor_cmd.py -v` — all green, no network.
+
 - [ ] **Step 2.7: Write the failing end-to-end wiring test — `run_monitor` calls the provider exactly once per unique theme, not once per fund**
 
 Add to `tests/commands/test_monitor_cmd_theme_consolidation.py` (append):
@@ -912,8 +924,12 @@ def test_run_monitor_searches_each_theme_exactly_once_across_whole_fund_set(
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: object())
     monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
     monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(k["fund_id"], (), "empty_pool", ()))
+    # raising=False: Phase 3 REMOVES gather_narrative from monitor_cmd's namespace
+    # (Step 3.23). With raising=False this monkeypatch stays valid both before the
+    # removal (intercepts the real per-fund call) and after it (sets an inert,
+    # teardown-removed attribute) — so this Phase-2 test survives Phase 3 unchanged.
     monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "empty_pool"), ()))
+        NarrativeDoc(k["fund_id"], (), (), (), "empty_pool"), ()), raising=False)
     monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
 
@@ -991,6 +1007,7 @@ If only the three replaced tests used it, delete the `_fake_provider` function d
 - [ ] **Step 2.10: Delete the now-obsolete Phase-1 tests that exercised the OLD `build_evidence_pool(fund, repo_root=...)` shape in `test_source_tiers.py`-adjacent locations**
 
 Run: `grep -rn "build_evidence_pool(fund, repo_root" tests/ src/`
+(The unrelated memo-pipeline `build_evidence_pool` at `src/irc/memo/evidence_pool.py:93` has a different, keyword-only signature and cannot match this pattern — if a broader grep is used instead, its hits are false positives that must NOT be modified.)
 Expected: no matches after Step 2.9 (Phase 1's `test_build_evidence_pool_drops_blocked_tier_hits` and `test_build_evidence_pool_missing_tier_config_keeps_everything_as_tier3` in `tests/commands/test_monitor_cmd.py`, Step 1.12, ALSO call `mc.build_evidence_pool(fund, repo_root=".")` — these must be updated too since Phase 2 changes the signature).
 
 Update those two Phase-1 tests (in `tests/commands/test_monitor_cmd.py`) to match the new reality: the tier gate now lives inside `_search_all_themes`/`_build_theme_results`, not inside `build_evidence_pool` itself. REPLACE them with:
@@ -1060,7 +1077,7 @@ Expected: no `FAILED:` lines printed. If any file fails, read its failure, fix t
 - [ ] **Step 2.13: Grep for every remaining caller of `build_evidence_pool` / `_search_theme` / `_search_all_themes` repo-wide**
 
 Run: `grep -rn "build_evidence_pool\|_search_theme\b\|_search_all_themes" src/ tests/ evals/ --include="*.py"`
-Expected: only `src/irc/commands/monitor_cmd.py` (definitions) and the test files already covered in Steps 2.7, 2.9, 2.10. `_search_theme` (singular, Phase 1's helper) should have ZERO remaining references — it was replaced by `_search_all_themes` in Step 2.3. Confirm no leftover references to the deleted `_search_theme` name anywhere.
+Expected: only `src/irc/commands/monitor_cmd.py` (definitions) and the test files already covered in Steps 2.7, 2.9, 2.10 — **plus known false positives that must NOT be modified: `src/irc/memo/evidence_pool.py:93` defines an UNRELATED same-name memo-pipeline `build_evidence_pool` (memo evidence strings, keyword-only signature), and its memo callers/tests will also hit.** `_search_theme` (singular, Phase 1's helper) should have ZERO remaining references — it was replaced by `_search_all_themes` in Step 2.3. Confirm no leftover references to the deleted `_search_theme` name anywhere.
 
 - [ ] **Step 2.14: Re-assert ADR 0001 citation-format invariant + ADR 0017 owner-binding after this signature change**
 
@@ -1987,6 +2004,67 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    timeline=timeline, macro_doc=macro_result.doc)
 ```
 
+- [ ] **Step 3.23b: Update every test helper that monkeypatches the removed `gather_narrative` — BEFORE running any test file that uses one**
+
+`monkeypatch.setattr(mc, "gather_narrative", ...)` on a module that no longer has that attribute raises `AttributeError` at test SETUP — so after Step 3.23, every `_patch_edges`-style helper still patching it breaks its entire file (including this plan's own wiring tests at Steps 3.31, 5.19, 6.41). Grep first and fix every hit: `grep -rn "gather_narrative" tests/ --include="*.py"`. Real sites as of this plan's writing (re-verify with the grep):
+
+1. `tests/commands/test_monitor_cmd.py:63` — `_patch_edges`. Its current REAL code (file lines 38–65; Step 2.6b appended one `_build_theme_results` line):
+
+```python
+def _patch_edges(monkeypatch):
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.fetch import NavFetchResult
+    from irc.monitor.evidence import make_evidence_item
+    from irc.monitor.impacts import ImpactsResult
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.narrative import NarrativeResult
+    from irc.monitor.types import NarrativeDoc
+
+    series = tuple((f"d{i}", 1.0 + 0.01 * i) for i in range(60))
+    monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
+    monkeypatch.setattr(mc, "nav_series_for", lambda fid, **k: NavFetchResult(fid, 2.13, "2026-06-15", series))
+    # Stub load_yaml so run_monitor doesn't need a real config/llm.yaml on disk
+    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: _SENTINEL_LLM_CONFIG)
+    # Degrade calendar to None so no test reaches AkShare network
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    ev = make_evidence_item("Reuters", "yields", "2026-06-15", "https://r", "008986")
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: (ev,))
+    monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(
+        k["fund_id"],
+        (ValidatedImpact("gold_drivers", 0.5, 0.9, (ev.citation_id,)),
+         ValidatedImpact("geopolitics", 0.4, 0.8, (ev.citation_id,))),
+        "ok",
+        (),
+    ))
+    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
+        NarrativeDoc(k["fund_id"], (), (), (), "ok"), (),
+    ))
+```
+
+   DELETE the final `gather_narrative` setattr statement, and the two imports it needed (`from irc.monitor.narrative import NarrativeResult`, `from irc.monitor.types import NarrativeDoc`) IF nothing else in the file still uses them — verify with `grep -n "NarrativeResult\|NarrativeDoc" tests/commands/test_monitor_cmd.py` and keep any import another test still needs (ruff F401 catches leftovers).
+
+2. `tests/commands/test_monitor_constituent.py:347` — inside `_patch_process_fund_edges`: delete its `gather_narrative` setattr and the now-unused `NarrativeResult`/`NarrativeDoc` imports (same verification grep, scoped to that file).
+3. `tests/commands/test_monitor_cmd_trace.py:38` — delete the local `_Narr` class and its setattr.
+4. `tests/commands/test_monitor_cmd_heat.py:46` — inside that file's own `_patch_edges`: delete the `_Narr` class and its setattr.
+5. `tests/commands/test_monitor_cmd_drilldown.py:81` — delete the setattr; delete `_FakeNarr` if now unused.
+6. `tests/commands/test_monitor_cmd_valuation.py:89,110,130,169` — delete all four setattr lines; delete `_FakeNarr` if now unused.
+7. `tests/commands/test_monitor_cmd_theme_consolidation.py` (added in Step 2.7) — NO change: its setattr already passes `raising=False`, so it survives the removal as an inert, teardown-removed attribute.
+8. `tests/monitor/test_narrative.py` — NO change: it imports `gather_narrative` from `irc.monitor.narrative` directly, and that module is retained (only `monitor_cmd`'s import/call was removed).
+
+The deleted stubs returned per-fund narrative docs that `_process_fund` no longer consumes — after Step 3.23 every view carries the empty degraded doc by construction, so delete, don't substitute.
+
+Run each touched file per-file (whole-dir hangs):
+```bash
+uv run pytest tests/commands/test_monitor_cmd.py -v
+uv run pytest tests/commands/test_monitor_constituent.py -v
+uv run pytest tests/commands/test_monitor_cmd_trace.py -v
+uv run pytest tests/commands/test_monitor_cmd_heat.py -v
+uv run pytest tests/commands/test_monitor_cmd_drilldown.py -v
+uv run pytest tests/commands/test_monitor_cmd_valuation.py -v
+uv run pytest tests/commands/test_monitor_cmd_theme_consolidation.py -v
+```
+Expected: zero `AttributeError: ... does not have the attribute 'gather_narrative'`; all green.
+
 - [ ] **Step 3.24: Write the failing test — every fund card still renders correctly with an EMPTY per-fund narrative doc (spec §11: "assert through the real builder, not dict fixtures")**
 
 Add to `tests/monitor/test_render_cards.py` (read the existing file first to match its fixture style — it already builds `SignalRecord`/`NarrativeDoc` fixtures for `verdict_block_html`/`risk_block_html`):
@@ -2208,7 +2286,7 @@ def test_run_monitor_fund_card_carries_theme_chips_end_to_end(tmp_path, monkeypa
     assert "#macro-geopolitics" in html
 ```
 
-(This requires `render_report` to accept and NOT crash on the new `macro_narrative` kwarg before the section itself is implemented in the next steps — implement Steps 3.32-3.36 BEFORE running this test to green, or accept a temporary red here and fix in the next steps. Since this is TDD-ordered within the phase, list this test's green confirmation as part of Step 3.37 below, after the macro section render lands.)
+(This requires `render_report` to accept and NOT crash on the new `macro_narrative` kwarg before the section itself is implemented in the next steps — implement Steps 3.32-3.36 BEFORE running this test to green, or accept a temporary red here and fix in the next steps. Since this is TDD-ordered within the phase, list this test's green confirmation as part of Step 3.37 below, after the macro section render lands. It also requires Step 3.23b's `_patch_edges` update — the helper must no longer reference the removed `gather_narrative`.)
 
 - [ ] **Step 3.32: Write the failing test for `macro_narrative_html` — the 宏观面速览 render function**
 
@@ -2324,6 +2402,8 @@ def macro_narrative_html(
     return f'<section class="macro-narrative"><h2>宏观面速览</h2>{sections}</section>'
 ```
 
+NOTE (spec §6): the superscript hover `title` must ALSO carry the evidence DATE ("Hover `title` keeps source — now with date"). `CitationIndex` only gains a `date` accessor in Phase 4, so the hover-date lands in **Step 4.8b** — do not attempt it here where the index has no date; Phase 3's `_sup_local` above (source — title) is the interim shape.
+
 - [ ] **Step 3.35: Run the test, verify it passes**
 
 Run: `uv run pytest tests/monitor/test_render_html.py -v -k macro_narrative_html`
@@ -2345,6 +2425,7 @@ def render_report(
     predictive_panel: PredictivePanelModel | None = None,
     timeline: BiasTimeline | None = None,
     macro_narrative: MacroNarrativeDoc | None = None,
+    macro_pool_items: tuple[EvidenceItem, ...] = (),
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -2353,7 +2434,7 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
-    idx = build_citation_index(views, macro_narrative)
+    idx = build_citation_index(views, macro_pool_items)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
@@ -2394,28 +2475,7 @@ def _invert_fund_themes(views: tuple[FundView, ...]) -> dict[str, tuple[str, ...
     return {theme: tuple(fids) for theme, fids in out.items()}
 ```
 
-NOTE: `build_citation_index` (existing function, line 45-56) needs a second parameter to also index macro-pool citations for the appendix (Phase 4 formally reworks this into the dedup-by-(url,date) index; for THIS phase, extend it minimally so `idx.number(cid)` resolves macro citation_ids too — otherwise `_sup_local` in the macro section always renders ""):
-
-```python
-def build_citation_index(
-    views: tuple[FundView, ...], macro_narrative: MacroNarrativeDoc | None = None,
-) -> CitationIndex:
-    """PURE: appendix-order (first-seen) cid index over every fund's evidence
-    pool, PLUS the macro pool's evidence when a macro_narrative doc is present
-    (Comp 3 — its citations must resolve for the 宏观面速览 superscripts too).
-    Same iteration order as _appendix so superscript-N == appendix-N."""
-    seen: set[str] = set()
-    out: list[tuple[str, str, str]] = []
-    for v in views:
-        for ev in v.evidence_pool:
-            if ev.citation_id in seen:
-                continue
-            seen.add(ev.citation_id)
-            out.append((ev.citation_id, ev.source, ev.title))
-    return CitationIndex(tuple(out))
-```
-
-Since the macro pool's `EvidenceItem`s themselves are NOT threaded onto any `FundView.evidence_pool` (they live only in the ephemeral `macro_pool` dict inside `run_monitor`), extending the index to cover them needs the macro pool's items, not just the `MacroNarrativeDoc` (which only carries `Claim`s, not `EvidenceItem`s). **Judgment call**: pass the macro `EvidenceItem` pool itself (a `tuple[EvidenceItem, ...]` flattened from `macro_pool.values()`) into `build_citation_index` instead of the narrative doc, so citation resolution works. Revise the signature:
+NOTE: `build_citation_index` (existing function, line 45-56) needs a second parameter to also index macro-pool citations for the appendix (Phase 4 formally reworks this into the dedup-by-(url,date) index; for THIS phase, extend it minimally so `idx.number(cid)` resolves macro citation_ids too — otherwise `_sup_local` in the macro section always renders ""). The macro pool's `EvidenceItem`s are NOT threaded onto any `FundView.evidence_pool` (they live only in the ephemeral `macro_pool` dict inside `run_monitor`), and the `MacroNarrativeDoc` only carries `Claim`s, not `EvidenceItem`s — so the second parameter must be the macro `EvidenceItem` pool itself (a `tuple[EvidenceItem, ...]` flattened from `macro_pool.values()`), NEVER the narrative doc. This is the ONLY version to implement (an earlier draft that took a `macro_narrative` doc and ignored it has been deleted from this plan — do not implement a doc-taking variant):
 
 ```python
 def build_citation_index(
@@ -2441,26 +2501,7 @@ def build_citation_index(
     return CitationIndex(tuple(out))
 ```
 
-And `render_report` must accept `macro_pool_items` as a new kwarg (threaded from `monitor_cmd.py`) rather than deriving it from `macro_narrative`:
-
-```python
-def render_report(
-    views: tuple[FundView, ...],
-    provenance: Provenance,
-    *,
-    prior_signal: dict | None,
-    now: str,
-    gates: dict[str, GateDecision] | None = None,
-    panel_rows: tuple[ValidationPanelRow, ...] = (),
-    predictive_panel: PredictivePanelModel | None = None,
-    timeline: BiasTimeline | None = None,
-    macro_narrative: MacroNarrativeDoc | None = None,
-    macro_pool_items: tuple[EvidenceItem, ...] = (),
-) -> str:
-    ...
-    idx = build_citation_index(views, macro_pool_items)
-    ...
-```
+(`render_report`'s signature and body above ALREADY carry `macro_pool_items` and pass it to `build_citation_index` — the kwarg is threaded from `monitor_cmd.py`, never derived from `macro_narrative`.)
 
 Update `_write_outputs` in `monitor_cmd.py` (Step 3.23's version) to also accept and forward `macro_pool_items`:
 
@@ -2520,6 +2561,52 @@ def test_run_monitor_never_calls_gather_narrative_per_fund(tmp_path, monkeypatch
 
 Run: `uv run pytest tests/commands/test_monitor_cmd.py -v -k never_calls_gather_narrative`
 Expected: 1 passed. If it fails, remove the leftover `from irc.monitor.narrative import gather_narrative` import from `monitor_cmd.py` (Step 3.23.1 should have already done this — this test catches a missed removal).
+
+- [ ] **Step 3.39b: Write the e2e wiring-assertion test — the run-level macro doc reaches BOTH `eval_trace.json` and `narrative.json`'s `__macro__` key through the REAL `run_monitor` path (dark-factor trap class)**
+
+Step 3.23.6's `_narrative_dump` change and Step 3.23.4's trace threading are otherwise only unit-tested — this asserts the wiring at the real call site. Add to `tests/commands/test_monitor_cmd.py`:
+
+```python
+def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
+    tmp_path, monkeypatch,
+):
+    """Flow-wiring trap (dark-factor class): the run-level macro_narrative must
+    reach BOTH eval_trace.json (run-level field, schema 6) AND narrative.json's
+    reserved "__macro__" key through the REAL run_monitor -> _write_eval_artifacts
+    / _write_outputs chain — not just exist in gather_macro_narrative's return."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.narrative_macro import (
+        MacroNarrativeDoc, MacroNarrativeResult, MacroThemeBlock,
+    )
+    from irc.monitor.types import Claim
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("gold_drivers", (
+            Claim("黄金受实际利率下行支撑。", "consistent_with", ()),
+        )),),
+        status="ok",
+    )
+    monkeypatch.setattr(mc, "gather_macro_narrative",
+                        lambda **k: MacroNarrativeResult(doc, ()))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["macro_narrative"]["status"] == "ok"
+    assert trace["macro_narrative"]["blocks"][0]["theme"] == "gold_drivers"
+    narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
+    assert narrative["__macro__"]["status"] == "ok"
+    assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
+```
+
+Run: `uv run pytest tests/commands/test_monitor_cmd.py -v -k threads_macro_narrative`
+Expected: 1 passed (Step 3.23's wiring already landed; if this fails, the doc→artifact threading from Step 3.23.4/3.23.6 is missing — exactly the silent-drop this test exists to catch). This test lives in `tests/commands/test_monitor_cmd.py`, which is already in the Step 3.44 sweep.
 
 - [ ] **Step 3.40: Update the `monitor_narrative` live_gated eval corpus for the single new call shape (spec §5 consequence)**
 
@@ -2631,8 +2718,13 @@ uv run pytest tests/monitor/test_render_types.py -v
 uv run pytest tests/commands/test_monitor_cmd.py -v
 uv run pytest tests/commands/test_monitor_cmd_trace.py -v
 uv run pytest tests/commands/test_monitor_cmd_eval_wiring.py -v
+uv run pytest tests/commands/test_monitor_cmd_theme_consolidation.py -v
+uv run pytest tests/commands/test_monitor_cmd_drilldown.py -v
+uv run pytest tests/commands/test_monitor_cmd_valuation.py -v
+uv run pytest tests/commands/test_monitor_cmd_heat.py -v
+uv run pytest tests/commands/test_monitor_constituent.py -v
 ```
-Expected: all passed, 0 failed.
+Expected: all passed, 0 failed. (The last five files carry `gather_narrative` monkeypatch sites updated in Step 3.23b / Step 2.7 — they MUST be in this sweep.)
 
 - [ ] **Step 3.45: Re-assert ADR 0001 citation format + ADR 0017 owner-binding invariants after this citation-touching phase**
 
@@ -2654,7 +2746,11 @@ git add src/irc/monitor/narrative_macro.py src/irc/monitor/narrative.py \
         src/irc/monitor/eval/cases/narrative/*.json \
         tests/monitor/test_narrative_macro.py tests/monitor/test_render_cards.py \
         tests/monitor/test_render_html.py tests/commands/test_monitor_cmd.py \
-        tests/commands/test_monitor_cmd_trace.py
+        tests/commands/test_monitor_cmd_trace.py \
+        tests/commands/test_monitor_cmd_drilldown.py \
+        tests/commands/test_monitor_cmd_valuation.py \
+        tests/commands/test_monitor_cmd_heat.py \
+        tests/commands/test_monitor_constituent.py
 git commit -m "feat(monitor): narrative v3 — one macro block replaces 10 per-fund calls
 
 New src/irc/monitor/narrative_macro.py: gather_macro_narrative makes ONE
@@ -2956,6 +3052,38 @@ def _appendix(idx: CitationIndex) -> str:
 Run: `uv run pytest tests/monitor/test_render_html_citations.py -v`
 Expected: all passed.
 
+- [ ] **Step 4.8b: Superscript hover `title` gains the date (spec §6: "Hover `title` keeps source — now with date") — failing test, then update `_sup_local`**
+
+`CitationIndex` now carries dates (Step 4.3), so the Phase-3 interim `_sup_local` (source — title only, see the note at Step 3.34) can complete its spec-§6 shape. Append to `tests/monitor/test_render_html_citations.py`:
+
+```python
+def test_superscript_hover_title_includes_date():
+    """spec §6: hover title = source — title · date."""
+    from irc.monitor.render_html import _sup_local, CitationIndex
+
+    idx = CitationIndex(
+        entries=(("a" * 16, "reuters.com", "Fed holds", "2026-06-15", "权威"),),
+        cid_to_entry_index={"a" * 16: 0},
+    )
+    html = _sup_local("a" * 16, idx)
+    assert 'title="reuters.com — Fed holds · 2026-06-15"' in html
+```
+
+Run: `uv run pytest tests/monitor/test_render_html_citations.py -v -k hover_title_includes_date` — expect FAIL (no date in the title yet). Then update `_sup_local` in `src/irc/monitor/render_html.py` (from Step 3.34):
+
+```python
+def _sup_local(cid: str, idx: "CitationIndex") -> str:
+    n = idx.number(cid)
+    if n is None:
+        return ""
+    date = idx.date(cid)
+    date_part = f" · {date}" if date else ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}{date_part}")
+    return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+```
+
+Re-run the -k selection — expect 1 passed; then the whole file — all passed.
+
 - [ ] **Step 4.9: Write the failing test for tier-badge assignment — theme-pool items get their classify()-derived label, constituent-pool items get 快照**
 
 Append to `tests/monitor/test_render_html_citations.py`:
@@ -3042,7 +3170,7 @@ Expected: all passed.
 
 - [ ] **Step 4.13: Wire `build_tier_badges` into `render_report` and thread `SourceTiers` + constituent cids from `monitor_cmd.py`**
 
-In `src/irc/monitor/render_html.py`, modify `render_report`'s signature to accept `tiers: SourceTiers | None = None` and `constituent_cids: frozenset[str] = frozenset()`, and compute badges before building the index:
+In `src/irc/monitor/render_html.py`, modify `render_report`'s signature to accept `tiers: SourceTiers | None = None` and `constituent_pool_items: tuple[EvidenceItem, ...] = ()`, and compute badges before building the index. **Thread the constituent `EvidenceItem`s themselves, not just their cids**: constituent evidence lives only on `FundTraceBundle.constituent_pool` (never on `FundView.evidence_pool`), so a cid-only frozenset could badge nothing — the items must reach `build_citation_index` or the 快照 badge never appears in the appendix at all (this is exactly what the Step 4.14 e2e test asserts). The cids frozenset for `build_tier_badges` is derived purely inside `render_report`:
 
 ```python
 def render_report(
@@ -3058,7 +3186,7 @@ def render_report(
     macro_narrative: MacroNarrativeDoc | None = None,
     macro_pool_items: tuple[EvidenceItem, ...] = (),
     tiers: SourceTiers | None = None,
-    constituent_cids: frozenset[str] = frozenset(),
+    constituent_pool_items: tuple[EvidenceItem, ...] = (),
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -3067,18 +3195,21 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
-    all_pool_items = tuple(ev for v in views for ev in v.evidence_pool) + macro_pool_items
+    constituent_cids = frozenset(ev.citation_id for ev in constituent_pool_items)
+    all_pool_items = (tuple(ev for v in views for ev in v.evidence_pool)
+                      + macro_pool_items + constituent_pool_items)
     tier_badges = build_tier_badges(
         all_pool_items, tiers=tiers or SourceTiers((), (), ()),
         constituent_cids=constituent_cids,
     )
-    idx = build_citation_index(views, macro_pool_items, tier_badges=tier_badges)
+    idx = build_citation_index(views, macro_pool_items + constituent_pool_items,
+                               tier_badges=tier_badges)
     ...
 ```
 
-(The rest of the function body is unchanged from Phase 3's version — only the new kwargs, the `all_pool_items`/`tier_badges` computation, and the `idx = ...` line change.)
+(The rest of the function body is unchanged from Phase 3's version — only the new kwargs, the `constituent_cids`/`all_pool_items`/`tier_badges` computation, and the `idx = ...` line change.)
 
-In `src/irc/commands/monitor_cmd.py`, modify `_write_outputs` to accept and forward `tiers` and `constituent_cids`, and compute `constituent_cids` at the call site in `run_monitor`:
+In `src/irc/commands/monitor_cmd.py`, modify `_write_outputs` to accept and forward `tiers` and `constituent_pool_items`, and compute `constituent_pool_items` at the call site in `run_monitor`:
 
 ```python
 def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
@@ -3089,76 +3220,70 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    macro_doc: MacroNarrativeDoc | None = None,
                    macro_pool_items: tuple = (),
                    tiers: SourceTiers | None = None,
-                   constituent_cids: frozenset = frozenset()) -> None:
+                   constituent_pool_items: tuple = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
                          predictive_panel=predictive_panel, timeline=timeline,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
-                         tiers=tiers, constituent_cids=constituent_cids)
+                         tiers=tiers, constituent_pool_items=constituent_pool_items)
 ```
 
-In `run_monitor`, compute `constituent_cids` by re-deriving from each fund's constituent pool (already computed inside `_process_fund` but not surfaced on `FundView` — the SIMPLEST correct source is `FundTraceBundle.constituent_pool`, which `bundles` already carries):
+In `run_monitor`, compute `constituent_pool_items` by re-deriving from each fund's constituent pool (already computed inside `_process_fund` but not surfaced on `FundView` — the SIMPLEST correct source is `FundTraceBundle.constituent_pool`, which `bundles` already carries):
 
 ```python
     tiers = tiers_from_config(_load_source_tiers_config(root))
-    constituent_cids = frozenset(
-        ev.citation_id for b in bundles for ev in b.constituent_pool
+    constituent_pool_items = tuple(
+        ev for b in bundles for ev in b.constituent_pool
     )
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
                    timeline=timeline, macro_doc=macro_result.doc,
                    macro_pool_items=macro_pool_items, tiers=tiers,
-                   constituent_cids=constituent_cids)
+                   constituent_pool_items=constituent_pool_items)
 ```
 
-- [ ] **Step 4.14: Write the failing wiring-assertion test — the rendered appendix carries a 快照 badge for a constituent-pool citation, end-to-end through `run_monitor`**
+- [ ] **Step 4.14: Write the wiring-assertion test — the rendered appendix carries a 快照 badge for a constituent-pool citation, end-to-end through `run_monitor`**
 
-Add to `tests/commands/test_monitor_cmd.py`:
-
-```python
-def test_run_monitor_constituent_evidence_gets_snapshot_badge_end_to_end(tmp_path, monkeypatch):
-    """Flow-wiring trap: assert the 快照 badge reaches the rendered appendix
-    through the REAL run_monitor call chain for a constituent-pool citation."""
-    import irc.commands.monitor_cmd as mc
-    from irc.monitor.evidence import make_evidence_item
-    from irc.monitor.eval.types import FundTraceBundle
-
-    _patch_edges(monkeypatch)
-    const_ev = make_evidence_item("snapshot:600000", "X公司: 概况", "", "", "519069")
-    monkeypatch.setattr(mc, "_write_eval_artifacts", lambda *a, **k: None)
-    # Patch _process_fund's bundle construction indirectly isn't feasible without
-    # a real snapshot cache; instead assert via the constituent-pool-carrying test
-    # harness already used in tests/commands/test_monitor_constituent.py — see
-    # that file's pattern for seeding a cached ActiveFundSnapshot fixture, reused
-    # here by importing its helper.
-    pytest_skip_if_helper_missing = None
-    try:
-        from tests.commands.test_monitor_constituent import _seed_active_fund_cache
-    except ImportError:
-        import pytest
-        pytest.skip("no shared constituent-cache seeding helper available; "
-                    "covered instead by tests/commands/test_monitor_constituent.py's "
-                    "own end-to-end run_monitor assertions plus build_tier_badges unit "
-                    "tests (Step 4.9-4.12) — this test documents intent for a future "
-                    "consolidation of the fixture helper")
-```
-
-**Judgment call**: `tests/commands/test_monitor_constituent.py` already has an end-to-end harness that seeds a cached `ActiveFundSnapshot` and drives `run_monitor` for a lookthrough fund; rather than duplicate that fixture machinery here (which would be 40+ lines of snapshot-cache setup unrelated to citation badging), this step is written to gracefully skip if the harness isn't importable, and Step 4.15 instead extends the EXISTING `test_monitor_constituent.py` file directly, which already has the fixture in scope.
-
-- [ ] **Step 4.15: Add the real wiring-assertion test to `tests/commands/test_monitor_constituent.py` (reuses its existing snapshot-cache fixture)**
-
-Read `tests/commands/test_monitor_constituent.py` in full first to find its existing end-to-end `run_monitor` test and the exact fixture/helper names it uses to seed a cached `ActiveFundSnapshot` (the file already drives `run_monitor` for a lookthrough fund per the earlier grep results showing it monkeypatches `mc.build_evidence_pool`). Append a new test in that file, using whatever the file's existing snapshot-seeding helper is named (call it `<SEED_HELPER>` below — the implementer substitutes the real name found by reading the file):
+The test lives in `tests/commands/test_monitor_constituent.py`, where the REAL snapshot fixtures already exist: `_make_active_snapshot(fund_id)` (builds an `ActiveFundSnapshot` whose holdings carry `ThesisEvidence` with summary strings like `"300750 Q1 summary"`), `write_active_fund_cache(snap, tmp_path / "data")` (module-level import, seeds the on-disk cache `run_monitor` reads), `_patch_process_fund_edges(monkeypatch, fund_id)` (stubs `nav_series_for` + `build_evidence_pool` — it deliberately does NOT stub `build_constituent_pool`, which does real disk I/O against the seeded cache; its `gather_narrative` line was removed in Step 3.23b), and `_stub_gather_impacts_for_macro_only(monkeypatch, fund_id, themes)`. There is NO `_seed_active_fund_cache` helper in that file — do not invent one. `_patch_process_fund_edges` only covers `_process_fund`'s edges, so the `run_monitor`-level edges are patched inline. Append:
 
 ```python
-def test_constituent_citation_gets_snapshot_badge_in_appendix(tmp_path, monkeypatch):
-    """Comp 4 wiring: a constituent-pool citation renders the 快照 badge (not
-    未分级) in the appendix, through the real run_monitor -> _write_outputs ->
-    render_report chain."""
+def test_run_monitor_constituent_citation_gets_snapshot_badge_in_appendix(tmp_path, monkeypatch):
+    """Comp 4 wiring (flow-wiring trap): a constituent-pool citation renders the
+    快照 badge in the appendix through the REAL run_monitor -> _write_outputs ->
+    render_report chain — real snapshot cache on disk, real build_constituent_pool,
+    constituent items threaded via FundTraceBundle.constituent_pool (Step 4.13)."""
+    import textwrap
     import irc.commands.monitor_cmd as mc
-    # ... reuse this file's existing fixture setup (config, cached snapshot,
-    # _patch_edges-equivalent) exactly as the file's pre-existing end-to-end
-    # test does, then:
+
+    yaml_cfg = textwrap.dedent("""
+    schema_version: 1
+    history: { minimum_observations: 10, fetch_calendar_days: 550 }
+    defaults: { signal_bands: { buy: 0.40, sell: -0.40 }, minimum_confidence: 0.50 }
+    funds:
+      - { id: "519069", name_cn: 汇添富价值精选, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+    """)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(yaml_cfg, encoding="utf-8")
+    snap = _make_active_snapshot("519069")            # this file's real fixture
+    write_active_fund_cache(snap, tmp_path / "data")  # cache root run_monitor reads
+
+    _patch_process_fund_edges(monkeypatch, "519069")  # _process_fund edges (real helper)
+    _stub_gather_impacts_for_macro_only(
+        monkeypatch, "519069", ("cn_monetary", "cn_equity_property_policy"))
+    # run_monitor-level edges (the helper above only covers _process_fund's):
+    monkeypatch.setattr(mc, "preflight_gate", lambda *a, **k: 0)
+    monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: object())
+    monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "_build_theme_results", lambda root, funds: {})
+    # 盘中提示 fetch is only WIRED into run_monitor in Phase 6, but the attribute
+    # exists today (monitor_cmd.py:181) — patch it now so the Phase-6 sweep
+    # re-running this file stays offline (active-fund symbols would otherwise
+    # trigger a real fetch_flow_today_batch call there).
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+
     rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
     assert rc == 0
     html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
@@ -3166,7 +3291,21 @@ def test_constituent_citation_gets_snapshot_badge_in_appendix(tmp_path, monkeypa
     assert "快照" in html
 ```
 
-(This step requires reading the file to fill in the exact fixture calls — the assertion shape above is exact and load-bearing; the setup boilerplate is "reuse this file's existing pattern," which is acceptable per the plan's own precedent since the file's fixture is >40 lines and copying it verbatim here would duplicate rather than clarify. The implementer must NOT invent new snapshot-seeding logic — only reuse what's already in the file.)
+(No `local.duckdb` exists under `tmp_path`, so `con is None` and `_build_full_basket_metrics` short-circuits without industry fetches — the test is fully offline.)
+
+- [ ] **Step 4.15: Strengthen the assertion — the SNAPSHOT entry itself carries 快照 (scoped, not a whole-page substring) — and run the red/green cycle**
+
+A whole-page `"快照" in html` could in principle be satisfied by unrelated text; scope the assertion to the snapshot citation's own `<li>` so a 未分级-badged theme citation elsewhere can never mask a missing badge. Append to the SAME test (after the existing asserts):
+
+```python
+    # the snapshot entry's own <li> carries 快照 and NOT 未分级 (ADR 0022:
+    # snapshot-grounded evidence must never read as an unvetted web source)
+    snapshot_li = next(li for li in html.split("<li") if "Q1 summary" in li)
+    assert "快照" in snapshot_li
+    assert "未分级" not in snapshot_li
+```
+
+(`"Q1 summary"` comes from `_make_evidence`'s `summary=f"{symbol} Q1 summary"` in this file — the EvidenceItem title via `_evidence_items_for_holding`.) Red/green discipline: if Step 4.13's threading has not been applied yet, this test FAILS (no 快照 anywhere — the red); after Step 4.13 it passes. If executing strictly in written order (4.13 already applied), verify the test's discriminating power once: `git stash` the Step 4.13 hunk, run the test (must fail), `git stash pop`, re-run (must pass).
 
 - [ ] **Step 4.16: Run the test, verify it passes**
 
@@ -3677,7 +3816,8 @@ def test_compute_data_health_dark_fraction_excludes_profile_ineligible():
     fund_a = _view_with_scores("519069", "A", (_score("flow", eligible=False, reason="flow_no_data"),))
     fund_b = _view_with_scores("008986", "金", (_score("flow", eligible=False, reason="profile_ineligible"),))
     fund_c = _view_with_scores("260112", "C", (_score("flow", eligible=True),))
-    health = compute_data_health((fund_a, fund_b, fund_c), {}, (), stale_eval_days=10)
+    health = compute_data_health((fund_a, fund_b, fund_c), {}, (), stale_eval_days=10,
+                                 today="2026-06-16")
     # gold fund (profile_ineligible) excluded entirely from eligible_n
     assert health.dark_factor_fractions["flow"] == (1, 2)   # 1 dark / 2 eligible
 
@@ -3686,7 +3826,7 @@ def test_compute_data_health_gated_fund_count():
     from irc.monitor.eval.types import GateDecision
     gates = {"519069": GateDecision("519069", True, ("monitor_signal",), "gated", "x"),
              "260112": GateDecision("260112", False, (), "validated", "")}
-    health = compute_data_health((), gates, (), stale_eval_days=10)
+    health = compute_data_health((), gates, (), stale_eval_days=10, today="2026-06-16")
     assert health.gated_fund_count == 1
 
 
@@ -3696,9 +3836,22 @@ def test_compute_data_health_stale_eval_count_from_panel_rows():
         ValidationPanelRow(stage="monitor_impact", status="PASS", ran_at="2026-06-01T00:00:00+08:00", reasons=()),
         ValidationPanelRow(stage="monitor_narrative", status="PASS", ran_at="2026-06-15T00:00:00+08:00", reasons=()),
     )
-    # today assumed 2026-06-16 in this pure count (see monitor_cmd wiring, Step 5.17)
+    # today passed EXPLICITLY (required — no clock read in render code, spec §2)
     health = compute_data_health((), {}, rows, stale_eval_days=10, today="2026-06-16")
-    assert health.stale_eval_count == 1   # only the 2026-06-01 row is >10d stale
+    assert health.stale_eval_count == 1   # only the 2026-06-01 row is stale (15d ≥ 10d)
+
+
+def test_compute_data_health_stale_count_includes_stale_predictive_artifact():
+    """spec §7: 过期评估 K = stale suite stamps PLUS the stale predictive-artifact
+    component (PredictivePanelModel.stale, computed at the edge, passed as a bool)."""
+    from irc.monitor.eval.types import ValidationPanelRow
+    rows = (
+        ValidationPanelRow(stage="monitor_impact", status="PASS",
+                           ran_at="2026-06-01T00:00:00+08:00", reasons=()),
+    )
+    health = compute_data_health((), {}, rows, stale_eval_days=10,
+                                 today="2026-06-16", predictive_stale=True)
+    assert health.stale_eval_count == 2   # 1 stale suite stamp + 1 stale predictive artifact
 ```
 
 - [ ] **Step 5.14: Run the test, verify it fails**
@@ -3711,7 +3864,7 @@ Expected: `ImportError: cannot import name 'compute_data_health'`
 Append to `src/irc/monitor/render_overview.py`:
 
 ```python
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime
 
 _PROFILE_INELIGIBLE = "profile_ineligible"
 
@@ -3733,38 +3886,52 @@ def _gated_count(gates: dict) -> int:
     return sum(1 for g in gates.values() if g.suppressed)
 
 
-def _stale_count(panel_rows: tuple, *, stale_eval_days: int, today: str | None) -> int:
-    _today = (date.fromisoformat(today) if today
-              else datetime.now(timezone(timedelta(hours=8))).date())
+def _stale_count(panel_rows: tuple, *, stale_eval_days: int, today: str) -> int:
+    """PURE — `today` is REQUIRED (threaded/derived at the call site); NO
+    datetime.now() fallback anywhere in render code (spec §2 render purity,
+    Global Constraints). Unparseable `today` -> 0 (cannot age-compare)."""
+    try:
+        _today = date.fromisoformat(today)
+    except (ValueError, TypeError):
+        return 0
     n = 0
     for row in panel_rows:
         try:
             ran_at = datetime.fromisoformat(row.ran_at)
         except (ValueError, TypeError):
             continue
-        if (_today - ran_at.date()).days > stale_eval_days:
+        # >= : same 10-day boundary as the panel amber cue — spec §11 is
+        # authoritative ("10-day boundary (9 green, 10 amber)") over §7/§8's
+        # looser ">10d" prose; same reconciliation as Step 6.20.
+        if (_today - ran_at.date()).days >= stale_eval_days:
             n += 1
     return n
 
 
 def compute_data_health(
     views: tuple, gates: dict, panel_rows: tuple, *, stale_eval_days: int,
-    today: str | None = None,
+    today: str, predictive_stale: bool = False,
 ) -> DataHealthCounts:
     """PURE: dark-factor fractions (profile_ineligible excluded from BOTH
-    numerator and denominator), gated-fund count, stale-eval count (panel rows
-    aged > stale_eval_days, mirrors STALE_EVAL_DAYS semantics)."""
+    numerator and denominator), gated-fund count, stale-eval count = suite
+    panel rows aged >= stale_eval_days PLUS the stale predictive-artifact
+    component (spec §7: '过期评估 K (suite stamps aging + stale predictive
+    artifact)' — PredictivePanelModel.stale is computed at the edge and passed
+    in as a bool). `today` is REQUIRED — no clock read in render code."""
     return DataHealthCounts(
         dark_factor_fractions=_dark_fractions(views),
         gated_fund_count=_gated_count(gates),
-        stale_eval_count=_stale_count(panel_rows, stale_eval_days=stale_eval_days, today=today),
+        stale_eval_count=(
+            _stale_count(panel_rows, stale_eval_days=stale_eval_days, today=today)
+            + (1 if predictive_stale else 0)
+        ),
     )
 ```
 
 - [ ] **Step 5.16: Run the test, verify it passes**
 
 Run: `uv run pytest tests/monitor/test_render_overview.py -v`
-Expected: 17 passed (5 + 4 + 5 + 3)
+Expected: 18 passed (5 + 4 + 5 + 4)
 
 - [ ] **Step 5.17: Wire `overview_html` into `render_report` at the top of the body, per spec §9 layout order**
 
@@ -3793,7 +3960,7 @@ def render_report(
     macro_narrative: MacroNarrativeDoc | None = None,
     macro_pool_items: tuple[EvidenceItem, ...] = (),
     tiers: SourceTiers | None = None,
-    constituent_cids: frozenset[str] = frozenset(),
+    constituent_pool_items: tuple[EvidenceItem, ...] = (),
     prior_run_date: str | None = None,
     purchase_tags: dict[str, str | None] | None = None,
     stale_eval_days: int = 10,
@@ -3805,15 +3972,25 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
-    all_pool_items = tuple(ev for v in views for ev in v.evidence_pool) + macro_pool_items
+    constituent_cids = frozenset(ev.citation_id for ev in constituent_pool_items)
+    all_pool_items = (tuple(ev for v in views for ev in v.evidence_pool)
+                      + macro_pool_items + constituent_pool_items)
     tier_badges = build_tier_badges(
         all_pool_items, tiers=tiers or SourceTiers((), (), ()),
         constituent_cids=constituent_cids,
     )
-    idx = build_citation_index(views, macro_pool_items, tier_badges=tier_badges)
+    idx = build_citation_index(views, macro_pool_items + constituent_pool_items,
+                               tier_badges=tier_badges)
     flips = compute_flips(views, prior_signal, prior_run_date)
     actionable = compute_actionable(views, g, purchase_tags or {})
-    health = compute_data_health(views, g, panel_rows, stale_eval_days=stale_eval_days)
+    # `today` derived PURELY from the as_of stamp (first 10 chars of the ISO
+    # `now` string); `predictive_stale` from the already-computed
+    # PredictivePanelModel — NO clock read anywhere under render_* (spec §2,
+    # Global Constraints).
+    health = compute_data_health(
+        views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
+        predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
+    )
     overview = overview_html(flips=flips, actionable=actionable, health=health)
     summary = (
         "<table class='summary'>"
@@ -3900,7 +4077,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    macro_doc: MacroNarrativeDoc | None = None,
                    macro_pool_items: tuple = (),
                    tiers: SourceTiers | None = None,
-                   constituent_cids: frozenset = frozenset(),
+                   constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
                    purchase_tags: dict | None = None) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", "6", "")
@@ -3909,7 +4086,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                          gates=gate_map, panel_rows=panel_rows,
                          predictive_panel=predictive_panel, timeline=timeline,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
-                         tiers=tiers, constituent_cids=constituent_cids,
+                         tiers=tiers, constituent_pool_items=constituent_pool_items,
                          prior_run_date=prior_run_date, purchase_tags=purchase_tags,
                          stale_eval_days=STALE_EVAL_DAYS)
 ```
@@ -3920,7 +4097,8 @@ And the `run_monitor` call site:
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
                    timeline=timeline, macro_doc=macro_result.doc,
                    macro_pool_items=macro_pool_items, tiers=tiers,
-                   constituent_cids=constituent_cids, prior_run_date=prior_run_date,
+                   constituent_pool_items=constituent_pool_items,
+                   prior_run_date=prior_run_date,
                    purchase_tags=purchase_tags)
 ```
 
@@ -3938,7 +4116,6 @@ def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_hea
     run_monitor -> _compute_gates -> render_report chain, not a hand-built
     ActionableFund/DataHealthCounts fixture."""
     import irc.commands.monitor_cmd as mc
-    from irc.monitor.eval.staleness import StageHealth
     _patch_edges(monkeypatch)
     # Force the monitor_signal stage to FAIL so apply_eval_gate suppresses the fund
     # (gate.suppressed=True) while its raw bias stays ADD_BIAS.
@@ -3958,7 +4135,7 @@ def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_hea
     assert "被评估门禁" in html   # 数据健康 row still counts the gated fund
 ```
 
-(Note: `mc.GateDecision` must be accessible on the `monitor_cmd` module namespace — it is imported there already via `from irc.monitor.eval.types import (... GateDecision, ...)`. Confirm with `grep -n "^from irc.monitor.eval.types import" src/irc/commands/monitor_cmd.py` before relying on `mc.GateDecision`.)
+(Note: `mc.GateDecision` must be accessible on the `monitor_cmd` module namespace — it is imported there already via `from irc.monitor.eval.types import (... GateDecision, ...)`. Confirm with `grep -n "^from irc.monitor.eval.types import" src/irc/commands/monitor_cmd.py` before relying on `mc.GateDecision`. Do NOT import `StageHealth` here — an earlier draft imported it from `irc.monitor.eval.staleness`, but (a) it was unused in the test body (ruff F401) and (b) its canonical home is `irc.monitor.eval.types`; `staleness.py` merely imports it. If a future edit genuinely needs `StageHealth`, import it from `irc.monitor.eval.types`.)
 
 - [ ] **Step 5.20: Run the test, verify it fails then passes after Step 5.17-5.18 are applied**
 
@@ -3999,7 +4176,7 @@ already exist in the command layer — no new I/O."
 ```
 
 **Phase 5 verification checkpoint:**
-- [ ] `uv run pytest tests/monitor/test_render_overview.py -v` → 17 passed
+- [ ] `uv run pytest tests/monitor/test_render_overview.py -v` → 18 passed
 - [ ] `uv run pytest tests/commands/test_monitor_cmd.py -v -k eval_gated_fund_excluded` → 1 passed
 - [ ] `git log -1 --oneline` shows the Phase 5 commit
 
@@ -4268,15 +4445,20 @@ Read `src/irc/monitor/eval/panel.py` (already read during planning: `_row_html` 
 
 ```python
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from irc.monitor.eval.panel import validation_panel_html
 from irc.monitor.eval.types import ValidationPanelRow
+
+# now is passed EXPLICITLY from the very first test: validation_panel_html takes
+# a REQUIRED `now` (no clock fallback — spec §2 render purity; see Step 6.15).
+_NOW = datetime(2026, 7, 2, 12, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 def test_informational_stage_renders_观测_not_pass():
     rows = (ValidationPanelRow(stage="flow_coverage", status="PASS",
                                ran_at="2026-07-01T12:00:00+08:00",
                                reasons=("flow_cover 0.0",)),)
-    html = validation_panel_html(rows=rows, badge_counts={})
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
     assert "观测" in html
     # the informational row must NOT render the literal text "PASS" as its status cell
     assert ">PASS<" not in html.split("flow_coverage")[1].split("</tr>")[0]
@@ -4285,7 +4467,7 @@ def test_informational_stage_renders_观测_not_pass():
 def test_gating_stage_still_renders_pass_fail_warn_unknown():
     rows = (ValidationPanelRow(stage="monitor_signal", status="PASS",
                                ran_at="2026-07-01T12:00:00+08:00", reasons=()),)
-    html = validation_panel_html(rows=rows, badge_counts={})
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
     assert ">PASS<" in html.split("monitor_signal")[1].split("</tr>")[0]
 
 
@@ -4293,7 +4475,7 @@ def test_informational_stage_amber_when_flow_cover_below_floor():
     rows = (ValidationPanelRow(stage="flow_coverage", status="PASS",
                                ran_at="2026-07-01T12:00:00+08:00",
                                reasons=("flow_cover 0.2",)),)
-    html = validation_panel_html(rows=rows, badge_counts={})
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
     assert "panel-amber" in html
 
 
@@ -4301,7 +4483,7 @@ def test_informational_stage_not_amber_when_flow_cover_at_or_above_floor():
     rows = (ValidationPanelRow(stage="flow_coverage", status="PASS",
                                ran_at="2026-07-01T12:00:00+08:00",
                                reasons=("flow_cover 0.5",)),)
-    html = validation_panel_html(rows=rows, badge_counts={})
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
     assert "panel-amber" not in html
 ```
 
@@ -4321,6 +4503,7 @@ render 观测 instead of PASS/FAIL vocabulary — they are panel-only tallies, n
 a gate, and 'PASS' previously read as 'data fine' when coverage was 0."""
 from __future__ import annotations
 import re
+from datetime import datetime
 from html import escape
 from irc.monitor.eval.types import ValidationPanelRow
 
@@ -4371,7 +4554,13 @@ def _row_html(row: ValidationPanelRow) -> str:
 
 def validation_panel_html(
     *, rows: tuple[ValidationPanelRow, ...], badge_counts: dict[str, int],
+    now: datetime,
 ) -> str:
+    """`now` is REQUIRED and threaded from the edge (run_monitor's now_dt,
+    monitor_cmd.py:875 — see Step 6.24). Render purity (spec §2, Global
+    Constraints): NO datetime.now() fallback, EVER. It is unused until the
+    ran_at age cell lands in Step 6.20; required from the start so the
+    signature is stable and no caller can ever rely on a clock default."""
     badges = _counts_str(badge_counts)
     summary = (f'<p class="badge-summary muted">fund badges — {escape(badges)}</p>'
                if badges else "")
@@ -4385,6 +4574,8 @@ def validation_panel_html(
     )
 ```
 
+`now` becoming REQUIRED breaks the PRE-EXISTING direct callers in `tests/monitor/eval/test_panel.py` (real file — 4 call sites at lines 14, 26, 36, 49 pass only `rows`/`badge_counts`). Update that file in this same step: add the same fixed `_NOW` constant (with its `datetime`/`timezone`/`timedelta` imports) at the top and pass `now=_NOW` at all 4 sites — fixed values only, never `datetime.now()`. Run: `uv run pytest tests/monitor/eval/test_panel.py -v` → all passed.
+
 - [ ] **Step 6.16: Run the test, verify it passes**
 
 Run: `uv run pytest tests/monitor/test_eval_panel.py -v`
@@ -4396,7 +4587,7 @@ Expected: 4 passed
     ".panel-amber{background:#fff8c5}"
 ```
 
-- [ ] **Step 6.18: Write the failing test for `ran_at` age display — amber >10d, still shows age at every value; 9d green boundary, 10d amber boundary**
+- [ ] **Step 6.18: Write the failing test for `ran_at` age display — amber from 10d (spec §11 boundary: 9 green, 10 amber), still shows age at every value**
 
 Append to `tests/monitor/test_eval_panel.py`:
 
@@ -4436,9 +4627,11 @@ def test_ran_at_age_boundary_10_days_is_amber():
 
 def test_ran_at_unparseable_shows_dash_not_crash():
     from irc.monitor.eval.panel import validation_panel_html
+    from datetime import datetime, timezone, timedelta
+    now = datetime(2026, 7, 2, 12, 0, tzinfo=timezone(timedelta(hours=8)))
     rows = (ValidationPanelRow(stage="monitor_impact", status="PASS", ran_at="—",
                                reasons=()),)
-    html = validation_panel_html(rows=rows, badge_counts={})   # now=None default
+    html = validation_panel_html(rows=rows, badge_counts={}, now=now)
     assert "—" in html
 ```
 
@@ -4449,13 +4642,10 @@ Expected: fails — `validation_panel_html` doesn't accept a `now` kwarg and doe
 
 - [ ] **Step 6.20: Implement `ran_at` age display**
 
-Modify `src/irc/monitor/eval/panel.py` (add `STALE_EVAL_DAYS` import + age helper + thread `now` through):
+Modify `src/irc/monitor/eval/panel.py` (add `STALE_EVAL_DAYS` import + age helper; `now` is ALREADY a required param from Step 6.15 — this step starts consuming it). Boundary reconciliation: spec §11 is authoritative — "10-day boundary (9 green, 10 amber)" — and wins over spec §8's looser ">10d" phrasing, so the predicate is `age >= STALE_EVAL_DAYS` (10 days old IS amber; this now agrees exactly with Step 6.18's boundary tests). Purity: no `datetime.now()` fallback and no module `_TZ` constant — `now` always arrives from the caller:
 
 ```python
-from datetime import datetime, timezone, timedelta
 from irc.monitor.eval.constants import STALE_EVAL_DAYS
-
-_TZ = timezone(timedelta(hours=8))
 
 
 def _age_days(ran_at: str, *, now: datetime) -> int | None:
@@ -4472,7 +4662,8 @@ def _ran_at_cell(ran_at: str, *, now: datetime) -> str:
     age = _age_days(ran_at, now=now)
     if age is None:
         return escape(ran_at)
-    cls = ' class="age-amber"' if age > STALE_EVAL_DAYS else ""
+    # >= : spec §11 authoritative boundary ("9 green, 10 amber") over §8's ">10d"
+    cls = ' class="age-amber"' if age >= STALE_EVAL_DAYS else ""
     return f'{escape(ran_at)} <span{cls}>· {age}天前</span>'
 
 
@@ -4490,13 +4681,14 @@ def _row_html(row: ValidationPanelRow, *, now: datetime) -> str:
 
 def validation_panel_html(
     *, rows: tuple[ValidationPanelRow, ...], badge_counts: dict[str, int],
-    now: datetime | None = None,
+    now: datetime,
 ) -> str:
-    _now = now if now is not None else datetime.now(_TZ)
+    """`now` REQUIRED, threaded from the edge (run_monitor's now_dt) — NO
+    datetime.now() fallback anywhere in this module (spec §2 render purity)."""
     badges = _counts_str(badge_counts)
     summary = (f'<p class="badge-summary muted">fund badges — {escape(badges)}</p>'
                if badges else "")
-    body = "".join(_row_html(r, now=_now) for r in rows)
+    body = "".join(_row_html(r, now=now) for r in rows)
     return (
         '<section class="validation-panel"><h2>Validation</h2>'
         f"{summary}"
@@ -4505,6 +4697,8 @@ def validation_panel_html(
         f"{body}</table></section>"
     )
 ```
+
+(Verify Step 6.18's boundary tests and this implementation now agree: 9 days → no `age-amber`; 10 days → `age-amber`. V12 in the final checklist states the same boundary.)
 
 - [ ] **Step 6.21: Run the test, verify it passes**
 
@@ -4517,13 +4711,14 @@ Expected: 8 passed
     ".age-amber{color:#bf8700}"
 ```
 
-- [ ] **Step 6.23: Verify the "two constants, two meanings" invariant — write the regression test asserting UNKNOWN(stale) still fires at >14d independent of the new >10d amber cue**
+- [ ] **Step 6.23: Verify the "two constants, two meanings" invariant — write the regression test asserting UNKNOWN(stale) still fires at >14d independent of the new ≥10d amber cue**
 
 Add to `tests/monitor/test_eval_panel.py`:
 
 ```python
 def test_stale_after_14_days_is_separate_from_10_day_amber_cue():
-    """Two constants, two meanings (spec §8): amber(>10d, eval/constants.STALE_EVAL_DAYS)
+    """Two constants, two meanings (spec §8): amber(≥10d, eval/constants.STALE_EVAL_DAYS;
+    spec §11 boundary: 9 green, 10 amber)
     is an early heads-up; UNKNOWN(stale) at >14d (eval/staleness.STALE_AFTER_DAYS) is
     the GATE's own staleness check, computed upstream by resolve_health — this panel
     only ever RENDERS whatever status resolve_health already decided (UNKNOWN), it
@@ -4541,9 +4736,56 @@ def test_stale_after_14_days_is_separate_from_10_day_amber_cue():
 Run: `uv run pytest tests/monitor/test_eval_panel.py -v -k two_constants`
 Expected: 1 passed (no implementation change needed — this is a pure documentation/regression test confirming the two constants stay separate).
 
-- [ ] **Step 6.24: Wire `now=` into the `validation_panel_html` call site in `render_html.py`'s `_panel`**
+- [ ] **Step 6.24: Thread `now_dt` from `run_monitor` into `validation_panel_html` — REQUIRED end-to-end, no clock read anywhere under `render_*`**
 
-Read `_panel` in `src/irc/monitor/render_html.py` (currently calls `validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))` with no `now`). Leave as-is — `now=None` default makes `validation_panel_html` self-clock via `datetime.now(_TZ)`, which is correct for the render path (the report already stamps `now` separately in its header via the `now: str` param passed to `render_report`; reusing that exact string would require parsing it back to a `datetime`, which is unnecessary complexity — the panel's own live clock at render time is close enough for an aging cue, and IS what `resolve_health`/`_suite_eval` already use independently at the edge). **Judgment call**: no change needed here; documented for the implementer so they don't over-engineer a `now` passthrough.
+`validation_panel_html` REQUIRES `now` (Steps 6.15/6.20) and it must come from the edge: `run_monitor` already computes `now_dt = datetime.now(timezone(timedelta(hours=8)))` at `src/irc/commands/monitor_cmd.py:875` (before `_write_outputs` is called). No `render_*` function may ever call `datetime.now()` (spec §2 render purity; Global Constraints "render_* stay PURE").
+
+1. `src/irc/monitor/render_html.py` — `_panel` (currently lines 269-275, calls `validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))` with no `now`) gains a required keyword `now_dt` and forwards it:
+
+```python
+def _panel(
+    views: tuple[FundView, ...], gates: dict[str, GateDecision] | None,
+    panel_rows: tuple[ValidationPanelRow, ...], *, now_dt: datetime,
+) -> str:
+    if not gates or not panel_rows:
+        return ""
+    return validation_panel_html(rows=panel_rows,
+                                 badge_counts=_badge_counts(views, gates), now=now_dt)
+```
+
+Add `from datetime import datetime` to `render_html.py`'s imports if not already present.
+
+2. `render_report` gains a REQUIRED keyword parameter `now_dt: datetime` (place it directly after `now: str` in the signature from Step 5.17) and forwards it — change the `panel = _panel(views, gates, panel_rows)` line to:
+
+```python
+    panel = _panel(views, gates, panel_rows, now_dt=now_dt)
+```
+
+(`now` — the display string — and `now_dt` — the aging arithmetic value — are the SAME edge instant in two shapes; see point 3.)
+
+3. `src/irc/commands/monitor_cmd.py` — `_write_outputs` (Step 5.18's latest signature) gains a required keyword `now_dt: datetime` and forwards it; its `now=_now_iso()` argument becomes `now=now_dt.isoformat(timespec="seconds")` so the header stamp and the aging clock are the SAME instant (one edge clock read, not two):
+
+```python
+def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
+                   ...same params as Step 5.18...,
+                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
+    prov = Provenance(_ENGINE_VERSION, "2", "6", "")
+    gate_map = {g.fund_id: g for g in gates} if gates else None
+    html = render_report(tuple(views), prov, prior_signal=prior,
+                         now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
+                         ...rest of the kwargs unchanged from Step 5.18...)
+```
+
+4. `run_monitor` call site: append `now_dt=now_dt` to the `_write_outputs(...)` call (the line-875 variable is already in scope there).
+
+5. Existing DIRECT `render_report` test callers must now pass `now_dt` (it is required). Grep: `grep -rn "render_report(" tests/ --include="*.py"`. Real files as of this plan's writing: `tests/monitor/test_render_html.py` (~25 sites), `tests/monitor/test_render_html_eval.py` (2 — one via its `_render` helper), `tests/monitor/test_render_html_predictive.py` (2), `tests/monitor/test_render_html_citations.py` (2), `tests/monitor/test_report_v2_invariants.py` (1 shared `_render`-style helper covering its callers). In each file add one module-level fixed constant, e.g. `_NOW_DT = datetime(2026, 7, 2, 12, 0, tzinfo=timezone(timedelta(hours=8)))` (+ imports), and pass `now_dt=_NOW_DT` at every call — prefer editing the file's shared helper where one exists. NEVER pass `datetime.now()` in tests — fixed values only.
+
+Run after wiring:
+```bash
+uv run pytest tests/monitor/test_render_html.py tests/monitor/test_render_html_eval.py tests/monitor/test_render_html_predictive.py tests/monitor/test_render_html_citations.py tests/monitor/test_report_v2_invariants.py -v
+uv run pytest tests/monitor/eval/test_panel.py tests/monitor/test_eval_panel.py -v
+```
+Expected: all passed — AND the purity check `grep -n "datetime.now" src/irc/monitor/render_html.py src/irc/monitor/eval/panel.py src/irc/monitor/render_overview.py` → no output (zero clock reads under `render_*`).
 
 - [ ] **Step 6.25: Verify `render_timeline.py` already renders `名称(代码)` — spec claims this needs fixing but the current implementation only shows fund_id**
 
@@ -4619,26 +4861,42 @@ In `src/irc/monitor/render_html.py`, modify the `timeline_html` line inside `ren
     timeline_html = bias_timeline_html(timeline, fund_names=fund_names) if timeline is not None else ""
 ```
 
-- [ ] **Step 6.30: Write the failing wiring-assertion test — the rendered timeline shows fund names end-to-end through `run_monitor`**
+- [ ] **Step 6.30: Write the wiring-assertion test — the rendered timeline shows fund names end-to-end through `run_monitor` (ledger SEEDED so the section MUST render; assertions unconditional)**
 
-Add to `tests/commands/test_monitor_cmd_timeline.py` (read the file first to reuse its existing forward-ledger-seeding fixture pattern for `_build_bias_timeline`):
+Add to `tests/commands/test_monitor_cmd_timeline.py`. That file has NO pre-existing `run_monitor` e2e test — it tests `_build_bias_timeline` directly — but it DOES own the real ledger-seeding helper `_write_ledger(tmp_path, rows)` (top of the file; writes `data/monitor/forward_ledger.jsonl`, rows shaped `{"run_date", "fund_id", "raw_bias", "written_at", "manifest_versions": {"engine": "3"}}`). Reuse it, plus the shared e2e harness imported from `tests.commands.test_monitor_cmd` — importable because `tests/` is a package (`__init__.py` present in `tests/` and `tests/commands/`) and pyproject sets `pythonpath = ["src", "."]`. Seeding a prior-day ledger row GUARANTEES the timeline section renders, so the assertions are unconditional — a vacuous `if "方向性倾向历史" in html:` guard would silently pass on a missing timeline and is forbidden here:
 
 ```python
 def test_run_monitor_timeline_renders_fund_name_end_to_end(tmp_path, monkeypatch):
     """Flow-wiring trap: fund_names must reach bias_timeline_html through the
-    real run_monitor -> render_report chain, not a hand-built BiasTimeline."""
-    # reuse this file's existing forward_ledger.jsonl seeding + _patch_edges-
-    # equivalent setup exactly as its pre-existing end-to-end test does, then:
+    real run_monitor -> render_report chain, not a hand-built BiasTimeline.
+    The ledger is SEEDED with a prior-day row so the timeline section is
+    guaranteed present — every assertion below is unconditional."""
     import irc.commands.monitor_cmd as mc
+    from tests.commands.test_monitor_cmd import _YAML, _patch_edges
+
+    _write_ledger(tmp_path, [
+        {"run_date": "2026-06-15", "fund_id": "008986", "raw_bias": "ADD_BIAS",
+         "written_at": "2026-06-15T09:00:00+08:00",
+         "manifest_versions": {"engine": "3"}},
+    ])
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+
     rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
     assert rc == 0
     html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
         encoding="utf-8")
-    if "方向性倾向历史" in html:   # timeline section present (ledger had prior rows)
-        assert "(008986)" in html or "(519069)" in html   # some name(code) pair rendered
+    assert "方向性倾向历史" in html      # seeded ledger -> timeline MUST be present
+    assert "金(008986)" in html          # 名称(代码): name_cn from _YAML's fund config
+    # the timeline table's row label must not be a bare code
+    timeline_table = html.split("方向性倾向历史")[1].split("</table>")[0]
+    assert ">008986<" not in timeline_table
 ```
 
-(As with Step 4.15, this step requires reading `test_monitor_cmd_timeline.py` first to reuse its exact existing fixture setup — the assertion body above is exact and load-bearing; the setup boilerplate is "reuse this file's existing pattern.")
+(`_YAML`'s single gold fund `008986` has `name_cn: 金` and no active-fund look-through, so `_capture_union_symbols` is empty and the Phase-6 `_provisional_flow_note` wiring stays inert/offline here.)
 
 - [ ] **Step 6.31: Run the test, verify it passes**
 
@@ -4664,6 +4922,15 @@ def test_provisional_flow_annotation_renders_intraday_note():
 def test_provisional_flow_annotation_none_value_renders_empty():
     from irc.monitor.render_drilldown import provisional_flow_annotation_html
     assert provisional_flow_annotation_html(symbol_value=None, as_of_hhmm="12:15") == ""
+
+
+def test_provisional_flow_annotation_renders_actual_fetch_time_not_hardcoded():
+    """spec §8: 截至HH:MM is the ACTUAL fetch time threaded from the edge —
+    never a hardcoded 12:15 (the 15:45 rerun must render its own time)."""
+    from irc.monitor.render_drilldown import provisional_flow_annotation_html
+    html = provisional_flow_annotation_html(symbol_value=-1.1, as_of_hhmm="15:47")
+    assert "截至15:47" in html
+    assert "12:15" not in html
 ```
 
 - [ ] **Step 6.33: Run the test, verify it fails**
@@ -4727,20 +4994,19 @@ class FundView:
     purchase_tag: str | None = None
     themes: tuple[str, ...] = ()
     provisional_flow_pct: float | None = None   # Comp 6: 盘中提示, render-only, never a factor input
+    provisional_flow_as_of: str | None = None   # Comp 6: ACTUAL fetch HH:MM, edge-stamped (spec §8)
 ```
 
-In `src/irc/monitor/render_html.py`, modify `_drilldown_block`:
+In `src/irc/monitor/render_html.py`, modify `_drilldown_block`. Do NOT hardcode a `"12:15"` constant — spec §8's `截至HH:MM` is the ACTUAL fetch time, edge-stamped in `run_monitor` (Step 6.37) and threaded on the view (the 15:45 capture-window rerun renders its own time):
 
 ```python
-_PROVISIONAL_FLOW_AS_OF = "12:15"
-
-
 def _drilldown_block(view: FundView) -> str:
     if not view.holding_metrics:
         return ""
     agg = aggregate_flow(view.holding_metrics)
     provisional = provisional_flow_annotation_html(
-        symbol_value=view.provisional_flow_pct, as_of_hhmm=_PROVISIONAL_FLOW_AS_OF)
+        symbol_value=view.provisional_flow_pct,
+        as_of_hhmm=view.provisional_flow_as_of or "")
     return (holdings_board_html(view.holding_metrics)
             + flow_rollup_html(view.holding_metrics, agg, view.signal)
             + provisional)
@@ -4761,10 +5027,17 @@ In `src/irc/commands/monitor_cmd.py`, `_process_fund` already calls `_load_flow_
 ```python
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
     provisional_flow = _provisional_flow_note(root, _capture_union_symbols(funds, root))
+    # EDGE clock read (allowed HERE, never in render_*): stamp the ACTUAL fetch
+    # time for the 盘中提示 annotation (spec §8 截至HH:MM — the 15:45 capture
+    # rerun renders its own time, never a hardcoded 12:15).
+    provisional_flow_as_of = (
+        datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
+        if provisional_flow else None
+    )
     theme_results = _build_theme_results(root, list(funds))
 ```
 
-Modify `_process_fund`'s signature to accept `provisional_flow: dict | None = None` and compute the per-fund aggregate from the top-5 holdings' symbols (mirrors `aggregate_flow`'s weighting, kept SIMPLE per spec — a plain top-5 mean is acceptable since this is a render-only annotation, not a factor):
+Modify `_process_fund`'s signature to accept `provisional_flow: dict | None = None` and `provisional_flow_as_of: str | None = None`, and compute the per-fund aggregate from the top-5 holdings' symbols (mirrors `aggregate_flow`'s weighting, kept SIMPLE per spec — a plain top-5 mean is acceptable since this is a render-only annotation, not a factor):
 
 ```python
 def _process_fund(
@@ -4772,6 +5045,7 @@ def _process_fund(
     today: str | None = None, flow_slice: dict | None = None,
     theme_results: dict[str, tuple] | None = None,
     provisional_flow: dict | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
 ```
 
@@ -4797,15 +5071,16 @@ def _provisional_flow_for_fund(top5: tuple, provisional_flow: dict | None) -> fl
     return sum(present) / len(present)
 ```
 
-Thread `provisional_pct` into `_make_view`'s call site inside `_process_fund`:
+Thread `provisional_pct` + the fetch-time stamp into `_make_view`'s call site inside `_process_fund`:
 
 ```python
     view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
                       holding_metrics=holding_metrics, purchase_table=purchase_table,
-                      provisional_flow_pct=provisional_pct)
+                      provisional_flow_pct=provisional_pct,
+                      provisional_flow_as_of=provisional_flow_as_of)
 ```
 
-Modify `_make_view`'s signature to accept and forward it:
+Modify `_make_view`'s signature to accept and forward both:
 
 ```python
 def _make_view(
@@ -4820,6 +5095,7 @@ def _make_view(
     holding_metrics: tuple = (),
     purchase_table=None,
     provisional_flow_pct: float | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -4843,10 +5119,11 @@ def _make_view(
         purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
         themes=fund.themes,
         provisional_flow_pct=provisional_flow_pct,
+        provisional_flow_as_of=provisional_flow_as_of,
     )
 ```
 
-Update the `_process_fund` call site inside `run_monitor`'s loop to pass `provisional_flow=provisional_flow`:
+Update the `_process_fund` call site inside `run_monitor`'s loop to pass `provisional_flow=provisional_flow, provisional_flow_as_of=provisional_flow_as_of`:
 
 ```python
         for fund in funds:
@@ -4854,6 +5131,7 @@ Update the `_process_fund` call site inside `run_monitor`'s loop to pass `provis
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
                 today=_today, flow_slice=flow_slice, theme_results=theme_results,
                 provisional_flow=provisional_flow,
+                provisional_flow_as_of=provisional_flow_as_of,
             )
 ```
 
@@ -4955,12 +5233,15 @@ Run each individually:
 uv run pytest tests/monitor/test_all_na_columns.py -v
 uv run pytest tests/monitor/test_render_drilldown.py -v
 uv run pytest tests/monitor/test_eval_panel.py -v
+uv run pytest tests/monitor/eval/test_panel.py -v
 uv run pytest tests/monitor/test_render_timeline.py -v
 uv run pytest tests/monitor/test_render_html.py -v
+uv run pytest tests/monitor/test_render_html_eval.py tests/monitor/test_render_html_predictive.py tests/monitor/test_render_html_citations.py tests/monitor/test_report_v2_invariants.py -v
 uv run pytest tests/commands/test_monitor_cmd.py -v
 uv run pytest tests/commands/test_monitor_cmd_timeline.py -v
+uv run pytest tests/commands/test_monitor_constituent.py -v
 ```
-Expected: all passed, 0 failed.
+Expected: all passed, 0 failed. (`tests/monitor/eval/test_panel.py` + the four render-test files carry the required-`now`/`now_dt` updates from Steps 6.15/6.24; `test_monitor_constituent.py` re-runs its Step-4.14 e2e now that `_provisional_flow_note` is wired.)
 
 - [ ] **Step 6.44: Re-assert ADR 0001/0017 invariants + report-v2 acceptance invariants one final time before the phase commit**
 
@@ -4969,7 +5250,7 @@ Expected: all passed.
 
 - [ ] **Step 6.45: Run ruff on all Phase 6 files**
 
-Run: `uv run ruff check src/irc/monitor/eval/panel.py src/irc/monitor/render_drilldown.py src/irc/monitor/render_timeline.py src/irc/monitor/render_html.py src/irc/monitor/render_types.py src/irc/commands/monitor_cmd.py tests/monitor/test_all_na_columns.py tests/monitor/test_render_drilldown.py tests/monitor/test_eval_panel.py tests/monitor/test_render_timeline.py tests/commands/test_monitor_cmd.py tests/commands/test_monitor_cmd_timeline.py`
+Run: `uv run ruff check src/irc/monitor/eval/panel.py src/irc/monitor/render_drilldown.py src/irc/monitor/render_timeline.py src/irc/monitor/render_html.py src/irc/monitor/render_types.py src/irc/commands/monitor_cmd.py tests/monitor/test_all_na_columns.py tests/monitor/test_render_drilldown.py tests/monitor/test_eval_panel.py tests/monitor/eval/test_panel.py tests/monitor/test_render_timeline.py tests/commands/test_monitor_cmd.py tests/commands/test_monitor_cmd_timeline.py`
 Expected: `All checks passed!`
 
 - [ ] **Step 6.46: Commit Phase 6**
@@ -4979,7 +5260,12 @@ git add src/irc/monitor/eval/panel.py src/irc/monitor/render_drilldown.py \
         src/irc/monitor/render_timeline.py src/irc/monitor/render_html.py \
         src/irc/monitor/render_types.py src/irc/commands/monitor_cmd.py \
         tests/monitor/test_all_na_columns.py tests/monitor/test_render_drilldown.py \
-        tests/monitor/test_eval_panel.py tests/monitor/test_render_timeline.py \
+        tests/monitor/test_eval_panel.py tests/monitor/eval/test_panel.py \
+        tests/monitor/test_render_timeline.py \
+        tests/monitor/test_render_html.py tests/monitor/test_render_html_eval.py \
+        tests/monitor/test_render_html_predictive.py \
+        tests/monitor/test_render_html_citations.py \
+        tests/monitor/test_report_v2_invariants.py \
         tests/commands/test_monitor_cmd.py tests/commands/test_monitor_cmd_timeline.py
 git commit -m "feat(monitor): dark-data honesty + stale-eval age badges + timeline names (spec §8)
 
@@ -4987,19 +5273,22 @@ Informational panel stages (flow_coverage, valuation_coverage) render 观测
 instead of PASS — they are panel-only tallies, never a gate, and PASS
 previously read as 'data fine' at zero coverage; amber styling when
 flow_cover < 0.50. Validation panel ran_at always shows age (·N天前), amber
-at >10d (STALE_EVAL_DAYS, an early heads-up) — distinct from the gate's own
-UNKNOWN(stale) at >14d (STALE_AFTER_DAYS, unchanged). Holdings board:
+from 10d (>= STALE_EVAL_DAYS; spec §11 boundary: 9 green, 10 amber — an early
+heads-up) — distinct from the gate's own UNKNOWN(stale) at >14d
+(STALE_AFTER_DAYS, unchanged). Panel clock is threaded from the edge
+(run_monitor's now_dt) — no datetime.now() under render_*. Holdings board:
 all-N/A columns collapse to one header note with the structured reason code
 (all_na_columns). Flow rollup gets a 暗·覆盖不足 chip at N/A. Bias-history
 timeline renders 名称(代码) instead of bare fund codes. 盘中提示: the existing
 _provisional_flow_note edge (ONE proxied ulist.np call per run, never
 persisted) is wired into the per-fund flow rollup as a clearly-labeled
-render-only annotation (盘中值，非因子输入); degrades to no annotation on
+render-only annotation (截至HH:MM = the ACTUAL edge-stamped fetch time, not
+a hardcoded 12:15; 盘中值，非因子输入); degrades to no annotation on
 any error."
 ```
 
 **Phase 6 verification checkpoint:**
-- [ ] `uv run pytest tests/monitor/test_eval_panel.py -v` → 8 passed
+- [ ] `uv run pytest tests/monitor/test_eval_panel.py -v` → 9 passed (4 vocabulary + 4 ran_at + the Step 6.23 two-constants test)
 - [ ] `uv run pytest tests/monitor/test_all_na_columns.py -v` → 4 passed
 - [ ] `uv run pytest tests/commands/test_monitor_cmd.py -v -k provisional_flow` → 5 passed
 - [ ] `git log -1 --oneline` shows the Phase 6 commit
@@ -5014,9 +5303,10 @@ Run this AFTER all 6 phases are committed. This is the single comprehensive gate
 
 ```bash
 for f in tests/monitor/test_*.py; do uv run pytest "$f" -q || echo "FAILED: $f"; done
+for f in tests/monitor/eval/test_*.py; do uv run pytest "$f" -q || echo "FAILED: $f"; done
 for f in tests/commands/test_*.py; do uv run pytest "$f" -q || echo "FAILED: $f"; done
 ```
-Expected: no `FAILED:` lines.
+Expected: no `FAILED:` lines. (The `tests/monitor/eval/` loop is required — the top-level glob misses it, and `tests/monitor/eval/test_panel.py` was touched by the required-`now` change.)
 
 - [ ] **V2. `source_tiers` classification truth table** — `uv run pytest tests/monitor/test_source_tiers.py -v` → all passed (blocked/1/2/3, suffix match, unknown→3, malformed config→3).
 
@@ -5030,7 +5320,7 @@ Expected: no `FAILED:` lines.
 
 - [ ] **V7. 今日速览 gate-respect** — `uv run pytest tests/commands/test_monitor_cmd.py -v -k eval_gated_fund_excluded` → passed (EVAL-GATED ADD_BIAS fund appears in 数据健康, never in 可操作).
 
-- [ ] **V8. Panel vocabulary** — `uv run pytest tests/monitor/test_eval_panel.py -v` → all passed (informational stages render 观测 never PASS; amber at `flow_cover` < 0.50; suite `ran_at` age display amber at >10d while >14d still shows UNKNOWN(stale) — verified separately by `resolve_health`'s existing `STALE_AFTER_DAYS` tests, untouched by this plan).
+- [ ] **V8. Panel vocabulary** — `uv run pytest tests/monitor/test_eval_panel.py -v` → all passed (informational stages render 观测 never PASS; amber at `flow_cover` < 0.50; suite `ran_at` age display amber from 10d — spec §11 boundary: 9 green, 10 amber — while >14d still shows UNKNOWN(stale), verified separately by `resolve_health`'s existing `STALE_AFTER_DAYS` tests, untouched by this plan).
 
 - [ ] **V9. Citation index** — `uv run pytest tests/monitor/test_render_html_citations.py -v` → all passed (many cids → one number; superscript anchors resolve to canonical `<li>`; date + tier badge present; first-seen order); `[ref:` closure invariant — `uv run pytest tests/monitor/test_evidence.py -v` → passed (16-hex `citation_id` shape unchanged).
 
@@ -5038,7 +5328,7 @@ Expected: no `FAILED:` lines.
 
 - [ ] **V11. Dark data** — `uv run pytest tests/monitor/test_all_na_columns.py tests/monitor/test_render_drilldown.py -v` → all passed (all-N/A column collapse with reason; flow chip at coverage 0 and below floor; panel amber state via V8).
 
-- [ ] **V12. Stale badges** — `uv run pytest tests/monitor/test_eval_panel.py -v -k "ran_at_age_boundary"` → passed (10-day boundary: 9 green, 10 amber; date rendered via `test_ran_at_shows_age_in_days`).
+- [ ] **V12. Stale badges** — `uv run pytest tests/monitor/test_eval_panel.py -v -k "ran_at_age_boundary"` → passed (10-day boundary: 9 green, 10 amber — implementation predicate `age_days >= STALE_EVAL_DAYS`, spec §11 authoritative over §8's looser ">10d" wording; date rendered via `test_ran_at_shows_age_in_days`; the panel's `now` is threaded from the edge — no clock read under `render_*`).
 
 - [ ] **V13. Invariants re-asserted** — `uv run pytest tests/monitor/test_report_v2_invariants.py -v` → all passed (no `<script>`/remote refs; `基金概况` absent; engine version untouched — `_ENGINE_VERSION == "3"`, re-grep: `grep -n '_ENGINE_VERSION = ' src/irc/commands/monitor_cmd.py` must show `"3"`).
 
