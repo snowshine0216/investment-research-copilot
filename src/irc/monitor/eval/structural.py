@@ -180,6 +180,12 @@ def flow_coverage_health(t: dict) -> StageHealth:
     reasons.append(f"pe_cover {round(pe_cov, 2)}")
     reasons.append(f"flow_no_data {no_data}")
     reasons.append(f"flow_no_coverage {no_cov}")
+    flow_rows = [r.get("flow_rows", 0) for r in rows]
+    if flow_rows:
+        reasons.append(f"flow_rows_min {min(flow_rows)}")  # warm-up curve (D9/B2 5.E)
+    source = hm.get("flow_source")
+    if source is not None:
+        reasons.append(f"flow_source {source}")
     return StageHealth("flow_coverage", "PASS", tuple(reasons))
 
 
