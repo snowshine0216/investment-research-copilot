@@ -1,0 +1,13 @@
+Verdict: PASS-WITH-NITS
+Source: /ship steps 8+9 (pre-landing: pr-review-toolkit:code-reviewer + pr-review-toolkit:silent-failure-hunter; adversarial: general-purpose) — round 1 BREAKS → fix commit 9ee7ca6d → round 2 all-clear (adversarial RISKS = P2-only)
+
+## Round 1 findings (all fixed in 9ee7ca6d, re-verified by original finders)
+- P0 [adversarial, reproduced] narrative_macro.py parse path: valid-JSON-wrong-shape LLM output → AttributeError escaped narrow except; unguarded call site monitor_cmd.py:1006 → entire daily run died before report/trace/ledger writes. FIXED: shape validation (top-level dict / theme-value list / row dict → `_MacroNarrErr schema_invalid:*` into retry loop) + call-site `except Exception` guard degrading to `MacroNarrativeDoc((), "gather_error: …")` with exc_info logging; e2e test proves run survives RuntimeError with all writes intact. Re-attack: CLEAN on this vector; KeyboardInterrupt/SystemExit propagate correctly.
+- P1 [adversarial] bare-string `citation_ids` char-iterated into garbage 1-char cids, burning the hardened retry. FIXED: type-validated list/tuple-of-str → distinct `schema_invalid: citation_ids not a list` reason.
+- P1 [silent-failure] second source_tiers read (monitor_cmd.py:1042-1044) swallowed failure unlogged → silently-wrong 未分级 badges. FIXED: warning logged at this site (caplog test isolates the site); threading consolidation deferred (polish).
+- P1 [code-reviewer] `_row_reason` or-chain borrowed unrelated reason fields for dark columns (all-dark PB labeled flow_no_data). FIXED: explicit `_COL_REASON_KEY` family map verified semantically honest per HoldingMetric fields; unmapped → "no_data", never borrowed.
+
+## Residual nits (do not block; noted in PR body)
+- P2 [adversarial, reproduced] unhashable `attribution_strength` (e.g. LLM emits a list) raises TypeError at the `_VALID_STRENGTH` set-membership check (narrative_macro.py:120), escaping the inner except — caught by the call-site guard, so the whole doc degrades (honest absence, logged) instead of consuming a retry for that theme. No crash, no data loss, all writes proceed. One-line isinstance hardening candidate.
+- Polish: `_capture_union_symbols` called twice per run; monitor config loaded 3×/run (cheap local reads) — consolidation follow-up.
+- Notes: HTML escaping verified at every web-derived render site (title/source/date via html.escape; anchor theme names are config-controlled, not web-derived — no XSS vector); `_age_days` naive/aware tz handling verified; degraded MacroNarrativeDoc verified against every downstream consumer (trace serializer, `__macro__` writer, render early-return).
