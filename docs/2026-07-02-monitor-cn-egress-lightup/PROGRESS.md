@@ -19,3 +19,12 @@ Notes:
 - grill ⏭️ user-grilled 2026-07-02 (spec header) — orchestrator does not auto-invoke grill in spec mode.
 - QA ⏭️ — project type non-web; `/verify` is the post-ship verifier (XOR).
 - Feature branch `autodev/monitor-cn-egress-lightup-feature` synthesized off main (no protected-branch opt-in this turn).
+
+## Final status (2026-07-02)
+
+- Items merged: 1/1 — PR #189 → feature branch (squash f5b37fcb). Items SKIPPED/BLOCKED: 0.
+- Phase 3: workflow-completeness audit PASS (ship/drift/review/pr-review/verify all present with correct verdicts; qa=0 per non-web XOR; grill absent-OK, spec mode ⏭️). Merged-branch sanity: CLI OK; tests/monitor 823p/12s, commands per-file 13p, tests/ops 54p. Doc-sync: handled in-item (Task 15, source-verified by docs review) — lightweight per mode-spec.md; run-level verify == item verify (N=1, real entry points).
+- Feature branch: autodev/monitor-cn-egress-lightup-feature
+- Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/190
+- Merged into protected branch: no (PR left open for user review)
+- Follow-ups: TODOS.md 2026-07-02 entries; GATE-2 Tier-0 spike OPEN post-merge (spec appendix, D-B3 escalation); post-merge op steps in PR #190 body (install 15:45 job → D7 seed → D8 backfill → Tier-2 watch).
