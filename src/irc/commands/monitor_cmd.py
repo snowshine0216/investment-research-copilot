@@ -30,7 +30,8 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
-from irc.monitor.flow_series_store import load_store, series_slice
+from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
+from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
 from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
@@ -883,4 +884,49 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         search_units={},
         today=datetime.fromisoformat(_today).date(),
     )
+    return 0
+
+
+_FLOW_KEEP_TD = 25
+
+
+def _capture_union_symbols(funds, root: Path) -> tuple:
+    """The union of the monitor set's active-fund top-5 look-through symbols."""
+    from irc.monitor.profiles import PROFILES
+    syms: list[str] = []
+    for fund in funds:
+        spec = PROFILES.get(fund.analysis_profile)
+        if not (spec and spec.lookthrough == "active_fund"):
+            continue
+        snap = load_latest_active_fund_cached(fund.id, root / "data")
+        if snap is None:
+            continue
+        top = sorted(snap.constituent_analyses, key=lambda c: c.weight_pct,
+                     reverse=True)[:_TOP_N_HOLDINGS]
+        syms.extend(h.symbol for h in top)
+    return tuple(dict.fromkeys(syms))
+
+
+def run_flow_capture(*, repo_root: str, today: str | None = None) -> int:
+    """EDGE (15:45 job, D6): ONE ulist.np batch → append the now-final f184 to the
+    completed-day store. No LLM, no report, no ledger. `today` MUST be a completed
+    CN trading day (the wrapper runs it after the 15:00 close)."""
+    root = Path(repo_root)
+    _today = today or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    funds = resolve_funds(load_monitor_config(root))
+    symbols = _capture_union_symbols(funds, root)
+    if not symbols:
+        _log.warning("flow-capture: no active-fund symbols; nothing to capture")
+        return 0
+    try:
+        by_symbol = fetch_flow_today_batch(symbols)
+    except Exception:  # noqa: BLE001 — degrade, never crash (breaker/abort posture)
+        _log.warning("flow-capture: ulist.np batch failed", exc_info=True)
+        return 0
+    trading_days = load_trading_days(date.today(), root=root)
+    tds = tuple(d.isoformat() for d in (trading_days or ()))
+    append_today(root / "data" / "monitor" / "fund_flow_series.json", _today,
+                 by_symbol, keep_td=_FLOW_KEEP_TD, trading_days=tds)
+    print(f"flow-capture OK: {_today} appended {sum(v is not None for v in by_symbol.values())}"
+          f"/{len(symbols)} symbols")
     return 0

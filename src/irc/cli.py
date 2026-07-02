@@ -268,6 +268,14 @@ def monitor_snapshot(repo_root: str, top_n: int) -> None:
     raise SystemExit(run_monitor_snapshot(repo_root=repo_root, top_n=top_n))
 
 
+@monitor.command("flow-capture",
+                 help="15:45 job: append the completed-day flow batch to the series store.")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def monitor_flow_capture(repo_root: str) -> None:
+    from irc.commands.monitor_cmd import run_flow_capture
+    raise SystemExit(run_flow_capture(repo_root=repo_root))
+
+
 @main.group(help="Fundamentals snapshot cache management.")
 def fundamentals() -> None:
     pass
