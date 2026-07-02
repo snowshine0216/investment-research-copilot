@@ -1,8 +1,11 @@
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from irc.monitor.render_html import build_citation_index, render_report
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.types import EvidenceItem, NarrativeDoc, SignalRecord, Claim
+
+_NOW_DT = datetime(2026, 6, 30, 9, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 def _view(fid, evs):
@@ -46,7 +49,7 @@ def test_appendix_numbers_align_with_superscripts():
                     return_table={}, factor_freshness={}, missing_factor_reasons=(),
                     factor_scores=())
     html = render_report((view,), Provenance("3", "1", "1", ""),
-                         prior_signal=None, now="2026-06-30T09:00:00+08:00")
+                         prior_signal=None, now="2026-06-30T09:00:00+08:00", now_dt=_NOW_DT)
     # appendix li carries a leading "1." and id ev-{cid}
     assert f'<li id="ev-{a.citation_id}">1.' in html
     # the in-text superscript anchor links to the same id with number 1; hover title
@@ -58,7 +61,7 @@ def test_appendix_numbers_align_with_superscripts():
 
 def test_no_script_or_remote_refs_in_report():
     html = render_report((), Provenance("3", "1", "1", ""), prior_signal=None,
-                         now="2026-06-30T09:00:00+08:00")
+                         now="2026-06-30T09:00:00+08:00", now_dt=_NOW_DT)
     assert "<script" not in html.lower()
     assert "http://" not in html and "https://" not in html
     assert "基金概况" not in html

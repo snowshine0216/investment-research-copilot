@@ -58,7 +58,8 @@ def dual_track_score(
     hard-0 False-Cheap clamp (self>0 AND r>=1.2). self-N/A → no val_score."""
     r, industry_score = _industry_leg(stock_pe, industry_avg_pe)
     if self_score is None:                        # self leg N/A → no score
-        return DualTrack(industry_score, None, False, None, r)
+        reason = _REASON_INDUSTRY_NO_DATA if industry_score is None else None
+        return DualTrack(industry_score, None, False, reason, r)
     if industry_score is None:                    # industry leg N/A → self-only
         return DualTrack(None, self_score, False, _REASON_INDUSTRY_NO_DATA, None)
     if self_score > 0.0 and r >= _FALSE_CHEAP_RICHNESS:  # value-trap quadrant

@@ -17,6 +17,17 @@ from irc.monitor.types import SignalRecord
 _INDUSTRY_COVERAGE_NOTE_FLOOR = 0.50
 
 
+def all_na_columns(rows: list[dict], *, columns: tuple[str, ...]) -> frozenset[str]:
+    """PURE: columns whose value is None/absent for EVERY row (dead-dash column
+    collapse, spec §8). Empty rows -> frozenset() (no rows is not 'all dark')."""
+    if not rows:
+        return frozenset()
+    return frozenset(
+        col for col in columns
+        if all(row.get(col) is None for row in rows)
+    )
+
+
 def _cell_num(v: float | None, fmt: str = "{:.2f}") -> str:
     return "—" if v is None else escape(fmt.format(v))
 
@@ -55,16 +66,65 @@ def _row(i: int, m: HoldingMetric) -> str:
     )
 
 
+_BOARD_NA_COLUMNS = ("pb", "pe", "pe_percentile", "valuation_state", "industry",
+                     "industry_pe", "industry_richness", "industry_score",
+                     "flow_pct_5d", "flow_pct_20d", "flow_score")
+
+_COL_LABEL = {
+    "pb": "PB", "pe": "PE", "pe_percentile": "PE分位", "valuation_state": "估值",
+    "industry": "行业", "industry_pe": "行业PE", "industry_richness": "r",
+    "industry_score": "行业分", "flow_pct_5d": "5d净占比", "flow_pct_20d": "20d净占比",
+    "flow_score": "资金流分",
+}
+
+
+def _row_reason(rows: list[dict], column: str) -> str:
+    for r in rows:
+        reason = r.get(f"{column}_reason") or r.get("industry_reason") or r.get("flow_reason") \
+                 or r.get("valuation_reason")
+        if reason:
+            return reason
+    return "no_data"
+
+
+def _board_rows_dict(ordered: tuple[HoldingMetric, ...]) -> list[dict]:
+    return [
+        {"pb": m.pb, "pe": m.pe, "pe_percentile": m.pe_percentile,
+         "valuation_state": m.valuation_state, "industry": m.industry,
+         "industry_pe": m.industry_pe, "industry_richness": m.industry_richness,
+         "industry_score": m.industry_score, "flow_pct_5d": m.flow_pct_5d,
+         "flow_pct_20d": m.flow_pct_20d, "flow_score": m.flow_score,
+         "industry_reason": m.industry_reason, "flow_reason": m.flow_reason,
+         "valuation_reason": m.valuation_reason}
+        for m in ordered
+    ]
+
+
+def _board_dark_note(rows_dict: list[dict], dark_cols: frozenset[str]) -> str:
+    if not dark_cols:
+        return ""
+    parts = "、".join(
+        f"{_COL_LABEL.get(c, c)}（{_row_reason(rows_dict, c)}）"
+        for c in sorted(dark_cols)
+    )
+    return f'<p class="na-reason board-dark-note">本表全暗列：{parts}</p>'
+
+
 def holdings_board_html(metrics: tuple[HoldingMetric, ...]) -> str:
-    """PURE: top-holdings board, rows sorted by weight desc, N/A cells dashed."""
+    """PURE: top-holdings board, rows sorted by weight desc, N/A cells dashed.
+    A column that is N/A for EVERY row collapses to a single header note
+    carrying the structured reason code instead of a wall of dashes (spec §8)."""
     head = (
         "<tr><th>#</th><th>代码</th><th>名称</th><th>权重%</th><th>PB</th><th>PE</th>"
         "<th>PE分位</th><th>估值</th><th>行业</th><th>行业PE</th><th>r</th><th>行业分</th>"
         "<th>5d净占比</th><th>20d净占比</th><th>资金流分</th></tr>"
     )
-    ordered = sorted(metrics, key=lambda m: m.weight_pct, reverse=True)
+    ordered = tuple(sorted(metrics, key=lambda m: m.weight_pct, reverse=True))
+    rows_dict = _board_rows_dict(ordered)
+    dark_cols = all_na_columns(rows_dict, columns=_BOARD_NA_COLUMNS)
     rows = "".join(_row(i, m) for i, m in enumerate(ordered, start=1))
-    return f"<table class='holdings-board'>{head}{rows}</table>"
+    note = _board_dark_note(rows_dict, dark_cols)
+    return f"<table class='holdings-board'>{head}{rows}</table>{note}"
 
 
 def _aum_share(metrics: tuple[HoldingMetric, ...]) -> float:
@@ -75,11 +135,14 @@ def flow_rollup_html(
     metrics: tuple[HoldingMetric, ...], agg: FlowAggregate, signal: SignalRecord,
 ) -> str:
     """PURE: the reconciliation line — flow factor = Σ(wᵢ·sᵢ)/Σ(wᵢ), covered ratio,
-    and top-5 representativeness (% of fund AUM, ALWAYS shown). Lean language only."""
+    and top-5 representativeness (% of fund AUM, ALWAYS shown). Lean language only.
+    N/A (agg.value is None) renders a 暗·覆盖不足 chip (spec §8 — 'PASS' elsewhere
+    must not read as 'data fine')."""
     aum = _aum_share(metrics)
     if agg.value is None:
+        chip = '<span class="dark-chip">暗·覆盖不足</span> '
         body = (
-            f"资金流因子 = N/A（{escape(agg.reason or 'flow_no_data')}）· "
+            f"{chip}资金流因子 = N/A（{escape(agg.reason or 'flow_no_data')}）· "
             f"前五大 = {aum:.0f}% of 基金资产"
         )
     else:
@@ -90,6 +153,21 @@ def flow_rollup_html(
             f"综合 C = {signal.composite:+.4f} → {escape(signal.bias or 'NEUTRAL')}"
         )
     return f"<div class='flow-rollup'>{body}</div>"
+
+
+def provisional_flow_annotation_html(*, symbol_value: float | None, as_of_hhmm: str) -> str:
+    """PURE: render-only 盘中提示 annotation for the per-fund flow rollup line
+    (spec §8 — obligation inherited from CONTEXT.md 'Flow freshness state').
+    symbol_value is the aggregate intraday flow reading (already computed at
+    the edge from _provisional_flow_note); None -> '' (degrades silently, the
+    edge already logs the fetch failure). NEVER implies this value feeds the
+    factor — the trailing 非因子输入 clause is load-bearing."""
+    if symbol_value is None:
+        return ""
+    return (
+        f'<div class="provisional-flow muted">盘中主力净流入(截至{escape(as_of_hhmm)}) '
+        f'{symbol_value:+.2f}% · 盘中值，非因子输入</div>'
+    )
 
 
 def _industry_coverage_ratio(metrics: tuple[HoldingMetric, ...]) -> float | None:
@@ -133,6 +211,8 @@ _DRILLDOWN_CSS = (
     ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
     ".trap-badge{color:#9a6700;font-size:11px;background:#fff8c5;padding:0 4px;border-radius:3px}"
     ".valuation-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #8250df;font-size:13px}"
+    ".dark-chip{font-size:11px;color:#bf8700;background:#fff8c5;padding:0 4px;border-radius:3px}"
+    ".provisional-flow{font-size:12px;margin-top:4px}"
     "</style>"
 )
 

@@ -1,5 +1,6 @@
 import dataclasses
 import re
+from datetime import datetime, timedelta, timezone
 
 from irc.monitor.holding_metrics import HoldingMetric
 from irc.monitor.render_html import _card, _flow_outage_note, render_report
@@ -10,6 +11,7 @@ from irc.monitor.types import (
 )
 
 _NOW = "2026-06-15T09:00:00+08:00"
+_NOW_DT = datetime(2026, 6, 15, 9, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 def _ev():
@@ -52,7 +54,7 @@ def _prov():
 
 
 def test_report_has_lean_disclaimer_and_legend():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     # bias is a research lean — not a tradable buy/sell order, not advice
     assert "研究参考" in html and "非买卖指令" in html
     assert "不构成投资建议" in html
@@ -64,26 +66,26 @@ def test_report_has_lean_disclaimer_and_legend():
 
 
 def test_disclaimer_banner_is_static_and_carries_no_javascript():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert '<aside class="explainer">' in html
     assert "<script" not in html.lower()
 
 
 def test_every_fund_has_summary_row_and_card():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert html.count('class="fund-card"') == 1
     assert "广发上海金ETF联接A" in html
 
 
 def test_no_call_fund_renders_distinct_badge_and_still_has_card():
     v = _view(status="insufficient_evidence", bias=None)
-    html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "NO_CALL" in html
     assert 'class="fund-card"' in html        # no silent drop
 
 
 def test_anchor_set_equals_appendix_id_set():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     # In v2, in-text anchors are <sup><a href="#ev-{cid}">N</a></sup>
     anchors = set(re.findall(r'href="#ev-([0-9a-f]{16})"', html))
     appendix = set(re.findall(r'id="ev-([0-9a-f]{16})"', html))
@@ -92,7 +94,7 @@ def test_anchor_set_equals_appendix_id_set():
 
 def test_markers_are_appended_deterministically():
     v = _view()
-    html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     cid = v.evidence_pool[0].citation_id
     # v2: in-text superscript anchor replaces raw [ref:cid] marker
     assert f'href="#ev-{cid}"' in html          # renderer wired citation, LLM did not
@@ -105,26 +107,26 @@ def test_hostile_title_is_escaped():
     v = _view()
     v = FundView(**{**v.__dict__, "evidence_pool": (ev,),
                     "narrative": NarrativeDoc("008986", (), (), (), "ok")})
-    html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "<script>alert(1)</script>" not in html
     assert "&lt;script&gt;" in html
 
 
 def test_no_javascript_and_no_remote_refs():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "<script" not in html.lower()
     assert "http://" not in html.replace("https://r", "") or True  # evidence url allowed
     assert "cdn" not in html.lower() and "googleapis" not in html.lower()
 
 
 def test_changed_flag_absent_without_prior():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "changed-since-yesterday" not in html
 
 
 def test_changed_flag_present_when_prior_differs():
     prior = {"008986": {"bias": "REDUCE_BIAS"}}
-    html = render_report((_view(),), _prov(), prior_signal=prior, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=prior, now=_NOW, now_dt=_NOW_DT)
     assert "changed-since-yesterday" in html
 
 
@@ -147,56 +149,56 @@ def test_impacts_status_carried_in_fundview():
     )
     assert v_bad.impacts_status == "schema_invalid: bad json"
     # render must not crash when impacts_status is non-ok
-    html = render_report((v_bad,), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((v_bad,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert 'class="fund-card"' in html
 
 
 def test_byte_stable_given_identical_inputs():
     v = (_view(),)
-    a = render_report(v, _prov(), prior_signal=None, now=_NOW)
-    b = render_report(v, _prov(), prior_signal=None, now=_NOW)
+    a = render_report(v, _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
+    b = render_report(v, _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert a == b
 
 
 def test_golden_file(tmp_path):
     from pathlib import Path
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     golden = Path(__file__).parent / "golden" / "report.html"
     assert html == golden.read_text(encoding="utf-8")
 
 
 def test_card_has_verdict_block():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert 'class="verdict"' in html
     assert "综合分 C" in html
 
 
 def test_card_has_factor_table_with_na_rows():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "class='factors'" in html
     assert "factor-na" in html               # at least one N/A factor row
     assert "heat_no_data" in html            # structured reason surfaced
 
 
 def test_card_has_real_returns_table():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "class='returns'" in html
     assert "60d:" in html and "250d:" in html  # the full window set
 
 
 def test_card_has_risk_block_or_placeholder():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert 'class="risk"' in html
 
 
 def test_old_missing_ul_is_gone():
-    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((_view(),), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "class='missing'" not in html      # replaced by the factor table
 
 
 def test_no_call_card_keeps_gate_clause_and_no_neutral_label():
     v = _view(status="insufficient_evidence", bias=None)
-    html = render_report((v,), _prov(), prior_signal=None, now=_NOW)
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
     assert "NO_CALL" in html
     # NO_CALL ≠ NEUTRAL: the verdict clause must not assert a NEUTRAL call
     assert "落在中性带内" not in html
@@ -274,7 +276,7 @@ def test_render_report_includes_charts():
     tl = BiasTimeline(run_dates=("2026-06-30",),
                       rows=(("008986", (("ADD_BIAS", "3"),)),))
     html = render_report((v,), Provenance("3", "1", "1", ""), prior_signal=None,
-                         now=_NOW, timeline=tl)
+                         now=_NOW, now_dt=_NOW_DT, timeline=tl)
     assert 'class="heatmap"' in html
     assert 'class="timeline"' in html
     assert 'class="contrib"' in html

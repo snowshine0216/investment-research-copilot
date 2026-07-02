@@ -487,3 +487,72 @@ def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_hea
         encoding="utf-8")
     assert "可操作" not in html or "EVAL-GATED" not in html.split("可操作")[1].split("</div>")[0]
     assert "被评估门禁" in html   # 数据健康 row still counts the gated fund
+
+
+# ── Phase 6: 盘中提示 provisional flow wiring ───────────────────────────────────
+
+
+def test_provisional_flow_for_fund_means_top5_values():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    top5 = (_H("600000"), _H("600001"))
+    provisional = {"600000": 2.0, "600001": 4.0}
+    assert mc._provisional_flow_for_fund(top5, provisional) == 3.0
+
+
+def test_provisional_flow_for_fund_none_provisional_returns_none():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    assert mc._provisional_flow_for_fund((_H("600000"),), None) is None
+
+
+def test_provisional_flow_for_fund_no_values_present_returns_none():
+    import irc.commands.monitor_cmd as mc
+
+    class _H:
+        def __init__(self, symbol):
+            self.symbol = symbol
+
+    top5 = (_H("600000"),)
+    assert mc._provisional_flow_for_fund(top5, {"999999": 1.0}) is None
+
+
+def test_run_monitor_calls_provisional_flow_note_once_per_run(tmp_path, monkeypatch):
+    """Budget note (spec §8): +1 proxied data-plane call at 12:15, not per-fund."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    calls = []
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: (
+        calls.append(symbols) or None
+    ))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    assert len(calls) == 1   # exactly once per run, not once per fund
+
+
+def test_run_monitor_provisional_flow_note_error_degrades_to_no_annotation(tmp_path, monkeypatch):
+    """_provisional_flow_note already degrades to None on any error (existing
+    contract) — assert run_monitor still succeeds and simply omits the
+    annotation."""
+    import irc.commands.monitor_cmd as mc
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "盘中主力净流入" not in html   # no annotation, no crash

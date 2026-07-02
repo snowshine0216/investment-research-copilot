@@ -295,6 +295,19 @@ def _make_constituent_rows(
 # ── Orchestration helpers ─────────────────────────────────────────────────────
 
 
+def _provisional_flow_for_fund(top5: tuple, provisional_flow: dict | None) -> float | None:
+    """PURE: simple mean of the top-5 symbols' intraday f184 values (render-only
+    annotation, NOT a factor — no weighting sophistication needed). None when
+    provisional_flow is None/empty or no top5 symbol has a value."""
+    if not provisional_flow or not top5:
+        return None
+    values = [provisional_flow.get(h.symbol) for h in top5]
+    present = [v for v in values if v is not None]
+    if not present:
+        return None
+    return sum(present) / len(present)
+
+
 def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
     """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
     (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
@@ -337,6 +350,8 @@ def _make_view(
     *,
     holding_metrics: tuple = (),
     purchase_table=None,
+    provisional_flow_pct: float | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -359,6 +374,8 @@ def _make_view(
         market_view=mv,
         purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
         themes=fund.themes,
+        provisional_flow_pct=provisional_flow_pct,
+        provisional_flow_as_of=provisional_flow_as_of,
     )
 
 
@@ -462,10 +479,11 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    tiers: SourceTiers | None = None,
                    constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
-                   purchase_tags: dict | None = None) -> None:
+                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
-    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
+    html = render_report(tuple(views), prov, prior_signal=prior,
+                         now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
                          gates=gate_map, panel_rows=panel_rows,
                          predictive_panel=predictive_panel, timeline=timeline,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
@@ -820,6 +838,8 @@ def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
     today: str | None = None, flow_slice: dict | None = None,
     theme_results: dict[str, tuple] | None = None,
+    provisional_flow: dict | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → view (+ eval bundle).
 
@@ -848,6 +868,7 @@ def _process_fund(
     const_impacts_result = None
     const_pool: tuple = ()
     holding_metrics: tuple = ()
+    provisional_pct: float | None = None
     profile_spec = PROFILES.get(fund.analysis_profile)
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
@@ -871,6 +892,7 @@ def _process_fund(
                 flow_slice=(flow_slice if flow_slice is not None
                             else _load_flow_store_slice(
                                 root, tuple(h.symbol for h in top5))))
+        provisional_pct = _provisional_flow_for_fund(top5, provisional_flow)
 
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
@@ -898,7 +920,9 @@ def _process_fund(
     signal = compute_signal(fund, scores)
     empty_narr = NarrativeDoc(fund.id, (), (), (), "empty_pool")
     view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
-                      holding_metrics=holding_metrics, purchase_table=purchase_table)
+                      holding_metrics=holding_metrics, purchase_table=purchase_table,
+                      provisional_flow_pct=provisional_pct,
+                      provisional_flow_as_of=provisional_flow_as_of)
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -952,6 +976,14 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
+    provisional_flow = _provisional_flow_note(root, _capture_union_symbols(funds, root))
+    # EDGE clock read (allowed HERE, never in render_*): stamp the ACTUAL fetch
+    # time for the 盘中提示 annotation (spec §8 截至HH:MM — the 15:45 capture
+    # rerun renders its own time, never a hardcoded 12:15).
+    provisional_flow_as_of = (
+        datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
+        if provisional_flow else None
+    )
     theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
@@ -961,6 +993,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
                 today=_today, flow_slice=flow_slice, theme_results=theme_results,
+                provisional_flow=provisional_flow,
+                provisional_flow_as_of=provisional_flow_as_of,
             )
             views.append(view)
             bundles.append(bundle)
@@ -1008,7 +1042,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                    macro_pool_items=macro_pool_items, tiers=tiers,
                    constituent_pool_items=constituent_pool_items,
                    prior_run_date=prior_run_date,
-                   purchase_tags=purchase_tags)
+                   purchase_tags=purchase_tags, now_dt=now_dt)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

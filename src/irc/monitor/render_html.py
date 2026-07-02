@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime
 from html import escape
 from urllib.parse import urlparse
 from irc.monitor.render_types import FundView, Provenance
@@ -11,7 +12,9 @@ from irc.monitor.render_cards import (
 from irc.monitor.narrative_macro import MacroNarrativeDoc, theme_display_name
 from irc.monitor.types import EvidenceItem
 from irc.monitor.render_factors import factor_table_html, returns_table_html
-from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
+from irc.monitor.render_drilldown import (
+    holdings_board_html, flow_rollup_html, provisional_flow_annotation_html,
+)
 from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
@@ -189,6 +192,10 @@ _CSS = (
     ".overview-row{margin:4px 0}"
     ".flip-from{color:#6e7781}.flip-to{font-weight:600}"
     ".restricted-tag{font-size:11px;color:#9a6700;background:#fff8c5;padding:0 4px;border-radius:3px}"
+    ".panel-amber{background:#fff8c5}"
+    ".age-amber{color:#bf8700}"
+    ".dark-chip{font-size:11px;color:#bf8700;background:#fff8c5;padding:0 4px;border-radius:3px}"
+    ".provisional-flow{font-size:12px;margin-top:4px}"
     "</style>"
 )
 
@@ -213,8 +220,12 @@ def _drilldown_block(view: FundView) -> str:
     if not view.holding_metrics:
         return ""
     agg = aggregate_flow(view.holding_metrics)
+    provisional = provisional_flow_annotation_html(
+        symbol_value=view.provisional_flow_pct,
+        as_of_hhmm=view.provisional_flow_as_of or "")
     return (holdings_board_html(view.holding_metrics)
-            + flow_rollup_html(view.holding_metrics, agg, view.signal))
+            + flow_rollup_html(view.holding_metrics, agg, view.signal)
+            + provisional)
 
 
 def _flow_eligible(view: FundView) -> bool:
@@ -342,11 +353,12 @@ def _badge_counts(views: tuple[FundView, ...], gates: dict[str, GateDecision]) -
 
 def _panel(
     views: tuple[FundView, ...], gates: dict[str, GateDecision] | None,
-    panel_rows: tuple[ValidationPanelRow, ...],
+    panel_rows: tuple[ValidationPanelRow, ...], *, now_dt: datetime,
 ) -> str:
     if not gates or not panel_rows:
         return ""
-    return validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))
+    return validation_panel_html(rows=panel_rows,
+                                 badge_counts=_badge_counts(views, gates), now=now_dt)
 
 
 def _macro_claim_html(claim, idx: "CitationIndex") -> str:
@@ -410,6 +422,7 @@ def render_report(
     *,
     prior_signal: dict | None,
     now: str,
+    now_dt: datetime,
     gates: dict[str, GateDecision] | None = None,
     panel_rows: tuple[ValidationPanelRow, ...] = (),
     predictive_panel: PredictivePanelModel | None = None,
@@ -455,12 +468,13 @@ def render_report(
         + "</table>"
     )
     heatmap = factor_heatmap_html(views)
-    timeline_html = bias_timeline_html(timeline) if timeline is not None else ""
+    fund_names = {v.fund_id: v.name_cn for v in views}
+    timeline_html = bias_timeline_html(timeline, fund_names=fund_names) if timeline is not None else ""
     fund_themes_by_theme = _invert_fund_themes(views)
     macro_html = macro_narrative_html(
         macro_narrative, fund_themes_by_theme=fund_themes_by_theme, idx=idx)
     cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
-    panel = _panel(views, gates, panel_rows)
+    panel = _panel(views, gates, panel_rows, now_dt=now_dt)
     outage_note = _flow_outage_note(views)
     predictive = (
         predictive_validity_panel_html(model=predictive_panel)
