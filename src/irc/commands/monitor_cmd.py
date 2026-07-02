@@ -30,7 +30,7 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
-from irc.monitor.flow_fetch import fetch_flow_series
+from irc.monitor.flow_series_store import load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
 from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
@@ -161,6 +161,20 @@ def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
 # ── Constituent pool (EDGE — snapshot I/O) ───────────────────────────────────
 
 _TOP_N_HOLDINGS = 5
+_FLOW_STORE_REL = ("data", "monitor", "fund_flow_series.json")
+
+
+def _load_flow_store_slice(root: Path, symbols) -> dict:
+    """EDGE-read: the persisted completed-day flow store, sliced to `symbols`.
+    The 12:15 brief consumes the store (whose newest row is a COMPLETED day); it
+    NEVER writes a provisional intraday value (D6/trap §8). Degrades to {} on any
+    error — the flow factor then reads all-None (honest N/A)."""
+    try:
+        store = load_store(root.joinpath(*_FLOW_STORE_REL))
+        return series_slice(store, symbols)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_load_flow_store_slice failed", exc_info=True)
+        return {}
 
 
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
@@ -240,17 +254,13 @@ def _make_constituent_rows(
 # ── Orchestration helpers ─────────────────────────────────────────────────────
 
 
-def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con):
-    """EDGE: fetch flow (top-5) + industry (full basket) → full-basket HoldingMetrics.
-    Flow stays top-5 (byte-identical); valuation/board span the full basket."""
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
+    """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
+    (full basket) → full-basket HoldingMetrics. Flow no longer fetched per fund
+    (D10); the store slice is fed in by run_monitor."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
-    try:
-        flow_series = fetch_flow_series(
-            flow_symbols, cache_dir=root / "data" / "monitor" / "fund_flow", today=today)
-    except Exception:  # noqa: BLE001 — degrade, never crash the brief
-        _log.warning("flow_fetch failed for %s", fund_id, exc_info=True)
-        flow_series = {s: None for s in flow_symbols}
+    flow_series = {s: flow_slice.get(s) for s in flow_symbols}
     full_symbols = tuple(h.symbol for h in full_holdings)
     if con is None:
         return build_holding_metrics(full_holdings, {}, flow_series)
@@ -722,7 +732,7 @@ def _append_nav_history_for_views(
 
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
-    today: str | None = None,
+    today: str | None = None, flow_slice: dict | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle)."""
     from irc.monitor.profiles import PROFILES
@@ -759,7 +769,10 @@ def _process_fund(
             constituent_rows = _make_constituent_rows(const_impacts_result, top5)
         if full_holdings and today is not None:
             holding_metrics = _build_full_basket_metrics(
-                full_holdings, top5, fund.id, root=root, today=today, con=con)
+                full_holdings, top5, fund.id, root=root, today=today, con=con,
+                flow_slice=(flow_slice if flow_slice is not None
+                            else _load_flow_store_slice(
+                                root, tuple(h.symbol for h in top5))))
 
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
