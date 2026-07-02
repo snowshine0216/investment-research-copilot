@@ -167,3 +167,22 @@ predictive panel renders it as an honest row from day one — reading
 "must be rendered, never hidden"). Rows with a `None` `market_composite` are
 filtered out of the directional population (`_market_composite_rows` keeps only
 non-None rows), not treated as `0`/bullish.
+
+---
+
+### Addendum (report v3, 2026-07-02): synthetic `theme:<name>` owners + traced macro narrative
+
+Report v3's 宏观面速览 block needs an evidence pool owned by no single fund.
+`EvidenceItem.owner_fund_id` is extended with synthetic **`theme:<name>` owners**
+for macro-block evidence: the `citation_id` preimage shape
+(`sha256(owner:url_or_fallback:date)` → 16 hex) is unchanged, the items still
+carry **no `scope` field**, and they remain walled off from the dual-coverage
+gate exactly as fund-owned monitor evidence is — the isolation argument of this
+ADR is untouched. Per-fund pools keep real fund owners; `gather_impacts` /
+`macro_tilt` scoring never sees a theme-owned pool.
+
+Data-contract note (§"Monitor-eval data contracts"): `eval_trace.json` gains a
+run-level `macro_narrative` field (`schema_version` 5→6, additive — old traces
+without the field must still load). Rationale: v3 drops per-fund LLM narrative,
+so without this field the trace would silently stop being a lossless record of
+the run's only LLM narrative output.
