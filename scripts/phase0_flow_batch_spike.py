@@ -194,11 +194,12 @@ def equiv(prior_path: Path, n: int, *, proxy: str | None = None) -> int:
     return 0
 
 
-def _resolve_cn_proxy_for_spike() -> str | None:
-    """IRC_CN_PROXY from env, else the first matching line in ./.env; normalized."""
+def _resolve_cn_proxy_for_spike(root: Path) -> str | None:
+    """IRC_CN_PROXY from env, else the first matching line in <root>/.env; normalized."""
     raw = os.environ.get("IRC_CN_PROXY", "")
-    if not raw and Path(".env").is_file():
-        for ln in Path(".env").read_text(encoding="utf-8").splitlines():
+    env_path = root / ".env"
+    if not raw and env_path.is_file():
+        for ln in env_path.read_text(encoding="utf-8").splitlines():
             if ln.startswith("IRC_CN_PROXY="):
                 raw = ln.split("=", 1)[1].strip()
                 break
@@ -218,7 +219,7 @@ def main() -> int:
     root = Path(args.root)
     proxy = None
     if args.use_cn_proxy:
-        proxy = _resolve_cn_proxy_for_spike()
+        proxy = _resolve_cn_proxy_for_spike(root)
         if proxy is None:
             print("--use-cn-proxy set but IRC_CN_PROXY is empty/unset")
             return 2
