@@ -52,3 +52,12 @@ blend `0.60/0.40`, `_FALSE_CHEAP_RICHNESS = 1.2`, monitor floor `0.40`, industry
 - 018132 (sector-concentrated, holdings ≈ the industry → r≈1) collapses to ~self-only; the clamp rarely fires. Acceptable; a cleaner sector-index read needs its `tracked_index` populated (out of scope).
 - The post-composite veto tier (conflict hard-suppression, flow-reversal guard) stays deferred (spec §10) — judged against forward evidence that resets to engine "3" here.
 - Framing held: 研究参考信号，非买卖指令 (ADR 0015).
+
+## Addendum — industry-leg root-cause correction + raw re-transport (2026-07-02)
+
+**The D3 industry leg never produced data in production.** Measured 2026-07-02 (live probes, both direct and through the new CN proxy — so NOT a geo problem):
+
+- `ak.stock_board_industry_name_em` (akshare 1.18.60) **no longer returns a `市盈率` column** → `parse_industry_pe` → `{}`, which `fetch_industry_pe` then cached for the day (`data/monitor/industry_pe/2026-06-29/-30.json` are both `{}`).
+- `ak.stock_individual_info_em` **raises `ValueError: Length mismatch` on every call** since ~06-23 (EastMoney added `dlmkts`/`dsc` response keys the wrapper's fixed-key parser can't handle) → every symbol TRANSIENT, no cache written; the two pre-drift days (06-21/22) produced all-"miss" caches. Net: every engine-"3" ledger row to date carries **self-only** valuation.
+
+**Decision (spec [`2026-07-02-monitor-cn-egress-data-plane-lightup-design.md`](../superpowers/specs/2026-07-02-monitor-cn-egress-data-plane-lightup-design.md) D3/D4):** re-transport the leg on raw EastMoney JSON — paginated `clist/get` `f9` for board PE, `stock/get` `f127` for stock→industry — slotted into the existing injectable `fetch` hooks so the parse / per-day cache / 3-outcome contracts are untouched, routed through `IRC_CN_PROXY`. `fetch_industry_pe` no longer caches an **empty** parse (aligned with the transient philosophy). **No `_ENGINE_VERSION` bump:** the dual-track methodology IS engine "3" and the leg never emitted a value, so lighting it up is data availability returning (the ADR 0019 DARK→FRESH class), not a semantics change. The D3 denominator-robustness risk stands — `f9` is 市盈率(动), single-column, weighting unverified; the Slice-0 sanity check hand-verifies a few boards against the EastMoney web UI before rollout.
