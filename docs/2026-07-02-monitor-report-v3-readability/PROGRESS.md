@@ -4,7 +4,7 @@ Mode: spec · Project type: non-web · PR shape: A · Feature branch: `autodev/m
 
 | id | title | spec | grill | plan | branch | impl | drift | PR | qa | verify | review | pr-review | fix | merge |
 |----|-------|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | Monitor report v3 readability | ⏭️ | ⏭️ | ✅ `901d4b75`+`bfea777d` | ✅ `claude/monitor-report-v3-readability-001` | ✅ `79e2b124..86b26aa7` | ⏳ | ⏳ | — | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | Monitor report v3 readability | ⏭️ | ⏭️ | ✅ `901d4b75`+`bfea777d` | ✅ `claude/monitor-report-v3-readability-001` | ✅ `79e2b124..86b26aa7` | ✅ `7cd2a504` | ✅ [#192](https://github.com/snowshine0216/investment-research-copilot/pull/192) | — | ⏳ | ✅ `001-review.md` PASS-WITH-NITS | ⏳ | ⏳ | ⏳ |
 
 Notes:
 - `spec` ⏭️ user-provided — verbatim copy at `items/001-spec.md`.
