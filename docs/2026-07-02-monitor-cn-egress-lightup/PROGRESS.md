@@ -2,7 +2,9 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/monitor-cn-egress-lightup-001 | ✅ 759eccc9 | ✅ | ✅ #189 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/monitor-cn-egress-lightup-001 | ✅ 759eccc9 | ✅ | ✅ #189 | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ f5b37fcb |
+
+Verify: [items/001-verify.md](items/001-verify.md) — Verdict: PASS (real entry points, 0 failures). PR-review: [items/001-pr-review.md](items/001-pr-review.md) — Verdict: PASS ("No issues found", https://github.com/snowshine0216/investment-research-copilot/pull/189#issuecomment-4862953977). Fix: 0 rounds (all 3 post-ship verdicts PASS/PASS-WITH-NITS on first pass; the /ship P0 was fixed pre-push). Merge: PR #189 squash → f5b37fcb, sub-branch deleted.
 
 Ship: [items/001-ship.md](items/001-ship.md) — PR https://github.com/snowshine0216/investment-research-copilot/pull/189 (base = feature branch). Review (inline /ship steps 8+9): [items/001-review.md](items/001-review.md) — Verdict: PASS-WITH-NITS (P0 flow_rows dark-wiring + 2 P1s FIXED pre-push in 759eccc9; nits → TODOS.md).
 
