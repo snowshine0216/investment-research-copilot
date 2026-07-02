@@ -581,6 +581,32 @@ def _make_notify_failing_uv_stub(tmp_path: Path) -> tuple[Path, Path]:
     return stub, argv_log
 
 
+def test_flow_capture_plist_fires_at_1545() -> None:
+    text = (_OPS / "com.irc.flow-capture.plist").read_text(encoding="utf-8")
+    assert "<string>com.irc.flow-capture</string>" in text
+    assert "<integer>15</integer>" in text, "flow-capture plist missing 15:xx Hour"
+    assert "<integer>45</integer>" in text, "flow-capture plist missing :45 Minute"
+
+
+def test_flow_capture_plist_logs_to_devnull() -> None:
+    text = (_OPS / "com.irc.flow-capture.plist").read_text(encoding="utf-8")
+    assert text.count("<string>/dev/null</string>") >= 2
+
+
+def test_flow_capture_wrapper_uses_lib_and_calls_flow_capture() -> None:
+    text = (_OPS / "run-flow-capture.sh").read_text(encoding="utf-8")
+    assert "source ops/launchd/lib-run.sh" in text
+    assert "acquire_lock" in text
+    assert "run_with_watchdog" in text
+    assert "irc monitor flow-capture" in text
+
+
+def test_install_sh_templates_flow_capture() -> None:
+    text = (_OPS / "install.sh").read_text(encoding="utf-8")
+    assert "com.irc.flow-capture" in text
+    assert "run-flow-capture.sh" in text
+
+
 def test_monitor_wrapper_logs_breadcrumb_when_notify_status_fails(tmp_path: Path) -> None:
     """A failed `notify-status` must NOT be silently swallowed by `|| true`: the
     wrapper logs a breadcrumb to its per-run log (so a missing page is debuggable)

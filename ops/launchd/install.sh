@@ -20,8 +20,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SRC_DIR="$REPO_ROOT/ops/launchd"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
-LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly")
-WRAPPERS=("run-monitor.sh" "run-fundamentals.sh")
+LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly" "com.irc.flow-capture")
+WRAPPERS=("run-monitor.sh" "run-fundamentals.sh" "run-flow-capture.sh")
 
 mkdir -p "$DEST_DIR"
 mkdir -p "$REPO_ROOT/outputs/_logs"
