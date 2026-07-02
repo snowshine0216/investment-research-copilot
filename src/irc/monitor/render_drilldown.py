@@ -78,10 +78,29 @@ _COL_LABEL = {
 }
 
 
+# Honest column -> reason-key mapping (F4, ship-review round 1). Columns whose
+# dark state genuinely derives from a parent metric family map to that
+# family's reason key; pb/pe/pe_percentile/valuation_state share the
+# self-valuation leg's valuation_reason (same semantic source). A column
+# with NO semantically-correct reason source is absent from this map and
+# falls back to the generic "no_data" — never borrows an unrelated family's
+# reason.
+_COL_REASON_KEY = {
+    "pb": "valuation_reason", "pe": "valuation_reason",
+    "pe_percentile": "valuation_reason", "valuation_state": "valuation_reason",
+    "industry": "industry_reason", "industry_pe": "industry_reason",
+    "industry_richness": "industry_reason", "industry_score": "industry_reason",
+    "flow_pct_5d": "flow_reason", "flow_pct_20d": "flow_reason",
+    "flow_score": "flow_reason",
+}
+
+
 def _row_reason(rows: list[dict], column: str) -> str:
+    reason_key = _COL_REASON_KEY.get(column)
+    if reason_key is None:
+        return "no_data"
     for r in rows:
-        reason = r.get(f"{column}_reason") or r.get("industry_reason") or r.get("flow_reason") \
-                 or r.get("valuation_reason")
+        reason = r.get(reason_key)
         if reason:
             return reason
     return "no_data"

@@ -38,7 +38,9 @@ from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_indust
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
-from irc.monitor.narrative_macro import build_macro_pool, gather_macro_narrative, MacroNarrativeDoc
+from irc.monitor.narrative_macro import (
+    build_macro_pool, gather_macro_narrative, MacroNarrativeDoc, MacroNarrativeResult,
+)
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
 from irc.monitor.render_html import render_report
@@ -1003,7 +1005,12 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         if con is not None:
             con.close()
     macro_pool = build_macro_pool(theme_results)
-    macro_result = gather_macro_narrative(theme_pool=macro_pool, route=llm_config, call=llm_call)
+    try:
+        macro_result = gather_macro_narrative(
+            theme_pool=macro_pool, route=llm_config, call=llm_call)
+    except Exception as exc:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("gather_macro_narrative failed: %s", exc, exc_info=True)
+        macro_result = MacroNarrativeResult(MacroNarrativeDoc((), f"gather_error: {exc}"), ())
     all_costs.extend(macro_result.cost_entries)
     macro_pool_items = tuple(ev for items in macro_pool.values() for ev in items)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
@@ -1032,7 +1039,10 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
-    tiers = tiers_from_config(_load_source_tiers_config(root))
+    raw_tiers_for_drilldown = _load_source_tiers_config(root)
+    if raw_tiers_for_drilldown is None:
+        _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
+    tiers = tiers_from_config(raw_tiers_for_drilldown)
     constituent_pool_items = tuple(
         ev for b in bundles for ev in b.constituent_pool
     )

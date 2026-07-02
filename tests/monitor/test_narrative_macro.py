@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pytest
 from irc.monitor.narrative_macro import theme_display_name, THEME_DISPLAY_NAME
 
 
@@ -241,3 +242,87 @@ def test_gather_macro_narrative_persistent_english_drops_theme(monkeypatch):
 
     result = gather_macro_narrative(theme_pool=pool, route=object(), call=_call)
     assert result.doc.blocks == ()   # theme dropped, not rendered in English
+
+
+# ── F1: shape-validate decoded payload before claim parsing (ship-review round 1) ──
+
+
+def test_parse_theme_claims_rejects_string_rows_not_a_list():
+    """Exact repro from the ship-blocked finding: theme value is a bare string
+    (not a list of row dicts). Must raise _MacroNarrErr, never AttributeError
+    from char-iterating the string as if it were a list of row dicts."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    with pytest.raises(_MacroNarrErr):
+        _parse_theme_claims("brief note", (), hardened=False)
+
+
+def test_parse_theme_claims_rejects_non_dict_row():
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    with pytest.raises(_MacroNarrErr):
+        _parse_theme_claims(["not a dict"], (), hardened=False)
+
+
+def test_gather_macro_narrative_top_level_not_dict_degrades_not_crashes(monkeypatch):
+    """Top-level decoded payload is not a dict (e.g. a JSON list) -> must
+    degrade via the existing retry/drop path, never raise out of
+    gather_macro_narrative."""
+    from irc.monitor.narrative_macro import gather_macro_narrative, build_macro_pool
+    from irc.research.search.types import SearchHit
+    import irc.monitor.narrative_macro as nm
+    import json as _json
+
+    monkeypatch.setattr(nm, "resolve_route", lambda task, route: type(
+        "RR", (), {"provider": "testprovider"})())
+    monkeypatch.setattr(nm, "_resolve_model", lambda rr: "test-model")
+
+    hit = SearchHit(title="Fed holds", url="https://reuters.com/fed", snippet="x",
+                    published_iso="2026-06-15", source_domain="reuters.com")
+    pool = build_macro_pool({"us_monetary": (hit,)})
+
+    def _call(task, messages, route, **kw):
+        return _fake_resp(_json.dumps(["not", "a", "dict"]))
+
+    result = gather_macro_narrative(theme_pool=pool, route=object(), call=_call)
+    assert result.doc.blocks == ()
+    assert result.doc.status != "ok"
+
+
+def test_gather_macro_narrative_theme_value_string_degrades_not_crashes(monkeypatch):
+    """Exact repro shape from the ship-blocked finding threaded through the
+    full gather_macro_narrative call, not just the pure parse helper."""
+    from irc.monitor.narrative_macro import gather_macro_narrative, build_macro_pool
+    from irc.research.search.types import SearchHit
+    import irc.monitor.narrative_macro as nm
+    import json as _json
+
+    monkeypatch.setattr(nm, "resolve_route", lambda task, route: type(
+        "RR", (), {"provider": "testprovider"})())
+    monkeypatch.setattr(nm, "_resolve_model", lambda rr: "test-model")
+
+    hit = SearchHit(title="Fed holds", url="https://reuters.com/fed", snippet="x",
+                    published_iso="2026-06-15", source_domain="reuters.com")
+    pool = build_macro_pool({"cn_monetary": (hit,)})
+
+    def _call(task, messages, route, **kw):
+        return _fake_resp(_json.dumps({"cn_monetary": "brief note"}))
+
+    result = gather_macro_narrative(theme_pool=pool, route=object(), call=_call)
+    assert result.doc.blocks == ()
+    assert result.doc.status != "ok"
+
+
+# ── F2: citation_ids typing (ship-review round 1) ──────────────────────────────
+
+
+def test_parse_theme_claims_rejects_bare_string_citation_ids():
+    """citation_ids as a bare string must be type-rejected with a distinct
+    reason BEFORE any char-iteration reaches resolve_in_pool — never produce
+    1-char garbage cids."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    rows = [{"claim": "央行维持利率不变，符合预期。", "attribution_strength": "consistent_with",
+             "citation_ids": "abcd1234abcd1234"}]
+    with pytest.raises(_MacroNarrErr, match="citation_ids not a list"):
+        _parse_theme_claims(rows, (), hardened=False)

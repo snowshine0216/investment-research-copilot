@@ -463,6 +463,66 @@ def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
     assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
 
 
+def test_run_monitor_survives_gather_macro_narrative_raising(tmp_path, monkeypatch, caplog):
+    """F1 (P0, ship-review round 1): gather_macro_narrative raising ANY exception
+    (valid-JSON-wrong-shape LLM output, provider bug, etc.) must never kill the
+    whole run. The call site degrades to the absent-macro-block shape and the
+    run completes rc-clean with report.html + eval_trace.json still written."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+
+    def _boom(**k):
+        raise RuntimeError("valid-JSON-wrong-shape simulated crash")
+
+    monkeypatch.setattr(mc, "gather_macro_narrative", _boom)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    assert (out / "report.html").exists()
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["macro_narrative"]["status"] != "ok"
+    assert trace["macro_narrative"]["blocks"] == []
+    narrative = json.loads((out / "narrative.json").read_text(encoding="utf-8"))
+    assert narrative["__macro__"]["blocks"] == []
+    assert "gather_error" in trace["macro_narrative"]["status"]
+    assert any("gather_macro_narrative failed" in r.message for r in caplog.records)
+
+
+def test_run_monitor_logs_warning_when_second_tier_read_fails(tmp_path, monkeypatch, caplog):
+    """F3 (P1, ship-review round 1): the SECOND `_load_source_tiers_config` read
+    (used for the drilldown/constituent tiers, distinct from the first read
+    inside _build_theme_results) must log the same warning when it returns
+    None, instead of silently degrading badges to 未分级 with no breadcrumb."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "_load_source_tiers_config", lambda root: None)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    # _patch_edges stubs _build_theme_results entirely, so the FIRST tier read
+    # (inside _build_theme_results) never runs in this test — isolating the
+    # assertion to the SECOND call site (drilldown/constituent tiers), which
+    # must log the same warning instead of swallowing the None silently.
+    warnings = [r.message for r in caplog.records
+                if "source_tiers config missing/malformed" in r.message]
+    assert len(warnings) >= 1
+
+
 def test_run_monitor_eval_gated_fund_excluded_from_actionable_but_counted_in_health(
     tmp_path, monkeypatch,
 ):

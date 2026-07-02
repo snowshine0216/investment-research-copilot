@@ -113,15 +113,24 @@ def _banned_verb_present(text: str) -> bool:
 def _parse_theme_claims(
     rows: list[dict], pool: tuple[EvidenceItem, ...], *, hardened: bool,
 ) -> tuple[Claim, ...]:
+    if not isinstance(rows, list):
+        raise _MacroNarrErr(f"schema_invalid: theme value not a list ({type(rows).__name__})")
     claims: list[Claim] = []
     for r in rows[:_MAX_CLAIMS_PER_THEME * 3]:   # tolerate an over-generous LLM, cap below
+        if not isinstance(r, dict):
+            raise _MacroNarrErr(f"schema_invalid: row not a dict ({type(r).__name__})")
         strength = r.get("attribution_strength")
         if strength not in _VALID_STRENGTH:
             raise _MacroNarrErr(f"schema_invalid: bad attribution_strength {strength!r}")
         claim_text = str(r.get("claim", ""))
         if _banned_verb_present(claim_text) and strength != "supported_attribution":
             raise _MacroNarrErr("banned_verb: strong verb without supported_attribution")
-        cids = tuple(r.get("citation_ids", ()))
+        raw_cids = r.get("citation_ids", ())
+        if not isinstance(raw_cids, (list, tuple)):
+            raise _MacroNarrErr("schema_invalid: citation_ids not a list")
+        if not all(isinstance(c, str) for c in raw_cids):
+            raise _MacroNarrErr("schema_invalid: citation_ids contains non-string element")
+        cids = tuple(raw_cids)
         for cid in cids:
             if resolve_in_pool(cid, pool) is None:
                 raise _MacroNarrErr(f"unresolved_citation: {cid}")
@@ -197,6 +206,8 @@ def gather_macro_narrative(
         ))
         try:
             data = extract_json(resp.text)
+            if not isinstance(data, dict):
+                raise _MacroNarrErr(f"schema_invalid: top-level not a dict ({type(data).__name__})")
             blocks = []
             for theme, pool in theme_pool.items():
                 rows = data.get(theme, [])
