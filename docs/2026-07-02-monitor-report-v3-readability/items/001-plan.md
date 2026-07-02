@@ -3084,6 +3084,42 @@ def _sup_local(cid: str, idx: "CitationIndex") -> str:
 
 Re-run the -k selection — expect 1 passed; then the whole file — all passed.
 
+- [ ] **Step 4.8c: `render_cards.py::_sup` gets the same date suffix (spec §6, review round)**
+
+Spec §6's hover-title requirement ("Hover `title` keeps source — now with date") is unqualified —
+it does not scope to the macro-narrative path only. `render_html.py` has TWO superscript-rendering
+functions: `_sup_local` (macro-narrative section only, fixed by Step 4.8b above) and
+`render_cards.py::_sup` (used via `_claim_html` by `verdict_block_html`, `risk_block_html`, and
+`narrative_sections_html` — i.e. the majority of the report's citations, every per-fund-card
+price-action/risk/signal-rationale superscript). Step 4.8b under-scoped the spec requirement to only
+`_sup_local`; this step closes that gap. Amended during Phase 4 review round (finding: report was
+internally inconsistent — same citation hovers with date in the macro section, without in fund
+cards).
+
+Update `tests/monitor/test_render_html_citations.py::test_appendix_numbers_align_with_superscripts`
+(renders via the fund-card `price_action_commentary` path, i.e. `render_cards.py::_sup`) to expect
+the date-suffixed hover title, and add `tests/monitor/test_render_cards.py::test_claim_html_hover_title_includes_date`
+mirroring Step 4.8b's `test_superscript_hover_title_includes_date`. Confirm both RED against the
+as-built `_sup`, then apply the identical mechanical change to `render_cards.py::_sup`:
+
+```python
+def _sup(cid: str, idx) -> str:
+    """One numbered superscript anchor; '' when the cid isn't in the index.
+    Hover title carries source AND date (spec §6, unqualified) — mirrors
+    render_html._sup_local; date suffix omitted when empty (no dangling separator)."""
+    n = idx.number(cid)
+    if n is None:
+        return ""
+    date = idx.date(cid)
+    date_part = f" · {date}" if date else ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}{date_part}")
+    return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+```
+
+Regenerate `tests/monitor/golden/report.html` via the same call the golden test uses
+(`render_report((_view(),), _prov(), prior_signal=None, now=_NOW)`); hand-inspect the diff — only
+the fund-card superscript's hover-title should gain a ` · {date}` suffix, nothing else moves.
+
 - [ ] **Step 4.9: Write the failing test for tier-badge assignment — theme-pool items get their classify()-derived label, constituent-pool items get 快照**
 
 Append to `tests/monitor/test_render_html_citations.py`:
