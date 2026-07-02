@@ -440,13 +440,16 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    predictive_panel: PredictivePanelModel | None = None,
                    timeline: BiasTimeline | None = None,
                    macro_doc: MacroNarrativeDoc | None = None,
-                   macro_pool_items: tuple = ()) -> None:
+                   macro_pool_items: tuple = (),
+                   tiers: SourceTiers | None = None,
+                   constituent_pool_items: tuple = ()) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
                          gates=gate_map, panel_rows=panel_rows,
                          predictive_panel=predictive_panel, timeline=timeline,
-                         macro_narrative=macro_doc, macro_pool_items=macro_pool_items)
+                         macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
+                         tiers=tiers, constituent_pool_items=constituent_pool_items)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -973,9 +976,14 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
+    tiers = tiers_from_config(_load_source_tiers_config(root))
+    constituent_pool_items = tuple(
+        ev for b in bundles for ev in b.constituent_pool
+    )
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
                    timeline=timeline, macro_doc=macro_result.doc,
-                   macro_pool_items=macro_pool_items)
+                   macro_pool_items=macro_pool_items, tiers=tiers,
+                   constituent_pool_items=constituent_pool_items)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

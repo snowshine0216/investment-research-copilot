@@ -5,7 +5,7 @@ from irc.monitor.render_html import CitationIndex
 from irc.monitor.render_cards import decision_line_html
 from irc.monitor.market_composite import MarketCompositeView
 
-_EMPTY_IDX = CitationIndex(())
+_EMPTY_IDX = CitationIndex((), {})
 
 
 def _rec(status="ok", bias="ADD_BIAS", c=0.5563, conf=0.9, fams=("price-momentum", "news"),
@@ -96,18 +96,31 @@ def test_narrative_sections_only_price_action():
 
 def test_claim_html_renders_numbered_superscript_with_title():
     cid = "0123456789abcdef"
-    idx = CitationIndex(((cid, "Reuters", "real yields up"),))
+    idx = CitationIndex((((cid, "Reuters", "real yields up", "", "")),), {cid: 0})
     claim = Claim("金价承压", "consistent_with", (cid,))
     html = _claim_html(claim, idx)
     assert f'href="#ev-{cid}"' in html
     assert "<sup>" in html and "</sup>" in html
     assert ">1</a>" in html
+    # empty date: no dangling separator
     assert 'title="Reuters — real yields up"' in html
     assert "[ref:" not in html  # no raw marker leaks
 
 
+def test_claim_html_hover_title_includes_date():
+    """spec §6 (unqualified): hover title = source — title · date, same format as
+    render_html._sup_local. render_cards._sup (via _claim_html) drives the majority
+    of report citations (verdict/risk/narrative sections) and must match."""
+    cid = "0123456789abcdef"
+    idx = CitationIndex(
+        (((cid, "Reuters", "real yields up", "2026-06-15", "")),), {cid: 0})
+    claim = Claim("金价承压", "consistent_with", (cid,))
+    html = _claim_html(claim, idx)
+    assert 'title="Reuters — real yields up · 2026-06-15"' in html
+
+
 def test_claim_html_unknown_cid_drops_marker_no_raw_ref():
-    idx = CitationIndex(())
+    idx = CitationIndex((), {})
     claim = Claim("x", "unknown", ("ffffffffffffffff",))
     html = _claim_html(claim, idx)
     assert "[ref:" not in html

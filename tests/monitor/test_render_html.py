@@ -235,7 +235,7 @@ def _view_with_factor_present(factor_name: str):
 def test_card_embeds_board_when_metrics_present():
     from irc.monitor.render_html import CitationIndex
     view = _view_with_metrics(holding_metrics=(_hm(1.0),))
-    html = _card(view, None, CitationIndex(()))
+    html = _card(view, None, CitationIndex((), {}))
     assert "holdings-board" in html
     assert "600519" in html
 

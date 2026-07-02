@@ -23,11 +23,15 @@ _BIAS_GLOSS = {
 
 
 def _sup(cid: str, idx) -> str:
-    """One numbered superscript anchor; '' when the cid isn't in the index."""
+    """One numbered superscript anchor; '' when the cid isn't in the index.
+    Hover title carries source AND date (spec §6, unqualified) — mirrors
+    render_html._sup_local; date suffix omitted when empty (no dangling separator)."""
     n = idx.number(cid)
     if n is None:
         return ""
-    title = escape(f"{idx.source(cid)} — {idx.title(cid)}")
+    date = idx.date(cid)
+    date_part = f" · {date}" if date else ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}{date_part}")
     return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
 
 
