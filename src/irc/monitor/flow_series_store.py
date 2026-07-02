@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Iterable, Mapping
+from datetime import date
 from pathlib import Path
 
 from irc.io_utils import atomic_write_text
@@ -120,16 +121,27 @@ def seed_from_per_symbol(
     *,
     keep_td: int,
     trading_days: Iterable[str],
+    today: str | None = None,
 ) -> dict[str, FlowSeries]:
-    """D7: one-time merge of existing fund_flow/*.json `ok` series into the store."""
+    """D7: one-time merge of existing fund_flow/*.json `ok` series into the store.
+
+    The prune anchor is the newest trading day at-or-before `today` (default:
+    the real clock), NOT max(trading_days): the cached trade calendar extends
+    months into the future, so a raw max would place the keep window entirely
+    on future dates and prune every seeded row to an empty series."""
     store = load_store(path)
     trading_days = tuple(trading_days)
-    anchor = max(trading_days) if trading_days else ""
+    today = today if today is not None else date.today().isoformat()
+    anchor = max((d for d in trading_days if d <= today), default="")
+    if trading_days and not anchor:
+        _log.warning("flow_series_store: no trading day at-or-before %s in calendar; "
+                     "seeding without prune", today)
+    prune_days = trading_days if anchor else ()  # no anchor → _prune keeps everything
     if fund_flow_dir.is_dir():
         for f in sorted(fund_flow_dir.glob("*.json")):
             for sym, rows in _load_day_file(f).items():
                 merged = {d: v for d, v in store.get(sym, ())}
                 merged.update(dict(rows))
-                store[sym] = _prune(tuple(merged.items()), anchor, keep_td, trading_days)
+                store[sym] = _prune(tuple(merged.items()), anchor, keep_td, prune_days)
     _write(path, store)
     return store

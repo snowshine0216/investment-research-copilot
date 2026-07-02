@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — flow-series seeder pruned every row when the trade calendar extends past today (2026-07-02)
+
+- **`seed_from_per_symbol` prune anchor clamped to the newest trading day at-or-before today.**
+  The cached trade calendar spans ~6 months into the future (tail 2026-12-31), so anchoring at
+  `max(trading_days)` placed the keep-window entirely on future dates and pruned every seeded row
+  to an empty series (measured live 2026-07-02 during the D7 seed op — 30 symbols, all 0 rows).
+  The helper is retained for Tier-2 spot-checks (D10); the footgun is now fixed at the source.
+- A non-empty calendar with **no** day at-or-before today degrades to keep-everything **with a
+  logged warning** (previously the module's only silent degrade path), and an explicit `today=""`
+  is honored as "no anchor" instead of being coerced to the real clock. New keyword-only
+  `today: str | None = None` param mirrors `append_today`'s written-day anchoring for
+  deterministic Tier-2 use.
+- `append_today` unaffected (it anchors at the written day). Regression tests use a calendar
+  fixture extending past today — the exact measured failure mode that all prior fixtures
+  (ending at "today") missed.
+
 ### Added
 - Monitor CN-egress data-plane light-up: `IRC_CN_PROXY` egress (`resolve_cn_proxy`/`proxy_env` single source of truth), batch-first flow via one `ulist.np` call into a completed-day series store, a 15:45 `irc monitor flow-capture` launchd job, industry-leg raw EastMoney JSON fetchers (`em_raw.py`), and per-stock PE/PB fetch routed through the proxy. Eval schema 4→5 with a `flow_source` marker + warm-up curve. `_ENGINE_VERSION` unchanged (data availability returning); GATE-2 4dp equivalence gate OPEN post-merge (ADR 0019/0020 addenda).
 
