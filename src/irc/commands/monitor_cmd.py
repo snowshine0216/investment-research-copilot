@@ -178,6 +178,19 @@ def _load_flow_store_slice(root: Path, symbols) -> dict:
         return {}
 
 
+def _provisional_flow_note(root: Path, symbols) -> dict | None:
+    """EDGE-read only: today's intraday f184 as a 盘中提示 annotation for the 12:15
+    brief. NEVER persisted (no append_today here) — the store's newest row stays a
+    COMPLETED day (D6/trap §8). Degrades to None on any error (no annotation)."""
+    if not symbols:
+        return None
+    try:
+        return fetch_flow_today_batch(tuple(symbols))
+    except Exception:  # noqa: BLE001 — annotation is best-effort
+        _log.warning("_provisional_flow_note failed", exc_info=True)
+        return None
+
+
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
     """Convert one ConstituentAnalysis → owner-bound EvidenceItems.
 
