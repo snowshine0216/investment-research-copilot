@@ -6,11 +6,18 @@ fetch_stock_industry_map) so the pure parsers / per-day 3-outcome caches are
 UNCHANGED. em_raw owns its raw-JSON parsing — NO akshare wrappers here — so
 upstream response-shape drift (F4 missing 市盈率 column, F5 dlmkts/dsc keys)
 can't recur silently. These parsers are PURE (no I/O, no network); the edge
-fetchers (requests, IRC_CN_PROXY routing) come in Task 5.
+fetchers land in a subsequent slice step (requests, IRC_CN_PROXY routing).
 """
 from __future__ import annotations
 
 import pandas as pd
+
+_UT = "fa5fd1943c7b386f172d6893dbfba10b"
+_HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
+_CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
+_STOCK_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+_PZ = 100
+_MAX_PAGES = 10
 
 
 def _diff_rows(payload: dict) -> list[dict]:
