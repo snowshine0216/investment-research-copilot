@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from irc.http_proxy import resolve_cn_proxy
+
 _UT = "fa5fd1943c7b386f172d6893dbfba10b"
 _HEADERS = {"User-Agent": "Mozilla/5.0", "Referer": "https://quote.eastmoney.com/"}
 _CLIST_URL = "https://push2.eastmoney.com/api/qt/clist/get"
@@ -54,3 +56,60 @@ def parse_stock_info(payload: dict) -> pd.DataFrame:
     if data.get("f127"):
         items.append(("行业", data.get("f127")))
     return pd.DataFrame({"item": [i for i, _ in items], "value": [v for _, v in items]})
+
+
+import time  # noqa: E402
+
+
+def _secid(symbol: str) -> str:
+    """ulist/stock secid: 6*→1. (SH+688), else 0. (SZ+300; 8*/4* BJ → 0.)."""
+    return ("1." + symbol) if str(symbol).startswith("6") else ("0." + symbol)
+
+
+def _default_http_get(url, *, params, headers, timeout, proxies=None) -> dict:
+    """EDGE: one GET via python requests → JSON. proxies passed through (F3: curl
+    false-fails through the proxy; requests succeeds). Raises on transport error
+    so the caller's try/except degrades to TRANSIENT (never a fabricated frame)."""
+    import requests  # local import — house pattern
+    resp = requests.get(url, params=params, headers=headers, timeout=timeout,
+                        proxies=proxies)
+    resp.raise_for_status()
+    return resp.json()
+
+
+def _proxies() -> dict | None:
+    proxy = resolve_cn_proxy()
+    return {"http": proxy, "https": proxy} if proxy else None
+
+
+def fetch_board_pe_frame(*, http_get=None, sleep=time.sleep) -> pd.DataFrame:
+    """EDGE: paginated clist/get board PE (pz=100, ≤10 pages, 0.3s pacing) via the
+    CN proxy → concatenated 板块名称/市盈率 frame. Stops on a short page. Raises on
+    transport error (caller degrades to {})."""
+    get = http_get or _default_http_get
+    proxies = _proxies()
+    frames: list[pd.DataFrame] = []
+    for pn in range(1, _MAX_PAGES + 1):
+        params = {"ut": _UT, "fltt": "2", "invt": "2", "np": "1", "pz": str(_PZ),
+                  "pn": str(pn), "po": "1", "fs": "m:90+t:2", "fields": "f12,f14,f9"}
+        payload = get(_CLIST_URL, params=params, headers=_HEADERS, timeout=20,
+                      proxies=proxies)
+        rows = _diff_rows(payload)
+        if not rows:
+            break
+        frames.append(parse_clist_boards(payload))
+        if len(rows) < _PZ:
+            break
+        sleep(0.3)  # existing pacing posture (ADR 0014)
+    return pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+
+
+def fetch_stock_info_frame(symbol: str, *, http_get=None) -> pd.DataFrame:
+    """EDGE: one stock/get call via the CN proxy → (item,value) frame. Raises on
+    transport error (caller classify → TRANSIENT)."""
+    get = http_get or _default_http_get
+    params = {"ut": _UT, "invt": "2", "fltt": "2", "fields": "f57,f58,f127",
+              "secid": _secid(symbol)}
+    payload = get(_STOCK_URL, params=params, headers=_HEADERS, timeout=20,
+                  proxies=_proxies())
+    return parse_stock_info(payload)
