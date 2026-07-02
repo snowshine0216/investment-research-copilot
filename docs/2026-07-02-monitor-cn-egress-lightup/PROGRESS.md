@@ -2,7 +2,9 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/monitor-cn-egress-lightup-001 | ✅ a0d7f8a4 | ✅ | 🔄 | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/monitor-cn-egress-lightup-001 | ✅ 759eccc9 | ✅ | ✅ #189 | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+
+Ship: [items/001-ship.md](items/001-ship.md) — PR https://github.com/snowshine0216/investment-research-copilot/pull/189 (base = feature branch). Review (inline /ship steps 8+9): [items/001-review.md](items/001-review.md) — Verdict: PASS-WITH-NITS (P0 flow_rows dark-wiring + 2 P1s FIXED pre-push in 759eccc9; nits → TODOS.md).
 
 Drift: [items/001-drift.md](items/001-drift.md) — Verdict: PASS (16/16 tasks verified in diff; 2 accepted divergences; plan amendments fc85e312; verdict commit 4befd830)
 
