@@ -672,7 +672,7 @@ def test_classify_active_fund_scores_counts_missing_data_leg_cache_as_stale(tmp_
     )
     write_active_fund_cache(cached, tmp_path)
 
-    misses, stale_full, stale_probe = _classify_active_fund_scores(
+    misses, stale_full, stale_probe, fund_level_repair = _classify_active_fund_scores(
         [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}],
         tmp_path,
         today=date(2026, 5, 22),
@@ -681,7 +681,7 @@ def test_classify_active_fund_scores_counts_missing_data_leg_cache_as_stale(tmp_
     )
 
     # Missing data leg → full re-fetch bucket (not the cheap-probe bucket).
-    assert (misses, stale_full, stale_probe) == (0, 1, 0)
+    assert (misses, stale_full, stale_probe, fund_level_repair) == (0, 1, 0, 0)
 
 
 def test_date_stale_but_complete_cache_counts_as_probe_only(tmp_path) -> None:
@@ -716,14 +716,14 @@ def test_date_stale_but_complete_cache_counts_as_probe_only(tmp_path) -> None:
     )
     write_active_fund_cache(cached, tmp_path)
 
-    misses, stale_full, stale_probe = _classify_active_fund_scores(
+    misses, stale_full, stale_probe, fund_level_repair = _classify_active_fund_scores(
         [{"instrument_id": "005827", "asset_class": "cn_equity_fund"}],
         tmp_path,
         today=date(2026, 6, 4),
         threshold_days=7,
         rebuild_fundamentals=False,
     )
-    assert (misses, stale_full, stale_probe) == (0, 0, 1)
+    assert (misses, stale_full, stale_probe, fund_level_repair) == (0, 0, 1, 0)
 
     # A probe-only fund costs 1 call, NOT the full top-N re-fetch (35).
     plan = FetchPlan(
@@ -928,7 +928,7 @@ def test_build_rows_stamps_policy_b_gaps_for_active_fund_rows(tmp_path, monkeypa
         return_value=None,
     ), patch(
         "irc.commands.opportunity_cmd._classify_active_fund_scores",
-        return_value=(0, 0, 0),
+        return_value=(0, 0, 0, 0),
     ), patch(
         "irc.commands.opportunity_cmd._classify_fund_level_scores",
         return_value=(0, 0),
@@ -1286,3 +1286,148 @@ def test_load_pick_order_iids_tolerates_malformed_yaml(tmp_path) -> None:
     plan_path = tmp_path / "trade_plan.yaml"
     plan_path.write_text(": ::: malformed ::: :\n", encoding="utf-8")
     assert _load_pick_order_iids(tmp_path) == ()
+
+
+# ── Item 004 (todos-critical-fixes 2026-07-03): fund-level evidence repair ────
+# Spec: docs/2026-07-03-todos-critical-fixes/items/004-spec.md AC4-AC6, AC9.
+
+
+def _item004_snapshot(
+    *,
+    symbol: str = "00700.HK",
+    cache_probed_at: str = "2026-07-01",
+    source_report_quarter: str = "2026Q1",
+    constituent_has_data_leg: bool = True,
+    fund_level_evidence: tuple = (),
+    fund_level_failure_reasons: tuple = (
+        "fund_nav_unavailable:006809",
+        "fund_announcements_unavailable:006809",
+    ),
+):
+    """Foreign-heavy (default 00700.HK → HK) or CN-heavy (symbol='600519')
+    ActiveFundSnapshot for the item-004 repair tests. The single constituent
+    carries a data leg by default so
+    `_active_snapshot_has_required_data_leg_gap` stays False."""
+    from irc.fundamentals.types import (
+        ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence,
+    )
+    data_leg = ThesisEvidence(
+        type="filing", source=symbol, url="", date="2026-04-15",
+        summary=f"{symbol} 26Q1 财报", scope="constituent",
+        citation_kind="data", owner_instrument_id="006809",
+        parent_fund_id="006809", constituent_key=symbol,
+    )
+    evidence = (data_leg,) if constituent_has_data_leg else ()
+    failure_reasons = (
+        () if constituent_has_data_leg else (f"filing_empty:{symbol}",)
+    )
+    return ActiveFundSnapshot(
+        fund_id="006809", source_report_date="2026-03-31",
+        source_report_quarter=source_report_quarter,
+        cache_probed_at=cache_probed_at,
+        constituent_analyses=(
+            ConstituentAnalysis(
+                symbol=symbol, name_cn=symbol, weight_pct=8.0,
+                evidence=evidence, failure_reasons=failure_reasons,
+                one_line_view="核心持仓",
+            ),
+        ),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=fund_level_failure_reasons,
+        fund_level_evidence=fund_level_evidence,
+    )
+
+
+def test_classify_fresh_foreign_heavy_gapped_cache_counts_repair_only(tmp_path) -> None:
+    """Item 004 AC5 — fresh-by-date, data-leg-complete, foreign-heavy, fund-level
+    leg gap → the new fund_level_repair bucket ONLY: (0, 0, 0, 1)."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_active_fund_scores
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+
+    write_active_fund_cache(_item004_snapshot(cache_probed_at="2026-07-01"), tmp_path)
+    counts = _classify_active_fund_scores(
+        [{"instrument_id": "006809", "asset_class": "cn_equity_fund"}],
+        tmp_path,
+        today=date(2026, 7, 3),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert counts == (0, 0, 0, 1)
+
+
+def test_classify_data_leg_gap_wins_over_fund_level_repair(tmp_path) -> None:
+    """Item 004 AC5 — a data-leg gap forces the full re-fetch (which includes
+    the fund-level legs); the fund is NOT double-counted as a repair:
+    (0, 1, 0, 0)."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_active_fund_scores
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+
+    write_active_fund_cache(
+        _item004_snapshot(cache_probed_at="2026-07-01", constituent_has_data_leg=False),
+        tmp_path,
+    )
+    counts = _classify_active_fund_scores(
+        [{"instrument_id": "006809", "asset_class": "cn_equity_fund"}],
+        tmp_path,
+        today=date(2026, 7, 3),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert counts == (0, 1, 0, 0)
+
+
+def test_classify_date_stale_and_gapped_counts_probe_and_repair(tmp_path) -> None:
+    """Item 004 AC5 — date-stale + gapped counts toward BOTH buckets (the
+    runtime fires probe 1 call + repair 4 calls = 5): (0, 0, 1, 1)."""
+    from datetime import date
+    from irc.commands.opportunity_cmd import _classify_active_fund_scores
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+
+    write_active_fund_cache(_item004_snapshot(cache_probed_at="2026-06-01"), tmp_path)
+    counts = _classify_active_fund_scores(
+        [{"instrument_id": "006809", "asset_class": "cn_equity_fund"}],
+        tmp_path,
+        today=date(2026, 7, 3),
+        threshold_days=7,
+        rebuild_fundamentals=False,
+    )
+    assert counts == (0, 0, 1, 1)
+
+
+def test_fetch_plan_fund_level_repair_costs_four_not_thirty_five() -> None:
+    """Item 004 AC6 — a repair-only fund costs exactly 4 (1 NAV + 3
+    announcement endpoints), NEVER the 35-call per_active term (the ~35×
+    over-estimate trap class)."""
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=0, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+        active_fund_fund_level_repair=1,
+    )
+    assert plan.total_calls() == 4
+
+
+def test_fetch_plan_probe_plus_repair_costs_five() -> None:
+    """Item 004 AC6 — date-stale + gapped fund: probe 1 + repair 4 = 5."""
+    from irc.commands.opportunity_cmd import FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=0, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+        active_fund_stale_probe_only=1,
+        active_fund_fund_level_repair=1,
+    )
+    assert plan.total_calls() == 5
+
+
+def test_fetch_budget_exceeded_message_includes_fund_level_repair() -> None:
+    """Item 004 AC6 — the budget-exceeded breakdown names the new class."""
+    from irc.commands.opportunity_cmd import FetchBudgetExceeded, FetchPlan
+    plan = FetchPlan(
+        active_fund_misses=0, active_fund_stale=0,
+        passive_misses=0, passive_stale=0, top_n=10,
+        active_fund_fund_level_repair=2,
+    )
+    exc = FetchBudgetExceeded(plan=plan, total=8, budget=1)
+    assert "active_fund_fund_level_repair=2" in str(exc)
