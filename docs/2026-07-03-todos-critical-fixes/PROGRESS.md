@@ -8,7 +8,7 @@ Run dir: `docs/2026-07-03-todos-critical-fixes/` · Mode: backlog · PR shape: A
 | 002 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-002 | ✅ de05779c+5e39574b | ✅ | ✅ [#196](https://github.com/snowshine0216/investment-research-copilot/pull/196) | ⏭️ | ✅ | ✅ nits-deferred | ✅ | ✅ 0 rounds | ✅ 2594b26a |
 | 003 | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 005 | ⏭️ user-authored | ⏭️ | ✅ | ✅ claude/todos-critical-fixes-005 | ✅ 843eefbc+96c034fd | ✅ | ✅ [#197](https://github.com/snowshine0216/investment-research-copilot/pull/197) | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 005 | ⏭️ user-authored | ⏭️ | ✅ | ✅ claude/todos-critical-fixes-005 | ✅ 843eefbc+96c034fd | ✅ | ✅ [#197](https://github.com/snowshine0216/investment-research-copilot/pull/197) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 9ceb9b13 |
 
 QA column pre-filled ⏭️ for all items: project type is non-web → `/verify` is the post-ship
 verifier (XOR rule).
