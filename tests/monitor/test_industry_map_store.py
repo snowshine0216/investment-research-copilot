@@ -60,6 +60,13 @@ def test_fresh_slice_unparseable_seen_at_dropped_not_served():
     assert fresh_slice(store, "2026-07-03") == {}
 
 
+def test_fresh_slice_future_seen_at_is_not_fresh():
+    """Round-1 P2 hardening: a future seen_at (e.g. clock skew / bad write) must
+    NOT be served forever — only 0 <= delta <= max_age_days counts as fresh."""
+    store = {"600519": {"industry": "酿酒行业", "seen_at": "2026-07-10"}}   # 7 d in the future
+    assert fresh_slice(store, "2026-07-03") == {}
+
+
 def test_record_seen_roundtrip_and_byte_stable(tmp_path: Path):
     p = tmp_path / "stock_industry_map.json"
     record_seen(p, "2026-07-02", {"600519": "酿酒行业"})

@@ -71,7 +71,12 @@ def write_day_table(cache_dir: Path, day: str, table: dict) -> None:
     os.replace(tmp, cache_dir / f"{day}.json")
 
 
-def _nonempty_floats(table: object, path: Path) -> dict | None:
+def nonempty_floats(table: object, path: Path) -> dict | None:
+    """Pure guard: a non-empty dict of coercible-to-float values, else None. Any
+    other shape (list, non-numeric value, torn write) → None (caller treats the
+    day-file as ABSENT — never raises). Shared with industry_valuation.py's
+    same-day cache-hit branch (round-1 P0 fix) so a corrupt cache degrades
+    identically whether hit on the FRESH path or scanned on the stale path."""
     if not isinstance(table, dict) or not table:
         return None
     try:
@@ -90,7 +95,7 @@ def newest_nonempty(cache_dir: Path, today: str) -> tuple[str, dict] | None:
     days = sorted((p for p in cache_dir.iterdir()
                    if _DAY_FILE.match(p.name) and p.stem < today), reverse=True)
     for p in days:
-        table = _nonempty_floats(read_day_table(cache_dir, p.stem), p)
+        table = nonempty_floats(read_day_table(cache_dir, p.stem), p)
         if table is not None:
             return p.stem, table
     return None

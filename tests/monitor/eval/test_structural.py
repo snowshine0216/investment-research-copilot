@@ -474,3 +474,14 @@ def test_val_cov_no_kwarg_back_compat_no_board_pe_reason():
 def test_val_cov_malformed_freshness_dict_degrades_to_no_reason():
     h = valuation_coverage_health(_val_cov_trace(), board_pe_freshness={"weird": 1})
     assert not any(r.startswith("board_pe") for r in h.reasons)
+
+
+def test_val_cov_not_requested_emits_no_reason():
+    """Round-1 P1 fix: the intentional _wants_board_pe gate-skip marker
+    (NOT_REQUESTED) must render NOTHING — same silence as the pre-fix None path
+    — so gold/QDII-only panels stay noise-free."""
+    h = valuation_coverage_health(
+        _val_cov_trace(),
+        board_pe_freshness={"state": "NOT_REQUESTED", "as_of": None, "age_td": None})
+    assert not any(r.startswith("board_pe") for r in h.reasons)
+    assert h.status == "PASS"

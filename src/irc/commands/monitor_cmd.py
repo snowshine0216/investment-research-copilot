@@ -1081,9 +1081,17 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     _record_industry_seen(root, _today, batch_industry)            # AC-5 (12:15 site)
     industry_serving = _industry_serving_map(root, _today)         # AC-6: post-merge slice
     trading_days = load_trading_days(date.today(), root=root)      # hoisted (Q10)
-    board_pe = (_fetch_board_pe(root, _today, trading_days)        # AC-8: fetch-first
-                if _wants_board_pe(funds, con) else None)
-    board_pe_dict = freshness_dict(board_pe[1]) if board_pe is not None else None
+    wants_board_pe = _wants_board_pe(funds, con)
+    board_pe = _fetch_board_pe(root, _today, trading_days) if wants_board_pe else None
+    # Round-1 P1 fix: an intentional gate-skip must not collapse to the same
+    # None a caller-never-passed-the-field trace would show (pre-bump traces are
+    # indistinguishable from a genuine skip otherwise). NOT_REQUESTED names the
+    # skip explicitly; _board_pe_reason emits nothing for it (same silence as
+    # today's None path), and the STALE-only render whitelist never touches it.
+    board_pe_dict = (
+        freshness_dict(board_pe[1]) if board_pe is not None
+        else {"state": "NOT_REQUESTED", "as_of": None, "age_td": None}
+    )
     theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []

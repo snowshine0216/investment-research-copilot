@@ -26,7 +26,7 @@ from pathlib import Path
 import pandas as pd
 
 from irc.monitor.board_pe_staleness import (
-    BoardPeFreshness, read_day_table, stale_fallback, write_day_table,
+    BoardPeFreshness, nonempty_floats, read_day_table, stale_fallback, write_day_table,
 )
 from irc.monitor.cached_fetch import DEAD, OK, TRANSIENT, Outcome, cache_first_fetch
 from irc.monitor.em_raw import fetch_board_pe_frame, fetch_stock_info_frame
@@ -92,10 +92,19 @@ def fetch_industry_pe(
     (STALE ≤3 td FEEDS factor math per OD-1; DARK otherwise or when trading_days
     is None/empty). NEVER raises; fetch injectable (default wraps
     em_raw.fetch_board_pe_frame, raw JSON via IRC_CN_PROXY, D3)."""
+    day_path = cache_dir / f"{today}.json"
     cached = read_day_table(cache_dir, today)
     if cached is not None:
-        table = {str(k): float(v) for k, v in cached.items()}
-        return table, BoardPeFreshness("FRESH", today, 0)
+        table = nonempty_floats(cached, day_path)
+        if table is None:
+            # Round-1 P0 fix: a non-dict / non-numeric same-day cache (torn write,
+            # schema drift) must NOT raise and must NOT be silently indistinguishable
+            # from "never fetched" — treat the day-file as ABSENT and fall through to
+            # the normal fetch → stale_fallback chain below.
+            _log.warning("industry_valuation: corrupt same-day board-PE cache %s — "
+                         "ignoring", day_path)
+        else:
+            return table, BoardPeFreshness("FRESH", today, 0)
     if fetch is None:
         fetch = lambda: fetch_board_pe_frame(sleep=sleep)  # noqa: E731 — raw JSON via proxy (D3)
     parsed: dict[str, float] = {}

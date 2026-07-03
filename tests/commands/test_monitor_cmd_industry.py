@@ -293,7 +293,9 @@ def test_panel_reason_carries_board_pe_state(tmp_path, monkeypatch):
 def test_no_active_funds_or_no_con_skips_board_pe_fetch(tmp_path, monkeypatch):
     """_wants_board_pe: the run-level fetch is skipped when nothing will consume
     the table (con=None here — no data/local.duckdb) — keeps gold-only/offline
-    runs network-free; trace key degrades to None (AC-11 back-compat)."""
+    runs network-free. Round-1 P1 fix: the trace key now names the intentional
+    skip explicitly as NOT_REQUESTED rather than collapsing to the same None a
+    caller-never-passed-the-field (pre-bump) trace would show."""
     _wire_two_fund_run(tmp_path, monkeypatch, batch_industry=None)
     (tmp_path / "data" / "local.duckdb").unlink()     # con stays None
     called = []
@@ -306,4 +308,5 @@ def test_no_active_funds_or_no_con_skips_board_pe_fetch(tmp_path, monkeypatch):
     assert called == []
     trace = json.loads((tmp_path / "outputs" / "2026-07-03" / "monitor" /
                         "eval_trace.json").read_text(encoding="utf-8"))
-    assert trace["board_pe_freshness"] is None
+    assert trace["board_pe_freshness"] == {
+        "state": "NOT_REQUESTED", "as_of": None, "age_td": None}

@@ -222,7 +222,10 @@ def valuation_reconciliation(t: dict) -> StageHealth:
 
 def _board_pe_reason(f: dict | None) -> tuple[str, ...]:
     """Pure (004 AC-12): ONE panel reason for the run-level board-PE freshness
-    marker. Absent/malformed → () (old traces / other callers degrade silently)."""
+    marker. Absent/malformed → () (old traces / other callers degrade silently).
+    NOT_REQUESTED (round-1 P1 fix: the intentional _wants_board_pe gate-skip,
+    distinct from a caller who never passed the field) emits NOTHING — same
+    silence as the pre-fix None path, so gold/QDII-only panels stay noise-free."""
     if not isinstance(f, dict):
         return ()
     state = f.get("state")
@@ -230,7 +233,7 @@ def _board_pe_reason(f: dict | None) -> tuple[str, ...]:
         return (f"board_pe STALE-{f.get('age_td')} (as_of {f.get('as_of')})",)
     if state in ("FRESH", "DARK"):
         return (f"board_pe {state}",)
-    return ()
+    return ()   # NOT_REQUESTED / unknown state → silent, never a reason
 
 
 def valuation_coverage_health(

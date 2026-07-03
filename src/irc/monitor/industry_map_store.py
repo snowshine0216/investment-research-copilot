@@ -66,9 +66,14 @@ def merge_seen(store: dict, today: str, industry_by_symbol: dict) -> dict[str, d
 
 def _within(seen_at: str, today: str, max_age_days: int) -> bool:
     try:
-        return (date.fromisoformat(today) - date.fromisoformat(seen_at)).days <= max_age_days
+        delta = (date.fromisoformat(today) - date.fromisoformat(seen_at)).days
     except ValueError:
         return False   # unparseable seen_at → dropped, not served
+    # Round-1 P2 hardening: a future seen_at (clock skew / bad write) yields a
+    # negative delta that would otherwise always be <= max_age_days → served
+    # fresh forever. Only 0 <= delta <= max_age_days counts as fresh; negative
+    # falls out of fresh_slice (the per-symbol fallback then handles it).
+    return 0 <= delta <= max_age_days
 
 
 def fresh_slice(store: dict, today: str, max_age_days: int = MAX_AGE_DAYS) -> dict[str, str]:

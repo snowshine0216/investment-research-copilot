@@ -242,3 +242,56 @@ def test_no_calendar_disables_only_the_stale_branch(tmp_path: Path):
                                fetch=boom, sleep=lambda _s: None)
     assert out == {}
     assert f == BoardPeFreshness("DARK", "2026-07-02", None)
+
+
+# ---- round-1 P0 fix: corrupt same-day cache must not raise / must not be
+# indistinguishable from "never fetched" (falls through to fetch/stale chain) ----
+
+
+def test_corrupt_same_day_cache_list_shaped_falls_through_to_fetch(tmp_path, caplog):
+    """A non-dict (list-shaped) same-day cache file must NOT raise AttributeError
+    on the `.items()` call — it is treated as ABSENT and the normal fetch path
+    runs instead."""
+    cache_dir = tmp_path / "ip"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "2026-07-03.json").write_text("[1, 2, 3]", encoding="utf-8")
+
+    out, f = fetch_industry_pe(cache_dir=cache_dir, today="2026-07-03",
+                               fetch=_bank_frame, sleep=lambda _s: None)
+    assert out == {"银行": 6.5}
+    assert f == BoardPeFreshness("FRESH", "2026-07-03", 0)
+    assert any("corrupt same-day board-PE cache" in r.message for r in caplog.records)
+
+
+def test_corrupt_same_day_cache_non_numeric_value_falls_through_to_fetch(tmp_path, caplog):
+    """A dict-shaped same-day cache with a non-numeric value (e.g. 'N/A' from a
+    torn write) must NOT raise ValueError on float() — treated as ABSENT."""
+    cache_dir = tmp_path / "ip"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "2026-07-03.json").write_text(
+        json.dumps({"银行": "N/A"}), encoding="utf-8")
+
+    out, f = fetch_industry_pe(cache_dir=cache_dir, today="2026-07-03",
+                               fetch=_bank_frame, sleep=lambda _s: None)
+    assert out == {"银行": 6.5}
+    assert f == BoardPeFreshness("FRESH", "2026-07-03", 0)
+    assert any("corrupt same-day board-PE cache" in r.message for r in caplog.records)
+
+
+def test_corrupt_same_day_cache_falls_through_to_stale_when_fetch_also_fails(tmp_path):
+    """Corrupt same-day cache + a failing fetch degrades to the stale-fallback
+    chain (never raises, never masks as a fresh/never-seen DARK without trying
+    the stale scan)."""
+    cache_dir = tmp_path / "ip"
+    cache_dir.mkdir(parents=True)
+    (cache_dir / "2026-07-02.json").write_text(
+        json.dumps({"银行": 6.5}), encoding="utf-8")
+    (cache_dir / "2026-07-03.json").write_text("[1, 2, 3]", encoding="utf-8")
+
+    def boom():
+        raise RuntimeError("down")
+
+    out, f = fetch_industry_pe(cache_dir=cache_dir, today="2026-07-03",
+                               fetch=boom, sleep=lambda _s: None, trading_days=_TDS)
+    assert out == {"银行": 6.5}
+    assert f == BoardPeFreshness("STALE", "2026-07-02", 1)
