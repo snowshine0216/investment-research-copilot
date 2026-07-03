@@ -5,7 +5,7 @@ Execution order: **003 → 001 → 002 → 004** (locked; see MASTER-PLAN.md).
 | ID | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 003 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#200](https://github.com/snowshine0216/investment-research-copilot/pull/200) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `8a8e6994` |
-| 001 | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#201](https://github.com/snowshine0216/investment-research-copilot/pull/201) | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
