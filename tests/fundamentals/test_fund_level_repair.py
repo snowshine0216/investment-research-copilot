@@ -205,6 +205,43 @@ def test_refetch_raising_fetch_returns_snapshot_unchanged(monkeypatch) -> None:
     assert out is snap
 
 
+def test_refetch_raising_fetch_logs_warning_naming_fund_and_exc_type(
+    monkeypatch, caplog,
+) -> None:
+    """Ship review round-1 finding (P0) — the broad `except Exception: return
+    snap` at the swallow point must not be silent: a WARNING is logged naming
+    `snap.fund_id` and the exception TYPE name (schema-drift vs transient
+    network noise distinguishable to an operator reading logs), and the
+    snapshot is still returned unchanged."""
+    import logging
+
+    from irc.fundamentals.fund_level_repair import refetch_fund_level_evidence
+
+    def _boom(fund_id):
+        raise ConnectionError("akshare 502")
+
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        _boom,
+    )
+    snap = _snap(
+        fund_level_evidence=(),
+        fund_level_failure_reasons=(
+            "fund_nav_unavailable:006809",
+            "fund_announcements_unavailable:006809",
+        ),
+    )
+    with caplog.at_level(logging.WARNING, logger="irc.fundamentals.fund_level_repair"):
+        out = refetch_fund_level_evidence(snap)
+    assert out is snap
+    assert len(caplog.records) == 1
+    record = caplog.records[0]
+    assert record.levelno == logging.WARNING
+    message = record.getMessage()
+    assert "006809" in message
+    assert "ConnectionError" in message
+
+
 def test_refetch_success_merges_fresh_evidence(monkeypatch) -> None:
     from irc.fundamentals.fund_level_repair import refetch_fund_level_evidence
     fresh = (_fund_evidence("data"), _fund_evidence("information"))

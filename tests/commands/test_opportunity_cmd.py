@@ -1578,3 +1578,59 @@ def test_repair_refires_each_run_with_zero_writes_on_persistent_failure(
     assert writes == []
     assert first == snap
     assert second == snap
+
+
+def test_repair_emits_attempted_and_healed_lines_on_success(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    """Ship review round-1 finding (P1) — the repair must be operator-visible:
+    one line when the gap predicate fires (naming the fund id) and one for
+    the outcome. Success case: `fund_level_repair_attempted:` then
+    `fund_level_repair_healed:` (evidence changed)."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot()
+    fresh = _item004_fresh_legs()
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        lambda fund_id: (fresh, []),
+    )
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: None,
+    )
+    _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    err = capsys.readouterr().err
+    assert "fund_level_repair_attempted:006809" in err
+    assert "fund_level_repair_healed:006809" in err
+    assert "fund_level_repair_still_gapped:006809" not in err
+
+
+def test_repair_emits_attempted_and_still_gapped_lines_when_unhealed(
+    monkeypatch, tmp_path, capsys,
+) -> None:
+    """Ship review round-1 finding (P1) — persistent failure (no improvement):
+    `fund_level_repair_attempted:` then `fund_level_repair_still_gapped:`
+    (evidence unchanged), no healed line, no cache write."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot()
+
+    def _boom(fund_id):
+        raise ConnectionError("akshare 502")
+
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        _boom,
+    )
+    writes: list = []
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: writes.append(s),
+    )
+    _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    err = capsys.readouterr().err
+    assert "fund_level_repair_attempted:006809" in err
+    assert "fund_level_repair_still_gapped:006809" in err
+    assert "fund_level_repair_healed:006809" not in err
+    assert writes == []

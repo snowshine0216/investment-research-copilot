@@ -348,17 +348,19 @@ def _maybe_fund_level_evidence_repair(
     """
     if not foreign_heavy_fund_level_gap(snap):
         return snap
+    sys.stderr.write(f"fund_level_repair_attempted:{snap.fund_id}\n")
     merged = refetch_fund_level_evidence(snap)
-    if (
-        merged.fund_level_evidence != snap.fund_level_evidence
-        and merged.source_report_quarter
-    ):
+    healed = merged.fund_level_evidence != snap.fund_level_evidence
+    if healed and merged.source_report_quarter:
         try:
             write_active_fund_cache(merged, root)
         except Exception as cache_exc:
             sys.stderr.write(
                 f"cache_write_failed:{snap.fund_id}:{type(cache_exc).__name__}\n"
             )
+    sys.stderr.write(
+        f"fund_level_repair_{'healed' if healed else 'still_gapped'}:{snap.fund_id}\n"
+    )
     return merged
 
 

@@ -14,9 +14,12 @@ edge (`refetch_fund_level_evidence`) per repo conventions. See CONTEXT.md
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 
 from irc.fundamentals.snapshot import _fetch_active_fund_level_evidence
 from irc.fundamentals.types import ActiveFundSnapshot, ThesisEvidence
+
+_log = logging.getLogger(__name__)
 
 
 def _leg(
@@ -98,6 +101,14 @@ def refetch_fund_level_evidence(snap: ActiveFundSnapshot) -> ActiveFundSnapshot:
     """
     try:
         evidence, failures = _fetch_active_fund_level_evidence(snap.fund_id)
-    except Exception:
+    except Exception as exc:
+        detail = str(exc)
+        if len(detail) > 200:
+            detail = detail[:200] + "..."
+        _log.warning(
+            "fund_level_repair refetch failed fund_id=%s exc_type=%s detail=%s "
+            "— serving cached snapshot unchanged",
+            snap.fund_id, type(exc).__name__, detail,
+        )
         return snap
     return merge_fund_level_evidence(snap, evidence, failures)
