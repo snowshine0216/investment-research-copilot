@@ -21,8 +21,8 @@ resolved on main (see SKIPPED.md). TODOS.md annotated resolved-as-built, doc-onl
 | gate | status |
 |------|--------|
 | dependency scan | ✅ order locked: 001, 002, 004 (003 reclassified OUT — stale TODO, see SKIPPED.md) |
-| run-doc-sync | ⏳ |
-| run-final-verify | ⏳ |
+| run-doc-sync | ✅ |
+| run-final-verify | ✅ PASS |
 | close-out (roll-up PR opened, left for user) | ⏳ |
 
 ## Notes
