@@ -1194,3 +1194,31 @@ def test_fund_level_evidence_repair_heals_foreign_heavy_gapped_cache(
     assert kinds == {"data", "information"}, f"cache not healed: {kinds}"
     assert healed.cache_probed_at == today
     assert healed.fund_level_failure_reasons == ()
+
+
+def test_snapshot_cache_fresh_cn_heavy_gapped_fund_level_no_repair(
+    tmp_path, monkeypatch,
+) -> None:
+    """Item 004 AC8 (negative lock) — a fresh CN-heavy cache (foreign share
+    0.0, below FOREIGN_HEAVY_THRESHOLD) with EMPTY fund_level_evidence fires
+    ZERO AkShare calls for the fund: the repair is locked to foreign-heavy
+    funds; widening is a separate, deferred decision (spec Non-goals).
+    GREEN-lock: this test passes both before and after item 004."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",), seed_date=today,
+    )
+    _prewrite_gapped_fund_level_cache(
+        tmp_path, fund_id="005827", cache_probed_at=today, symbol="600519",
+    )
+    counter = _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    run_opportunity(repo_root=str(tmp_path))
+
+    fund_calls = sum(v for (fn, sym), v in counter.items() if sym == "005827")
+    assert fund_calls == 0, \
+        f"CN-heavy gapped cache must fire zero repair calls, got {fund_calls}: " \
+        f"{[k for k in counter if k[1] == '005827']}"
