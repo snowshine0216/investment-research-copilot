@@ -171,3 +171,38 @@ def test_run_global_caveat_renders_once_in_overview_not_per_card():
                          gates={"008986": _gate(badge="caveated", reason=reason)},
                          panel_rows=rows)
     assert html.count("全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新") == 1
+
+
+# ── report v4 item 001: card-level 为何有保留 (fund-specific causes only) ────
+
+
+def test_card_caveat_line_for_fund_specific_cause():
+    html = _render(_view(), _gate(badge="caveated",
+                                  reason="monitor_signal: WARN (gap 12d)"))
+    assert "为何有保留：monitor_signal: WARN (gap 12d)" in html
+
+
+def test_no_card_caveat_line_for_run_global_only_cause():
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    html = _render(_view(), _gate(badge="caveated", reason=reason))
+    assert "为何有保留" not in html
+
+
+def test_card_caveat_line_mixed_shows_only_fund_specific_segment():
+    reason = ("monitor_signal: WARN (gap 12d); "
+              "monitor_impact: UNKNOWN (stale, 15d)")
+    html = _render(_view(), _gate(badge="caveated", reason=reason))
+    assert "为何有保留：monitor_signal: WARN (gap 12d)</p>" in html
+
+
+def test_no_card_caveat_line_when_validated():
+    html = _render(_view(), _gate(badge="validated"))
+    assert "为何有保留" not in html
+
+
+def test_no_card_caveat_line_when_gated():
+    # FAIL-branch reasons are prefix-free; the guard is badge == "caveated".
+    html = _render(_view(), _gate(badge="gated", suppressed=True,
+                                  reason="nav_quality FAIL"))
+    assert "为何有保留" not in html

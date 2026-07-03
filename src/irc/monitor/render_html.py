@@ -26,7 +26,7 @@ from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
 from irc.monitor.render_overview import (
     caveat_row, caveat_tooltip, compute_actionable, compute_data_health,
-    compute_flips, overview_html,
+    compute_flips, fund_specific_segments, overview_html,
 )
 
 
@@ -319,11 +319,24 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
     )
 
 
+def _card_caveat(gate: GateDecision | None) -> str:
+    """P2: 为何有保留 — fund-specific caveat segments only. Run-global causes
+    dedupe to the ONE overview line; gated funds (prefix-free FAIL reasons)
+    and validated funds render nothing."""
+    if gate is None or gate.badge != "caveated":
+        return ""
+    segments = fund_specific_segments(gate.reason)
+    if not segments:
+        return ""
+    return f'<p class="card-caveat muted">为何有保留：{escape("; ".join(segments))}</p>'
+
+
 def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
+        f"{_card_caveat(gate)}"
         f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
         f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
