@@ -84,7 +84,19 @@ def _has_action(outcome: RunOutcome) -> bool:
     sells = (
         (outcome.trim_count or 0) + (outcome.exit_count or 0) + (outcome.review_count or 0)
     )
-    return outcome.actionable_buy_count > 0 or sells > 0
+    return outcome.actionable_buy_count > 0 or sells > 0 or outcome.promotion_count > 0
+
+
+_MAX_PROMOTION_IDS_IN_BODY = 5
+
+
+def _promotions_part(outcome: RunOutcome) -> str:
+    ids = outcome.promotion_ids[:_MAX_PROMOTION_IDS_IN_BODY]
+    listed = ", ".join(ids)
+    if len(outcome.promotion_ids) > _MAX_PROMOTION_IDS_IN_BODY:
+        listed += ", …"
+    label = "promotion" if outcome.promotion_count == 1 else "promotions"
+    return f"{outcome.promotion_count} {label} ({listed})"
 
 
 def _rollup_body(outcome: RunOutcome) -> str:
@@ -98,4 +110,6 @@ def _rollup_body(outcome: RunOutcome) -> str:
     ):
         if count:
             parts.append(f"{count} {label}")
+    if outcome.promotion_count > 0:
+        parts.append(_promotions_part(outcome))
     return " · ".join(parts)

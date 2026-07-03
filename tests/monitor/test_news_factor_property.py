@@ -1,9 +1,15 @@
-"""D1 properties for aggregate_news_factor (spec §3.1 P2).
+"""D1 properties for aggregate_news_factor.
 
-VALUE = clamp(Σ wᵢ·impactᵢ·confᵢ)  — a clamped weighted SUM, NOT a weighted mean.
-Only the returned CONFIDENCE is the weighted mean Σ(wᵢ·confᵢ)/Σwᵢ.
+VALUE = clamp(Σ wᵢ·impactᵢ·confᵢ / Σwᵢ) — the weight-NORMALIZED mean (engine 4).
+CONFIDENCE is likewise the weighted mean Σ(wᵢ·confᵢ)/Σwᵢ.
 None on empty pool or non-positive total weight; value non-decreasing in a row's
 impact when that row's weight ≥ 0 and confidence ≥ 0.
+
+History: the original M2 property (spec §3.1 P2) locked an UNNORMALIZED sum;
+with percent-scale constituent weights (Σw ≈ 30–50) and unit theme weights the
+sum clamped to ±1.00 for nearly every fund (2026-07-02 trace: constituent 1.0
+on 6/7 active funds), erasing magnitude discrimination — normalized as an
+engine 3→4 scoring change.
 """
 from __future__ import annotations
 import dataclasses
@@ -32,13 +38,13 @@ def _clamp(x):
 
 
 @given(rows=_rows())
-def test_value_is_clamped_weighted_sum_not_mean(rows):
+def test_value_is_weight_normalized_mean(rows):
     value, _ = aggregate_news_factor(rows)
     wsum = sum(r.weight for r in rows)
     if not rows or wsum <= 0:
         assert value is None
         return
-    expected = _clamp(sum(r.weight * r.impact * r.confidence for r in rows))
+    expected = _clamp(sum(r.weight * r.impact * r.confidence for r in rows) / wsum)
     assert abs(value - expected) < _EPS
 
 

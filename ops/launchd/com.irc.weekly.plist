@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.irc.weekly</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>__REPO_ROOT__/ops/launchd/run-weekly.sh</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>__REPO_ROOT__</string>
+  <!-- Saturday 09:00 (Asia/Shanghai; machine assumed UTC+8 — see README).
+       Markets are closed, so the run reads Friday's close; the memo is ready
+       before Monday's open. The wrapper adds a decision_report.json
+       once-per-day idempotency skip and a single-instance lock. -->
+  <key>StartCalendarInterval</key>
+  <dict>
+    <key>Weekday</key><integer>6</integer>
+    <key>Hour</key><integer>9</integer>
+    <key>Minute</key><integer>0</integer>
+  </dict>
+  <key>RunAtLoad</key>
+  <false/>
+  <!-- launchd must NOT own a persistent log file: once `irc` writes to it the file
+       gets the macOS com.apple.provenance xattr and launchd is denied reopening
+       it on the next spawn (→ EX_CONFIG / 78, no run). The wrapper writes its own
+       fresh per-run log under outputs/_logs/run-weekly.<ts>.log instead. -->
+  <key>StandardOutPath</key>
+  <string>/dev/null</string>
+  <key>StandardErrorPath</key>
+  <string>/dev/null</string>
+</dict>
+</plist>

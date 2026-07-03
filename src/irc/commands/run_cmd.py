@@ -146,7 +146,7 @@ def _run_stage_loop(repo_root: str, stages: list[str], out_dir: Path, today: str
                     stage=stage,
                     detail=(
                         f"stage exited 0 but did not produce: "
-                        f"{', '.join(missing)}"
+                        f"{', '.join(missing)} in {out_dir}"
                     ),
                     stats={"missing_count": len(missing)},
                     first_error=None,

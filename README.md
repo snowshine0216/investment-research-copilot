@@ -8,6 +8,7 @@ Weekly research-and-recommendation system for gold + Mainland China funds + Main
 
 - MVP design: [docs/superpowers/specs/2026-05-07-investment-research-copilot-design.md](docs/superpowers/specs/2026-05-07-investment-research-copilot-design.md)
 - Opportunity + thesis discipline: [docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md](docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md)
+- **Monitor operations manual** (daily + weekly process): [docs/monitor/README.md](docs/monitor/README.md) · workflow diagram: [docs/diagrams/monitor-workflow.html](docs/diagrams/monitor-workflow.html)
 
 ## Quick start
 
@@ -167,154 +168,68 @@ RESEARCH_ENABLED=true uv run irc run
 
 ### Daily monitor brief (`irc monitor`)
 
-A focused daily brief on the fixed 10-fund **Monitor set** defined in
-`config/monitor.yaml` (the sole source of truth for which funds are monitored).
-For each fund the brief shows current unit NAV + as-of date, an accumulated-NAV
-trend chart, a directional bias (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or
-`NO_CALL` when evidence is insufficient), and a causal MiniMax narrative explaining
-why the price moved and why the current bias holds. For `active_cn_equity` funds the
-brief also grounds the bias bottom-up with a **capital-flow factor** (主力净流入净占比,
-5d/20d blended, top-5) and a **bottom-up dual-track valuation factor** — each holding
-scored on its own PE history *and* its richness vs the industry average, blended
-`0.60·self + 0.40·industry`, with a **False-Cheap clamp** that neutralizes value
-traps (cheap-vs-self but rich-vs-peers → NEUTRAL) — aggregated over the full
-disclosed basket. The per-stock drill-down board carries PB/PE, the industry leg
-(`行业 · 行业PE · r · 行业分`) with a value-trap badge, and the top-5 flow (ADR
-0019 / 0020). Output is a self-contained HTML report at
-`outputs/<date>/monitor/report.html`, plus a standalone per-fund drill-down at
-`outputs/<date>/monitor/drilldown.html`.
+The monitor vertical has its own operations manual — **[docs/monitor/README.md](docs/monitor/README.md)** — covering the daily automated process (12:15 brief, 15:45 flow capture, quarterly snapshots), the weekly research loop around it, how to read the report, promoting funds into the Monitor set, maintenance cadences, env keys, and troubleshooting. Read that; the below is the summary.
+
+`irc monitor` produces a daily directional-bias brief (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or `NO_CALL` on insufficient evidence) for the fixed 10-fund **Monitor set** in `config/monitor.yaml`. Engine 4 scores six factors — NAV trend, bottom-up dual-track valuation (`0.60·self-history + 0.40·industry-relative` with a False-Cheap clamp), capital flow (completed-day batched store), heat/限购, and LLM-scored macro + constituent news — into a coverage-gated composite, anchored by a news-free **market composite** (ADR 0021). Report v3 adds one run-level 宏观面速览 macro narrative, source-tiered deduped citations, a 今日速览 strip, honest dark-data reasons, and an eval spine that suppresses unhealthy funds to **EVAL-GATED 🛡** (ADR 0017 / 0019 / 0020 / 0021 / 0022). Outputs: `outputs/<date>/monitor/{report.html, drilldown.html, monitor.json, …}` + appends to `data/monitor/forward_ledger.jsonl`.
 
 ```bash
-uv run irc monitor                          # run the daily brief (reads config/monitor.yaml)
-uv run irc monitor snapshot                 # quarterly: refresh per-fund constituent caches
-uv run irc monitor flow-capture             # daily 15:45 (post-close): append today's completed-day flow to the store
+uv run irc monitor                          # daily brief (reads config/monitor.yaml)
+uv run irc monitor snapshot                 # quarterly constituent-cache refresh (automated via launchd)
+uv run irc monitor flow-capture             # daily 15:45 post-close flow append (automated; never run pre-close)
 ```
 
-`irc monitor` is self-contained for NAV + news + valuation (narrow-prefetch for the
-10 funds only — not a broad universe ingest). `irc monitor snapshot` constructs
-typed per-fund snapshot targets (`active_fund` or `fund_level`) keyed by fund id and
-analysis profile, then runs the constituent refresh. Run it at install (cold-start
-bootstrap — see [ops/launchd/README.md](ops/launchd/README.md)) and quarterly
-thereafter; the automated `com.irc.fundamentals-quarterly` job calls it automatically.
-
 **Model choice (important).** Set `MINIMAX_MODEL` to a **fast, non-reasoning chat
-model** (e.g. `MiniMax-Text-01`). The monitor makes many small structured-JSON calls
-(`monitor_impact` / `monitor_narrative`, capped at `max_tokens` 1024 / 2048, `temperature 0`).
-A **reasoning model such as `MiniMax-M3` does not fit**: its `<think>…</think>` overhead
-makes each call 30–240 s, overruns the gateway's call deadline on the richer narrative,
-and yields unreliable JSON — so narratives degrade and funds fall to `NO_CALL`. The
-extractor tolerates a `<think>` preamble and ```json fences, but a reasoning model is
-still the wrong tool here. A fast model finishes a full 7-fund brief in ~4–5 min.
+model** (e.g. `MiniMax-Text-01`). A reasoning model such as `MiniMax-M3` overruns the
+per-call deadline and degrades funds to `NO_CALL`.
 
-**Required-secret change.** Keys are now validated at the call edge, not at
-`Settings()` construction. `DEEPSEEK_API_KEY` is no longer hard-required at startup:
+**Required keys** are validated at the call edge, not at `Settings()` construction:
 
 | Workflow | Keys required |
 |---|---|
-| `irc monitor` | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL` |
+| `irc monitor` | `MINIMAX_API_KEY`, `MINIMAX_BASE_URL`, `MINIMAX_MODEL` (+ `IRC_CN_PROXY` on non-CN-egress hosts — ADR 0019) |
 | `irc run` (legacy DeepSeek tasks) | `DEEPSEEK_API_KEY` (+ `OPENROUTER_API_KEY` for memo routes) |
-
-Each workflow raises a clear "missing key for provider X" only if that provider is
-actually invoked. `irc config validate` remains secret-free (structural only).
 
 ### Monitor eval & validation (`irc eval monitor_*`)
 
-Every `irc monitor` run now also emits a validation **eval spine** alongside the four
-legacy dumps: a per-run `outputs/<date>/monitor/eval_trace.json` (each fund's
-signal / factor / citation projection) and an append-only
-`data/monitor/forward_ledger.jsonl` (one row per fund per day, for later
-forward-validity scoring). In the report, a fund whose in-run health fails — missing or
-stale NAV, a broken citation, or (once the LLM suites have run) a fresh suite **FAIL** —
-gets a gray **EVAL-GATED 🛡** badge instead of a bias; published biases carry a small
-validation chip (✓ validated / ⚠ caveated), and a **Validation** panel summarises the
-gating stages. Missing/stale/skipped suite reports **fail open** (caveated, not gated).
-
-Offline eval suites run via `irc eval`:
+Every `irc monitor` run emits an eval spine: `outputs/<date>/monitor/eval_trace.json`
+(schema 6) plus an append to `data/monitor/forward_ledger.jsonl`. In-run health
+failures gate a fund's bias to **EVAL-GATED 🛡**; published biases carry ✓ validated /
+⚠ caveated chips; missing/stale suite reports fail open (caveated, not gated).
 
 ```bash
-uv run irc eval monitor_signal              # in-run health + oracle re-compute over eval_trace.json (part of `irc eval --all`)
-uv run irc eval monitor_impact              # SKIPPED (rc 3) unless IRC_RUN_LIVE_LLM_EVAL=1 — paid live-LLM suite
-uv run irc eval monitor_narrative           # SKIPPED (rc 3) unless IRC_RUN_LIVE_LLM_EVAL=1 — paid live-LLM suite
-IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact   # actually drive the MiniMax route (budgeted by the `eval-live` spend gate)
+uv run irc eval monitor_signal              # free, deterministic — part of `irc eval --all`
+uv run irc eval monitor_forward             # forward-validity scorer over the ledger (also re-run inline each brief)
+IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact     # paid live-LLM suite (SKIPPED rc 3 without the env)
+IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_narrative  # paid live-LLM suite (budgeted by the eval-live spend gate)
 ```
 
-- `monitor_signal` is a **free, deterministic** artifact eval (no network); it is included
-  in `irc eval --all`.
-- `monitor_impact` / `monitor_narrative` are **`live_gated`** LLM-quality suites that score
-  synthetic/adversarial corpora through the real MiniMax route. They are **excluded from
-  `--all`** and **skip with exit code 3** unless `IRC_RUN_LIVE_LLM_EVAL=1` is set; when run,
-  they are budgeted by the `eval-live` spend gate and ledger their spend like `irc monitor`.
-  This is the only paid eval surface.
-
-The eval surface, lifecycle, metrics, and expected output are documented in
-[`evals/README.md`](evals/README.md); the workflow diagram is
-[`evals/docs/monitor-eval-workflow.html`](evals/docs/monitor-eval-workflow.html).
+Lifecycle, metrics, and thresholds: [`evals/README.md`](evals/README.md); workflow
+diagram: [`evals/docs/monitor-eval-workflow.html`](evals/docs/monitor-eval-workflow.html).
 
 ### Unattended automation (`irc notify-status`, launchd)
 
-Two macOS LaunchAgents (`ops/launchd/`) run the pipeline unattended and notify on
-outcome (macOS notification always; optional Feishu webhook). See
-**[ops/launchd/README.md](ops/launchd/README.md)** for install/uninstall, timezone
-notes, and the Feishu webhook option (ADR 0016).
+Four macOS LaunchAgents (`ops/launchd/`) run the system unattended, each with a
+single-instance lock, a wall-clock watchdog, and per-run logs under
+`outputs/_logs/`; outcomes page via `irc notify-status` (macOS always, Feishu when
+`IRC_FEISHU_WEBHOOK_URL` is set).
 
 | Agent | Schedule (Asia/Shanghai) | What it runs |
 |---|---|---|
-| `com.irc.monitor` | Daily 12:15 (weekends + CN holidays skipped by the wrapper; once-per-day idempotency guard on today's `monitor.json`) | `irc monitor`, then `irc notify-status --run-kind monitor` |
-| `com.irc.flow-capture` | Daily 15:45, after the 15:00 CN close (weekends + CN holidays skipped by the wrapper) | `irc monitor flow-capture` — appends today's completed-day capital-flow batch to the flow series store |
-| `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct | `irc monitor snapshot` |
-
-The monitor job fires at 12:15 because the CN market's morning session has closed by
-then, giving the brief same-day intraday context while still leaving the 15:00 close
-ahead for same-day order decisions. A single-instance lock prevents overlapping runs.
-The flow-capture job fires at 15:45, strictly **after** the 15:00 close, so the
-`ulist.np` batch it appends to the store is always a completed-day value — never a
-provisional intraday one. `com.irc.flow-capture` is the only recurring writer to the
-flow series store; its wrapper owns the weekend/CN-holiday guard. **Do not invoke
-`irc monitor flow-capture` manually before 15:00 CST** — it is a post-close job and
-the manual path is unguarded (single-operator trust model). You get a macOS
-notification (plus Feishu when `IRC_FEISHU_WEBHOOK_URL` is set in `.env`) on any
-actionable result or failure; clean runs are quiet by default.
-
-Each fire writes its own log at `outputs/_logs/run-monitor.<timestamp>.log`
-(launchd's own StandardOut/Err go to `/dev/null` — see
-[ops/launchd/README.md](ops/launchd/README.md) for the `com.apple.provenance`
-reason).
+| `com.irc.monitor` | Daily 12:15 (weekend/CN-holiday skip; `monitor.json` idempotency sentinel) | `irc monitor` + `notify-status --run-kind monitor` |
+| `com.irc.flow-capture` | Daily 15:45, after the 15:00 close | `irc monitor flow-capture` (best-effort, no page) |
+| `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | `irc monitor snapshot` (protective watchdog, no page) |
+| `com.irc.weekly` | Saturday 09:00 (`decision_report.json` idempotency sentinel) | full `irc run` + `notify-status --run-kind weekly` — pages on failure/halt/action, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
 
 ```bash
-bash ops/launchd/install.sh             # install monitor + flow-capture + quarterly launchd agents
+bash ops/launchd/install.sh             # install all four agents (+ one-time cold-start snapshot)
 bash ops/launchd/uninstall.sh           # remove all agents
 uv run irc notify-status --run-kind monitor --last-exit-code 0   # manual dry-run
 ```
 
-**Post-merge op order (CN-egress data-plane light-up, run once after the flow-capture
-job ships):**
-
-1. Install the 15:45 job — `bash ops/launchd/install.sh` (installs `com.irc.flow-capture`
-   alongside the existing agents).
-2. Run the D7 seed once after close — `uv run irc monitor flow-capture` after seeding
-   (or the seed helper), so the flow series store has a first completed-day row instead
-   of warming up organically from zero.
-3. Backfill valuation — `uv run irc fundamentals stock-valuation --force` (D8), so the
-   industry re-transport (ADR 0020 addendum) has a fresh per-stock valuation cache to
-   read from immediately rather than waiting out the normal staleness threshold.
-4. At the next 12:15 brief, verify Tier-2 (flow renders for ≥5/7 active funds,
-   `industry_cover > 0` for every fund above the 0.40 NAV floor — see the design spec's
-   exit gates).
-
-**GATE-2 post-merge ops step (4dp equivalence check, run once — do not skip before
-trusting flow forward metrics):**
-
-```bash
-# after close, capture today's batch f184:
-uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy
-# next day, confirm same-day f184 ≈ daykline.净占比 to 4 decimal places:
-uv run python -m scripts.phase0_flow_batch_spike --use-cn-proxy --equiv-against <capture>
-```
-
-If `max|Δ| ≤ 4dp`, GATE-2 passes and `_ENGINE_VERSION` stays `"3"` (no bump needed). A
-material (>4dp) gap escalates to an `_ENGINE_VERSION` bump plus a fresh ADR 0019
-addendum **before** the flow factor's forward metrics are trusted — see the D-B3
-escalation path in the design spec's Tier-0 findings appendix.
+Install/uninstall details, timezone assumption, watchdog semantics, and the
+`com.apple.provenance` logging trap: [ops/launchd/README.md](ops/launchd/README.md).
+One-time post-merge ops (CN-egress day-1 order, GATE-2 4dp equivalence) are recorded
+in [docs/monitor/README.md](docs/monitor/README.md) "One-time ops".
 
 ### Monthly universe maintenance
 
@@ -444,8 +359,9 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 
 | Command | Main outputs |
 |---|---|
-| `uv run irc monitor` | `outputs/<date>/monitor/report.html` (self-contained daily brief) + `outputs/<date>/monitor/eval_trace.json` + appends to `data/monitor/forward_ledger.jsonl` |
+| `uv run irc monitor` | `outputs/<date>/monitor/report.html` + `drilldown.html` (self-contained daily brief + per-stock board) + `eval_trace.json` + appends to `data/monitor/forward_ledger.jsonl` |
 | `uv run irc monitor snapshot` | per-fund constituent caches under `data/fundamentals/<quarter>/` |
+| `uv run irc monitor flow-capture` | appends today's completed-day capital-flow batch to `data/monitor/fund_flow_series.json` (daily 15:45 launchd job) |
 | `uv run irc eval monitor_signal` | `outputs/<date>/evals/monitor_signal/report.json` (free, in `--all`) |
 | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` / `monitor_narrative` | `outputs/<date>/evals/monitor_{impact,narrative}/report.json` (live-LLM; SKIPPED rc 3 without the env) |
 | `uv run irc ingest` | `data/local.duckdb`, provider manifests under `data/_manifest/` |

@@ -9,6 +9,7 @@ import yaml
 
 from irc.config_loader import load_repo_configs
 from irc.decision.live_inputs import read_live_decision_inputs
+from irc.decision.promotions import diff_promotions, promotions_block
 from irc.decision.report import compose_decision_report, render_decision_markdown
 from irc.io_utils import atomic_write_text
 from irc.memo.auditor import extract_audit_summary
@@ -208,10 +209,57 @@ def run_decision(repo_root: str) -> int:
         qdii_max_premium_pct=qdii_max_premium,
         stale_sell_signals=stale,
     )
+    # Promotion diff vs the most recent PRIOR run's opportunity report, so a
+    # fund newly reaching core_dca / accelerate_dca pages via notify-status
+    # instead of relying on the operator manually diffing two JSON files.
+    prior_date, prior_rows = _read_prior_opportunity_rows(root, out_dir.name)
+    promo_diff = diff_promotions(
+        tuple(opportunity_states.values()), prior_rows, prior_date=prior_date,
+    )
+    report["promotions"] = promotions_block(promo_diff)
+    summary = report.setdefault("summary", {})
+    summary["promotion_count"] = len(promo_diff.promotions)
+    summary["promotion_ids"] = list(promo_diff.instrument_ids)
+    if promo_diff.promotions:
+        print(
+            f"promotions vs {prior_date}: "
+            + ", ".join(promo_diff.instrument_ids)
+        )
     atomic_write_text(out_dir / "decision_report.json", json.dumps(report, ensure_ascii=False, indent=2))
     atomic_write_text(out_dir / "decision_report.md", render_decision_markdown(report))
     print(f"decision {report['overall_status']} -> {out_dir / 'decision_report.md'}")
     return 0
+
+
+def _read_prior_opportunity_rows(root: Path, today: str) -> tuple[str | None, list[dict]]:
+    """Most recent outputs/<date>/opportunity_report.json with date < today.
+    Returns (None, []) when no prior report exists or the latest one is
+    unreadable — the promotion diff then degrades to empty, never crashes."""
+    outputs_dir = root / "outputs"
+    if not outputs_dir.is_dir():
+        return None, []
+    candidates = sorted(
+        p for p in outputs_dir.glob("*/opportunity_report.json")
+        if p.parent.name < today
+    )
+    if not candidates:
+        return None, []
+    latest = candidates[-1]
+    try:
+        data = json.loads(latest.read_text(encoding="utf-8"))
+        rows = data.get("rows") if isinstance(data, dict) else None
+        if not isinstance(rows, list):
+            raise ValueError("opportunity_report.json has no rows list")
+    except (ValueError, OSError):
+        # ValueError covers JSONDecodeError, UnicodeDecodeError, and the
+        # wrong-shape raise above — a corrupt prior report degrades the diff
+        # to empty, never crashes the decision stage.
+        print(
+            f"WARNING: prior opportunity_report.json ({latest.parent.name}) "
+            "unreadable or wrong-shaped — promotion diff skipped this run."
+        )
+        return None, []
+    return latest.parent.name, [r for r in rows if isinstance(r, dict)]
 
 
 def _resolve_output_dir(root: Path) -> Path:

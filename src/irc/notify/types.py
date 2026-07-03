@@ -34,6 +34,10 @@ class RunOutcome:
     exit_count: int | None
     review_count: int | None
     decision_report_unreadable: bool = False
+    # Funds newly promoted (opportunity_state → core_dca / dca_action →
+    # accelerate_dca vs. the prior run) — from decision_report.json summary.
+    promotion_count: int = 0
+    promotion_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

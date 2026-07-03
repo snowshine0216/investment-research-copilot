@@ -13,6 +13,7 @@ import yaml
 from irc.config_loader import load_repo_configs
 from irc.data.freshness import require_fresh_ingest
 from irc.io_utils import atomic_write_text
+from irc.pipeline_outputs import missing_outputs
 from irc.llm.gateway import resolve_route
 from irc.memo.auditor import audit_blocks_publish
 from irc.memo.diagnostics import (
@@ -786,6 +787,14 @@ def _build_pick_rows(
     return pick_rows, absent, gapped
 
 
+def _orchestrator_out_dir(root: Path) -> Path:
+    """The output dir run_pipeline's missing-outputs contract checks for this
+    stage (outputs/<china-today>). Module-level seam so tests can force
+    stage/orchestrator divergence."""
+    from irc.commands.ingest_cmd import _china_today
+    return root / "outputs" / _china_today()
+
+
 def run_memo(repo_root: str) -> int:
     from irc.commands.spend_cmd import preflight_gate
     gate_rc = preflight_gate(repo_root, "memo")
@@ -831,6 +840,12 @@ def _run_memo_body_inner(root: Path, _today_date) -> tuple[int, list]:
             print("ERROR: no scoring.json; run `irc score` first.")
             return 2, history
         scoring_path = p
+        print(
+            f"WARNING: outputs/{today}/scoring.json missing — memo inputs fall "
+            f"back to {scoring_path.parent} (upstream artifacts from a prior "
+            f"run); outputs are still written to outputs/{today}/. Re-run "
+            f"`irc run --from discover` for same-day inputs."
+        )
 
     out_today = scoring_path.parent  # use same date dir as scoring
 
@@ -1183,6 +1198,29 @@ def _run_memo_body_inner(root: Path, _today_date) -> tuple[int, list]:
     blocked_path = out_dir / "memo_blocked.md"
     if blocked_path.exists():
         blocked_path.unlink()
+    contract_dir = _orchestrator_out_dir(root)
+    contract_missing = missing_outputs(contract_dir, "memo")
+    if contract_missing:
+        if not missing_outputs(out_dir, "memo"):
+            # Memo's own out_dir has the artifact but the orchestrator-clock
+            # dir differs (CN-midnight date drift, or a future write-path
+            # regression). Warn with BOTH dirs — the diagnostic 2026-06-19
+            # lacked — but let run_pipeline's own output contract decide; a
+            # spurious stage failure here would break legitimate
+            # near-midnight runs.
+            print(
+                f"WARNING: memo wrote outputs to {out_dir}, but the "
+                f"orchestrator-clock dir {contract_dir} is missing "
+                f"{', '.join(contract_missing)} (date drift?) — run_pipeline "
+                "decides via its own output contract."
+            )
+        else:
+            print(
+                "ERROR: memo stage invariant violated — no memo output exists "
+                f"in {out_dir} or {contract_dir}. Failing loudly instead of "
+                "exiting 0 (2026-06-19 missing_required_outputs halt class)."
+            )
+            return 1, history
     print(
         f"memo OK: {output.traceability['n_refs_quoted_verbatim']}/"
         f"{output.traceability['n_refs_provided']} refs quoted verbatim "
