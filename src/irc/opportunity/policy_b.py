@@ -125,6 +125,28 @@ def _compute_foreign_listed_share(
     return foreign / total
 
 
+def foreign_heavy_fund_level_gap(snapshot: ActiveFundSnapshot) -> bool:
+    """True iff rule 2.5 would emit `foreign_heavy_fund_level_evidence_missing`.
+
+    Trigger predicate for the *fund-level evidence repair* probe
+    (todos-critical-fixes item 004; CONTEXT.md "Fund-level evidence repair"):
+    foreign-listed weight share ≥ `FOREIGN_HEAVY_THRESHOLD` AND
+    `snapshot.fund_level_evidence` missing a `citation_kind=="data"` entry OR
+    a `citation_kind=="information"` entry — exactly rule 2.5's gap condition
+    below. Co-located with rule 2.5 so the two conditions cannot drift
+    (single source of truth). Pure, read-only. Empty `constituent_analyses`
+    → share 0.0 → False (mirrors `_compute_foreign_listed_share`'s guard).
+    """
+    ranked = _rank_by_weight(snapshot.constituent_analyses)
+    if _compute_foreign_listed_share(ranked) < FOREIGN_HEAVY_THRESHOLD:
+        return False
+    has_data = any(e.citation_kind == "data" for e in snapshot.fund_level_evidence)
+    has_info = any(
+        e.citation_kind == "information" for e in snapshot.fund_level_evidence
+    )
+    return not (has_data and has_info)
+
+
 def _material_set_with_ties(
     ranked: tuple[ConstituentAnalysis, ...],
     *,
