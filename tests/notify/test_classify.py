@@ -175,3 +175,34 @@ def test_unknown_nonzero_exit_never_clean():
     """An unknown nonzero exit (99) with all-zero counts must NOT classify as clean."""
     decision = classify_run_outcome(_outcome(last_exit_code=99))
     assert decision.severity != "clean", "exit 99 must never produce severity=clean"
+
+
+def test_promotions_alone_trigger_action_with_ids_in_body():
+    """A fund newly reaching core_dca / accelerate_dca must page as 'action'
+    even when there are zero buys/sells — the promotion IS the signal."""
+    decision = classify_run_outcome(_outcome(
+        promotion_count=2, promotion_ids=("161903", "018132"),
+    ))
+    assert decision.severity == "action"
+    assert decision.should_notify is True
+    assert "2 promotions" in decision.body
+    assert "161903" in decision.body and "018132" in decision.body
+
+
+def test_promotions_rollup_joins_with_buys():
+    decision = classify_run_outcome(_outcome(
+        actionable_buy_count=1, promotion_count=1, promotion_ids=("519069",),
+    ))
+    assert decision.severity == "action"
+    assert "1 buys" in decision.body
+    assert "1 promotion" in decision.body
+    assert "519069" in decision.body
+
+
+def test_promotion_ids_capped_in_body():
+    ids = tuple(f"00000{i}" for i in range(8))
+    decision = classify_run_outcome(_outcome(promotion_count=8, promotion_ids=ids))
+    assert decision.severity == "action"
+    assert "000004" in decision.body      # first five named
+    assert "000007" not in decision.body  # tail elided
+    assert "…" in decision.body

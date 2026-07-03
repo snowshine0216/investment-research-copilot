@@ -100,7 +100,24 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
         exit_count=safe.get("exit_count"),
         review_count=safe.get("review_count"),
         decision_report_unreadable=unreadable,
+        promotion_count=_coerce_count(safe.get("promotion_count")),
+        promotion_ids=_coerce_ids(safe.get("promotion_ids")),
     )
+
+
+def _coerce_count(value: object) -> int:
+    """Corrupt-but-parseable summary fields degrade to 0, never crash."""
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _coerce_ids(value: object) -> tuple[str, ...]:
+    """Only a real list/tuple counts — a bare string would iterate per-char."""
+    if isinstance(value, (list, tuple)):
+        return tuple(str(i) for i in value)
+    return ()
 
 
 def _read_summary(path: Path) -> dict | None:

@@ -160,6 +160,32 @@ def _build_proxy_coverage(trade_plan: dict[str, Any]) -> dict[str, list[dict[str
     return coverage
 
 
+def promotions_section_lines(block: dict[str, Any] | None) -> list[str]:
+    """新晋关注 section — funds newly promoted (state → core_dca / dca_action →
+    accelerate_dca) versus the most recent prior run. Empty list when there is
+    no prior run to compare against or nothing was promoted."""
+    rows = (block or {}).get("rows") or []
+    if not rows:
+        return []
+    prior_date = (block or {}).get("prior_date") or "—"
+    lines = [
+        "## 新晋关注（较上次运行晋级）",
+        "",
+        f"对比基准：{prior_date} 的 opportunity_report。晋级是研究信号，"
+        "买入仍需通过 decision 门槛与人工核对。",
+        "",
+    ]
+    for r in rows:
+        prior = r.get("prior") or "（上次未入选）"
+        kind_label = "状态" if r.get("kind") == "state" else "定投"
+        lines.append(
+            f"- **{r.get('instrument_id')}** {r.get('name_cn', '')} — "
+            f"{kind_label}: {prior} → {r.get('current')}"
+        )
+    lines.append("")
+    return lines
+
+
 def render_decision_markdown(report: dict[str, Any]) -> str:
     is_blocked = report["overall_status"] == "blocked"
     rows: list[dict[str, Any]] = report.get("rows", [])
@@ -168,6 +194,7 @@ def render_decision_markdown(report: dict[str, Any]) -> str:
         "",
     ]
     lines.extend(_todays_only_action_section(rows))
+    lines.extend(promotions_section_lines(report.get("promotions")))
     lines.extend([
         "## Verdict",
         "",
