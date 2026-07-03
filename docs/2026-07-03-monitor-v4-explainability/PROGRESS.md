@@ -7,7 +7,7 @@ Execution order: **003 → 001 → 002 → 004** (locked; see MASTER-PLAN.md).
 | 003 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#200](https://github.com/snowshine0216/investment-research-copilot/pull/200) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `8a8e6994` |
 | 001 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#201](https://github.com/snowshine0216/investment-research-copilot/pull/201) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `d894a644` |
 | 002 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#202](https://github.com/snowshine0216/investment-research-copilot/pull/202) | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `34d2e3bf` |
-| 004 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#203](https://github.com/snowshine0216/investment-research-copilot/pull/203) | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ (AC-15 rested-window retry pending) |
+| 004 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#203](https://github.com/snowshine0216/investment-research-copilot/pull/203) | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 round | ⚠ env-pause: AC-15 spot-check blocked (push2 502/conn-abort, ~7 attempts 21:5x–23:2x CST incl. direct + single-secid); all other gates green — run `items/004-spotcheck-ac15.py` in a working window (12:15/15:45 daily windows known-good), then `gh pr merge 203 --squash --delete-branch` |
 
 Run-level: doc-sync ⏳ · final-verify ⏳ · close-out ⏳
 
