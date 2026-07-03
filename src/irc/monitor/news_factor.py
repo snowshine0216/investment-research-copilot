@@ -15,13 +15,15 @@ def _clamp(x: float) -> float:
 
 
 def aggregate_news_factor(rows: tuple[ImpactRow, ...]) -> tuple[float | None, float]:
-    """Pure: weighted impact (clamped) + weighted item-confidence.
+    """Pure: weight-normalized impact (clamped) + weighted item-confidence.
+    Both are divided by Σweight, so the value is scale-invariant (percent-
+    scale holding weights and unit theme weights aggregate identically).
     Returns (None, 0.0) when the pool is empty (→ N/A upstream)."""
     if not rows:
         return None, 0.0
     wsum = sum(r.weight for r in rows)
     if wsum <= 0:
         return None, 0.0
-    value = _clamp(sum(r.weight * r.impact * r.confidence for r in rows))
+    value = _clamp(sum(r.weight * r.impact * r.confidence for r in rows) / wsum)
     conf = sum(r.weight * r.confidence for r in rows) / wsum
     return value, conf
