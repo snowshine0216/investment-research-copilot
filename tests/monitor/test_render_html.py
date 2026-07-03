@@ -450,3 +450,48 @@ def test_render_report_threads_macro_impacts_to_chips():
     html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT,
                          macro_narrative=doc, macro_impacts_by_fund=impacts)
     assert "008986 +0.8" in html
+
+
+def test_macro_chips_reconcile_with_eval_trace():
+    """AC6 / source-spec §4 bullet 2: ONE fixture set fed to BOTH build_eval_trace
+    and render_report. Each rendered chip's parsed value == round(trace impact, 2);
+    a chip carries color/number IFF the trace impacts["macro"] has a record with
+    that theme key for that fund."""
+    from irc.monitor.eval.trace import build_eval_trace
+    from irc.monitor.eval.types import FundTraceBundle, GateDecision
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.types import MonitorFund
+
+    fund = MonitorFund(id="008986", name_cn="测试", market="CN",
+                       analysis_profile="gold_etf", themes=("gold_drivers",),
+                       constituent_news=False, weights={"trend": 1.0},
+                       bands={"buy": 0.1, "sell": -0.1}, minimum_confidence=0.5)
+    view = dataclasses.replace(_view(), themes=("gold_drivers",))
+    view2 = dataclasses.replace(_view(), fund_id="600000", themes=("gold_drivers",))
+    imp = ValidatedImpact("gold_drivers", 0.847, 0.7, ())     # rounds to +0.85
+    off = ValidatedImpact("unrendered_theme", -0.6, 0.5, ())  # trace-only
+    bundle = FundTraceBundle("008986", (imp, off), (), ())
+    gate = GateDecision("008986", False, (), "validated", "")
+    doc = _macro_doc(theme="gold_drivers", claim_text="黄金受实际利率支撑。")
+
+    trace = build_eval_trace(((fund, view, gate, bundle),), engine_version="4",
+                             run_date="2026-07-04", macro_narrative=doc)
+    html = render_report((view, view2), _prov(), prior_signal=None, now=_NOW,
+                         now_dt=_NOW_DT, macro_narrative=doc,
+                         macro_impacts_by_fund={"008986": bundle.macro_impacts})
+
+    chips_region = html.split('class="fund-chips">', 1)[1].split("</div>", 1)[0]
+    m = re.search(r'<span class="fund-chip (chip-\w+)" title="[^"]*">'
+                  r'008986 ([+\-][0-9.]+)</span>', chips_region)
+    assert m, chips_region
+    trace_rec = {r["key"]: r for r in
+                 trace["funds"]["008986"]["impacts"]["macro"]}["gold_drivers"]
+    assert float(m.group(2)) == round(trace_rec["impact"], 2)
+    assert m.group(1) == "chip-pos"
+    # IFF, no-record direction: 600000 has no macro record -> bare chip
+    assert '<span class="fund-chip">600000</span>' in chips_region
+    # IFF, off-theme direction: the unrendered_theme record is in the trace
+    # but renders NOWHERE (trace keeps it; the renderer never invents chips)
+    assert "unrendered_theme" not in html
+    assert any(r["key"] == "unrendered_theme"
+               for r in trace["funds"]["008986"]["impacts"]["macro"])
