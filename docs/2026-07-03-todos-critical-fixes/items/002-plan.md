@@ -475,7 +475,7 @@ Expected: 0 failed.
 uv run ruff check src tests
 ```
 
-Expected: `All checks passed!`
+Expected: `All checks passed!` — **amended 2026-07-03 (drift review, item 002-drift.md):** this repo-wide lint carries 118 pre-existing violations on `autodev/todos-critical-fixes-feature` (confirmed byte-identical count/set before and after this item's diff via a detached-worktree replay); the accurate expectation for this step is "0 new violations introduced by this item's 3 touched files" (verified via Task 3 Step 3.5's file-scoped `ruff check`), not a clean `All checks passed!` across the whole tree.
 
 **If any sweep test fails:** replay the exact failing id on the base branch (`git stash && uv run pytest <id> && git stash pop`, or check out `autodev/todos-critical-fixes-feature`'s pre-Task-3 commit) before treating it as a regression — 24 known pre-existing failures exist on main. If a genuinely stale lock surfaces (a test asserting `intact` on a data-only active fixture that the survey missed), updating it is expected per AC12 — name it in the commit message and the PR body.
 

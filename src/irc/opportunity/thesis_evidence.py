@@ -327,6 +327,40 @@ def _classify_constituent_gap(
     return None
 
 
+def _active_dual_leg_state(
+    flattened: tuple[ThesisEvidence, ...],
+    fund_level_evidence: tuple[ThesisEvidence, ...],
+    analyses_count: int,
+) -> tuple[ThesisState, str]:
+    """(state, reason) for the ActiveFundSnapshot branch (ADR 0003 §8).
+
+    Empty-flattened guard FIRST — load-bearing (§8 property 3): a
+    rule-2.5-publishable fund whose top-N constituents are all pure-failure
+    has empty flattened evidence but dual-leg fund_level_evidence, and must
+    stay evidence_insufficient. The union (flattened ∪ fund_level_evidence)
+    is presence-only: the caller returns the flattened tuple unchanged
+    (rule-2.5 stamping stays _stamp_fund_level_evidence_from_verdict's job).
+    Both-legs-missing with non-empty evidence is unreachable (citation_kind
+    is validated to the two-literal set in ThesisEvidence.__post_init__).
+    """
+    if not flattened:
+        return "evidence_insufficient", "主动基金未能收集到任何成分股证据。"
+    union = flattened + fund_level_evidence
+    has_data = any(e.citation_kind == "data" for e in union)
+    has_info = any(e.citation_kind == "information" for e in union)
+    if has_data and has_info:
+        return "intact", f"主动基金 {analyses_count} 个核心持仓的成分股证据已收集。"
+    if not has_data:
+        return (
+            "evidence_insufficient",
+            "主动基金证据缺少数据腿（成分股财报），长期逻辑暂不背书。",
+        )
+    return (
+        "evidence_insufficient",
+        "主动基金证据缺少信息腿（券商/新闻/公告），长期逻辑暂不背书。",
+    )
+
+
 def derive_thesis_from_evidence(
     snapshot: ConstituentSnapshot | ActiveFundSnapshot | FundLevelSnapshot | None,
     theme_report: ThemeReport | None,
@@ -382,14 +416,12 @@ def derive_thesis_from_evidence(
         gaps: tuple[str, ...] = ()
         if should_emit_top_holdings_broker_thin(snapshot):
             gaps = gaps + ("top_holdings_broker_thin",)
-        if flattened:
-            state: ThesisState = "intact"
-            reason = (
-                f"主动基金 {len(analyses)} 个核心持仓的成分股证据已收集。"
-            )
-        else:
-            state = "evidence_insufficient"
-            reason = "主动基金未能收集到任何成分股证据。"
+        # Item 002 (2026-07-03, ADR 0003 §8): dual-leg thesis heuristic over the
+        # presence-only union flattened ∪ fund_level_evidence; the helper's
+        # empty-flattened guard runs FIRST (load-bearing for published rows).
+        state, reason = _active_dual_leg_state(
+            flattened, snapshot.fund_level_evidence, len(analyses),
+        )
         return state, reason, flattened, gaps, tuple(analyses)  # type: ignore[return-value]
 
     # Legacy path: unchanged behaviour, plus empty 5th slot.

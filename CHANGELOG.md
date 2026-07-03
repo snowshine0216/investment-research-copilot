@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — ActiveFundSnapshot thesis gate: dual-leg (data + information) check extended to the active-fund branch (2026-07-03)
+
+- **`derive_thesis_from_evidence` (`src/irc/opportunity/thesis_evidence.py`) no longer
+  returns `thesis_state="intact"` for an `ActiveFundSnapshot` on ANY non-empty
+  flattened constituent evidence.** `intact` now requires ≥1 `citation_kind="data"`
+  AND ≥1 `citation_kind="information"` entry across the presence-only union of the
+  flattened constituent evidence ∪ `snapshot.fund_level_evidence` — the same dual-leg
+  heuristic the `FundLevelSnapshot` branch already applied. A single-leg union yields
+  `evidence_insufficient` with direction-specific reasons（缺少数据腿 / 缺少信息腿）.
+  The empty-flattened guard runs FIRST (load-bearing, ADR 0003 §8 property 3):
+  rule-2.5-publishable all-pure-failure funds stay `evidence_insufficient` even with
+  dual-leg fund-level evidence, so no Policy-B-publishable row changes `thesis_state`
+  and the evidence/gaps/analyses return slots are byte-identical (H3 / SAME-3
+  unaffected; the union is never merged into the returned evidence tuple). Fixes the
+  `irc eval-funds` / `irc narrative --analyze` false confidence where filing-only
+  (data-only) evidence + cheap valuation + cold heat composed to `core_dca`.
+  New CONTEXT.md term "Dual-leg thesis heuristic"; ADR 0003 §8 addendum. No new
+  `ThesisState` literal, no new gap code, no VERSION bump.
+
 ### Fixed — macro narrative: non-str `attribution_strength` consumes the schema-retry budget instead of degrading the whole block (2026-07-03)
 
 - **`_parse_theme_claims` (`src/irc/monitor/narrative_macro.py`) now type-guards
