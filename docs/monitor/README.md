@@ -41,7 +41,7 @@ covered in [Weekly process](#weekly-process); the daily/quarterly three:
 | Time (Asia/Shanghai) | Agent | What runs |
 |---|---|---|
 | 12:15 daily | `com.irc.monitor` | `irc monitor` → `irc notify-status --run-kind monitor`. Wrapper skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `outputs/<date>/monitor/monitor.json` exists; single-instance lock; 30-min watchdog (timeout pages as `rc=124`). |
-| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (~25 trading-day retention). Best-effort: 5-min watchdog, no page. **Never run manually before the 15:00 close** — the manual path is unguarded. |
+| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f127`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f127` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog, no page. **Never run manually before the 15:00 close** — the manual path is unguarded. |
 | 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | `irc monitor snapshot` — refreshes the typed per-fund constituent caches the valuation/constituent factors read. Protective 60-min watchdog, no page (a lapse surfaces as N/A factors in the next brief). |
 
 The 12:15 slot is after the CN morning session closes, leaving the 15:00 close
@@ -58,6 +58,15 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
 3. **One purchase-table fetch** (heat factor + 限购 tag), **one flow-store slice**
    (completed days, union of active-fund top-5 symbols) + **one provisional
    intraday flow batch** (盘中提示 annotation only — rendered, never persisted).
+   - **行业 is batch-first (ADR 0020 addendum 2026-07-03):** the one `ulist.np`
+     batch call carries `f127`; names accumulate cross-day in
+     `data/monitor/stock_industry_map.json` (serve-while-stale ≤ 30 calendar
+     days, refresh-on-seen). The per-symbol `stock/get` path fires only for
+     symbols absent from that map (~never in steady state). Board PE is
+     fetched ONCE at run level before the per-fund loop; on failure the most
+     recent non-empty cached table ≤ 3 trading days old feeds factor math with
+     an explicit `板块PE 引用 <date> · N个交易日前` tag (FRESH / STALE-N / DARK —
+     see CONTEXT.md *Board-PE freshness state*).
 4. **Theme search once per unique theme** (~8 provider calls, not per-fund). The
    **source-tier gate** (ADR 0022) drops blocked domains at ingest; everything else
    is kept and badged (tier 1 权威 / tier 2 财经媒体 / unknown 未分级).
@@ -223,6 +232,8 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 7, engine 4) |
 | `data/monitor/forward_ledger.jsonl` | Append-only per-fund-per-day rows (incl. `market_composite`/`market_bias`) scored by `monitor_forward` |
 | `data/monitor/fund_flow_series.json` | Completed-day flow store (written only by the 15:45 job) |
+| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f127; fallback merges too) |
+| `data/monitor/industry_pe/<date>.json` | Board-PE day cache (non-empty parses only; stale-served ≤ 3 td with an age tag) |
 | `outputs/_logs/run-*.log` | Per-fire wrapper logs (14-day retention) |
 
 ## Environment
@@ -250,6 +261,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | Schedule silently dead, `last exit code = 78` | launchd log-file provenance trap — see [`ops/launchd/README.md`](../../ops/launchd/README.md) |
 | Weekly `irc run` halted | `outputs/<date>/PIPELINE_HALTED.md` names the stage; fix, then `uv run irc run --resume` (same day) or re-run |
 | Run stops with exit 5 | Spend gate: top up / edit `config/spend_balances.yaml` / `IRC_SKIP_SPEND_GATE=1` |
+| 行业/行业PE columns dark | Check the panel's `board_pe FRESH/STALE-N/DARK` reason + `stock_industry_map.json` coverage; a DARK board PE ≤ 3 td heals from the 15:45 refresh (P8c) |
 
 ## One-time ops (historical, completed)
 
