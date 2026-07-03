@@ -29,3 +29,7 @@ resolved on main (see SKIPPED.md). TODOS.md annotated resolved-as-built, doc-onl
 
 - Feature branch `autodev/todos-critical-fixes-feature` synthesized off `main` @ 221a34e4
   and pushed (no merge-to-main opt-in in this invocation).
+- Roll-up PR **#199** (feature → main) OPENED 2026-07-03 and left for the user to land:
+  https://github.com/snowshine0216/investment-research-copilot/pull/199
+- Sub-PRs: #195 (001), #196 (002), #197 (005), #198 (004) — all squash-merged into the
+  feature branch with full gate artifacts under items/.
