@@ -273,6 +273,14 @@ Expected output: `1` then `0` (grep -c prints 0 and exits non-zero for the secon
 Run: `uv run ruff check src tests`
 Expected output: `All checks passed!`
 
+> Amendment (drift review, 2026-07-03): repo-wide `ruff check src tests` was NOT
+> clean on `autodev/todos-critical-fixes-feature` before this item touched anything
+> (118 pre-existing errors, confirmed via a detached worktree at the base commit);
+> the branch's error set is byte-identical to the base's (diff of sorted
+> `--output-format=concise` output is empty). The plan's "All checks passed!"
+> expectation was stale/inaccurate for this repo state, not a defect introduced by
+> this item — treat Step 8 as "error set unchanged from base," not "zero errors."
+
 - [ ] **Step 9: Cross-file verification sweep (per-file — NEVER the whole `tests/commands/` dir, it hangs)**
 
 These five files also import/exercise `narrative_macro` or `gather_macro_narrative`. No signature changed, so all must pass unmodified. Run each separately:
