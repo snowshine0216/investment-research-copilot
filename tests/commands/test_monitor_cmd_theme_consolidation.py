@@ -147,8 +147,6 @@ def test_run_monitor_searches_each_theme_exactly_once_across_whole_fund_set(
     import irc.commands.monitor_cmd as mc
     from irc.monitor.fetch import NavFetchResult
     from irc.monitor.impacts import ImpactsResult
-    from irc.monitor.narrative import NarrativeResult
-    from irc.monitor.types import NarrativeDoc
     from irc.research.search.types import SearchResult, Locale
 
     yaml_cfg = textwrap.dedent("""
@@ -169,12 +167,6 @@ def test_run_monitor_searches_each_theme_exactly_once_across_whole_fund_set(
     monkeypatch.setattr(mc, "load_yaml", lambda *a, **k: object())
     monkeypatch.setattr(mc, "load_trading_days", lambda today, root: None)
     monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(k["fund_id"], (), "empty_pool", ()))
-    # raising=False: Phase 3 REMOVES gather_narrative from monitor_cmd's namespace
-    # (Step 3.23). With raising=False this monkeypatch stays valid both before the
-    # removal (intercepts the real per-fund call) and after it (sets an inert,
-    # teardown-removed attribute) — so this Phase-2 test survives Phase 3 unchanged.
-    monkeypatch.setattr(mc, "gather_narrative", lambda **k: NarrativeResult(
-        NarrativeDoc(k["fund_id"], (), (), (), "empty_pool"), ()), raising=False)
     monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
 

@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed — production-dead per-fund narrative module `src/irc/monitor/narrative.py` (2026-07-03)
+
+- **`src/irc/monitor/narrative.py` (per-fund `gather_narrative` + `NarrativeResult`)
+  deleted.** Production-dead since report v3 dropped the per-fund LLM narrative call —
+  `monitor_cmd.py` constructs the empty per-fund `NarrativeDoc` directly, and
+  `tests/commands/test_monitor_cmd.py::test_run_monitor_never_calls_gather_narrative_per_fund`
+  pins `not hasattr(monitor_cmd, "gather_narrative")` as a contract. The module also
+  carried the unguarded `strength not in _VALID_STRENGTH` membership test — the latent
+  unhashable-`attribution_strength` `TypeError` twin of the `narrative_macro.py`
+  hardening above — so deletion removes the last copy of that bug class. Mirror tests
+  `tests/monitor/test_narrative.py` deleted with it; the stale `NarrativeResult` import
+  and inert `raising=False` `gather_narrative` monkeypatch scaffolding removed from
+  `tests/commands/test_monitor_cmd_theme_consolidation.py`. Shared dataclasses
+  (`NarrativeDoc`, `Claim`, `EvidenceItem`) live in `src/irc/monitor/types.py` and are
+  untouched, as is the `monitor_narrative` LLM task (it is the macro narrative's route).
+  No VERSION bump.
+
 ### Fixed — ActiveFundSnapshot thesis gate: dual-leg (data + information) check extended to the active-fund branch (2026-07-03)
 
 - **`derive_thesis_from_evidence` (`src/irc/opportunity/thesis_evidence.py`) no longer
