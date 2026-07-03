@@ -1431,3 +1431,150 @@ def test_fetch_budget_exceeded_message_includes_fund_level_repair() -> None:
     )
     exc = FetchBudgetExceeded(plan=plan, total=8, budget=1)
     assert "active_fund_fund_level_repair=2" in str(exc)
+
+
+def _item004_fresh_legs():
+    """Fund-level evidence pair in the producer shapes (both legs)."""
+    from irc.fundamentals.types import ThesisEvidence
+    return (
+        ThesisEvidence(
+            type="snapshot", source="006809", url="", date="2026-07-02",
+            summary="NAV=1.5000 @ 2026-07-02", scope="instrument",
+            citation_kind="data", owner_instrument_id="006809",
+            parent_fund_id=None, constituent_key=None,
+        ),
+        ThesisEvidence(
+            type="news", source="fund_announcement_report_em", url="",
+            date="2026-07-01", summary="[REP-9] 季度报告", scope="instrument",
+            citation_kind="information", owner_instrument_id="006809",
+            parent_fund_id=None, constituent_key=None,
+        ),
+    )
+
+
+def test_repair_skips_non_foreign_fund_and_fires_zero_calls(monkeypatch, tmp_path) -> None:
+    """Item 004 AC4/AC8 — CN-heavy (below threshold) gapped cache: predicate
+    False → same snapshot returned, ZERO fetch calls, ZERO cache writes.
+    Widening to non-foreign funds is explicitly deferred (spec Non-goals)."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot(symbol="600519")
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        lambda fund_id: calls.append(fund_id) or ((), []),
+    )
+    writes: list = []
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: writes.append(s),
+    )
+    out = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    assert out is snap
+    assert calls == []
+    assert writes == []
+
+
+def test_repair_heals_gapped_foreign_fund_and_writes_cache(monkeypatch, tmp_path) -> None:
+    """Item 004 AC4 — foreign-heavy gapped cache + successful 4-call refetch:
+    merged snapshot written once (P0-5 pattern via write_active_fund_cache),
+    cache_probed_at untouched, leg-failure strings cleared."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot()
+    fresh = _item004_fresh_legs()
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        lambda fund_id: (fresh, []),
+    )
+    writes: list = []
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: writes.append((s, r)),
+    )
+    out = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    assert out.fund_level_evidence == fresh
+    assert out.fund_level_failure_reasons == ()
+    assert out.cache_probed_at == snap.cache_probed_at
+    assert len(writes) == 1
+    assert writes[0][0] == out
+    assert writes[0][1] == tmp_path
+
+
+def test_repair_skips_cache_write_when_quarter_empty(monkeypatch, tmp_path) -> None:
+    """Item 004 AC4 — P0-5: empty source_report_quarter → merged snapshot is
+    served in-memory but NEVER written (avoids the path-collapse
+    data/fundamentals//active_fund/fund_X.json)."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot(source_report_quarter="")
+    fresh = _item004_fresh_legs()
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        lambda fund_id: (fresh, []),
+    )
+    writes: list = []
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: writes.append(s),
+    )
+    out = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    assert out.fund_level_evidence == fresh
+    assert writes == []
+
+
+def test_repair_cache_write_failure_degrades_to_in_memory(monkeypatch, tmp_path, capsys) -> None:
+    """Item 004 AC4 — cache-write failure: `cache_write_failed:{id}:{type}` on
+    stderr, merged snapshot still served (the _maybe_freshness_probe degrade
+    pattern, disk errors are environmental)."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot()
+    fresh = _item004_fresh_legs()
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        lambda fund_id: (fresh, []),
+    )
+
+    def _disk_full(s, r):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache", _disk_full,
+    )
+    out = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    assert out.fund_level_evidence == fresh
+    assert "cache_write_failed:006809:OSError" in capsys.readouterr().err
+
+
+def test_repair_refires_each_run_with_zero_writes_on_persistent_failure(
+    monkeypatch, tmp_path,
+) -> None:
+    """Item 004 AC9 — no backoff BY DESIGN: a failing refetch is re-attempted
+    on every invocation (each run), never writes the cache (content unchanged),
+    and keeps serving the cached snapshot. Within-run the attempt count is 1
+    via the existing snapshot_cache memoisation in _build_rows."""
+    from irc.commands.opportunity_cmd import _maybe_fund_level_evidence_repair
+
+    snap = _item004_snapshot()
+    attempts: list[str] = []
+
+    def _boom(fund_id):
+        attempts.append(fund_id)
+        raise ConnectionError("akshare 502")
+
+    monkeypatch.setattr(
+        "irc.fundamentals.fund_level_repair._fetch_active_fund_level_evidence",
+        _boom,
+    )
+    writes: list = []
+    monkeypatch.setattr(
+        "irc.commands.opportunity_cmd.write_active_fund_cache",
+        lambda s, r: writes.append(s),
+    )
+    first = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    second = _maybe_fund_level_evidence_repair(snap, root=tmp_path)
+    assert attempts == ["006809", "006809"]
+    assert writes == []
+    assert first == snap
+    assert second == snap

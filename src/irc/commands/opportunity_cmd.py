@@ -29,6 +29,7 @@ from irc.opportunity.rejection_log import (
     write_rejections_json,
 )
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+from irc.fundamentals.fund_level_repair import refetch_fund_level_evidence
 from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -325,6 +326,40 @@ def _load_latest_active_fund_cached(
         if loaded is not None:
             return loaded
     return None
+
+
+def _maybe_fund_level_evidence_repair(
+    snap: ActiveFundSnapshot, *, root: Path,
+) -> ActiveFundSnapshot:
+    """Fund-level evidence repair probe — cached-serve path ONLY (item 004).
+
+    Receives the POST-probe served snapshot (grill R4 — merging into the
+    pre-probe `cached` would roll back a probe-advanced `cache_probed_at`).
+    When `foreign_heavy_fund_level_gap` is False → returns `snap` with zero
+    fetch calls and zero writes. When True → 4-call fund-level refetch +
+    leg-wise merge (`refetch_fund_level_evidence`, never raises); the cache
+    is re-written ONLY when the evidence actually changed AND
+    `source_report_quarter` is non-empty (P0-5 — avoids the
+    `data/fundamentals//active_fund/` path collapse). Never touches
+    `cache_probed_at`. Cache-write failure degrades to serving the merged
+    snapshot in-memory (the `_maybe_freshness_probe` degrade pattern).
+    No backoff: re-fires every run until healed (resolved Q5; CONTEXT.md
+    "Fund-level evidence repair (repair probe)").
+    """
+    if not foreign_heavy_fund_level_gap(snap):
+        return snap
+    merged = refetch_fund_level_evidence(snap)
+    if (
+        merged.fund_level_evidence != snap.fund_level_evidence
+        and merged.source_report_quarter
+    ):
+        try:
+            write_active_fund_cache(merged, root)
+        except Exception as cache_exc:
+            sys.stderr.write(
+                f"cache_write_failed:{snap.fund_id}:{type(cache_exc).__name__}\n"
+            )
+    return merged
 
 
 # ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
@@ -936,7 +971,12 @@ def _build_rows(
                                             )
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                             else:
-                                snap_obj = probed
+                                # Item 004: fund-level evidence repair on the
+                                # cached-serve arm ONLY — post-probe snapshot,
+                                # before _write_state_complete (spec AC4).
+                                snap_obj = _maybe_fund_level_evidence_repair(
+                                    probed, root=root / "data",
+                                )
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                     snapshot_cache[target.key] = snap_obj
             elif autobuild_on and (
