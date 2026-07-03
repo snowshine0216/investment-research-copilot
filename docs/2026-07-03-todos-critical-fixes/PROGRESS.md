@@ -7,7 +7,7 @@ Run dir: `docs/2026-07-03-todos-critical-fixes/` · Mode: backlog · PR shape: A
 | 001 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-001 | ✅ f61f5e5c+a77aba13 | ✅ | ✅ [#195](https://github.com/snowshine0216/investment-research-copilot/pull/195) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 7ddeea80 |
 | 002 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-002 | ✅ de05779c+5e39574b | ✅ | ✅ [#196](https://github.com/snowshine0216/investment-research-copilot/pull/196) | ⏭️ | ✅ | ✅ nits-deferred | ✅ | ✅ 0 rounds | ✅ 2594b26a |
 | 003 | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ |
-| 004 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-004 | ✅ 71888806..372514c1 (6) | ✅ | ✅ [#198](https://github.com/snowshine0216/investment-research-copilot/pull/198) | ⏭️ | 🔄 | ✅ 1 fix round | 🔄 | ⏳ | ⏳ |
+| 004 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-004 | ✅ 71888806..372514c1 (6) | ✅ | ✅ [#198](https://github.com/snowshine0216/investment-research-copilot/pull/198) | ⏭️ | ✅ | ✅ 1 fix round | ✅ nits | ✅ 1 round | ✅ 5a4f878e |
 | 005 | ⏭️ user-authored | ⏭️ | ✅ | ✅ claude/todos-critical-fixes-005 | ✅ 843eefbc+96c034fd | ✅ | ✅ [#197](https://github.com/snowshine0216/investment-research-copilot/pull/197) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 9ceb9b13 |
 
 QA column pre-filled ⏭️ for all items: project type is non-web → `/verify` is the post-ship
