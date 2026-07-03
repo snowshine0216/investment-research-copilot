@@ -16,7 +16,8 @@ def test_run_flow_capture_appends_completed_day(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "_capture_union_symbols",
                         lambda funds, root: ("600519", "000651"))
     monkeypatch.setattr(mc, "fetch_flow_today_batch",
-                        lambda symbols: {"600519": 4.0, "000651": 7.0})
+                        lambda symbols: ({"600519": 4.0, "000651": 7.0},
+                                        {"600519": None, "000651": None}))
     monkeypatch.setattr(mc, "load_trading_days",
                         lambda today, root: frozenset({__import__("datetime").date(2026, 7, 1)}))
 
@@ -29,7 +30,7 @@ def test_run_flow_capture_appends_completed_day(tmp_path, monkeypatch):
 
 def test_provisional_note_never_writes_store(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "fetch_flow_today_batch",
-                        lambda symbols: {"600519": 11.78})  # intraday-provisional
+                        lambda symbols: ({"600519": 11.78}, {"600519": None}))  # intraday-provisional
     note = mc._provisional_flow_note(tmp_path, ("600519",))
     assert note == {"600519": 11.78}
     # CRITICAL (D6/trap §8): the provisional path must NOT create/modify the store

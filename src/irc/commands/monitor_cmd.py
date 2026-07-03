@@ -216,7 +216,8 @@ def _provisional_flow_note(root: Path, symbols) -> dict | None:
     if not symbols:
         return None
     try:
-        return fetch_flow_today_batch(tuple(symbols))
+        flow, _industry = fetch_flow_today_batch(tuple(symbols))
+        return flow
     except Exception:  # noqa: BLE001 — annotation is best-effort
         _log.warning("_provisional_flow_note failed", exc_info=True)
         return None
@@ -1124,7 +1125,7 @@ def run_flow_capture(*, repo_root: str, today: str | None = None) -> int:
         _log.warning("flow-capture: no active-fund symbols; nothing to capture")
         return 0
     try:
-        by_symbol = fetch_flow_today_batch(symbols)
+        by_symbol, _industry = fetch_flow_today_batch(symbols)
     except Exception:  # noqa: BLE001 — degrade, never crash (breaker/abort posture)
         _log.warning("flow-capture: ulist.np batch failed", exc_info=True)
         return 0
