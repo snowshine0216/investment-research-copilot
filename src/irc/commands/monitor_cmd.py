@@ -327,7 +327,7 @@ def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con
     if con is None:
         return build_holding_metrics(full_holdings, {}, flow_series)
     series_by_code = _stock_series_by_code(con, full_symbols)
-    industry_pe = fetch_industry_pe(
+    industry_pe, _board_pe_freshness = fetch_industry_pe(
         cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
     industry_map = fetch_stock_industry_map(
         full_symbols, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)

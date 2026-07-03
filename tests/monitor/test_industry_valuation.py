@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
 
+from irc.monitor.board_pe_staleness import BoardPeFreshness
 from irc.monitor.industry_valuation import (
     parse_industry_pe,
     parse_stock_industry,
@@ -54,24 +56,25 @@ def test_fetch_industry_pe_caches_and_round_trips(tmp_path: Path):
         return pd.DataFrame({"板块名称": ["银行"], "市盈率": ["6.5"]})
 
     cache_dir = tmp_path / "industry_pe"
-    out1 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
-                             fetch=fake_fetch, sleep=lambda _s: None)
-    out2 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
-                             fetch=fake_fetch, sleep=lambda _s: None)
+    out1, f1 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
+                                 fetch=fake_fetch, sleep=lambda _s: None)
+    out2, f2 = fetch_industry_pe(cache_dir=cache_dir, today="2026-06-21",
+                                 fetch=fake_fetch, sleep=lambda _s: None)
     assert out1 == out2 == {"银行": 6.5}
+    assert f1 == f2 == BoardPeFreshness("FRESH", "2026-06-21", 0)
     assert calls["n"] == 1  # second call served from cache
-    # on-disk form is sorted-key JSON of primitives (byte-stable)
     payload = json.loads((cache_dir / "2026-06-21.json").read_text(encoding="utf-8"))
     assert payload == {"银行": 6.5}
 
 
-def test_fetch_industry_pe_never_raises_returns_empty(tmp_path: Path):
+def test_fetch_industry_pe_never_raises_returns_empty_dark(tmp_path: Path):
     def boom():
         raise RuntimeError("network down")
 
-    out = fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-06-21",
-                            fetch=boom, sleep=lambda _s: None)
+    out, f = fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-06-21",
+                               fetch=boom, sleep=lambda _s: None)
     assert out == {}
+    assert f == BoardPeFreshness("DARK", None, None)   # nothing cached anywhere
 
 
 def _info_df(industry: str) -> pd.DataFrame:
@@ -173,9 +176,10 @@ def test_default_fetch_uses_em_raw_board_frame(tmp_path, monkeypatch):
     monkeypatch.setattr(
         iv, "fetch_board_pe_frame",
         lambda **_kw: pd.DataFrame({"板块名称": ["电力"], "市盈率": [19.68]}))
-    out = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
-                               sleep=lambda _s: None)
+    out, f = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
+                                  sleep=lambda _s: None)
     assert out == {"电力": 19.68}
+    assert f.state == "FRESH"
 
 
 def test_empty_parse_is_returned_but_not_cached(tmp_path, monkeypatch):
@@ -184,7 +188,57 @@ def test_empty_parse_is_returned_but_not_cached(tmp_path, monkeypatch):
     import irc.monitor.industry_valuation as iv
 
     monkeypatch.setattr(iv, "fetch_board_pe_frame", lambda **_kw: pd.DataFrame())
-    out = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
-                               sleep=lambda _s: None)
+    out, f = iv.fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-02",
+                                  sleep=lambda _s: None)
     assert out == {}
+    assert f.state == "DARK"
     assert not (tmp_path / "ip" / "2026-07-02.json").is_file()  # NOT cached
+
+
+_TDS = frozenset({date(2026, 6, 30), date(2026, 7, 1), date(2026, 7, 2), date(2026, 7, 3)})
+
+
+def _bank_frame():
+    return pd.DataFrame({"板块名称": ["银行"], "市盈率": ["6.5"]})
+
+
+def test_failed_fetch_serves_stale_cached_table_within_3td(tmp_path: Path):
+    """OD-1: the ≤3-td stale table is RETURNED AS THE TABLE — the exact value a
+    FRESH day feeds factor math with; only the freshness label differs."""
+    cache_dir = tmp_path / "ip"
+    fetch_industry_pe(cache_dir=cache_dir, today="2026-07-02",
+                      fetch=_bank_frame, sleep=lambda _s: None)   # seed yesterday
+
+    def boom():
+        raise RuntimeError("down")
+
+    out, f = fetch_industry_pe(cache_dir=cache_dir, today="2026-07-03",
+                               fetch=boom, sleep=lambda _s: None, trading_days=_TDS)
+    assert out == {"银行": 6.5}
+    assert f == BoardPeFreshness("STALE", "2026-07-02", 1)
+
+
+def test_fresh_is_calendar_independent(tmp_path: Path):
+    """RD-3: a calendar outage (trading_days=None) never darkens a today-fresh
+    table — FRESH is an as_of == today string equality."""
+    out, f = fetch_industry_pe(cache_dir=tmp_path / "ip", today="2026-07-03",
+                               fetch=_bank_frame, sleep=lambda _s: None,
+                               trading_days=None)
+    assert out == {"银行": 6.5}
+    assert f == BoardPeFreshness("FRESH", "2026-07-03", 0)
+
+
+def test_no_calendar_disables_only_the_stale_branch(tmp_path: Path):
+    """Q5: failed fetch + stale cache + NO trading_days → DARK (honest N
+    uncomputable), as_of still naming the newest non-empty cached day."""
+    cache_dir = tmp_path / "ip"
+    fetch_industry_pe(cache_dir=cache_dir, today="2026-07-02",
+                      fetch=_bank_frame, sleep=lambda _s: None)
+
+    def boom():
+        raise RuntimeError("down")
+
+    out, f = fetch_industry_pe(cache_dir=cache_dir, today="2026-07-03",
+                               fetch=boom, sleep=lambda _s: None)
+    assert out == {}
+    assert f == BoardPeFreshness("DARK", "2026-07-02", None)

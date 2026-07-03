@@ -68,10 +68,12 @@ def _patch_common(monkeypatch, mc):
     monkeypatch.setattr(mc, "heat_inputs_for", lambda fid, purchase_table: (None, None))
     monkeypatch.setattr(mc, "_load_flow_store_slice", lambda root, symbols: {})
     # industry edge fetchers — injected to avoid network
+    from irc.monitor.board_pe_staleness import BoardPeFreshness
     monkeypatch.setattr(mc, "fetch_industry_pe",
-                        lambda cache_dir, today: {"酿酒行业": 60.0})
+                        lambda cache_dir, today, **kw: ({"酿酒行业": 60.0},
+                                                        BoardPeFreshness("FRESH", today, 0)))
     monkeypatch.setattr(mc, "fetch_stock_industry_map",
-                        lambda symbols, cache_dir, today: {s: "酿酒行业" for s in symbols})
+                        lambda symbols, cache_dir, today, **kw: {s: "酿酒行业" for s in symbols})
 
 
 def test_lookthrough_active_fund_gets_eligible_bottomup_valuation(monkeypatch, tmp_path):
