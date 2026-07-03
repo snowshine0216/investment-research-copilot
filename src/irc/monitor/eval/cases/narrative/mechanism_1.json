@@ -1,0 +1,26 @@
+{
+  "category": "mechanism",
+  "messages_seed": {
+    "fund_id": "008986",
+    "theme": "us_monetary"
+  },
+  "evidence_pool": [
+    {
+      "source": "reuters",
+      "title": "美联储官员暗示年内可能转向宽松",
+      "date": "2026-06-28",
+      "url": "https://example.com/n-mech-1a",
+      "owner_fund_id": "theme:us_monetary",
+      "citation_id": "bbbb000000000021"
+    },
+    {
+      "source": "cls",
+      "title": "美债收益率回落，贵金属走强",
+      "date": "2026-06-29",
+      "url": "https://example.com/n-mech-1b",
+      "owner_fund_id": "theme:us_monetary",
+      "citation_id": "bbbb000000000022"
+    }
+  ],
+  "expected": {}
+}
