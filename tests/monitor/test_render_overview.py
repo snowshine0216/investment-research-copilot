@@ -237,3 +237,105 @@ def test_fund_specific_segments_filters_run_global_prefixes():
     assert fund_specific_segments(
         "monitor_impact: UNKNOWN (stale, 15d); monitor_narrative: UNKNOWN (stale, 16d)"
     ) == ()
+
+
+def _panel_row(stage, status, reasons=()):
+    from irc.monitor.eval.types import ValidationPanelRow
+    return ValidationPanelRow(stage=stage, status=status,
+                              ran_at="2026-06-16T09:00:00+08:00", reasons=reasons)
+
+
+def _gate_d(fid, badge, reason=""):
+    from irc.monitor.eval.types import GateDecision
+    return GateDecision(fid, badge == "gated", (), badge, reason)
+
+
+def test_caveat_row_all_funds_both_stale_locked_wording():
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "UNKNOWN", ("stale, 15d",)),
+            _panel_row("monitor_narrative", "UNKNOWN", ("stale, 16d",)))
+    gates = {f"f{i}": _gate_d(f"f{i}", "caveated", "x") for i in range(10)}
+    html = caveat_row(rows, gates)
+    assert "全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新" in html
+    assert html.startswith('<div class="overview-row caveat-line">')
+
+
+def test_caveat_row_count_wording_when_not_all_funds_caveated():
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "UNKNOWN", ("stale, 15d",)),
+            _panel_row("monitor_narrative", "UNKNOWN", ("stale, 16d",)))
+    gates = {"a": _gate_d("a", "caveated", "x"),
+             "b": _gate_d("b", "caveated", "x"),
+             "c": _gate_d("c", "gated", "nav_quality FAIL")}
+    html = caveat_row(rows, gates)
+    assert "2只基金 caveated：" in html
+    assert "全部基金" not in html
+
+
+def test_caveat_row_absent_when_both_suites_healthy():
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "PASS"),
+            _panel_row("monitor_narrative", "PASS"),
+            _panel_row("monitor_signal", "WARN", ("gap 12d",)))  # fund-specific, not run-global
+    gates = {"a": _gate_d("a", "caveated", "monitor_signal: WARN (gap 12d)")}
+    assert caveat_row(rows, gates) == ""
+
+
+def test_caveat_row_absent_when_no_fund_actually_caveated():
+    # Run-global cause but every fund gated (FAIL wins) -> no line (never overstates).
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "UNKNOWN", ("stale, 15d",)),
+            _panel_row("monitor_narrative", "UNKNOWN", ("stale, 16d",)))
+    gates = {"a": _gate_d("a", "gated", "nav_quality FAIL")}
+    assert caveat_row(rows, gates) == ""
+
+
+def test_caveat_row_all_absent_locked_wording_no_age():
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "UNKNOWN", ("absent",)),
+            _panel_row("monitor_narrative", "UNKNOWN", ("skipped",)))
+    gates = {"a": _gate_d("a", "caveated", "x")}
+    html = caveat_row(rows, gates)
+    assert "全部基金 caveated：LLM质量评估缺失 · 周六自动刷新" in html
+
+
+def test_caveat_row_mixed_stale_plus_absent_falls_back_to_per_suite_grammar():
+    # RD-4 pinned fallback example.
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "UNKNOWN", ("stale, 15d",)),
+            _panel_row("monitor_narrative", "UNKNOWN", ("absent",)))
+    gates = {"a": _gate_d("a", "caveated", "x")}
+    html = caveat_row(rows, gates)
+    assert "影响评分质量评估：过期 15天 · 叙事质量评估：缺失 · 周六自动刷新" in html
+
+
+def test_caveat_row_single_fresh_warn_suite_uses_raw_status():
+    # RD-4: fresh-unhealthy -> raw status, no invented translation.
+    from irc.monitor.render_overview import caveat_row
+    rows = (_panel_row("monitor_impact", "WARN", ("magnitude_band_pass",)),
+            _panel_row("monitor_narrative", "PASS"))
+    gates = {"a": _gate_d("a", "caveated", "x")}
+    html = caveat_row(rows, gates)
+    assert "影响评分质量评估：WARN · 周六自动刷新" in html
+
+
+def test_overview_html_caveat_line_suppresses_quiet_line_and_renders_first():
+    # RD-5: first-position row; counts as a row for the all-empty check.
+    health = DataHealthCounts(dark_factor_fractions={}, gated_fund_count=0,
+                              stale_eval_count=0)
+    line = '<div class="overview-row caveat-line">⚠ x</div>'
+    html = overview_html(flips=(), actionable=(), health=health,
+                         caveat_row_html=line)
+    assert "今日无变化" not in html
+    assert "今日速览" in html
+
+
+def test_overview_html_caveat_line_precedes_other_rows():
+    fund = ActionableFund(fund_id="519069", name_cn="B基金", bias="ADD_BIAS",
+                          purchase_restricted=False)
+    health = DataHealthCounts(dark_factor_fractions={}, gated_fund_count=0,
+                              stale_eval_count=0)
+    line = '<div class="overview-row caveat-line">⚠ x</div>'
+    html = overview_html(flips=(), actionable=(fund,), health=health,
+                         caveat_row_html=line)
+    assert html.index("caveat-line") < html.index("可操作")

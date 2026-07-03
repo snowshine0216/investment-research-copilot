@@ -155,3 +155,19 @@ def test_validated_chip_stays_plain_span_no_anchor_no_tooltip():
     html = _render(_view(), _gate(badge="validated"))
     assert '<span class="val-chip val-validated">✓ validated</span>' in html
     assert '<a class="val-chip val-validated"' not in html
+
+
+def test_run_global_caveat_renders_once_in_overview_not_per_card():
+    # P2 dedupe: ONE overview line, never repeated per card; trace-side reason
+    # stays per-fund and complete regardless (criterion 9).
+    from irc.monitor.render_html import render_report
+    from irc.monitor.eval.types import ValidationPanelRow
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    rows = (ValidationPanelRow("monitor_impact", "UNKNOWN", "—", ("stale, 15d",)),
+            ValidationPanelRow("monitor_narrative", "UNKNOWN", "—", ("stale, 16d",)))
+    prov = Provenance("1", "1", "1", "")
+    html = render_report((_view(),), prov, prior_signal=None, now=_NOW, now_dt=_NOW_DT,
+                         gates={"008986": _gate(badge="caveated", reason=reason)},
+                         panel_rows=rows)
+    assert html.count("全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新") == 1

@@ -25,8 +25,8 @@ from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
 from irc.monitor.render_overview import (
-    caveat_tooltip, compute_actionable, compute_data_health, compute_flips,
-    overview_html,
+    caveat_row, caveat_tooltip, compute_actionable, compute_data_health,
+    compute_flips, overview_html,
 )
 
 
@@ -473,7 +473,8 @@ def render_report(
         views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
         predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
     )
-    overview = overview_html(flips=flips, actionable=actionable, health=health)
+    overview = overview_html(flips=flips, actionable=actionable, health=health,
+                             caveat_row_html=caveat_row(panel_rows, g))
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
