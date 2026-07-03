@@ -696,3 +696,150 @@ def test_evidence_for_constituent_hk_uses_disclosure_existence_template(
     assert ev.citation_kind == "data"
     assert "revenue_yoy=" not in ev.summary
     assert ev.summary == "00700 2026H1 财报已披露（口径未核实）"
+
+
+# ── Item 002 (todos-critical-fixes 2026-07-03): ActiveFundSnapshot dual-leg gate ──
+# Spec: docs/2026-07-03-todos-critical-fixes/items/002-spec.md
+# ADR 0003 §8; CONTEXT.md "Dual-leg thesis heuristic".
+
+
+def _fund_level_leg(kind: str, *, owner: str = "005827"):
+    """Fund-level evidence in the exact producer shapes (fundamentals/snapshot.py
+    :186-221): NAV data leg (type="snapshot") / announcement information leg
+    (type="news"). scope="instrument", owner=fund_id, parent/constituent None."""
+    from irc.opportunity.types import ThesisEvidence
+    if kind == "data":
+        return ThesisEvidence(
+            type="snapshot", source=owner, url="",
+            date="2026-06-30", summary="NAV=1.2345 @ 2026-06-30",
+            scope="instrument", citation_kind="data",
+            owner_instrument_id=owner, parent_fund_id=None, constituent_key=None,
+        )
+    return ThesisEvidence(
+        type="news", source="fund_announcement_report_em", url="",
+        date="2026-06-30", summary="[RPT1] 2026年第二季度报告",
+        scope="instrument", citation_kind="information",
+        owner_instrument_id=owner, parent_fund_id=None, constituent_key=None,
+    )
+
+
+def _dual_leg_analysis(evidence, *, failure_reasons=()):
+    from irc.opportunity.types import ConstituentAnalysis
+    return ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=6.2,
+        evidence=evidence, failure_reasons=failure_reasons, one_line_view="",
+    )
+
+
+def _dual_leg_snapshot(analyses, fund_level=()):
+    from irc.fundamentals.types import ActiveFundSnapshot
+    return ActiveFundSnapshot(
+        fund_id="005827", source_report_date="2026-03-31",
+        source_report_quarter="2026Q1", cache_probed_at="",
+        constituent_analyses=analyses,
+        failure_reasons_by_symbol={},
+        fund_level_evidence=fund_level,
+    )
+
+
+def _derive_active(snap):
+    return derive_thesis_from_evidence(
+        snap, None, asset_class="cn_equity_fund", owner_instrument_id="005827",
+    )
+
+
+def test_active_fund_data_only_evidence_is_insufficient() -> None:
+    """AC1 + AC6: non-empty flattened, all data-leg, fund_level=() → NOT intact;
+    missing-information-leg reason literal."""
+    con = _make_evidence("filing", 6.2, "d1")
+    snap = _dual_leg_snapshot((_dual_leg_analysis((con,)),))
+    state, reason, evidence, gaps, _ = _derive_active(snap)
+    assert state == "evidence_insufficient"
+    assert reason == "主动基金证据缺少信息腿（券商/新闻/公告），长期逻辑暂不背书。"
+    assert evidence == (con,)   # AC8: evidence slot byte-identical
+    assert gaps == ()           # AC7: gaps slot byte-identical
+
+
+def test_active_fund_info_only_evidence_is_insufficient() -> None:
+    """AC2 + AC6: non-empty flattened, all information-leg → missing data leg."""
+    con = _make_evidence("broker", 6.2, "i1")
+    snap = _dual_leg_snapshot((_dual_leg_analysis((con,)),))
+    state, reason, evidence, gaps, _ = _derive_active(snap)
+    assert state == "evidence_insufficient"
+    assert reason == "主动基金证据缺少数据腿（成分股财报），长期逻辑暂不背书。"
+    assert evidence == (con,)
+    assert gaps == ()
+
+
+def test_active_fund_constituent_dual_leg_stays_intact() -> None:
+    """AC3 (regression lock, GREEN pre-fix): flattened carries data + information
+    → intact with the reason literal byte-identical to today."""
+    ev = (_make_evidence("filing", 6.2, "d1"), _make_evidence("broker", 6.2, "i1"))
+    snap = _dual_leg_snapshot((_dual_leg_analysis(ev),))
+    state, reason, evidence, gaps, _ = _derive_active(snap)
+    assert state == "intact"
+    assert reason == "主动基金 1 个核心持仓的成分股证据已收集。"
+    assert gaps == ()
+
+
+def test_active_fund_fund_level_info_leg_satisfies_gate() -> None:
+    """AC4 (kills a constituent-only implementation): data-only constituent
+    evidence + fund-level announcement (information) → intact; the returned
+    evidence tuple stays flattened-constituent-only (fund_level NOT merged —
+    that remains _stamp_fund_level_evidence_from_verdict's job)."""
+    con = _make_evidence("filing", 6.2, "d1")
+    snap = _dual_leg_snapshot(
+        (_dual_leg_analysis((con,)),),
+        fund_level=(_fund_level_leg("information"),),
+    )
+    state, _, evidence, gaps, _ = _derive_active(snap)
+    assert state == "intact"
+    assert evidence == (con,)
+    assert gaps == ()
+
+
+def test_active_fund_fund_level_data_leg_satisfies_gate() -> None:
+    """AC4 mirror: info-only constituent evidence + fund-level NAV (data) → intact."""
+    con = _make_evidence("broker", 6.2, "i1")
+    snap = _dual_leg_snapshot(
+        (_dual_leg_analysis((con,)),),
+        fund_level=(_fund_level_leg("data"),),
+    )
+    state, _, evidence, gaps, _ = _derive_active(snap)
+    assert state == "intact"
+    assert evidence == (con,)
+    assert gaps == ()
+
+
+def test_active_fund_empty_evidence_stays_insufficient_plain() -> None:
+    """AC5(a) (regression lock): empty flattened + fund_level=() → the existing
+    empty-reason literal, unchanged."""
+    snap = _dual_leg_snapshot(
+        (_dual_leg_analysis((), failure_reasons=("filing_fetch_failed:600519",)),),
+    )
+    state, reason, evidence, gaps, _ = _derive_active(snap)
+    assert state == "evidence_insufficient"
+    assert reason == "主动基金未能收集到任何成分股证据。"
+    assert evidence == ()
+    assert gaps == ()
+
+
+def test_active_fund_empty_flattened_with_dual_leg_fund_level_stays_insufficient() -> None:
+    """AC5(b) — the naive-implementation killer (grill R1; ADR 0003 §8 property 3).
+
+    Rule-2.5-publishable shape: ALL top-N constituents pure-failure (empty
+    evidence, non-empty failure_reasons — reachable per ADR 0003 §7's
+    2026-06-04 reconciliation) + fund_level_evidence carrying BOTH legs.
+    The empty-flattened guard must short-circuit BEFORE the union leg check;
+    a union-first implementation would flip this *published* row
+    evidence_insufficient → intact (AC10 invariance would break).
+    """
+    snap = _dual_leg_snapshot(
+        (_dual_leg_analysis((), failure_reasons=("filing_fetch_failed:600519",)),),
+        fund_level=(_fund_level_leg("data"), _fund_level_leg("information")),
+    )
+    state, reason, evidence, gaps, _ = _derive_active(snap)
+    assert state == "evidence_insufficient"
+    assert reason == "主动基金未能收集到任何成分股证据。"
+    assert evidence == ()
+    assert gaps == ()

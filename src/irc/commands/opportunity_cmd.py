@@ -16,7 +16,11 @@ from irc.opportunity.failure_renderer import (
     render_failure_section,
     render_v1_systematic_exclusion_summary,
 )
-from irc.opportunity.policy_b import PolicyBVerdict, evaluate_policy_b
+from irc.opportunity.policy_b import (
+    PolicyBVerdict,
+    evaluate_policy_b,
+    foreign_heavy_fund_level_gap,
+)
 from irc.opportunity.rejection_log import (
     RejectionsDocument,
     _classify_rejection_reason,
@@ -25,6 +29,7 @@ from irc.opportunity.rejection_log import (
     write_rejections_json,
 )
 from irc.fundamentals.akshare_fundamentals import fetch_cn_etf_holdings
+from irc.fundamentals.fund_level_repair import refetch_fund_level_evidence
 from irc.fundamentals.provider import CnFundamentalsProvider, default_cn_provider
 from irc.fundamentals.snapshot import _FUND_LEVEL_KINDS, build_snapshot
 from irc.fundamentals.snapshot_cache import (
@@ -103,6 +108,13 @@ class FetchPlan:
     # spuriously tripped the budget gate on routine weekly runs. `active_fund_stale`
     # now carries ONLY funds that need a full re-fetch (data-leg gap or quarter roll).
     active_fund_stale_probe_only: int = 0
+    # Item 004 (todos-critical-fixes): foreign-heavy cached funds whose
+    # fund_level_evidence lacks a data or information leg (rule 2.5's gap,
+    # `foreign_heavy_fund_level_gap`) get a 4-call fund-level evidence repair
+    # (1 NAV + 3 announcement endpoints) on the cached-serve path — never the
+    # ~35-call full re-fetch. MAY overlap with active_fund_stale_probe_only
+    # (date-stale + gapped ⇒ probe 1 + repair 4 = 5 planned calls).
+    active_fund_fund_level_repair: int = 0
 
     def total_calls(self) -> int:
         per_active = 1 + self.top_n * 3 + 4  # +4 = 1 NAV + 3 announcement endpoints (item 001)
@@ -110,6 +122,7 @@ class FetchPlan:
         return (
             (self.active_fund_misses + self.active_fund_stale) * per_active
             + self.active_fund_stale_probe_only * 1  # cheap freshness probe only
+            + self.active_fund_fund_level_repair * per_fund_level  # 4-call repair (item 004)
             + (self.fund_level_misses + self.fund_level_stale) * per_fund_level
             + self.passive_misses * 2
             + self.passive_stale * 2
@@ -123,6 +136,7 @@ class FetchBudgetExceeded(RuntimeError):
             f"active_fund_misses={plan.active_fund_misses} "
             f"active_fund_stale={plan.active_fund_stale} "
             f"active_fund_stale_probe_only={plan.active_fund_stale_probe_only} "
+            f"active_fund_fund_level_repair={plan.active_fund_fund_level_repair} "
             f"fund_level_misses={plan.fund_level_misses} "
             f"fund_level_stale={plan.fund_level_stale} "
             f"passive_misses={plan.passive_misses} "
@@ -312,6 +326,42 @@ def _load_latest_active_fund_cached(
         if loaded is not None:
             return loaded
     return None
+
+
+def _maybe_fund_level_evidence_repair(
+    snap: ActiveFundSnapshot, *, root: Path,
+) -> ActiveFundSnapshot:
+    """Fund-level evidence repair probe — cached-serve path ONLY (item 004).
+
+    Receives the POST-probe served snapshot (grill R4 — merging into the
+    pre-probe `cached` would roll back a probe-advanced `cache_probed_at`).
+    When `foreign_heavy_fund_level_gap` is False → returns `snap` with zero
+    fetch calls and zero writes. When True → 4-call fund-level refetch +
+    leg-wise merge (`refetch_fund_level_evidence`, never raises); the cache
+    is re-written ONLY when the evidence actually changed AND
+    `source_report_quarter` is non-empty (P0-5 — avoids the
+    `data/fundamentals//active_fund/` path collapse). Never touches
+    `cache_probed_at`. Cache-write failure degrades to serving the merged
+    snapshot in-memory (the `_maybe_freshness_probe` degrade pattern).
+    No backoff: re-fires every run until healed (resolved Q5; CONTEXT.md
+    "Fund-level evidence repair (repair probe)").
+    """
+    if not foreign_heavy_fund_level_gap(snap):
+        return snap
+    sys.stderr.write(f"fund_level_repair_attempted:{snap.fund_id}\n")
+    merged = refetch_fund_level_evidence(snap)
+    healed = merged.fund_level_evidence != snap.fund_level_evidence
+    if healed and merged.source_report_quarter:
+        try:
+            write_active_fund_cache(merged, root)
+        except Exception as cache_exc:
+            sys.stderr.write(
+                f"cache_write_failed:{snap.fund_id}:{type(cache_exc).__name__}\n"
+            )
+    sys.stderr.write(
+        f"fund_level_repair_{'healed' if healed else 'still_gapped'}:{snap.fund_id}\n"
+    )
+    return merged
 
 
 # ── Item 005: fund-level + QDII dispatch helpers ──────────────────────────────
@@ -600,15 +650,24 @@ def _classify_active_fund_scores(
     threshold_days: int,
     rebuild_fundamentals: bool,
     completed_ids: set[str] | None = None,
-) -> tuple[int, int, int]:
-    """Count (misses, stale_full, stale_probe_only) among cn_equity_fund rows.
+) -> tuple[int, int, int, int]:
+    """Count (misses, stale_full, stale_probe_only, fund_level_repair) among
+    cn_equity_fund rows.
 
     For the preflight budget estimate:
     - miss        = no cache file on disk → full top-N build.
-    - stale_full  = cache exists but has a data-leg gap → forced full re-fetch.
+    - stale_full  = cache exists but has a data-leg gap → forced full re-fetch
+                    (includes the fund-level legs — never double-counted as
+                    a repair).
     - stale_probe = cache exists, date-overdue, but data-leg-complete → resolves
                     with a single cheap freshness probe (1 call), not a full
                     re-fetch (unless that probe later finds the quarter rolled).
+    - fund_level_repair = cache exists, no data-leg gap, AND
+                    `foreign_heavy_fund_level_gap` (rule 2.5's gap mirror) →
+                    4-call fund-level evidence repair on the cached-serve path
+                    (item 004). A fund MAY count toward BOTH stale_probe AND
+                    fund_level_repair (probe 1 + repair 4 = 5 — the plan
+                    matches the expected runtime path).
     rebuild_fundamentals = True → every fund counts as a miss (full re-fetch forced).
     completed_ids: funds already finished in the current resume state are excluded
         from every count (resume credit, spec AC item 4 hardening).
@@ -617,6 +676,7 @@ def _classify_active_fund_scores(
     misses = 0
     stale_full = 0
     stale_probe = 0
+    repair = 0
     seen: set[str] = set()
     for score in scores:
         if score.get("asset_class") != "cn_equity_fund":
@@ -634,11 +694,15 @@ def _classify_active_fund_scores(
         cached = _load_latest_active_fund_cached(iid, root)
         if cached is None:
             misses += 1
-        elif _active_snapshot_has_required_data_leg_gap(cached):
+            continue
+        if _active_snapshot_has_required_data_leg_gap(cached):
             stale_full += 1
-        elif _is_stale(cached, today=today, threshold_days=threshold_days):
+            continue
+        if _is_stale(cached, today=today, threshold_days=threshold_days):
             stale_probe += 1
-    return misses, stale_full, stale_probe
+        if foreign_heavy_fund_level_gap(cached):
+            repair += 1
+    return misses, stale_full, stale_probe, repair
 
 
 def _is_qdii_bound_cn_etf(iid: str, instr_index: dict) -> bool:
@@ -773,7 +837,7 @@ def _build_rows(
 
         # ── Step 2b: Preflight budget gate (P0-1) ────────────────────────────────
         # completed_ids are excluded from the cost count (resume credit).
-        misses, stale_full, stale_probe = _classify_active_fund_scores(
+        misses, stale_full, stale_probe, fund_level_repair = _classify_active_fund_scores(
             scores, root / "data",
             today=today, threshold_days=_freshness_days(),
             rebuild_fundamentals=rebuild_fundamentals,
@@ -794,6 +858,7 @@ def _build_rows(
             fund_level_misses=fl_misses,
             fund_level_stale=fl_stale,
             active_fund_stale_probe_only=stale_probe,
+            active_fund_fund_level_repair=fund_level_repair,
         )
         total = plan.total_calls()
         budget = _fetch_budget()
@@ -908,7 +973,12 @@ def _build_rows(
                                             )
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                             else:
-                                snap_obj = probed
+                                # Item 004: fund-level evidence repair on the
+                                # cached-serve arm ONLY — post-probe snapshot,
+                                # before _write_state_complete (spec AC4).
+                                snap_obj = _maybe_fund_level_evidence_repair(
+                                    probed, root=root / "data",
+                                )
                                 _write_state_complete(fetch_state, fund_id, snap_obj, fundamentals_dir, plan_hash)
                     snapshot_cache[target.key] = snap_obj
             elif autobuild_on and (

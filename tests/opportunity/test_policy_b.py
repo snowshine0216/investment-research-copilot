@@ -969,3 +969,79 @@ def test_policy_b_rule3_accepts_new_filing_summary_phrase() -> None:
     assert "incomplete_constituent_data" not in verdict.gap_codes, (
         f"Policy B rule 3 fired against the F6 phrase; verdict={verdict}"
     )
+
+
+# ── Item 004 (todos-critical-fixes 2026-07-03): foreign_heavy_fund_level_gap ──
+# Spec: docs/2026-07-03-todos-critical-fixes/items/004-spec.md AC1.
+# The predicate mirrors rule 2.5's gap condition exactly (foreign-heavy AND
+# missing data leg OR missing information leg) — the shared trigger for the
+# fund-level evidence repair probe (CONTEXT.md term).
+
+
+def _hk_heavy_analyses():
+    """10 HK-listed constituents → foreign share 1.0 (≥ threshold)."""
+    return tuple(_ca(f"0070{i}.HK", 1.0) for i in range(10))
+
+
+def _cn_heavy_analyses():
+    """10 SH-listed constituents → foreign share 0.0 (< threshold)."""
+    return tuple(_ca(f"60000{i}", 1.0) for i in range(10))
+
+
+def test_foreign_heavy_fund_level_gap_true_on_empty_evidence() -> None:
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=_hk_heavy_analyses(), fund_level_evidence=(),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is True
+
+
+def test_foreign_heavy_fund_level_gap_true_on_info_only() -> None:
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=_hk_heavy_analyses(),
+        fund_level_evidence=(_evidence_info_instrument(),),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is True
+
+
+def test_foreign_heavy_fund_level_gap_true_on_data_only() -> None:
+    """The TODO-correction shape: a NAV-only outage leaves a non-empty
+    info-only tuple, an announcements-only outage leaves data-only — the
+    TODO's literal `== ()` trigger would repair neither single-leg shape."""
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=_hk_heavy_analyses(),
+        fund_level_evidence=(_evidence_data_instrument(),),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is True
+
+
+def test_foreign_heavy_fund_level_gap_false_when_both_legs_present() -> None:
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=_hk_heavy_analyses(),
+        fund_level_evidence=(
+            _evidence_data_instrument(), _evidence_info_instrument(),
+        ),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is False
+
+
+def test_foreign_heavy_fund_level_gap_false_for_cn_heavy_fund() -> None:
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=_cn_heavy_analyses(), fund_level_evidence=(),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is False
+
+
+def test_foreign_heavy_fund_level_gap_false_on_empty_constituents() -> None:
+    """Share 0.0 on empty analyses — load-bearing for AC8's lockdown fixtures
+    (`_prewrite_active_fund_cache` writes constituent_analyses=(), grill R6):
+    AC15/AC16 must stay zero-extra-calls / probe-only."""
+    from irc.opportunity.policy_b import foreign_heavy_fund_level_gap
+    snap = _snapshot_with_fund_level_evidence(
+        analyses=(), fund_level_evidence=(),
+    )
+    assert foreign_heavy_fund_level_gap(snap) is False

@@ -132,3 +132,36 @@ def test_render_json_round_trips_fundeval_fields():
     assert first["dca_action"] == "normal_dca"
     assert first["top_holdings"] == [["600519", "贵州茅台", 12.0]]
     assert first["role"] == "satellite_cn_metals"
+
+
+# ── Item 002 (todos-critical-fixes 2026-07-03): dual-leg gate on the eval surface ──
+
+def _data_only_snapshot(fund_id: str) -> ActiveFundSnapshot:
+    """Filing-only (data-leg-only) constituent evidence, fund_level_evidence=()."""
+    data_leg = ThesisEvidence(
+        type="filing", source="filing", url="", date="2026-03-31",
+        summary="600519 2025Q4 财报已披露（口径未核实）",
+        scope="constituent", citation_kind="data",
+        owner_instrument_id=fund_id, parent_fund_id=fund_id, constituent_key="600519",
+    )
+    c = ConstituentAnalysis(
+        symbol="600519", name_cn="贵州茅台", weight_pct=12.0,
+        evidence=(data_leg,), failure_reasons=(),
+        one_line_view="600519 贵州茅台",
+    )
+    return ActiveFundSnapshot(
+        fund_id=fund_id, source_report_date="2026-03-31",
+        source_report_quarter="2026Q1", cache_probed_at="2026-05-30",
+        constituent_analyses=(c,), failure_reasons_by_symbol={},
+    )
+
+
+def test_evaluate_fund_data_only_evidence_is_small_watch_not_core_dca():
+    """AC9: cheap + cold + acceptable + DATA-ONLY evidence must not compose to
+    core_dca — the false-confidence bug this item fixes (TODOS.md line ~51)."""
+    inp = _cheap_cold_input("980005")
+    snap = _data_only_snapshot("980005")
+    ev = evaluate_fund(inp, snap, role="satellite_cn_metals")
+    assert ev.thesis_state == "evidence_insufficient"
+    assert ev.opportunity_state == "small_watch"
+    assert ev.core_dca is False

@@ -1077,3 +1077,148 @@ def test_two_run_byte_equality_memo_after_run_memo(tmp_path, monkeypatch) -> Non
     assert ha == hb, \
         f"memo.md differs across two runs: a={ha[:12]}… b={hb[:12]}… " \
         "(non-determinism in the memo I/O stack)"
+
+
+# ─── Item 004 (todos-critical-fixes): fund-level evidence repair ─────────────
+
+
+def _prewrite_gapped_fund_level_cache(
+    tmp_path: Path, *, fund_id: str, cache_probed_at: str, symbol: str,
+) -> None:
+    """Item 004 — cache whose single constituent carries a data leg (so
+    `_active_snapshot_has_required_data_leg_gap` stays False) and whose
+    `fund_level_evidence` is EMPTY (rule 2.5 leg gap).
+    symbol="00700.HK" → foreign-heavy (repair fires);
+    symbol="600519"  → CN-heavy (repair must NOT fire, spec AC8)."""
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+    from irc.fundamentals.types import (
+        ActiveFundSnapshot, ConstituentAnalysis, ThesisEvidence,
+    )
+
+    data_leg = ThesisEvidence(
+        type="filing", source=symbol, url="", date="2026-04-15",
+        summary=f"{symbol} 26Q1 财报", scope="constituent",
+        citation_kind="data", owner_instrument_id=fund_id,
+        parent_fund_id=fund_id, constituent_key=symbol,
+    )
+    snap = ActiveFundSnapshot(
+        fund_id=fund_id,
+        source_report_date="2026-03-31",
+        source_report_quarter="2026Q1",
+        cache_probed_at=cache_probed_at,
+        constituent_analyses=(
+            ConstituentAnalysis(
+                symbol=symbol, name_cn=symbol, weight_pct=8.0,
+                evidence=(data_leg,), failure_reasons=(),
+                one_line_view="核心持仓",
+            ),
+        ),
+        failure_reasons_by_symbol={},
+        fund_level_failure_reasons=(
+            f"fund_nav_unavailable:{fund_id}",
+            f"fund_announcements_unavailable:{fund_id}",
+        ),
+        fund_level_evidence=(),
+    )
+    write_active_fund_cache(snap, tmp_path / "data")
+
+
+def test_fund_level_evidence_repair_heals_foreign_heavy_gapped_cache(
+    tmp_path, monkeypatch,
+) -> None:
+    """Item 004 AC7 — fresh-by-date foreign-heavy cache with empty
+    fund_level_evidence: run_opportunity (a) fires ONLY the 4 fund-level
+    calls (1 NAV + 3 announcements) — zero holdings probes, zero
+    constituent-evidence calls; (b) rule 2.5 publishes (the
+    foreign_heavy_fund_level_evidence_missing gap is NOT re-emitted);
+    (c) the on-disk cache re-loads healed with cache_probed_at unchanged."""
+    from irc.commands.opportunity_cmd import run_opportunity
+    import pandas as pd
+
+    today = _today_cn()
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",), seed_date=today,
+    )
+    _prewrite_gapped_fund_level_cache(
+        tmp_path, fund_id="005827", cache_probed_at=today, symbol="00700.HK",
+    )
+    # NAV frame parseable by fetch_fund_nav_report (净值日期 + 单位净值).
+    dispatch[("fund_open_fund_info_em", "005827")] = pd.DataFrame({
+        "净值日期": ["2026-06-29", "2026-06-30"],
+        "单位净值": [1.4900, 1.5000],
+    })
+    # The three announcement frames for 005827 are already in the seed.
+    counter = _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    run_opportunity(repo_root=str(tmp_path))
+
+    # (a) exactly the 4 fund-level repair calls; nothing else for this fund.
+    assert counter[("fund_open_fund_info_em", "005827")] == 1
+    assert counter[("fund_announcement_dividend_em", "005827")] == 1
+    assert counter[("fund_announcement_report_em", "005827")] == 1
+    assert counter[("fund_announcement_personnel_em", "005827")] == 1
+    assert counter[("fund_portfolio_hold_em", "005827")] == 0, \
+        "fresh cache must not fire a quarter probe or a full rebuild"
+    constituent_calls = sum(
+        v for (fn, _sym), v in counter.items()
+        if fn in (
+            "stock_financial_abstract", "stock_research_report_em", "stock_news_em",
+        )
+    )
+    assert constituent_calls == 0, "repair must not re-fetch constituent evidence"
+
+    # (b) rule 2.5 heals within the SAME run (grill R5): the fund publishes;
+    # the gap code is not re-emitted.
+    out_dir = tmp_path / "outputs" / today
+    opp = json.loads((out_dir / "opportunity_report.json").read_text(encoding="utf-8"))
+    row_iids = {r["instrument_id"] for r in opp.get("rows", [])}
+    assert "005827" in row_iids, \
+        "healed foreign-heavy fund should publish via rule 2.5 in the same run"
+    rej = json.loads((out_dir / "rejections.json").read_text(encoding="utf-8"))
+    entry = next(
+        (e for e in rej.get("entries", []) if e["instrument_id"] == "005827"),
+        None,
+    )
+    assert entry is None or (
+        "foreign_heavy_fund_level_evidence_missing"
+        not in entry.get("evidence_gaps", [])
+    ), f"repair failed to heal the rule 2.5 gap: {entry}"
+
+    # (c) on-disk cache healed; cache_probed_at unchanged (repair is
+    # orthogonal to holdings-quarter freshness).
+    from irc.fundamentals.snapshot_cache import load_active_fund_cache
+    healed = load_active_fund_cache("005827", "2026Q1", tmp_path / "data")
+    assert healed is not None
+    kinds = {e.citation_kind for e in healed.fund_level_evidence}
+    assert kinds == {"data", "information"}, f"cache not healed: {kinds}"
+    assert healed.cache_probed_at == today
+    assert healed.fund_level_failure_reasons == ()
+
+
+def test_snapshot_cache_fresh_cn_heavy_gapped_fund_level_no_repair(
+    tmp_path, monkeypatch,
+) -> None:
+    """Item 004 AC8 (negative lock) — a fresh CN-heavy cache (foreign share
+    0.0, below FOREIGN_HEAVY_THRESHOLD) with EMPTY fund_level_evidence fires
+    ZERO AkShare calls for the fund: the repair is locked to foreign-heavy
+    funds; widening is a separate, deferred decision (spec Non-goals).
+    GREEN-lock: this test passes both before and after item 004."""
+    from irc.commands.opportunity_cmd import run_opportunity
+
+    today = _today_cn()
+    dispatch = _seed_publishable_set_repo(
+        tmp_path, monkeypatch=monkeypatch, include_qdii=False,
+        asset_classes=("cn_equity_fund",), seed_date=today,
+    )
+    _prewrite_gapped_fund_level_cache(
+        tmp_path, fund_id="005827", cache_probed_at=today, symbol="600519",
+    )
+    counter = _install_ak_call_dispatch(monkeypatch, dispatch)
+
+    run_opportunity(repo_root=str(tmp_path))
+
+    fund_calls = sum(v for (fn, sym), v in counter.items() if sym == "005827")
+    assert fund_calls == 0, \
+        f"CN-heavy gapped cache must fire zero repair calls, got {fund_calls}: " \
+        f"{[k for k in counter if k[1] == '005827']}"

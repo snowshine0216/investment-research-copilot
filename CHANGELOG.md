@@ -7,6 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — fund-level evidence repair probe for foreign-heavy cached snapshots (2026-07-03)
+
+- **A cached foreign-heavy `ActiveFundSnapshot` with a rule-2.5 fund-level evidence
+  leg gap no longer re-emits `foreign_heavy_fund_level_evidence_missing` for up to
+  `IRC_CACHE_FRESHNESS_DAYS` (default 7) on stale evidence.** New repair probe on the
+  cached-serve path (`_maybe_fund_level_evidence_repair`, `opportunity_cmd.py`,
+  post-probe snapshot): when the new public predicate `foreign_heavy_fund_level_gap`
+  (co-located with rule 2.5 in `policy_b.py` — single source of truth) is True, ONLY
+  the fund-level legs are re-fetched (4 AkShare calls: 1 NAV + 3 announcement
+  endpoints) and **leg-wise monotonically merged** by the new pure module
+  `src/irc/fundamentals/fund_level_repair.py` — per leg, fresh entries win when
+  produced, cached entries are retained when not, and leg-failure strings are
+  present ⟺ the leg is absent in the merged evidence (producer invariant).
+  `cache_probed_at`, holdings, and constituent evidence untouched; the cache is
+  re-written only when the evidence changed (P0-5 quarter guard inherited via
+  `write_active_fund_cache`); fetch failures degrade to serving the cached snapshot;
+  no backoff (re-fires each run until healed). Preflight budget:
+  `_classify_active_fund_scores` returns a 4-tuple and `FetchPlan` gains
+  `active_fund_fund_level_repair` charged at ×4 — never the ~35-call full-refetch
+  term (the historical over-estimate trap class). Trigger deliberately corrected
+  from the TODO's `fund_level_evidence == ()` to the rule-2.5 leg-gap mirror (a
+  NAV-only outage leaves a non-empty info-only tuple that `== ()` would never
+  repair). ADR 0003 §7 addendum added; §7's stale "2 additional AkShare calls
+  (~100)" claim corrected to 4 (~200), matching the `snapshot.py` docstring fix.
+  No VERSION bump.
+
+### Removed — production-dead per-fund narrative module `src/irc/monitor/narrative.py` (2026-07-03)
+
+- **`src/irc/monitor/narrative.py` (per-fund `gather_narrative` + `NarrativeResult`)
+  deleted.** Production-dead since report v3 dropped the per-fund LLM narrative call —
+  `monitor_cmd.py` constructs the empty per-fund `NarrativeDoc` directly, and
+  `tests/commands/test_monitor_cmd.py::test_run_monitor_never_calls_gather_narrative_per_fund`
+  pins `not hasattr(monitor_cmd, "gather_narrative")` as a contract. The module also
+  carried the unguarded `strength not in _VALID_STRENGTH` membership test — the latent
+  unhashable-`attribution_strength` `TypeError` twin of the `narrative_macro.py`
+  hardening above — so deletion removes the last copy of that bug class. Mirror tests
+  `tests/monitor/test_narrative.py` deleted with it; the stale `NarrativeResult` import
+  and inert `raising=False` `gather_narrative` monkeypatch scaffolding removed from
+  `tests/commands/test_monitor_cmd_theme_consolidation.py`. Shared dataclasses
+  (`NarrativeDoc`, `Claim`, `EvidenceItem`) live in `src/irc/monitor/types.py` and are
+  untouched, as is the `monitor_narrative` LLM task (it is the macro narrative's route).
+  No VERSION bump.
+
+### Fixed — ActiveFundSnapshot thesis gate: dual-leg (data + information) check extended to the active-fund branch (2026-07-03)
+
+- **`derive_thesis_from_evidence` (`src/irc/opportunity/thesis_evidence.py`) no longer
+  returns `thesis_state="intact"` for an `ActiveFundSnapshot` on ANY non-empty
+  flattened constituent evidence.** `intact` now requires ≥1 `citation_kind="data"`
+  AND ≥1 `citation_kind="information"` entry across the presence-only union of the
+  flattened constituent evidence ∪ `snapshot.fund_level_evidence` — the same dual-leg
+  heuristic the `FundLevelSnapshot` branch already applied. A single-leg union yields
+  `evidence_insufficient` with direction-specific reasons（缺少数据腿 / 缺少信息腿）.
+  The empty-flattened guard runs FIRST (load-bearing, ADR 0003 §8 property 3):
+  rule-2.5-publishable all-pure-failure funds stay `evidence_insufficient` even with
+  dual-leg fund-level evidence, so no Policy-B-publishable row changes `thesis_state`
+  and the evidence/gaps/analyses return slots are byte-identical (H3 / SAME-3
+  unaffected; the union is never merged into the returned evidence tuple). Fixes the
+  `irc eval-funds` / `irc narrative --analyze` false confidence where filing-only
+  (data-only) evidence + cheap valuation + cold heat composed to `core_dca`.
+  New CONTEXT.md term "Dual-leg thesis heuristic"; ADR 0003 §8 addendum. No new
+  `ThesisState` literal, no new gap code, no VERSION bump.
+
+### Fixed — macro narrative: non-str `attribution_strength` consumes the schema-retry budget instead of degrading the whole block (2026-07-03)
+
+- **`_parse_theme_claims` (`src/irc/monitor/narrative_macro.py`) now type-guards
+  `attribution_strength` before the `_VALID_STRENGTH` set-membership test.** An
+  unhashable LLM value (e.g. `["consistent_with"]` — a real output shape) previously
+  raised `TypeError`, escaping `gather_macro_narrative`'s
+  `(json.JSONDecodeError, _MacroNarrErr)` retry loop into the `monitor_cmd.py` blanket
+  guard: the WHOLE 宏观面速览 block degraded to `gather_error:` with the retry budget
+  skipped. Any non-`str` value now raises the existing
+  `schema_invalid: bad attribution_strength ...` `_MacroNarrErr`, consuming a normal
+  schema retry and, only on exhaustion, degrading via the standard
+  `(blocks=(), status=last_err)` path. The gather `except` tuple is deliberately
+  unchanged (catching `TypeError` there would launder future coding bugs into silent
+  retries). No `_ENGINE_VERSION` or trace `schema_version` change. No VERSION bump.
+
 ### Changed — constituent/macro news factor normalized by Σweight; `_ENGINE_VERSION` 3 → 4 (2026-07-03)
 
 - **`aggregate_news_factor` value is now the weight-normalized mean** —
