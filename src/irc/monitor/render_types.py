@@ -1,5 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from irc.monitor.board_pe_staleness import BoardPeFreshness
 from irc.monitor.types import EvidenceItem, FactorScore, NarrativeDoc, SignalRecord
 from irc.monitor.holding_metrics import HoldingMetric
 from irc.monitor.market_composite import MarketCompositeView
@@ -34,3 +35,4 @@ class FundView:
     themes: tuple[str, ...] = ()   # Comp 3: theme chips -> #macro-<theme> anchors
     provisional_flow_pct: float | None = None   # Comp 6: 盘中提示, render-only, never a factor input
     provisional_flow_as_of: str | None = None   # Comp 6: ACTUAL fetch HH:MM, edge-stamped (spec §8)
+    board_pe_freshness: BoardPeFreshness | None = None  # 004: run-global board-PE age (AC-13)

@@ -579,3 +579,32 @@ def test_macro_mechanism_is_escaped():
         fund_themes_by_theme={"us_monetary": ()})
     assert "<script>" not in html
     assert "&lt;script&gt;" in html
+
+
+def test_card_drilldown_block_carries_stale_board_pe_age_tag():
+    """004 AC-13: the report card (phone-visible surface) renders the tag too."""
+    from irc.monitor.board_pe_staleness import BoardPeFreshness
+    from irc.monitor.holding_metrics import HoldingMetric
+
+    m = HoldingMetric(symbol="600519", name="茅台", weight_pct=9.0, pe=30.0, pb=8.0,
+                      pe_percentile=0.5, valuation_state="fair", valuation_reason=None,
+                      flow_pct_5d=None, flow_pct_20d=None, flow_score=None,
+                      flow_reason="flow_no_data")
+    v = dataclasses.replace(_view(), holding_metrics=(m,),
+                            board_pe_freshness=BoardPeFreshness("STALE", "2026-06-30", 2))
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
+    assert "板块PE 引用 2026-06-30 · 2个交易日前" in html
+
+
+def test_card_no_age_tag_when_fresh():
+    from irc.monitor.board_pe_staleness import BoardPeFreshness
+    from irc.monitor.holding_metrics import HoldingMetric
+
+    m = HoldingMetric(symbol="600519", name="茅台", weight_pct=9.0, pe=30.0, pb=8.0,
+                      pe_percentile=0.5, valuation_state="fair", valuation_reason=None,
+                      flow_pct_5d=None, flow_pct_20d=None, flow_score=None,
+                      flow_reason="flow_no_data")
+    v = dataclasses.replace(_view(), holding_metrics=(m,),
+                            board_pe_freshness=BoardPeFreshness("FRESH", "2026-06-15", 0))
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
+    assert "板块PE 引用" not in html
