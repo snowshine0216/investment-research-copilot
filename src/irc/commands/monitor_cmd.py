@@ -1221,25 +1221,44 @@ def _full_basket_union_symbols(funds, root: Path) -> tuple:
 
 
 def run_flow_capture(*, repo_root: str, today: str | None = None) -> int:
-    """EDGE (15:45 job, D6): ONE ulist.np batch → append the now-final f184 to the
-    completed-day store. No LLM, no report, no ledger. `today` MUST be a completed
-    CN trading day (the wrapper runs it after the 15:00 close)."""
+    """EDGE (15:45 job, D6): ONE ulist.np batch over the FULL-BASKET union (AC-3)
+    → append the now-final f184 to the completed-day store, SLICED BACK to the
+    top-5 union (D5 store scope/bytes unchanged) → merge f127 行业 into the
+    cross-day store (AC-5) → best-effort board-PE refresh strictly AFTER the
+    append (P8c/RD-6 — a watchdog kill loses only the refresh, never the flow
+    row). No LLM, no report, no ledger. `today` MUST be a completed CN trading
+    day (the wrapper runs it after the 15:00 close)."""
     root = Path(repo_root)
     _today = today or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     funds = resolve_funds(load_monitor_config(root))
-    symbols = _capture_union_symbols(funds, root)
-    if not symbols:
+    batch_symbols = _full_basket_union_symbols(funds, root)
+    if not batch_symbols:
         _log.warning("flow-capture: no active-fund symbols; nothing to capture")
         return 0
     try:
-        by_symbol, _industry = fetch_flow_today_batch(symbols)
+        flow_by_symbol, industry_by_symbol = fetch_flow_today_batch(batch_symbols)
     except Exception:  # noqa: BLE001 — degrade, never crash (breaker/abort posture)
         _log.warning("flow-capture: ulist.np batch failed", exc_info=True)
         return 0
+    top5_union = _capture_union_symbols(funds, root)
+    store_flow = {s: flow_by_symbol.get(s) for s in top5_union}   # AC-3 slice-back (D5)
     trading_days = load_trading_days(date.today(), root=root)
     tds = tuple(d.isoformat() for d in (trading_days or ()))
     append_today(root / "data" / "monitor" / "fund_flow_series.json", _today,
-                 by_symbol, keep_td=_FLOW_KEEP_TD, trading_days=tds)
-    print(f"flow-capture OK: {_today} appended {sum(v is not None for v in by_symbol.values())}"
-          f"/{len(symbols)} symbols")
+                 store_flow, keep_td=_FLOW_KEEP_TD, trading_days=tds)
+    print(f"flow-capture OK: {_today} appended "
+          f"{sum(v is not None for v in store_flow.values())}/{len(top5_union)} symbols")
+    _record_industry_seen(root, _today, industry_by_symbol)       # AC-5 (15:45 site)
+    _capture_board_pe(root, _today)                               # P8c AFTER append (RD-6)
     return 0
+
+
+def _capture_board_pe(root: Path, today: str) -> None:
+    """EDGE (P8c, AC-14): best-effort board-PE refresh in the proven rested 15:45
+    window so next morning's fallback is at worst 1 day old. Runs strictly AFTER
+    the flow append (RD-6). Never affects the capture rc; the freshness half is
+    ignored. Worst-case added time ≈ 203 s fits the 300 s protective watchdog."""
+    try:
+        fetch_industry_pe(cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    except Exception:  # noqa: BLE001 — a board-PE failure never fails capture
+        _log.warning("flow-capture: board PE refresh failed", exc_info=True)
