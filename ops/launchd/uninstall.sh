@@ -6,8 +6,8 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEST_DIR="$HOME/Library/LaunchAgents"
 UID_NUM="$(id -u)"
-LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly")
-WRAPPERS=("run-monitor.sh" "run-fundamentals.sh")
+LABELS=("com.irc.monitor" "com.irc.fundamentals-quarterly" "com.irc.flow-capture" "com.irc.weekly")
+WRAPPERS=("run-monitor.sh" "run-fundamentals.sh" "run-flow-capture.sh" "run-weekly.sh")
 
 for label in "${LABELS[@]}"; do
   launchctl bootout "gui/$UID_NUM/$label" 2>/dev/null || true
@@ -20,8 +20,12 @@ for wrapper in "${WRAPPERS[@]}"; do
   echo "removed wrapper $wrapper"
 done
 
-# Clear the single-instance lock so a later reinstall is never blocked by a stale
-# lock dir. Per-run logs (run-*.log) are left in place as run history.
-rm -rf "$REPO_ROOT/outputs/_logs/.run.lock"
+# Clear the single-instance locks so a later reinstall is never blocked by a
+# stale lock dir. Per-run logs (run-*.log) are left in place as run history.
+rm -rf "$REPO_ROOT/outputs/_logs/.run.lock" \
+       "$REPO_ROOT/outputs/_logs/.monitor.lock" \
+       "$REPO_ROOT/outputs/_logs/.snapshot.lock" \
+       "$REPO_ROOT/outputs/_logs/.flow-capture.lock" \
+       "$REPO_ROOT/outputs/_logs/.weekly.lock"
 
 echo "Done."
