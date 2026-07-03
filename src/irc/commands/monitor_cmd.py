@@ -39,7 +39,8 @@ from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
 from irc.monitor.narrative_macro import (
-    build_macro_pool, gather_macro_narrative, MacroNarrativeDoc, MacroNarrativeResult,
+    PROMPT_VERSION, build_macro_pool, gather_macro_narrative,
+    MacroNarrativeDoc, MacroNarrativeResult,
 )
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
@@ -484,7 +485,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    purchase_tags: dict | None = None,
                    macro_impacts_by_fund: dict | None = None,
                    *, now_dt: datetime) -> None:
-    prov = Provenance(_ENGINE_VERSION, "2", SCHEMA_VERSION, "")
+    prov = Provenance(_ENGINE_VERSION, PROMPT_VERSION, SCHEMA_VERSION, "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior,
                          now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
