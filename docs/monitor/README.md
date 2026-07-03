@@ -66,13 +66,15 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
    `monitor_impact` LLM scoring (macro rows; plus constituent rows for
    look-through profiles; schema-validated, ≤2 retries) → dual-track valuation +
    per-stock holding metrics → 6 factor scores → coverage-gated signal → bias.
-6. **One `monitor_narrative` LLM call** builds the run-level 宏观面速览 macro block
-   (≤3 claims/theme, attribution-verb guard, CJK guard, citations resolved). The
-   old 10 per-fund narratives are gone (v3).
+6. **One `monitor_narrative` LLM call** (prompt v3) builds the run-level 宏观面速览
+   macro block (≤3 claims/theme, attribution-verb guard, CJK guard, citations
+   resolved, plus an optional ≤60-char per-theme 传导 mechanism clause —
+   invalid mechanisms are dropped, never truncated, never retried). The old 10
+   per-fund narratives are gone.
 7. **Eval spine**: in-run health per fund → M1 gate (`monitor_signal` /
    `monitor_impact` / `monitor_narrative` FAIL ⇒ **EVAL-GATED 🛡**, WARN/stale ⇒
    ⚠ caveated), validation panel, inline `monitor_forward` re-score (so the
-   predictive panel is same-day fresh), `eval_trace.json` (schema 6),
+   predictive panel is same-day fresh), `eval_trace.json` (schema 7),
    `forward_ledger.jsonl` + `nav_history.jsonl` appends.
 8. **Render + write** (atomic, fixed order): `report.html` → `signal.json` →
    `impacts.json` → `narrative.json` → `monitor.json` (the completion sentinel),
@@ -120,8 +122,11 @@ Open `outputs/<date>/monitor/report.html`:
    ✓ validated / ⚠ caveated chip, composite vs. market composite.
 3. If a bias moved: the fund card explains it — market-composite decision line,
    contribution bars (market vs. 新闻面 marked), factor table with N/A reasons,
-   NAV chart with evidence markers, 宏观面速览 theme chips, and the per-stock
-   drill-down (PE/PB + industry leg + value-trap badge + flow) for active funds.
+   NAV chart with evidence markers, 宏观面速览 direction chips (signed per-theme
+   impact, 绿 ≥ +0.15 · 红 ≤ −0.15 · 灰其间; 无数值 = 当日无记录) with claim
+   strength tags (可能主因/方向一致/已证实归因/归因未知) and a per-theme
+   对本组基金的传导 line, and the per-stock drill-down (PE/PB + industry leg +
+   value-trap badge + flow) for active funds.
 4. **Validation panel** + **predictive panel**: informational stages render 观测
    (never PASS); suite ages go amber at ≥ 10 days, UNKNOWN at ≥ 14; the forward
    panel says `insufficient_data` honestly until engine-3 blocks mature — the only
@@ -215,7 +220,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | `outputs/<date>/monitor/drilldown.html` | Per-stock valuation + flow board per active fund |
 | `outputs/<date>/monitor/monitor.json` | Machine summary — **written last; the completion/idempotency sentinel** |
 | `outputs/<date>/monitor/signal.json` / `impacts.json` / `narrative.json` | Per-fund signal, LLM impact rows, macro block (`__macro__`) |
-| `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 6, engine 4) |
+| `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 7, engine 4) |
 | `data/monitor/forward_ledger.jsonl` | Append-only per-fund-per-day rows (incl. `market_composite`/`market_bias`) scored by `monitor_forward` |
 | `data/monitor/fund_flow_series.json` | Completed-day flow store (written only by the 15:45 job) |
 | `outputs/_logs/run-*.log` | Per-fire wrapper logs (14-day retention) |

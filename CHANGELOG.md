@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor report: macro direction chips + strength tags + 传导 mechanism clause (2026-07-03)
+
+- **宏观面速览 now answers "对哪只基金、利多还是利空、为什么"** (report-v4
+  explainability WS-2 / P3+P4+P5, item 002). (1) Direction chips: each theme's
+  affected-fund chips render color + inline signed impact deterministically
+  joined from the fund's validated `impacts["macro"]` records (new pure
+  `monitor/macro_direction.py`; 绿 ≥ +0.15 · 红 ≤ −0.15 · 灰其间 — display-only
+  bands; absence ≠ zero: no record → uncolored bare chip; confidence trace +
+  `title`-attr only; one legend line; rendered values == trace values by
+  construction). (2) Every claim bullet carries its `attribution_strength` tag
+  (可能主因 / 方向一致 / 已证实归因 / 归因未知), on both render paths. (3) The
+  single `monitor_narrative` call bumps prompt **2 → 3**
+  (`narrative_macro.PROMPT_VERSION`, consumed by the report-header Provenance):
+  per theme an optional ≤60-char Chinese causal-chain `mechanism` clause
+  rendered as `对本组基金的传导：…` — required-optional (invalid → field dropped,
+  never truncated, never consumes a schema retry; sanitizer-changed ⇒ dropped),
+  with a v2/v3 dual-shape parser so bare-list outputs still work. Trace: additive
+  per-theme `mechanism` field under the EXISTING schema `"7"` (no bump). Evals:
+  `monitor_narrative` corpus + pure `mechanism_validity` metric (FAIL <0.80;
+  predicate reproduced verbatim per ADR 0017 §3.3 scorer purity). No
+  `_ENGINE_VERSION` change; no factor/weights/bands change; forward ledger
+  untouched.
+
 ### Added — monitor report: self-explanatory caveats + weekly LLM-suite auto-refresh (2026-07-03)
 
 - **⚠ caveated is now self-explanatory and self-healing** (report-v4
