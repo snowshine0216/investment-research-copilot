@@ -495,3 +495,43 @@ def test_macro_chips_reconcile_with_eval_trace():
     assert "unrendered_theme" not in html
     assert any(r["key"] == "unrendered_theme"
                for r in trace["funds"]["008986"]["impacts"]["macro"])
+
+
+# ── Item 002 P4: claim strength tags ─────────────────────────────────────────
+
+
+def test_macro_claim_strength_tags_all_four_values_on_idx_none_path():
+    """RD-7: the idx=None path folds into _macro_claim_html — tags on BOTH paths."""
+    from irc.monitor.render_html import _macro_claim_html
+
+    labels = {"possible_driver": "可能主因", "consistent_with": "方向一致",
+              "supported_attribution": "已证实归因", "unknown": "归因未知"}
+    for strength, label in labels.items():
+        html = _macro_claim_html(Claim("政策基调转向。", strength, ()), None)
+        assert f'<span class="claim-strength">{label}</span>' in html
+        assert "政策基调转向。" in html
+
+
+def test_macro_claim_unmapped_strength_falls_back_to_unknown_label():
+    """Unreachable today (_VALID_STRENGTH is closed) — cheap defense pin."""
+    from irc.monitor.render_html import _macro_claim_html
+
+    html = _macro_claim_html(Claim("政策基调转向。", "brand_new_value", ()), None)
+    assert '<span class="claim-strength">归因未知</span>' in html
+
+
+def test_macro_claim_with_idx_keeps_refs_and_gains_tag():
+    from irc.monitor.render_html import CitationIndex, _macro_claim_html
+
+    cid = "a" * 16
+    idx = CitationIndex(((cid, "Reuters", "t", "2026-07-01", ""),), {cid: 0})
+    html = _macro_claim_html(Claim("政策基调转向。", "consistent_with", (cid,)), idx)
+    assert '<span class="claim-strength">方向一致</span>' in html
+    assert f'href="#ev-{cid}"' in html
+
+
+def test_macro_theme_section_without_index_still_carries_tags():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(_macro_doc(), fund_themes_by_theme={})
+    assert '<span class="claim-strength">方向一致</span>' in html

@@ -396,10 +396,23 @@ def _panel(
                                  badge_counts=_badge_counts(views, gates), now=now_dt)
 
 
-def _macro_claim_html(claim, idx: "CitationIndex") -> str:
+_STRENGTH_LABEL = {
+    "possible_driver": "可能主因",
+    "consistent_with": "方向一致",
+    "supported_attribution": "已证实归因",
+    "unknown": "归因未知",
+}
+_STRENGTH_FALLBACK = "归因未知"   # unreachable today (_VALID_STRENGTH closed) — defense
+
+
+def _macro_claim_html(claim, idx: "CitationIndex | None") -> str:
+    """P4: strength tag on EVERY claim, on BOTH render paths (RD-7 — the old
+    idx-None inline fallback folded in here; refs simply empty without an index)."""
+    label = _STRENGTH_LABEL.get(claim.attribution_strength, _STRENGTH_FALLBACK)
+    tag = f'<span class="claim-strength">{label}</span>'
     text = escape(claim.claim)
-    refs = "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
-    return f"<p>{text} {refs}</p>"
+    refs = "" if idx is None else "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
+    return f"<p>{tag}{text} {refs}</p>"
 
 
 def _sup_local(cid: str, idx: "CitationIndex") -> str:
@@ -441,8 +454,7 @@ def _macro_theme_section(
     # chip set + order stay config-derived (_invert_fund_themes) — the renderer
     # NEVER invents a chip for an impact key outside the config chip list.
     chips = "".join(_fund_chip(fid, recs.get(fid)) for fid in funds)
-    body = "".join(_macro_claim_html(c, idx) if idx is not None else f"<p>{escape(c.claim)}</p>"
-                   for c in block.claims)
+    body = "".join(_macro_claim_html(c, idx) for c in block.claims)
     return (
         f'<div class="macro-theme" id="macro-{escape(block.theme)}">'
         f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{body}</div>"
