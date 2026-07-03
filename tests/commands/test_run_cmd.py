@@ -220,6 +220,10 @@ def test_pipeline_halts_when_stage_returns_zero_but_writes_no_outputs(tmp_path: 
     halt_md = (out_dir / "PIPELINE_HALTED.md").read_text(encoding="utf-8")
     assert "missing_required_outputs" in halt_md
     assert "discovered_watchlist.csv" in halt_md
+    # The halt must name the directory the contract checked, so a stage that
+    # wrote its outputs elsewhere (2026-06-19 class) is diagnosable from the
+    # halt record alone.
+    assert str(out_dir) in halt_md
 
 
 def test_pipeline_continues_when_stage_writes_required_outputs(tmp_path: Path):

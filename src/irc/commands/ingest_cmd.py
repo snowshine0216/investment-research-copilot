@@ -453,6 +453,11 @@ def run_ingest(repo_root: str) -> int:
     try:
         feature_flags = _IngestFeatureFlags(_env_file=root / ".env")
     except Exception as exc:
+        HaltReason.write_sidecar(sidecar_path, HaltReason(
+            kind="invalid_env_config", stage="ingest",
+            detail=f"invalid config in .env — {exc}",
+            first_error=f"{type(exc).__name__}: {exc}",
+        ))
         print(f"ERROR: invalid config in .env — {exc}")
         return 1
     db_path = root / "data" / "local.duckdb"
@@ -540,6 +545,11 @@ def run_ingest(repo_root: str) -> int:
                 else:
                     ob_counts["prices"] += inserted
             except Exception as exc:
+                HaltReason.write_sidecar(sidecar_path, HaltReason(
+                    kind="db_write_failed", stage="ingest",
+                    detail=f"failed writing prices for {instr.instrument_id}",
+                    first_error=f"{type(exc).__name__}: {exc}",
+                ))
                 print(
                     f"ERROR: ingest failed while writing prices for "
                     f"{instr.instrument_id}: {exc}"
@@ -639,6 +649,11 @@ def run_ingest(repo_root: str) -> int:
             try:
                 ak_counts["nav_history"] += _upsert_nav(con, instr.instrument_id, df)
             except Exception as exc:
+                HaltReason.write_sidecar(sidecar_path, HaltReason(
+                    kind="db_write_failed", stage="ingest",
+                    detail=f"failed writing NAV for {instr.instrument_id}",
+                    first_error=f"{type(exc).__name__}: {exc}",
+                ))
                 print(
                     f"ERROR: ingest failed while writing NAV for "
                     f"{instr.instrument_id}: {exc}"

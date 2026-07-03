@@ -52,6 +52,71 @@ def _fake_missing_manager_tenure_fund_metadata(fund_code: str) -> dict[str, obje
     }
 
 
+def test_ingest_env_config_error_writes_halt_sidecar(repo: Path) -> None:
+    """The .env-parse failure path must leave a structured HaltReason sidecar,
+    not just a printed line — three weekly-run halts (06-17/06-20/07-02) were
+    'generic rc=1' with the actual error lost to terminal scrollback."""
+    (repo / ".env").write_text(
+        "ACTIVE_FUND_TENURE_PROXY_ENABLED=notabool\n", encoding="utf-8"
+    )
+    rc = run_ingest(repo_root=str(repo))
+    assert rc == 1
+    sidecar = repo / "outputs" / _china_today() / ".halt_reason.json"
+    reason = HaltReason.read_sidecar(sidecar)
+    assert reason is not None
+    assert reason.kind == "invalid_env_config"
+    assert reason.stage == "ingest"
+    assert reason.first_error
+
+
+def test_ingest_price_write_failure_writes_halt_sidecar(repo: Path) -> None:
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=pd.DataFrame()),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd._upsert_prices", side_effect=RuntimeError("disk full")),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+    assert rc == 1
+    reason = HaltReason.read_sidecar(repo / "outputs" / _china_today() / ".halt_reason.json")
+    assert reason is not None
+    assert reason.kind == "db_write_failed"
+    assert "disk full" in (reason.first_error or "")
+
+
+def test_ingest_nav_write_failure_writes_halt_sidecar(repo: Path) -> None:
+    fake_prices = pd.DataFrame({
+        "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],
+        "low": [4.18], "close": [4.25], "volume": [1e8],
+    })
+    fake_nav = pd.DataFrame({"date": ["2026-05-06"], "nav": [1.23], "nav_acc": [2.34]})
+    with (
+        patch("irc.commands.ingest_cmd.fetch_etf_price_history", return_value=fake_prices),
+        patch("irc.commands.ingest_cmd.fetch_macro_series", return_value=pd.DataFrame()),
+        patch("irc.commands.ingest_cmd.fetch_fund_nav_history", return_value=fake_nav),
+        patch("irc.commands.ingest_cmd.fetch_fund_metadata", side_effect=_fake_fund_metadata),
+        patch("irc.commands.ingest_cmd.fetch_etf_metadata_em", side_effect=_fake_fund_metadata),
+        # The index-valuation legs sit between prices and NAV and hit live
+        # legulegu/csindex with pacing — patch them out so this unit test
+        # stays offline and fast.
+        patch("irc.commands.ingest_cmd.ingest_index_valuation_history", return_value=0),
+        patch("irc.commands.ingest_cmd._upsert_nav", side_effect=RuntimeError("io error")),
+    ):
+        rc = run_ingest(repo_root=str(repo))
+    assert rc == 1
+    reason = HaltReason.read_sidecar(repo / "outputs" / _china_today() / ".halt_reason.json")
+    assert reason is not None
+    assert reason.kind == "db_write_failed"
+    assert "io error" in (reason.first_error or "")
+
+
 def test_ingest_persists_canonical_macro_series(repo: Path) -> None:
     fake_prices = pd.DataFrame({
         "date": [date(2026, 5, 6)], "open": [4.2], "high": [4.3],

@@ -89,6 +89,17 @@ _REMEDIATION_BY_KIND: dict[str, str] = {
         "`irc <stage> --repo-root .` after fixing. Once the stage produces "
         "its outputs, resume the pipeline with `irc run --resume`."
     ),
+    "invalid_env_config": (
+        "The stage could not parse `.env` (see First error for the exact "
+        "field). Fix the named variable in `.env`, validate with "
+        "`irc config validate`, then resume with `irc run --resume`."
+    ),
+    "db_write_failed": (
+        "A DuckDB write failed mid-ingest (see First error). Check free "
+        "disk space and whether another irc process holds "
+        "`data/local.duckdb` (monitor / fundamentals stock-valuation), "
+        "then re-run `irc ingest --repo-root .`."
+    ),
 }
 
 

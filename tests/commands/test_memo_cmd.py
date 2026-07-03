@@ -44,6 +44,65 @@ def test_memo_writes_output(repo_with_inputs: Path):
     assert (repo_with_inputs / "outputs" / today / "memo_audit.txt").exists()
 
 
+def test_memo_fallback_scoring_is_loud_and_still_writes_today(repo_with_inputs: Path, capsys):
+    """When outputs/<today>/scoring.json is missing, memo reads inputs from the
+    latest prior date dir — that fallback must (a) still write memo.md into
+    outputs/<today>/ (the dir run_pipeline's output contract checks) and
+    (b) name BOTH directories loudly on stdout instead of diverging silently
+    (2026-06-19 weekly-pipeline halt class)."""
+    from datetime import datetime, timezone, timedelta
+
+    repo = repo_with_inputs
+    today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    out = repo / "outputs" / today
+    old = repo / "outputs" / "2026-01-02"
+    old.mkdir(parents=True)
+    for name in ("scoring.json", "gold_regime.json",
+                 "proposed_allocation.yaml", "trade_plan.yaml"):
+        (old / name).write_text((out / name).read_text(encoding="utf-8"), encoding="utf-8")
+        (out / name).unlink()
+
+    with patch("irc.memo.synthesizer.call_chat", return_value=_resp("合成备忘录内容")), \
+         patch("irc.memo.auditor.call_chat", return_value=_resp("审核通过")):
+        rc = run_memo(str(repo))
+
+    assert rc == 0
+    assert (repo / "outputs" / today / "memo.md").exists()
+    assert not (old / "memo.md").exists()
+    printed = capsys.readouterr().out
+    assert "2026-01-02" in printed
+    assert today in printed
+    assert "scoring.json" in printed
+
+
+def test_memo_warns_when_orchestrator_dir_differs_but_outputs_exist(
+    repo_with_inputs: Path, monkeypatch, capsys,
+):
+    """Diagnosability for the 2026-06-19 failure class WITHOUT a midnight
+    false-positive: when memo's own out_dir HAS the outputs but the
+    orchestrator-clock dir differs (date drift across CN midnight, or a
+    future write-path regression), the stage warns loudly naming BOTH dirs
+    and still exits 0 — run_pipeline's own output contract stays the
+    enforcer. (silent-failure review P1, 2026-07-03)"""
+    import irc.commands.memo_cmd as memo_cmd
+
+    monkeypatch.setattr(
+        memo_cmd, "_orchestrator_out_dir",
+        lambda root: root / "outputs" / "1999-01-01",
+    )
+    with patch("irc.memo.synthesizer.call_chat", return_value=_resp("合成备忘录内容")), \
+         patch("irc.memo.auditor.call_chat", return_value=_resp("审核通过")):
+        rc = run_memo(str(repo_with_inputs))
+    assert rc == 0
+    from datetime import datetime, timezone, timedelta
+    today = datetime.now(timezone(timedelta(hours=8))).date().isoformat()
+    assert (repo_with_inputs / "outputs" / today / "memo.md").exists()
+    printed = capsys.readouterr().out
+    assert "WARNING" in printed
+    assert "1999-01-01" in printed
+    assert today in printed
+
+
 def test_memo_refuses_to_run_when_ingest_is_stale(repo_with_inputs: Path, monkeypatch):
     """When data/_manifest/akshare.json is >24h old, memo exits with rc=1
     and writes STALE_INGEST.md."""
