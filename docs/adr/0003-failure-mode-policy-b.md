@@ -1,6 +1,6 @@
 # ADR 0003 — Failure-mode + Policy B weight-aware quorum + H3 universal gapped-row invariant
 
-**Status:** Accepted (2026-05-23, item 006). **Amended 2026-05-26** (decision-confidence-followup item 001 — §7 added; §1 precedence list amended from five rules to six rules).
+**Status:** Accepted (2026-05-23, item 006). **Amended 2026-05-26** (decision-confidence-followup item 001 — §7 added; §1 precedence list amended from five rules to six rules). **Amended 2026-07-03** (todos-critical-fixes item 002 — §8 added; thesis-level dual-leg union for `ActiveFundSnapshot`).
 **Supersedes:** none. Builds on [ADR 0001 — citation data model](0001-citation-data-model.md) and [ADR 0002 — active-fund fetch engine](0002-active-fund-fetch-engine.md).
 **Spec:** `docs/2026-05-22-thesis-cards-evidence-gap/items/006-spec.md` (original); `docs/2026-05-26-decision-confidence-followup/items/001-spec.md` (§7 amendment).
 
@@ -165,6 +165,23 @@ This is the same shape problem the QDII reform solved, but the QDII reform route
 - *Alternative A — extend `RejectionReasonCode` precedence so foreign-heavy funds map to a softer existing code (e.g. `incomplete_constituent_data`).* Rejected: the operator distinction "we couldn't reach this fund's data because the per-holding pipeline doesn't cover HK/US" vs "the filings pipeline broke" is exactly what the new code preserves.
 - *Alternative B — promote rule 2.5 into a standalone ADR 0005.* Rejected: ADR 0003 §1 IS the precedence-list ADR. A reader landing in 0003 must see rule 2.5; a sibling ADR 0005 that overrides §1 from outside would invite drift. Amendment-in-place is the load-bearing structural choice.
 - *Alternative C — make the threshold YAML-configurable from V1.* Rejected: a policy decision belongs in code+ADR. Runtime tuning would silently weaken the audit trail. Future promotion to env var is reversible without an API change.
+
+### 8. Thesis-level dual-leg union for `ActiveFundSnapshot` — 2026-07-03 amendment
+
+**Context.** `derive_thesis_from_evidence`'s active-fund branch set `thesis_state="intact"` on ANY non-empty flattened constituent evidence — no data/information leg split — so a filing-only fund could reach `intact` and, with cheap valuation + cold heat, `core_dca` on the two Policy-B-free surfaces (`irc eval-funds`, `irc narrative --analyze`). The `FundLevelSnapshot` branch already applied the dual-leg heuristic. Item 002 extends it to the active branch.
+
+**Decision.** `intact` for an `ActiveFundSnapshot` requires ≥1 `citation_kind="data"` AND ≥1 `citation_kind="information"` entry across the **presence-only union** of the flattened constituent evidence ∪ `snapshot.fund_level_evidence`. Three locked properties:
+
+1. **Union, not constituent-only.** A constituent-only check would demote every rule-2.5-publishable foreign-heavy fund (whose data legs live in `fund_level_evidence` by §7's design) to `evidence_insufficient` — recreating at thesis level the systematic exclusion rule 2.5 removed, and flipping published thesis cards. The union is exactly the evidence surface the downstream dual-coverage gate sees after `_stamp_fund_level_evidence_from_verdict`.
+2. **Presence-only.** `fund_level_evidence` is inspected but NEVER merged into the returned evidence tuple — merging would double-append with the rule-2.5 stamp and drift the SAME-3 citation set.
+3. **Empty-flattened guard runs FIRST and is load-bearing.** A rule-2.5-publishable fund whose top-N constituents are all pure-failure (reachable — §7's 2026-06-04 reconciliation) has empty flattened evidence but dual-leg `fund_level_evidence`. A naive "union has both legs → intact" would flip this *published* row `evidence_insufficient → intact`, changing canonical outputs. The empty check short-circuits before the union check, keeping it `evidence_insufficient` — so every Policy-B-publishable row keeps its `thesis_state` byte-identical: rules-3+4 rows carry constituent dual-leg (rules 3/4 guarantee it), rule-2.5 rows with non-empty constituent evidence gain the fund-level legs via the union, and the empty case is guarded.
+
+**Trade-off considered:**
+- *Alternative A — constituent-only leg check.* Rejected per property 1.
+- *Alternative B — FundLevel-parity intact-ward resolution of the empty case* (NAV + announcement alone → `intact`, mirroring the passive precedent). Rejected for this item: it changes published rows' `thesis_state` on canonical outputs — out of scope for a false-confidence bugfix; revisit only with its own spec if operators ask for it.
+- *Alternative C — Policy-B-parity quorum (per-holding data leg + weight-aware info quorum) at thesis level.* Rejected: duplicates the publishability authority inside the thesis setter, violating the "thesis_state is set ONLY by `derive_thesis_from_evidence`; publishability ONLY by Policy B" separation this ADR locks.
+
+Missing-leg outcome is `evidence_insufficient` (leg absence is missing evidence), never `under_pressure` (a negative *signal*), with direction-specific reason literals (missing data leg vs missing information leg) — deliberately NOT the `FundLevelSnapshot` branch's combined literal, because the Policy-B-free surfaces are diagnostic and benefit from knowing which leg is thin. The literals never reach SAME-3-relevant artifacts: publishable rows never carry them, the memo evidence pool keeps only the first (state) segment of `opportunity_reason`, the failure renderer reads only the 4 non-conclusion fields, and `RejectionRecord` carries no conclusion field.
 
 ## Consequences
 

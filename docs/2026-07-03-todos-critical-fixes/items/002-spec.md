@@ -22,13 +22,26 @@ cheap valuation + cold heat + acceptable quality composes to `core_dca` —
 false confidence surfaced prominently by `irc eval-funds` and
 `irc narrative --analyze`, the two Policy-B-free consumers of
 `build_opportunity_row`. The fix extends the dual-leg check to the
-`ActiveFundSnapshot` branch: `intact` requires ≥1 data-leg AND ≥1
+`ActiveFundSnapshot` branch: ~~`intact` requires ≥1 data-leg AND ≥1
 information-leg entry across the union of the flattened constituent
 evidence and `snapshot.fund_level_evidence`; a single-leg evidence surface
-yields `evidence_insufficient` (the same value the `FundLevelSnapshot`
-branch yields on a missing leg). The returned evidence tuple, gaps slot,
-and analyses slot are byte-identical to today — only `(state, reason)` may
-change, and (provably) never for a Policy-B-publishable row.
+yields `evidence_insufficient`~~ **[grill R1 — as stated this is
+inaccurate for one reachable published shape: empty flattened evidence +
+dual-leg `fund_level_evidence` has both legs "across the union" yet must
+NOT become `intact`]** — corrected: **when the flattened constituent
+evidence is non-empty**, `intact` requires ≥1 data-leg AND ≥1
+information-leg entry across the union of the flattened constituent
+evidence and `snapshot.fund_level_evidence`; a single-leg union yields
+`evidence_insufficient` (the same value the `FundLevelSnapshot`
+branch yields on a missing leg). The existing **empty-flattened guard runs
+FIRST and is load-bearing** (see R1): a rule-2.5-publishable fund whose
+top-N constituents are all pure-failure (reachable — ADR 0003 §7
+2026-06-04 reconciliation) has empty flattened evidence but dual-leg
+`fund_level_evidence`; a naive union-first check would flip that
+*published* row `evidence_insufficient → intact`. The returned evidence
+tuple, gaps slot, and analyses slot are byte-identical to today — only
+`(state, reason)` may change, and (provably) never for a
+Policy-B-publishable row.
 
 ## Acceptance criteria
 
@@ -58,9 +71,17 @@ Each AC is independently verifiable; tests live in
   `opportunity_cmd.py:1046`). Mirror test for the data-leg direction
   (info-only constituent evidence + fund-level NAV `citation_kind=="data"`
   → `"intact"`).
-- **AC5 (empty-evidence path unchanged).** Empty flattened evidence still
-  returns `"evidence_insufficient"` with the existing reason
-  `"主动基金未能收集到任何成分股证据。"` (regression lock). Note: a non-empty
+- **AC5 (empty-evidence path unchanged — TWO fixtures).** Empty flattened
+  evidence still returns `"evidence_insufficient"` with the existing reason
+  `"主动基金未能收集到任何成分股证据。"` (regression lock), **in BOTH of**:
+  (a) `fund_level_evidence=()` (the plain empty case), AND
+  (b) **`fund_level_evidence` carrying BOTH legs** (NAV `"data"` +
+  announcement `"information"`) — the rule-2.5-publishable all-pure-failure
+  shape. Fixture (b) is load-bearing: it pins that the empty-flattened
+  guard short-circuits BEFORE the union leg check, which is what makes the
+  AC10 publishable-invariance claim true (grill R1; ADR 0003 §8 property 3).
+  A naive "union has both legs → intact" implementation passes (a) but
+  fails (b). Note: a non-empty
   evidence set always has ≥1 leg (`citation_kind` is validated to the
   two-literal set in `ThesisEvidence.__post_init__`), so "both legs missing
   with non-empty evidence" is unreachable.
@@ -90,7 +111,13 @@ Each AC is independently verifiable; tests live in
 - **AC10 (Policy-B-publishable invariance).** No snapshot shape that
   `evaluate_policy_b` publishes changes `thesis_state`: a rules-3+4-passing
   shape has both legs in flattened evidence (AC3); a rule-2.5-passing shape
-  has both legs in `fund_level_evidence` (AC4). Assert via the AC3/AC4
+  ~~has both legs in `fund_level_evidence` (AC4)~~ **[grill R1 — AC4 alone
+  is incomplete: it covers only rule-2.5 rows with non-empty constituent
+  evidence]** — has both legs in `fund_level_evidence` and splits into two
+  sub-cases: non-empty constituent evidence → `intact` via the union (AC4);
+  empty constituent evidence (all top-N pure-failure) → stays
+  `evidence_insufficient` via the empty-first guard (AC5 fixture (b)), which
+  is unchanged from today. Assert via the AC3/AC4/AC5(b)
   fixtures; the integration lockdown
   (`tests/integration/test_publishable_set_lockdown.py`) passes unmodified.
 - **AC11 (other branches untouched).** `FundLevelSnapshot`, legacy
@@ -203,7 +230,10 @@ Each AC is independently verifiable; tests live in
   downstream gate actually sees; (c) the union makes Policy-B-publishable
   invariance provable (AC10): rules 3+4 imply constituent dual-leg, rule 2.5
   implies fund-level dual-leg ⇒ no publishable row flips ⇒ canonical
-  main-pipeline outputs byte-identical. The union is presence-only: the
+  main-pipeline outputs byte-identical **[grill R1: this implication holds
+  only WITH the empty-flattened-first guard — rule 2.5 can publish an
+  all-pure-failure fund whose flattened evidence is empty, and a union-only
+  check would flip it intact-ward; see AC5 fixture (b)]**. The union is presence-only: the
   returned evidence tuple stays flattened-constituent-only to avoid
   double-append with the rule-2.5 stamp and any citation-set drift.
 - **Q4 — blast radius.** (i) Main `irc opportunity` pipeline: publishable
@@ -235,3 +265,80 @@ Each AC is independently verifiable; tests live in
   publishability authority inside the thesis setter (ADR 0003 separation)
   and adds material complexity to an over-budget file for no additional
   correctness (Policy B already gates those rows in the pipeline).
+
+## Resolved decisions (grill 2026-07-03)
+
+All spec code-location and literal claims were re-verified in code (not
+trusted from the spec's own text) before these resolutions.
+
+- **R1 — Empty-flattened guard precedes the union leg check (LOAD-BEARING;
+  new AC5 fixture (b)).** The only reachable Policy-B-publishable shape
+  where the union alone would flip a published row is: rule-2.5-publishable
+  fund, ALL top-N constituents pure-failure (`evidence==()`,
+  `failure_reasons!=()` — passes rule 2, documented reachable by ADR 0003
+  §7's 2026-06-04 reconciliation), dual-leg `fund_level_evidence`. Today it
+  is `evidence_insufficient`; it must stay so. The Goal, AC5, AC10 and Q3(c)
+  were amended accordingly. Resolving this shape intact-ward
+  (FundLevel-parity) was considered and REJECTED for this item: it changes
+  published canonical outputs, out of scope for a false-confidence bugfix
+  (recorded as ADR 0003 §8 Alternative B).
+- **R2 — Union decision SURVIVES the Policy-B stress test.** Exhaustive over
+  verdict shapes (`policy_b.py:217–366`): publishable ⟺ (no rule fired ⇒
+  rules 3+4 passed ⇒ flattened evidence dual-leg) ∨ (`fired_rule=="2.5"` ∧
+  `gap_codes==()` ⇒ `fund_level_evidence` dual-leg, `policy_b.py:283–312`).
+  With R1's ordering, every publishable row's `thesis_state` is byte-stable.
+  QDII rows bypass Policy B entirely (`FundLevelSnapshot` path, ADR 0003 §6)
+  and that branch is untouched (AC11). No contradiction with ADR 0003 rule
+  2.5 or the CONTEXT.md dual-coverage gate in any published scenario.
+- **R3 — Reason literals verified byte-for-byte where shared.** Existing
+  literals confirmed at `thesis_evidence.py:388` (intact) and `:392`
+  (empty); the FundLevel single-leg literal `"基金层级仅获取到部分证据。"`
+  (`:371`) is deliberately NOT reused — the two new direction-specific AC6
+  literals are better diagnostics for the Policy-B-free surfaces, and the
+  FundLevel branch keeps its own literal (AC11). New-literal exposure
+  audit: `thesis_reason` → `opportunity_reason` (5-segment `" | "` join,
+  `states.py:684`) reaches (a) `opportunity_report.json` — publishable-only
+  (H3) and no publishable row ever carries the new literals (R2); (b) memo
+  evidence pool — takes `split(" | ")[0]` = state segment only
+  (`evidence_pool.py:89`); (c) failure renderer — reads only the 4
+  non-conclusion fields (ADR 0003 §3.4); (d) `rejections.json` —
+  `RejectionRecord` (`rejection_log.py:40–51`) carries NO conclusion/reason
+  field; (e) alias-builder keys on `instrument_id`/`name_cn` only. ⇒ the
+  new strings can never appear in a SAME-3-relevant or citation-bearing
+  artifact; they surface only in eval-funds `note_cn` and narrative reports
+  (citation-free, Policy-B-free).
+- **R4 — H3 partition provably unchanged.** Partition predicate is
+  `evidence_gaps`-only; AC7 locks the gaps slot byte-identical
+  (`top_holdings_broker_thin` confirmed in `ADVISORY_GAP_CODES`,
+  `advisory_gaps.py:23–26`, routed to `advisory_gaps` by
+  `states._partition_gaps` — never into `evidence_gaps`). Grep confirmed no
+  existing test asserts `intact` on a data-only active fixture (all `intact`
+  assertions are legacy-`ConstituentSnapshot`/theme-report/compose paths).
+  Gapped-row internal flips produce zero byte change in any canonical
+  output artifact.
+- **R5 — eval-funds sensitivity confirmed.** `FundEval` carries
+  `thesis_state`, `opportunity_state`, `core_dca`,
+  `note_cn=row.opportunity_reason` (`fund_eval.py:58–72`); both renderers
+  emit `thesis_state` + `core_dca`. AC9's observable surface is correct;
+  `test_fund_eval.py::_intact_snapshot` verified to already carry both legs
+  (so the existing core_dca test passes unmodified). `note_cn` for
+  data-only funds will carry the new missing-leg literal — intended,
+  operator-visible improvement.
+- **R6 — Terminology: do NOT say "the dual-coverage gate now applies to
+  both snapshot shapes".** That wording conflates two gates at different
+  layers: the *dual-coverage gate* (CONTEXT.md) decides row publishability
+  at the auditor (per contributing dimension, `_PUBLISHABLE_SCOPES`); what
+  this item extends is the *thesis-level* presence-only heuristic inside
+  `derive_thesis_from_evidence`. CONTEXT.md gains a new distinct term
+  **"Dual-leg thesis heuristic"** (added under the citation-model section)
+  instead of an addendum to the dual-coverage gate entry.
+- **R7 — ADR disposition: addendum §8 to ADR 0003, not a new ADR.**
+  Three-of-three met: (1) hard to reverse — reverting re-opens the
+  `core_dca` false positive and the literals become regression-locked;
+  (2) surprising without context — the thesis check reads
+  `fund_level_evidence` while the returned tuple excludes it, and the
+  empty-first ordering silently guards published-output invariance;
+  (3) real trade-off — constituent-only vs presence-only union vs
+  FundLevel-parity intact-ward. Amendment-in-place follows ADR 0003 §7's
+  own Alternative B precedent (no sibling ADR overriding §1/§7 from
+  outside).
