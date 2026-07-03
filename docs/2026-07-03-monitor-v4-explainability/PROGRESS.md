@@ -6,7 +6,7 @@ Execution order: **003 → 001 → 002 → 004** (locked; see MASTER-PLAN.md).
 |-----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 003 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#200](https://github.com/snowshine0216/investment-research-copilot/pull/200) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `8a8e6994` |
 | 001 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#201](https://github.com/snowshine0216/investment-research-copilot/pull/201) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ `d894a644` |
-| 002 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#202](https://github.com/snowshine0216/investment-research-copilot/pull/202) | ⏭️ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ [#202](https://github.com/snowshine0216/investment-research-copilot/pull/202) | ⏭️ | ✅ | ✅ | ✅ | ✅ 1 round | ✅ `34d2e3bf` |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 Run-level: doc-sync ⏳ · final-verify ⏳ · close-out ⏳
