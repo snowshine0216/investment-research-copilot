@@ -39,10 +39,10 @@ def test_process_fund_returns_three_tuple_with_bundle(monkeypatch, tmp_path: Pat
     assert bundle.constituent_impacts == () and bundle.constituent_pool == ()
 
 
-def test_eval_trace_schema_version_is_6():
+def test_eval_trace_schema_version_is_7():
     from irc.monitor.eval.trace import build_eval_trace
     trace = build_eval_trace((), engine_version="3", run_date="2026-07-02")
-    assert trace["schema_version"] == "6"
+    assert trace["schema_version"] == "7"
 
 
 def test_eval_trace_carries_run_level_macro_narrative_field():
