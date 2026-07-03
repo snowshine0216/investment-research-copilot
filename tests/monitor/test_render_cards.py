@@ -5,7 +5,7 @@ from irc.monitor.render_html import CitationIndex
 from irc.monitor.render_cards import decision_line_html
 from irc.monitor.market_composite import MarketCompositeView
 
-_EMPTY_IDX = CitationIndex(())
+_EMPTY_IDX = CitationIndex((), {})
 
 
 def _rec(status="ok", bias="ADD_BIAS", c=0.5563, conf=0.9, fams=("price-momentum", "news"),
@@ -96,18 +96,31 @@ def test_narrative_sections_only_price_action():
 
 def test_claim_html_renders_numbered_superscript_with_title():
     cid = "0123456789abcdef"
-    idx = CitationIndex(((cid, "Reuters", "real yields up"),))
+    idx = CitationIndex((((cid, "Reuters", "real yields up", "", "")),), {cid: 0})
     claim = Claim("金价承压", "consistent_with", (cid,))
     html = _claim_html(claim, idx)
     assert f'href="#ev-{cid}"' in html
     assert "<sup>" in html and "</sup>" in html
     assert ">1</a>" in html
+    # empty date: no dangling separator
     assert 'title="Reuters — real yields up"' in html
     assert "[ref:" not in html  # no raw marker leaks
 
 
+def test_claim_html_hover_title_includes_date():
+    """spec §6 (unqualified): hover title = source — title · date, same format as
+    render_html._sup_local. render_cards._sup (via _claim_html) drives the majority
+    of report citations (verdict/risk/narrative sections) and must match."""
+    cid = "0123456789abcdef"
+    idx = CitationIndex(
+        (((cid, "Reuters", "real yields up", "2026-06-15", "")),), {cid: 0})
+    claim = Claim("金价承压", "consistent_with", (cid,))
+    html = _claim_html(claim, idx)
+    assert 'title="Reuters — real yields up · 2026-06-15"' in html
+
+
 def test_claim_html_unknown_cid_drops_marker_no_raw_ref():
-    idx = CitationIndex(())
+    idx = CitationIndex((), {})
     claim = Claim("x", "unknown", ("ffffffffffffffff",))
     html = _claim_html(claim, idx)
     assert "[ref:" not in html
@@ -135,3 +148,60 @@ def test_decision_line_no_tag_when_open():
     mv = MarketCompositeView(0.1, "NEUTRAL", 0.0, 2)
     html = decision_line_html(mv, purchase_tag=None)
     assert "限购" not in html
+
+
+def test_verdict_block_renders_with_empty_narrative_doc():
+    """Report v3: every fund's NarrativeDoc is now always the empty degraded
+    doc (status='empty_pool', no LLM call). verdict_block_html must still
+    render the deterministic clause; the MiniMax-comment blockquote is simply
+    absent (degrades through the EXISTING narr.status != 'ok' path)."""
+    from irc.monitor.render_cards import verdict_block_html
+    from irc.monitor.types import NarrativeDoc, SignalRecord
+
+    sig = SignalRecord(
+        fund_id="008986", status="ok", bias="ADD_BIAS", composite=0.55,
+        signal_confidence=0.9, available_weight=1.0, present_families=("trend",),
+        contributions=(), divergence_codes=(),
+    )
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    html = verdict_block_html(sig, empty_narr, idx=None)
+    assert "ADD_BIAS" in html
+    assert "综合分 C = 0.5500" in html
+    assert "narr-degraded" not in html   # not an ERROR state, just an intentionally empty doc
+
+
+def test_risk_block_renders_muted_placeholder_with_empty_narrative_doc():
+    from irc.monitor.render_cards import risk_block_html
+    from irc.monitor.types import NarrativeDoc, SignalRecord
+
+    sig = SignalRecord(
+        fund_id="008986", status="ok", bias="NEUTRAL", composite=0.05,
+        signal_confidence=0.9, available_weight=1.0, present_families=("trend",),
+        contributions=(), divergence_codes=(),
+    )
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    html = risk_block_html(sig, empty_narr, idx=None)
+    assert "无显著风险信号" in html
+
+
+def test_narrative_sections_html_empty_narrative_doc_renders_nothing():
+    from irc.monitor.render_cards import narrative_sections_html
+    from irc.monitor.types import NarrativeDoc
+
+    empty_narr = NarrativeDoc("008986", (), (), (), "empty_pool")
+    assert narrative_sections_html(empty_narr, idx=None) == ""
+
+
+def test_theme_chips_html_renders_one_chip_per_fund_theme():
+    from irc.monitor.render_cards import theme_chips_html
+
+    html = theme_chips_html(("us_monetary", "geopolitics"))
+    assert '#macro-us_monetary' in html
+    assert '#macro-geopolitics' in html
+    assert "美联储政策" in html
+    assert "地缘政治" in html
+
+
+def test_theme_chips_html_empty_themes_renders_empty_string():
+    from irc.monitor.render_cards import theme_chips_html
+    assert theme_chips_html(()) == ""

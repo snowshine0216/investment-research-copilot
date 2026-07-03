@@ -76,9 +76,8 @@ def test_flow_wired_into_composite_for_active_cn_equity(monkeypatch, tmp_path: P
     import irc.commands.monitor_cmd as mc
 
     monkeypatch.setattr(mc, "nav_series_for", lambda _fid: None)
-    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, repo_root: ())
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
     monkeypatch.setattr(mc, "gather_impacts", lambda **_kw: _FakeImpacts())
-    monkeypatch.setattr(mc, "gather_narrative", lambda **_kw: _FakeNarr())
     monkeypatch.setattr(mc, "build_constituent_pool", lambda fid, root: ())
     monkeypatch.setattr(mc, "load_latest_active_fund_cached", lambda fid, data_dir: _fake_snap())
     monkeypatch.setattr(mc, "_load_flow_store_slice",
@@ -115,11 +114,6 @@ class _FakeImpacts:
 
     def _impact_rows_from(self, fund):
         return ()
-
-
-class _FakeNarr:
-    doc = NarrativeDoc("110011", (), (), (), "ok")
-    cost_entries = []
 
 
 # ── Finding 2: exception in flow_reconciliation must yield WARN, not PASS ─────
@@ -172,3 +166,81 @@ def test_flow_health_exception_fallback_is_warn(monkeypatch, tmp_path: Path):
         f"Expected WARN on exception fallback, got status={health.status!r}. "
         f"Reasons: {health.reasons}"
     )
+
+
+# ── board-dark-note e2e (Phase 6 review fix): real run_monitor -> report.html ──
+
+
+def test_run_monitor_board_dark_note_collapses_all_na_industry_column(tmp_path, monkeypatch):
+    """e2e wiring check: a real active_cn_equity fund with a real snapshot on disk
+    (via write_active_fund_cache/_make_active_snapshot from test_monitor_constituent)
+    but NO valuation DB (no data/local.duckdb -> con stays None, per run_monitor's
+    own db_path.exists() guard) and NO flow store on disk -> every _BOARD_NA_COLUMNS
+    column, including the industry-valuation legs, is N/A for every holdings-board
+    row. Asserts the rendered report.html collapses this to a single
+    board-dark-note header carrying a structured reason code (never a bare dash
+    wall) for the 行业 column, and that the collapsed columns' raw values are
+    absent from the board body (only na-reason spans remain per-cell).
+
+    Wiring bug exposed + fixed (minimal, TDD, see test_dual_track_self_and_
+    industry_both_na_sets_industry_no_data_reason in test_holding_metrics.py):
+    dual_track_score's self_score-None early return (src/irc/monitor/_dual_track.py)
+    never set industry_reason even when the industry leg was ALSO unusable, so
+    HoldingMetric.industry_reason stayed None whenever a stock had no PE/PB
+    history at all. holdings_board_html's _row_reason fallback chain then read
+    past the (always-None) industry_reason key straight to flow_reason for the
+    行业 column's board-dark-note label ('行业（flow_no_data）') — a real stock
+    had no industry data, mislabeled with an unrelated column's reason. Fixed by
+    setting industry_reason='industry_no_data' whenever the industry leg itself
+    is unusable, independent of the self leg."""
+    import textwrap
+    import irc.commands.monitor_cmd as mc
+    from tests.commands.test_monitor_cmd import _patch_edges
+    from tests.commands.test_monitor_constituent import (
+        _make_active_snapshot, _patch_process_fund_edges,
+    )
+    from irc.fundamentals.snapshot_cache import write_active_fund_cache
+
+    yaml_cfg = textwrap.dedent("""
+    schema_version: 1
+    history: { minimum_observations: 10, fetch_calendar_days: 550 }
+    defaults: { signal_bands: { buy: 0.40, sell: -0.40 }, minimum_confidence: 0.50 }
+    funds:
+      - { id: "519069", name_cn: 汇添富价值精选, market: cn_off_exchange, analysis_profile: active_cn_equity, themes: [cn_monetary, cn_equity_property_policy], constituent_news: true }
+    """)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(yaml_cfg, encoding="utf-8")
+    snap = _make_active_snapshot("519069")
+    write_active_fund_cache(snap, tmp_path / "data")  # real snapshot -> real top-5 holdings
+
+    _patch_process_fund_edges(monkeypatch, "519069")  # _process_fund I/O edges (real helper)
+    _patch_edges(monkeypatch)  # preflight/load_yaml/load_trading_days/_build_theme_results
+    monkeypatch.setattr(mc, "build_evidence_pool", lambda fund, **k: ())
+    monkeypatch.setattr(mc, "gather_impacts", lambda **k: _FakeImpacts())
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    # No data/local.duckdb written -> run_monitor's own `db_path.exists()` guard
+    # keeps con=None; no flow store written -> _load_flow_store_slice degrades to
+    # {} — both are real production degrade paths, not hand-built fixtures.
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+
+    assert "board-dark-note" in html
+    # Locate the actual <table class='holdings-board'> section, NOT the earlier
+    # `.holdings-board{...}` CSS selector occurrence in <style> (both contain the
+    # substring "holdings-board").
+    board_start = html.index("<table class='holdings-board'>")
+    board_html = html[board_start:]
+    note = board_html.split("board-dark-note")[1].split("</p>")[0]
+    assert "行业" in note                  # industry column label present in the note
+    assert "industry_no_data" in note      # structured reason code, not a bare dash wall
+    # collapsed columns must not appear as raw cell content in the board body —
+    # only the note carries the reason code, never a per-cell reason span for a
+    # fully-dark column (per-row na-reason spans only appear for partially-dark
+    # columns, e.g. valuation_state's no_series here).
+    board_body = board_html.split("<table", 1)[1].split("</table>")[0]
+    assert "industry_no_data" not in board_body

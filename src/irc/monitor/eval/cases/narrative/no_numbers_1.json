@@ -1,8 +1,18 @@
 {
   "category": "no-numbers",
-  "messages_seed": { "fund_id": "000107" },
+  "messages_seed": {
+    "fund_id": "000107",
+    "theme": "geopolitics"
+  },
   "evidence_pool": [
-    {"source": "eastmoney", "title": "整体情绪偏中性", "date": "2026-06-08", "url": "https://example.com/n-num-1", "owner_fund_id": "000107", "citation_id": "bbbb000000000007"}
+    {
+      "source": "eastmoney",
+      "title": "整体情绪偏中性",
+      "date": "2026-06-08",
+      "url": "https://example.com/n-num-1",
+      "owner_fund_id": "000107",
+      "citation_id": "bbbb000000000007"
+    }
   ],
   "expected": {}
 }

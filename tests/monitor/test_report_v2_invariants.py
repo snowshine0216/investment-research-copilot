@@ -1,12 +1,14 @@
 """Structural invariants for Monitor Report v2 (market-composite anchor + news overlay).
 All five tests are PURE — no I/O, no network."""
 from __future__ import annotations
+from datetime import datetime, timedelta, timezone
 from irc.monitor.render_html import render_report
 from irc.monitor.render_types import FundView, Provenance
 from irc.monitor.types import SignalRecord, FactorContribution, NarrativeDoc
 from irc.monitor.market_composite import MarketCompositeView
 
 _NOW = "2026-06-30T09:00:00+08:00"
+_NOW_DT = datetime(2026, 6, 30, 9, 0, tzinfo=timezone(timedelta(hours=8)))
 
 
 def _signal(fund_id="519069"):
@@ -36,7 +38,7 @@ def _prov():
 
 
 def _report(*views, **kw):
-    return render_report(views, _prov(), prior_signal=None, now=_NOW, **kw)
+    return render_report(views, _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT, **kw)
 
 
 # 1. No <script> tags (pure HTML; no JS injection)

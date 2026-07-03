@@ -283,6 +283,22 @@ def test_dual_track_self_na_yields_no_score():
     assert dt.false_cheap is False
 
 
+def test_dual_track_self_and_industry_both_na_sets_industry_no_data_reason():
+    """Phase 6 review fix: when BOTH legs are N/A (self_score None AND the
+    industry leg unusable, e.g. no PE series at all), industry_reason must
+    still be 'industry_no_data' — not None. Before this fix, the self_score-None
+    early return (dual_track_score's first branch) skipped setting
+    industry_reason entirely, so holdings_board_html's _row_reason fallback
+    chain leaked an unrelated column's reason (e.g. flow_no_data) into the 行业
+    column's board-dark-note label whenever a stock had no valuation history at
+    all AND no flow data — a real combo hit by run_monitor e2e coverage with no
+    valuation DB configured."""
+    dt = dual_track_score(self_score=None, stock_pe=None, industry_avg_pe=None)
+    assert dt.val_score is None
+    assert dt.industry_score is None
+    assert dt.industry_reason == "industry_no_data"
+
+
 def test_false_cheap_clamp_hard_zero():
     # self=+0.5 (cheap vs own) AND r=1.5 (>=1.2 rich vs peers) → hard-0, flagged.
     dt = dual_track_score(self_score=0.5, stock_pe=30.0, industry_avg_pe=20.0)

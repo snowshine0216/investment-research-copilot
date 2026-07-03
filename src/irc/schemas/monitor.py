@@ -52,11 +52,18 @@ class MonitorDefaults(FrozenModel):
         return _validate_bands(v)
 
 
+class SourceTiersConfig(FrozenModel):
+    blocked: tuple[str, ...] = ()
+    tier1: tuple[str, ...] = ()
+    tier2: tuple[str, ...] = ()
+
+
 class MonitorConfig(FrozenModel):
     schema_version: int = Field(ge=1)
     history: MonitorHistoryConfig = Field(default_factory=MonitorHistoryConfig)
     defaults: MonitorDefaults = Field(default_factory=MonitorDefaults)
     funds: tuple[MonitorFundConfig, ...] = Field(min_length=1)
+    source_tiers: SourceTiersConfig = Field(default_factory=SourceTiersConfig)
 
     @model_validator(mode="after")
     def _no_dup_ids(self) -> "MonitorConfig":

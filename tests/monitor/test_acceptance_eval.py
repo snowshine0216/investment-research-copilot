@@ -46,6 +46,9 @@ def _patch(monkeypatch, funds, views):
     monkeypatch.setattr(monitor_cmd, "_read_prior_signal", lambda root, today: None)
     # Default: degrade to None so no test reaches the network; override per-test to inject a real calendar.
     monkeypatch.setattr(monitor_cmd, "load_trading_days", lambda today, root: None)
+    # Report v3: run_monitor consumes theme_results at run level (macro narrative).
+    # Empty map -> empty macro pool -> gather_macro_narrative early-returns (no LLM).
+    monkeypatch.setattr(monitor_cmd, "_build_theme_results", lambda root, funds: {})
     it = iter(views)
     monkeypatch.setattr(monitor_cmd, "_process_fund",
                         lambda fund, cfg, root, llm, **kw: (next(it), [],
@@ -76,7 +79,7 @@ def test_trace_carries_missing_trading_days_from_calendar(monkeypatch, tmp_path:
         (tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json")
         .read_text(encoding="utf-8"))
     assert trace["funds"]["008986"]["nav"]["missing_trading_days"] == 0
-    assert trace["schema_version"] == "5"
+    assert trace["schema_version"] == "6"
 
 
 def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: Path):

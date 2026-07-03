@@ -10,7 +10,7 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "5"
+_SCHEMA_VERSION = "6"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -173,10 +173,29 @@ def _fund_entry(fund: MonitorFund, view: FundView, gate: GateDecision,
     }
 
 
+def _macro_narrative(doc) -> dict | None:
+    """doc: MacroNarrativeDoc | None. None -> None (additive back-compat: no
+    macro block ran, or caller didn't pass one)."""
+    if doc is None:
+        return None
+    return {
+        "status": doc.status,
+        "blocks": [
+            {"theme": b.theme, "claims": [
+                {"claim": c.claim, "attribution_strength": c.attribution_strength,
+                 "citation_ids": list(c.citation_ids)}
+                for c in b.claims
+            ]}
+            for b in doc.blocks
+        ],
+    }
+
+
 def build_eval_trace(
     items: tuple[tuple[MonitorFund, FundView, GateDecision, FundTraceBundle], ...],
     *, engine_version: str, run_date: str,
     trading_days: frozenset[date] | None = None,
+    macro_narrative=None,
 ) -> dict:
     return {
         "schema_version": _SCHEMA_VERSION,
@@ -184,4 +203,5 @@ def build_eval_trace(
         "run_date": run_date,
         "funds": {fund.id: _fund_entry(fund, view, gate, bundle, trading_days)
                   for fund, view, gate, bundle in items},
+        "macro_narrative": _macro_narrative(macro_narrative),
     }

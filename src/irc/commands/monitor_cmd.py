@@ -30,6 +30,7 @@ from irc.llm.gateway import call as llm_call
 from irc.monitor.constituent_match import select_impacts_by_holding
 from irc.monitor.evidence import make_evidence_item
 from irc.monitor.factors import FactorInputs, build_factor_scores
+from irc.monitor.source_tiers import SourceTiers, classify, tiers_from_config
 from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
 from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
@@ -37,7 +38,9 @@ from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_indust
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
-from irc.monitor.narrative import gather_narrative
+from irc.monitor.narrative_macro import (
+    build_macro_pool, gather_macro_narrative, MacroNarrativeDoc, MacroNarrativeResult,
+)
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
 from irc.monitor.render_html import render_report
@@ -120,43 +123,69 @@ def run_monitor_snapshot(*, repo_root: str, top_n: int = 10) -> int:
 # ── Evidence pool (EDGE) ──────────────────────────────────────────────────────
 
 
-def _search_theme(provider, query: str, fund_id: str) -> tuple:
-    """Run one theme search; convert hits to EvidenceItems. Returns () on failure."""
-    result = provider.search(query, max_results=5, freshness_days=7)
-    if result.failure_reason:
-        _log.warning(
-            "monitor theme search failed for %s (%r): %s",
-            fund_id, query, result.failure_reason,
-        )
-        return ()
-    items = []
-    for hit in result.hits:
-        items.append(make_evidence_item(
-            hit.source_domain or provider.name,
-            hit.title, hit.published_iso or "", hit.url,
-            owner_fund_id=fund_id,
-        ))
-    return tuple(items)
+def _unique_themes(funds: list[MonitorFund]) -> tuple[str, ...]:
+    """Stable-sorted union of themes across the monitor set (Comp 2)."""
+    return tuple(sorted({t for fund in funds for t in fund.themes}))
 
 
-def build_evidence_pool(fund: MonitorFund, *, repo_root: Path) -> tuple:
-    """EDGE: run theme searches via configured providers → owner-bound EvidenceItems.
-    Returns () when no providers are configured or on any failure (factor gate surfaces gap).
-    This is the ONLY place the monitor touches search providers."""
+def _search_all_themes(
+    provider, themes: tuple[str, ...], *, tiers: SourceTiers,
+) -> dict[str, tuple]:
+    """EDGE: search once per unique theme (Comp 2 — 28->8 provider calls). Tier
+    gate (ADR 0022) applied here, once per theme, not per fund. Returns
+    {theme: tuple[SearchHit, ...]} with blocked hits dropped; a theme whose
+    search failed maps to () (logged, never raises)."""
+    out: dict[str, tuple] = {}
+    for theme in themes:
+        query = theme_query_seed(theme)
+        result = provider.search(query, max_results=5, freshness_days=7)
+        if result.failure_reason:
+            _log.warning("monitor theme search failed for theme %r: %s",
+                         theme, result.failure_reason)
+            out[theme] = ()
+            continue
+        kept = []
+        dropped = 0
+        for hit in result.hits:
+            domain = hit.source_domain or provider.name
+            if classify(domain, tiers) == "blocked":
+                dropped += 1
+                continue
+            kept.append(hit)
+        if dropped:
+            _log.warning("monitor theme search: dropped %d blocked-tier hit(s) for theme %r",
+                         dropped, theme)
+        out[theme] = tuple(kept)
+    return out
+
+
+def _load_source_tiers_config(repo_root: Path) -> dict | None:
+    """EDGE-read: `source_tiers:` section of config/monitor.yaml as a raw dict
+    (already pydantic-validated by load_monitor_config elsewhere; this is a
+    second narrow read local to the evidence edge to avoid threading cfg through
+    every build_evidence_pool call site — matches the existing load_monitor_config
+    pattern of a narrow, single-purpose read). None on any read/parse failure."""
     try:
-        settings = Settings()
-        providers = build_providers(settings)
-        if not providers:
-            return ()
-        provider = providers[0]   # use first available provider
-        items: list = []
-        for theme in fund.themes:
-            query = theme_query_seed(theme)
-            items.extend(_search_theme(provider, query, fund.id))
-        return tuple(items)
-    except Exception as exc:
-        _log.warning("build_evidence_pool failed for %s: %s", fund.id, exc, exc_info=True)
-        return ()
+        cfg = load_monitor_config(repo_root)
+        st = cfg.source_tiers
+        return {"blocked": list(st.blocked), "tier1": list(st.tier1), "tier2": list(st.tier2)}
+    except Exception:  # noqa: BLE001 — degrade to tier-3-everything, never crash
+        return None
+
+
+def build_evidence_pool(fund: MonitorFund, *, theme_results: dict[str, tuple]) -> tuple:
+    """PURE assembly (Comp 2): each fund's pool from the SHARED theme_results map
+    built once by _search_all_themes. Owner-binds per fund exactly as before (cid
+    preimage includes owner_fund_id, ADR 0017) — same hits -> same cids as the
+    status quo. Missing/failed theme key -> no hits for that theme (not KeyError)."""
+    items: list = []
+    for theme in fund.themes:
+        for hit in theme_results.get(theme, ()):
+            items.append(make_evidence_item(
+                hit.source_domain or "unknown", hit.title, hit.published_iso or "",
+                hit.url, owner_fund_id=fund.id,
+            ))
+    return tuple(items)
 
 
 # ── Constituent pool (EDGE — snapshot I/O) ───────────────────────────────────
@@ -268,6 +297,19 @@ def _make_constituent_rows(
 # ── Orchestration helpers ─────────────────────────────────────────────────────
 
 
+def _provisional_flow_for_fund(top5: tuple, provisional_flow: dict | None) -> float | None:
+    """PURE: simple mean of the top-5 symbols' intraday f184 values (render-only
+    annotation, NOT a factor — no weighting sophistication needed). None when
+    provisional_flow is None/empty or no top5 symbol has a value."""
+    if not provisional_flow or not top5:
+        return None
+    values = [provisional_flow.get(h.symbol) for h in top5]
+    present = [v for v in values if v is not None]
+    if not present:
+        return None
+    return sum(present) / len(present)
+
+
 def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
     """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
     (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
@@ -310,6 +352,8 @@ def _make_view(
     *,
     holding_metrics: tuple = (),
     purchase_table=None,
+    provisional_flow_pct: float | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -331,6 +375,9 @@ def _make_view(
         holding_metrics=holding_metrics,
         market_view=mv,
         purchase_tag=purchase_tag_for(fund.id, purchase_table=purchase_table),
+        themes=fund.themes,
+        provisional_flow_pct=provisional_flow_pct,
+        provisional_flow_as_of=provisional_flow_as_of,
     )
 
 
@@ -344,6 +391,24 @@ def _read_prior_signal(root: Path, today: str) -> dict | None:
         return json.loads(Path(files[-1]).read_text(encoding="utf-8"))
     except Exception:
         return None
+
+
+def _read_prior_signal_with_date(root: Path, today: str) -> tuple[dict | None, str | None]:
+    """Comp 5: like _read_prior_signal but also returns the prior run's date
+    label (for the 偏向变化 row's '(vs 2026-06-15)' annotation — on Monday
+    that's Friday, not a calendar 'yesterday', since it's the latest run
+    strictly before today)."""
+    import glob
+    pattern = str(root / "outputs" / "*" / "monitor" / "signal.json")
+    files = sorted(p for p in glob.glob(pattern) if today not in p)
+    if not files:
+        return None, None
+    latest = Path(files[-1])
+    prior_date = latest.parent.parent.name   # outputs/<date>/monitor/signal.json
+    try:
+        return json.loads(latest.read_text(encoding="utf-8")), prior_date
+    except Exception:
+        return None, None
 
 
 def _now_iso() -> str:
@@ -367,8 +432,8 @@ def _impacts_dump(views: list[FundView]) -> dict:
     }
 
 
-def _narrative_dump(views: list[FundView]) -> dict:
-    return {
+def _narrative_dump(views: list[FundView], macro_doc: MacroNarrativeDoc | None) -> dict:
+    out = {
         v.fund_id: {
             "status": v.narrative.status,
             "price_action": [c.claim for c in v.narrative.price_action_commentary],
@@ -377,6 +442,17 @@ def _narrative_dump(views: list[FundView]) -> dict:
         }
         for v in views
     }
+    out["__macro__"] = (
+        {
+            "status": macro_doc.status,
+            "blocks": [
+                {"theme": b.theme, "claims": [c.claim for c in b.claims]}
+                for b in macro_doc.blocks
+            ],
+        }
+        if macro_doc is not None else {"status": "empty_pool", "blocks": []}
+    )
+    return out
 
 
 def _machine_summary(views: list[FundView]) -> dict:
@@ -399,12 +475,23 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    gates: tuple[GateDecision, ...] = (),
                    panel_rows: tuple[ValidationPanelRow, ...] = (),
                    predictive_panel: PredictivePanelModel | None = None,
-                   timeline: BiasTimeline | None = None) -> None:
-    prov = Provenance(_ENGINE_VERSION, "1", "1", "")
+                   timeline: BiasTimeline | None = None,
+                   macro_doc: MacroNarrativeDoc | None = None,
+                   macro_pool_items: tuple = (),
+                   tiers: SourceTiers | None = None,
+                   constituent_pool_items: tuple = (),
+                   prior_run_date: str | None = None,
+                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
+    prov = Provenance(_ENGINE_VERSION, "2", "6", "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
-    html = render_report(tuple(views), prov, prior_signal=prior, now=_now_iso(),
+    html = render_report(tuple(views), prov, prior_signal=prior,
+                         now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
                          gates=gate_map, panel_rows=panel_rows,
-                         predictive_panel=predictive_panel, timeline=timeline)
+                         predictive_panel=predictive_panel, timeline=timeline,
+                         macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
+                         tiers=tiers, constituent_pool_items=constituent_pool_items,
+                         prior_run_date=prior_run_date, purchase_tags=purchase_tags,
+                         stale_eval_days=STALE_EVAL_DAYS)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -416,7 +503,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
     )
     atomic_write_text(
         out / "narrative.json",
-        json.dumps(_narrative_dump(views), indent=2, sort_keys=True),
+        json.dumps(_narrative_dump(views, macro_doc), indent=2, sort_keys=True),
     )
     atomic_write_text(
         out / "monitor.json",
@@ -560,14 +647,16 @@ def _compute_gates(
 def _write_eval_artifacts(
     out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
-    trading_days: frozenset[date] | None,
+    trading_days: frozenset[date] | None, macro_narrative=None,
 ) -> None:
-    """EDGE: serialize eval_trace.json + append the forward ledger. Failures are
-    logged and swallowed — the brief must still render."""
+    """EDGE: serialize eval_trace.json (now carrying the run-level macro_narrative
+    field, schema 5->6) + append the forward ledger. Failures are logged and
+    swallowed — the brief must still render."""
     try:
         trace = build_eval_trace(
             tuple(zip(funds, views, gates, bundles)),
             engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
+            macro_narrative=macro_narrative,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -750,17 +839,26 @@ def _append_nav_history_for_views(
 def _process_fund(
     fund: MonitorFund, cfg, root: Path, llm_config, *, con=None, purchase_table=None,
     today: str | None = None, flow_slice: dict | None = None,
+    theme_results: dict[str, tuple] | None = None,
+    provisional_flow: dict | None = None,
+    provisional_flow_as_of: str | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
-    """Process one fund: fetch → impacts → signal → narrative → view (+ eval bundle).
+    """Process one fund: fetch → impacts → signal → view (+ eval bundle).
 
-    `flow_slice` is the run-level flow-store slice loaded ONCE by `run_monitor`
-    for the union of all active-fund top-5 symbols (read-once intent, D10). When
-    None (e.g. a caller/test invoking this function directly), falls back to a
-    per-fund `_load_flow_store_slice` read for library robustness."""
+    Report v3: the per-fund LLM narrative call is GONE — every view carries the
+    empty degraded NarrativeDoc; the run-level 宏观面 macro block (built once in
+    run_monitor via gather_macro_narrative) replaces it (spec §5).
+
+    `flow_slice` is the run-level flow-store slice (see prior docstring, unchanged).
+    `theme_results` is the run-level shared theme-search results map (Comp 2,
+    built ONCE by run_monitor for the union of all funds' themes) — when None
+    (e.g. a caller/test invoking this function directly), falls back to an
+    empty dict so build_evidence_pool degrades to an empty pool, mirroring the
+    prior "no providers configured" empty-pool behavior for library robustness."""
     from irc.monitor.profiles import PROFILES
     from irc.monitor.valuation import ValuationResolution
     nav = nav_series_for(fund.id)
-    pool = build_evidence_pool(fund, repo_root=root)
+    pool = build_evidence_pool(fund, theme_results=theme_results or {})
     impacts = gather_impacts(
         fund_id=fund.id, themes=fund.themes, pool=pool,
         route=llm_config, call=llm_call,
@@ -772,6 +870,7 @@ def _process_fund(
     const_impacts_result = None
     const_pool: tuple = ()
     holding_metrics: tuple = ()
+    provisional_pct: float | None = None
     profile_spec = PROFILES.get(fund.analysis_profile)
     if profile_spec and profile_spec.lookthrough == "active_fund":
         const_pool = build_constituent_pool(fund.id, root=root)
@@ -795,6 +894,7 @@ def _process_fund(
                 flow_slice=(flow_slice if flow_slice is not None
                             else _load_flow_store_slice(
                                 root, tuple(h.symbol for h in top5))))
+        provisional_pct = _provisional_flow_for_fund(top5, provisional_flow)
 
     if con is not None:
         val = resolve_valuation_state(fund, con=con, root=root)
@@ -820,12 +920,11 @@ def _process_fund(
     )
     scores = build_factor_scores(fund.analysis_profile, inp)
     signal = compute_signal(fund, scores)
-    narr = gather_narrative(
-        fund_id=fund.id, pool=pool, route=llm_config, call=llm_call,
-    )
-    cost_history.extend(narr.cost_entries)
-    view = _make_view(fund, nav, signal, scores, narr.doc, pool, impacts.status,
-                      holding_metrics=holding_metrics, purchase_table=purchase_table)
+    empty_narr = NarrativeDoc(fund.id, (), (), (), "empty_pool")
+    view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
+                      holding_metrics=holding_metrics, purchase_table=purchase_table,
+                      provisional_flow_pct=provisional_pct,
+                      provisional_flow_as_of=provisional_flow_as_of)
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -833,6 +932,28 @@ def _process_fund(
         constituent_pool=const_pool,
     )
     return view, cost_history, bundle
+
+
+def _build_theme_results(root: Path, funds: list[MonitorFund]) -> dict[str, tuple]:
+    """EDGE: resolve the search provider + source tiers ONCE per run, search once
+    per unique theme across the whole monitor set (Comp 2). Empty dict when no
+    providers configured or on any failure — every fund's build_evidence_pool then
+    degrades to an empty pool exactly as the old per-fund failure path did."""
+    try:
+        settings = Settings()
+        providers = build_providers(settings)
+        if not providers:
+            return {}
+        provider = providers[0]
+        raw_tiers = _load_source_tiers_config(root)
+        if raw_tiers is None:
+            _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
+        tiers = tiers_from_config(raw_tiers)
+        themes = _unique_themes(funds)
+        return _search_all_themes(provider, themes, tiers=tiers)
+    except Exception as exc:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("_build_theme_results failed: %s", exc, exc_info=True)
+        return {}
 
 
 def run_monitor(*, repo_root: str, today: str | None = None) -> int:
@@ -857,6 +978,15 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
+    provisional_flow = _provisional_flow_note(root, _capture_union_symbols(funds, root))
+    # EDGE clock read (allowed HERE, never in render_*): stamp the ACTUAL fetch
+    # time for the 盘中提示 annotation (spec §8 截至HH:MM — the 15:45 capture
+    # rerun renders its own time, never a hardcoded 12:15).
+    provisional_flow_as_of = (
+        datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
+        if provisional_flow else None
+    )
+    theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
     all_costs: list = []
@@ -864,7 +994,9 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         for fund in funds:
             view, costs, bundle = _process_fund(
                 fund, cfg, root, llm_config, con=con, purchase_table=purchase_table,
-                today=_today, flow_slice=flow_slice,
+                today=_today, flow_slice=flow_slice, theme_results=theme_results,
+                provisional_flow=provisional_flow,
+                provisional_flow_as_of=provisional_flow_as_of,
             )
             views.append(view)
             bundles.append(bundle)
@@ -872,6 +1004,15 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     finally:
         if con is not None:
             con.close()
+    macro_pool = build_macro_pool(theme_results)
+    try:
+        macro_result = gather_macro_narrative(
+            theme_pool=macro_pool, route=llm_config, call=llm_call)
+    except Exception as exc:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("gather_macro_narrative failed: %s", exc, exc_info=True)
+        macro_result = MacroNarrativeResult(MacroNarrativeDoc((), f"gather_error: {exc}"), ())
+    all_costs.extend(macro_result.cost_entries)
+    macro_pool_items = tuple(ev for items in macro_pool.values() for ev in items)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
     trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
@@ -889,16 +1030,29 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         valuation_reconciliation_healths=val_recon_healths,
         valuation_coverage_healths=val_cov_healths,
     )
-    prior = _read_prior_signal(root, _today)
+    prior, prior_run_date = _read_prior_signal_with_date(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
-                          run_date=_today, trading_days=trading_days)
+                          run_date=_today, trading_days=trading_days,
+                          macro_narrative=macro_result.doc)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
+    raw_tiers_for_drilldown = _load_source_tiers_config(root)
+    if raw_tiers_for_drilldown is None:
+        _log.warning("monitor: source_tiers config missing/malformed -> all tier 3")
+    tiers = tiers_from_config(raw_tiers_for_drilldown)
+    constituent_pool_items = tuple(
+        ev for b in bundles for ev in b.constituent_pool
+    )
+    purchase_tags = {v.fund_id: v.purchase_tag for v in views}
     _write_outputs(out, views, prior, gates, panel_rows, predictive_panel=predictive_panel,
-                   timeline=timeline)
+                   timeline=timeline, macro_doc=macro_result.doc,
+                   macro_pool_items=macro_pool_items, tiers=tiers,
+                   constituent_pool_items=constituent_pool_items,
+                   prior_run_date=prior_run_date,
+                   purchase_tags=purchase_tags, now_dt=now_dt)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

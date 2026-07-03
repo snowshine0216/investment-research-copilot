@@ -1,8 +1,21 @@
 {
   "category": "entailment-ablation",
-  "messages_seed": { "fund_id": "000104" },
+  "messages_seed": {
+    "fund_id": "000104",
+    "theme": "geopolitics"
+  },
   "evidence_pool": [
-    {"source": "yicai", "title": "行业出现政策催化", "date": "2026-06-11", "url": "https://example.com/n-pol-1", "owner_fund_id": "000104", "citation_id": "bbbb000000000004"}
+    {
+      "source": "yicai",
+      "title": "行业出现政策催化",
+      "date": "2026-06-11",
+      "url": "https://example.com/n-pol-1",
+      "owner_fund_id": "000104",
+      "citation_id": "bbbb000000000004"
+    }
   ],
-  "expected": { "present_iff_item": "bbbb000000000004", "claim_probe": "政策" }
+  "expected": {
+    "present_iff_item": "bbbb000000000004",
+    "claim_probe": "政策"
+  }
 }

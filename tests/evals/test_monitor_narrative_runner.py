@@ -13,12 +13,14 @@ def _today() -> str:
 
 
 def _clean_narrative_reply(cid):
+    """Report v3 macro-block shape: JSON keyed by theme (runner defaults every
+    case to 'geopolitics' when messages_seed lacks a theme key, matching the
+    corpus's own "theme": "geopolitics" fixtures)."""
     return ChatResponse(
         text=json.dumps({
-            "price_action_commentary": [
-                {"claim": "估值偏低", "attribution_strength": "consistent_with",
+            "geopolitics": [
+                {"claim": "估值偏低，情绪偏谨慎。", "attribution_strength": "consistent_with",
                  "citation_ids": [cid]}],
-            "signal_rationale_commentary": [], "risk_commentary": [],
         }),
         prompt_tokens=20, completion_tokens=10, latency_ms=40,
     )

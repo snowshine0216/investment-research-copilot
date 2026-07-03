@@ -1,12 +1,20 @@
 from __future__ import annotations
 from dataclasses import dataclass
+from datetime import datetime
 from html import escape
+from urllib.parse import urlparse
 from irc.monitor.render_types import FundView, Provenance
+from irc.monitor.source_tiers import SourceTiers, TIER_LABEL, classify
 from irc.monitor.render_cards import (
     narrative_sections_html, risk_block_html, verdict_block_html, decision_line_html,
+    theme_chips_html,
 )
+from irc.monitor.narrative_macro import MacroNarrativeDoc, theme_display_name
+from irc.monitor.types import EvidenceItem
 from irc.monitor.render_factors import factor_table_html, returns_table_html
-from irc.monitor.render_drilldown import holdings_board_html, flow_rollup_html
+from irc.monitor.render_drilldown import (
+    holdings_board_html, flow_rollup_html, provisional_flow_annotation_html,
+)
 from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
 from irc.monitor.eval.gate import published_state
@@ -16,44 +24,104 @@ from irc.monitor.eval.types import GateDecision, ValidationPanelRow, PredictiveP
 from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
+from irc.monitor.render_overview import (
+    compute_actionable, compute_data_health, compute_flips, overview_html,
+)
 
 
 @dataclass(frozen=True)
 class CitationIndex:
-    """PURE cid → 1-based N + (source, title), first-seen = appendix order."""
-    entries: tuple[tuple[str, str, str], ...]   # (cid, source, title)
-
-    def _pos(self, cid: str) -> int | None:
-        for i, (c, _, _) in enumerate(self.entries):
-            if c == cid:
-                return i
-        return None
+    """PURE cid -> 1-based N + (source, title, date, tier_label). Multiple cids
+    sharing a canonical identity key (url or title, date) collapse to ONE
+    appendix entry (Comp 4 — exact post-Comp-2-consolidation; query-string
+    stripping was considered and rejected, spec §6)."""
+    entries: tuple[tuple[str, str, str, str, str], ...]   # (canonical_cid, source, title, date, tier_label)
+    cid_to_entry_index: dict[str, int]
 
     def number(self, cid: str) -> int | None:
-        p = self._pos(cid)
-        return None if p is None else p + 1
+        i = self.cid_to_entry_index.get(cid)
+        return None if i is None else i + 1
 
     def source(self, cid: str) -> str | None:
-        p = self._pos(cid)
-        return None if p is None else self.entries[p][1]
+        i = self.cid_to_entry_index.get(cid)
+        return None if i is None else self.entries[i][1]
 
     def title(self, cid: str) -> str | None:
-        p = self._pos(cid)
-        return None if p is None else self.entries[p][2]
+        i = self.cid_to_entry_index.get(cid)
+        return None if i is None else self.entries[i][2]
+
+    def date(self, cid: str) -> str | None:
+        i = self.cid_to_entry_index.get(cid)
+        return None if i is None else self.entries[i][3]
+
+    def tier_label(self, cid: str) -> str | None:
+        i = self.cid_to_entry_index.get(cid)
+        return None if i is None else self.entries[i][4]
 
 
-def build_citation_index(views: tuple[FundView, ...]) -> CitationIndex:
-    """PURE: appendix-order (first-seen) cid index over every fund's evidence pool.
-    Same iteration order as _appendix so superscript-N == appendix-N."""
-    seen: set[str] = set()
-    out: list[tuple[str, str, str]] = []
+def _identity_key(ev) -> tuple[str, str]:
+    """Canonical dedup identity: (url or title, date). Exact-string URL match —
+    query-string stripping rejected (spec §6): query-routed pages would merge
+    wrongly, and post-Comp-2-consolidation the same article yields byte-identical
+    URLs anyway."""
+    return (ev.url or ev.title, ev.date)
+
+
+def build_tier_badges(
+    items: tuple[EvidenceItem, ...], *, tiers: SourceTiers,
+    constituent_cids: frozenset[str],
+) -> dict[str, str]:
+    """PURE: citation_id -> Chinese tier-badge label. Constituent-pool items
+    (their cids passed in constituent_cids) always get 快照 (ADR 0022 — a
+    domain tier is meaningless for snapshot-grounded evidence, never 未分级
+    which would misread as 'unvetted web source'). Everything else classifies
+    via classify(domain, tiers) -> TIER_LABEL. Blocked items should never reach
+    here (dropped at ingest), but a defensive fallback still labels them 已屏蔽
+    rather than crashing."""
+    out: dict[str, str] = {}
+    for ev in items:
+        if ev.citation_id in constituent_cids:
+            out[ev.citation_id] = "快照"
+            continue
+        domain = urlparse(ev.url).hostname or ev.source if ev.url else ev.source
+        tier = classify(domain or "", tiers)
+        out[ev.citation_id] = TIER_LABEL.get(tier, "未分级")
+    return out
+
+
+def build_citation_index(
+    views: tuple[FundView, ...], macro_pool_items: tuple[EvidenceItem, ...] = (),
+    *, tier_badges: dict[str, str] | None = None,
+) -> CitationIndex:
+    """PURE: first-seen (url-or-title, date) identity index over every fund's
+    evidence pool PLUS the macro pool. Same iteration order as _appendix so
+    superscript-N == appendix-N. `tier_badges` maps citation_id -> tier label
+    (source_tiers.TIER_LABEL value, or '快照' for constituent-pool items) —
+    each appendix ENTRY carries the badge of its first-seen cid (later cids
+    sharing the identity key do not override it)."""
+    badges = tier_badges or {}
+    seen_identity: dict[tuple[str, str], int] = {}
+    cid_to_entry_index: dict[str, int] = {}
+    entries: list[list] = []   # mutable during build; frozen to tuples at the end
+
+    def _absorb(ev) -> None:
+        key = _identity_key(ev)
+        idx_pos = seen_identity.get(key)
+        if idx_pos is None:
+            idx_pos = len(entries)
+            seen_identity[key] = idx_pos
+            entries.append([ev.citation_id, ev.source, ev.title, ev.date,
+                            badges.get(ev.citation_id, "")])
+        cid_to_entry_index[ev.citation_id] = idx_pos
+
     for v in views:
         for ev in v.evidence_pool:
-            if ev.citation_id in seen:
-                continue
-            seen.add(ev.citation_id)
-            out.append((ev.citation_id, ev.source, ev.title))
-    return CitationIndex(tuple(out))
+            _absorb(ev)
+    for ev in macro_pool_items:
+        _absorb(ev)
+    return CitationIndex(
+        tuple(tuple(e) for e in entries), cid_to_entry_index,
+    )
 
 
 _NO_CALL = "NO_CALL"
@@ -106,6 +174,7 @@ _CSS = (
     ".holdings-board th,.holdings-board td{border:1px solid #d0d7de;padding:3px 6px;text-align:right}"
     ".holdings-board th:nth-child(-n+3),.holdings-board td:nth-child(-n+3){text-align:left}"
     ".na-reason{color:#8c959f;font-size:11px}"
+    ".tier-badge{color:#57606a;font-size:11px}"
     ".flow-rollup{margin:8px 0;padding:6px 8px;background:#f6f8fa;border-left:3px solid #0969da;font-size:13px}"
     ".flow-outage{margin:8px 0;padding:6px 8px;background:#fff8c5;border:1px solid #d4a72c;border-radius:6px}"
     "sup a{text-decoration:none}"
@@ -119,6 +188,14 @@ _CSS = (
     ".engine-boundary{border-left:2px solid #bf8700}"
     ".contrib{width:100%;max-width:280px;height:auto;display:block;margin:6px 0}"
     ".heatmap-legend{font-size:11px}"
+    ".overview{margin:8px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px;background:#f6f8fa}"
+    ".overview-row{margin:4px 0}"
+    ".flip-from{color:#6e7781}.flip-to{font-weight:600}"
+    ".restricted-tag{font-size:11px;color:#9a6700;background:#fff8c5;padding:0 4px;border-radius:3px}"
+    ".panel-amber{background:#fff8c5}"
+    ".age-amber{color:#bf8700}"
+    ".dark-chip{font-size:11px;color:#bf8700;background:#fff8c5;padding:0 4px;border-radius:3px}"
+    ".provisional-flow{font-size:12px;margin-top:4px}"
     "</style>"
 )
 
@@ -143,8 +220,12 @@ def _drilldown_block(view: FundView) -> str:
     if not view.holding_metrics:
         return ""
     agg = aggregate_flow(view.holding_metrics)
+    provisional = provisional_flow_annotation_html(
+        symbol_value=view.provisional_flow_pct,
+        as_of_hhmm=view.provisional_flow_as_of or "")
     return (holdings_board_html(view.holding_metrics)
-            + flow_rollup_html(view.holding_metrics, agg, view.signal))
+            + flow_rollup_html(view.holding_metrics, agg, view.signal)
+            + provisional)
 
 
 def _flow_eligible(view: FundView) -> bool:
@@ -238,6 +319,7 @@ def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
         f"{returns_table_html(view.return_table)}"
         f"{factor_table_html(view.signal, view.factor_scores, view.factor_freshness)}"
         f"{_drilldown_block(view)}"
+        f"{theme_chips_html(view.themes)}"
         f"{narrative_sections_html(view.narrative, idx)}"
         f"{risk_block_html(view.signal, view.narrative, idx)}"
         "</section>"
@@ -246,9 +328,12 @@ def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
 
 def _appendix(idx: CitationIndex) -> str:
     items = []
-    for n, (cid, source, title) in enumerate(idx.entries, start=1):
+    for n, (cid, source, title, ev_date, tier_label) in enumerate(idx.entries, start=1):
+        date_part = f" · {escape(ev_date)}" if ev_date else ""
+        badge_part = f' · <span class="tier-badge">{escape(tier_label)}</span>' if tier_label else ""
         items.append(
-            f'<li id="ev-{cid}">{n}. {escape(title)} — {escape(source)}</li>'
+            f'<li id="ev-{cid}">{n}. {escape(title)} — {escape(source)}'
+            f'{date_part}{badge_part}</li>'
         )
     return (
         "<details><summary>证据 / Evidence</summary><ol>"
@@ -268,11 +353,67 @@ def _badge_counts(views: tuple[FundView, ...], gates: dict[str, GateDecision]) -
 
 def _panel(
     views: tuple[FundView, ...], gates: dict[str, GateDecision] | None,
-    panel_rows: tuple[ValidationPanelRow, ...],
+    panel_rows: tuple[ValidationPanelRow, ...], *, now_dt: datetime,
 ) -> str:
     if not gates or not panel_rows:
         return ""
-    return validation_panel_html(rows=panel_rows, badge_counts=_badge_counts(views, gates))
+    return validation_panel_html(rows=panel_rows,
+                                 badge_counts=_badge_counts(views, gates), now=now_dt)
+
+
+def _macro_claim_html(claim, idx: "CitationIndex") -> str:
+    text = escape(claim.claim)
+    refs = "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
+    return f"<p>{text} {refs}</p>"
+
+
+def _sup_local(cid: str, idx: "CitationIndex") -> str:
+    n = idx.number(cid)
+    if n is None:
+        return ""
+    date = idx.date(cid)
+    date_part = f" · {date}" if date else ""
+    title = escape(f"{idx.source(cid)} — {idx.title(cid)}{date_part}")
+    return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
+
+
+def _macro_theme_section(
+    block, fund_themes_by_theme: dict[str, tuple[str, ...]], idx: "CitationIndex | None",
+) -> str:
+    label = escape(theme_display_name(block.theme))
+    funds = fund_themes_by_theme.get(block.theme, ())
+    chips = "".join(f'<span class="fund-chip">{escape(fid)}</span>' for fid in funds)
+    body = "".join(_macro_claim_html(c, idx) if idx is not None else f"<p>{escape(c.claim)}</p>"
+                   for c in block.claims)
+    return (
+        f'<div class="macro-theme" id="macro-{escape(block.theme)}">'
+        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{body}</div>"
+    )
+
+
+def macro_narrative_html(
+    doc: MacroNarrativeDoc | None,
+    *, fund_themes_by_theme: dict[str, tuple[str, ...]],
+    idx: "CitationIndex | None" = None,
+) -> str:
+    """PURE: 宏观面速览 section, theme-labeled Chinese subsections with #macro-<theme>
+    anchors + affected-fund chips (spec §5). None doc or 'empty_pool'/non-'ok'
+    status or zero blocks -> '' (degrades like the timeline/predictive panel)."""
+    if doc is None or doc.status != "ok" or not doc.blocks:
+        return ""
+    sections = "".join(_macro_theme_section(b, fund_themes_by_theme, idx) for b in doc.blocks)
+    return f'<section class="macro-narrative"><h2>宏观面速览</h2>{sections}</section>'
+
+
+def _invert_fund_themes(views: tuple[FundView, ...]) -> dict[str, tuple[str, ...]]:
+    """PURE: theme -> tuple of fund_ids whose fund.themes include it (deterministic
+    from config, spec §5 — 'affected-fund chips ... reverse of the card→anchor
+    links'). Stable order: iteration order of views."""
+    out: dict[str, list[str]] = {}
+    for v in views:
+        for theme in v.themes:
+            out.setdefault(theme, []).append(v.fund_id)
+    return {theme: tuple(fids) for theme, fids in out.items()}
 
 
 def render_report(
@@ -281,10 +422,18 @@ def render_report(
     *,
     prior_signal: dict | None,
     now: str,
+    now_dt: datetime,
     gates: dict[str, GateDecision] | None = None,
     panel_rows: tuple[ValidationPanelRow, ...] = (),
     predictive_panel: PredictivePanelModel | None = None,
     timeline: BiasTimeline | None = None,
+    macro_narrative: MacroNarrativeDoc | None = None,
+    macro_pool_items: tuple[EvidenceItem, ...] = (),
+    tiers: SourceTiers | None = None,
+    constituent_pool_items: tuple[EvidenceItem, ...] = (),
+    prior_run_date: str | None = None,
+    purchase_tags: dict[str, str | None] | None = None,
+    stale_eval_days: int = 10,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -293,16 +442,39 @@ def render_report(
         f'{escape(provenance.spend_summary)}</header>'
     )
     g = gates or {}
-    idx = build_citation_index(views)
+    constituent_cids = frozenset(ev.citation_id for ev in constituent_pool_items)
+    all_pool_items = (tuple(ev for v in views for ev in v.evidence_pool)
+                      + macro_pool_items + constituent_pool_items)
+    tier_badges = build_tier_badges(
+        all_pool_items, tiers=tiers or SourceTiers((), (), ()),
+        constituent_cids=constituent_cids,
+    )
+    idx = build_citation_index(views, macro_pool_items + constituent_pool_items,
+                               tier_badges=tier_badges)
+    flips = compute_flips(views, prior_signal, prior_run_date)
+    actionable = compute_actionable(views, g, purchase_tags or {})
+    # `today` derived PURELY from the as_of stamp (first 10 chars of the ISO
+    # `now` string); `predictive_stale` from the already-computed
+    # PredictivePanelModel — NO clock read anywhere under render_* (spec §2,
+    # Global Constraints).
+    health = compute_data_health(
+        views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
+        predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
+    )
+    overview = overview_html(flips=flips, actionable=actionable, health=health)
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
         + "</table>"
     )
     heatmap = factor_heatmap_html(views)
-    timeline_html = bias_timeline_html(timeline) if timeline is not None else ""
+    fund_names = {v.fund_id: v.name_cn for v in views}
+    timeline_html = bias_timeline_html(timeline, fund_names=fund_names) if timeline is not None else ""
+    fund_themes_by_theme = _invert_fund_themes(views)
+    macro_html = macro_narrative_html(
+        macro_narrative, fund_themes_by_theme=fund_themes_by_theme, idx=idx)
     cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
-    panel = _panel(views, gates, panel_rows)
+    panel = _panel(views, gates, panel_rows, now_dt=now_dt)
     outage_note = _flow_outage_note(views)
     predictive = (
         predictive_validity_panel_html(model=predictive_panel)
@@ -311,7 +483,7 @@ def render_report(
     return (
         "<!doctype html><html lang='zh'><head><meta charset='utf-8'>"
         "<title>irc monitor</title>" + _CSS + "</head><body>"
-        + header + outage_note + _EXPLAINER + summary + heatmap + timeline_html
-        + cards + panel + predictive
+        + header + outage_note + overview + _EXPLAINER + summary + heatmap + timeline_html
+        + macro_html + cards + panel + predictive
         + _appendix(idx) + "</body></html>"
     )

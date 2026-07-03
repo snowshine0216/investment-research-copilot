@@ -31,21 +31,25 @@ def _cell_html(prev_eng: str | None, cell: _Cell) -> str:
     return f'<td class="tl-cell {cls}{boundary}">{label}</td>'
 
 
-def _row_html(fund_id: str, cells: tuple[_Cell, ...]) -> str:
+def _row_html(fund_id: str, cells: tuple[_Cell, ...], *, fund_names: dict[str, str]) -> str:
     out = []
     prev_eng: str | None = None
     for cell in cells:
         out.append(_cell_html(prev_eng, cell))
         prev_eng = cell[1]
-    return f"<tr><td>{escape(fund_id)}</td>{''.join(out)}</tr>"
+    label = f"{fund_names[fund_id]}({fund_id})" if fund_id in fund_names else fund_id
+    return f"<tr><td>{escape(label)}</td>{''.join(out)}</tr>"
 
 
-def bias_timeline_html(timeline: BiasTimeline) -> str:
+def bias_timeline_html(timeline: BiasTimeline, *, fund_names: dict[str, str] | None = None) -> str:
+    """`fund_names` maps fund_id -> name_cn (spec §8: bare fund codes must render
+    as 名称(代码)); missing entries degrade to the bare fund_id."""
     if not timeline.run_dates or not timeline.rows:
         return ""
+    names = fund_names or {}
     head = "<tr><th>基金</th>" + "".join(
         f"<th>{escape(d)}</th>" for d in timeline.run_dates) + "</tr>"
-    body = "".join(_row_html(fid, cells) for fid, cells in timeline.rows)
+    body = "".join(_row_html(fid, cells, fund_names=names) for fid, cells in timeline.rows)
     note = '<p class="muted">引擎切换以边框标记 (engine-boundary)</p>'
     return ('<section class="timeline"><h2>方向性倾向历史</h2>'
             f'<table class="timeline-table">{head}{body}</table>{note}</section>')
