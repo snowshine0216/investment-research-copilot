@@ -11,7 +11,7 @@ _HEX16 = re.compile(r"^[0-9a-f]{16}$")
 _IMPACT_CATS = {"directional-strong", "directional-neutral", "contradiction",
                 "injection", "citation-discipline"}
 _NARR_CATS = {"citation-resolve", "entailment-ablation", "attribution-honesty",
-              "no-numbers", "injection"}
+              "no-numbers", "injection", "mechanism"}
 # Categories whose scorer averages a per-case fraction → need ≥2 cases (AC3).
 _IMPACT_FRACTION = {"directional-strong", "directional-neutral", "contradiction"}
 _NARR_FRACTION = {"citation-resolve", "entailment-ablation", "attribution-honesty"}

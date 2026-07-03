@@ -1995,6 +1995,14 @@ If steps 1-6 required changes:
 git add -A && git commit -m "fix(monitor): verification-sweep fixups (002)"
 ```
 
+**Plan amendment (post-hoc, drift review 002-drift.md):** running the full sweep
+surfaces one test this plan never named: `tests/monitor/eval/test_corpus_contract.py::
+test_narrative_categories_exact` pins the narrative corpus category set as a closed
+set (`_NARR_CATS`) and breaks as a direct, mechanical consequence of Task 7 adding
+`mechanism_1.json`/`mechanism_2.json` with `"category": "mechanism"` — add
+`"mechanism"` to `_NARR_CATS` in that file as part of this step's fixup commit. This
+is in-scope for Step 7 ("fix anything red"), not a new file the plan needs to track.
+
 ---
 
 ## Self-Review (done at plan-authoring time)

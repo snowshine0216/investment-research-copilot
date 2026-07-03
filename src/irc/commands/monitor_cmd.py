@@ -38,8 +38,10 @@ from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_indust
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
+from irc.monitor.macro_direction import unmatched_impact_keys
 from irc.monitor.narrative_macro import (
-    build_macro_pool, gather_macro_narrative, MacroNarrativeDoc, MacroNarrativeResult,
+    PROMPT_VERSION, build_macro_pool, gather_macro_narrative,
+    MacroNarrativeDoc, MacroNarrativeResult,
 )
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
@@ -446,7 +448,11 @@ def _narrative_dump(views: list[FundView], macro_doc: MacroNarrativeDoc | None) 
         {
             "status": macro_doc.status,
             "blocks": [
-                {"theme": b.theme, "claims": [c.claim for c in b.claims]}
+                {"theme": b.theme, "mechanism": b.mechanism,
+                 # 002 ship-review round 1, Finding 2 (P1): additive debug
+                 # key — present-but-dropped vs. LLM-omitted, both None otherwise.
+                 "mechanism_dropped": b.mechanism_dropped,
+                 "claims": [c.claim for c in b.claims]}
                 for b in macro_doc.blocks
             ],
         }
@@ -481,8 +487,10 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    tiers: SourceTiers | None = None,
                    constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
-                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
-    prov = Provenance(_ENGINE_VERSION, "2", SCHEMA_VERSION, "")
+                   purchase_tags: dict | None = None,
+                   macro_impacts_by_fund: dict | None = None,
+                   *, now_dt: datetime) -> None:
+    prov = Provenance(_ENGINE_VERSION, PROMPT_VERSION, SCHEMA_VERSION, "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior,
                          now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
@@ -491,7 +499,8 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
                          tiers=tiers, constituent_pool_items=constituent_pool_items,
                          prior_run_date=prior_run_date, purchase_tags=purchase_tags,
-                         stale_eval_days=STALE_EVAL_DAYS)
+                         stale_eval_days=STALE_EVAL_DAYS,
+                         macro_impacts_by_fund=macro_impacts_by_fund)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -648,6 +657,7 @@ def _write_eval_artifacts(
     out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
     trading_days: frozenset[date] | None, macro_narrative=None,
+    unmatched_keys: tuple[str, ...] = (),
 ) -> None:
     """EDGE: serialize eval_trace.json (now carrying the run-level macro_narrative
     field, schema 5->6) + append the forward ledger. Failures are logged and
@@ -657,6 +667,7 @@ def _write_eval_artifacts(
             tuple(zip(funds, views, gates, bundles)),
             engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
             macro_narrative=macro_narrative,
+            unmatched_impact_keys=unmatched_keys,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -1033,9 +1044,25 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     prior, prior_run_date = _read_prior_signal_with_date(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
+    # 002 ship-review round 1, Finding 1 (P0): known themes = the same
+    # config-derived theme set the renderer's fund-chip lookup uses
+    # (mirrors render_html._invert_fund_themes' source, FundView.themes) —
+    # NOT a new config surface. A macro impact key absent from it is a
+    # typo'd/stale/renamed LLM echo that would otherwise render as silent
+    # "no record" forever (impact_validate.py:37 never validates the key).
+    known_themes = {theme for v in views for theme in v.themes}
+    macro_impacts_by_fund = {b.fund_id: b.macro_impacts for b in bundles}
+    unmatched_keys = unmatched_impact_keys(known_themes, macro_impacts_by_fund)
+    if unmatched_keys:
+        _log.warning(
+            "monitor: macro impact key(s) unmatched by any rendered theme "
+            "(typo'd/stale/renamed LLM echo, invisible on the report): %s",
+            ", ".join(unmatched_keys),
+        )
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days,
-                          macro_narrative=macro_result.doc)
+                          macro_narrative=macro_result.doc,
+                          unmatched_keys=unmatched_keys)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
@@ -1052,7 +1079,9 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                    macro_pool_items=macro_pool_items, tiers=tiers,
                    constituent_pool_items=constituent_pool_items,
                    prior_run_date=prior_run_date,
-                   purchase_tags=purchase_tags, now_dt=now_dt)
+                   purchase_tags=purchase_tags,
+                   macro_impacts_by_fund=macro_impacts_by_fund,
+                   now_dt=now_dt)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,

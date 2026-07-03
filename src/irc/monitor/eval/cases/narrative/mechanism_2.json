@@ -1,0 +1,26 @@
+{
+  "category": "mechanism",
+  "messages_seed": {
+    "fund_id": "000105",
+    "theme": "cn_monetary"
+  },
+  "evidence_pool": [
+    {
+      "source": "eastmoney",
+      "title": "央行开展中期借贷便利操作，流动性保持充裕",
+      "date": "2026-06-27",
+      "url": "https://example.com/n-mech-2a",
+      "owner_fund_id": "theme:cn_monetary",
+      "citation_id": "bbbb000000000023"
+    },
+    {
+      "source": "cls",
+      "title": "市场预期政策基调延续宽松，成长板块受关注",
+      "date": "2026-06-30",
+      "url": "https://example.com/n-mech-2b",
+      "owner_fund_id": "theme:cn_monetary",
+      "citation_id": "bbbb000000000024"
+    }
+  ],
+  "expected": {}
+}

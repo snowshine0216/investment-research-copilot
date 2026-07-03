@@ -1,7 +1,7 @@
 from __future__ import annotations
 from irc.monitor.eval.metrics_narrative import (
     citation_resolution, entailment_ablation_pass, attribution_honesty,
-    hallucination_rate, injection_resistance,
+    hallucination_rate, injection_resistance, mechanism_validity,
 )
 
 
@@ -197,3 +197,97 @@ def test_attribution_honesty_no_cases_vacuous():
     cases = [_case("citation-resolve", {})]
     outs = [_doc([_claim("估值偏低")])]
     assert attribution_honesty(cases, outs) == 1.0
+
+
+# ---- Item 002: dual-shape _all_claims (prompt v3 object values) ----
+
+
+def _v3_doc(claims, mechanism=None, theme="us_monetary"):
+    entry = {"claims": list(claims)}
+    if mechanism is not None:
+        entry["mechanism"] = mechanism
+    return {theme: entry}
+
+
+def test_citation_resolution_accepts_v3_object_shape():
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
+    outs = [_v3_doc([_claim("估值偏低", cids=["bbbb000000000001"])],
+                    mechanism="政策宽松→利多成长")]
+    assert citation_resolution(cases, outs) == 1.0
+
+
+def test_citation_resolution_mixed_v2_and_v3_theme_values():
+    cases = [_case("citation-resolve", {},
+                   pool_cids=("bbbb000000000001", "bbbb000000000002"))]
+    outs = [{
+        "cn_monetary": [_claim("流动性宽松", cids=["bbbb000000000001"])],           # v2
+        "gold_drivers": {"claims": [_claim("避险需求上升",                            # v3
+                                           cids=["bbbb000000000002"])]},
+    }]
+    assert citation_resolution(cases, outs) == 1.0
+
+
+def test_v3_claims_not_a_list_contributes_nothing():
+    """Malformed v3 "claims" (non-list) contributes [] — with no other claims the
+    Finding-3 degraded convention applies."""
+    cases = [_case("citation-resolve", {}, pool_cids=("bbbb000000000001",))]
+    outs = [{"us_monetary": {"claims": "一句话"}}]
+    assert citation_resolution(cases, outs) == 0.0
+
+
+# ---- Item 002: mechanism_validity ----
+
+
+def test_mechanism_validity_valid_clause_passes():
+    cases = [_case("mechanism", {})]
+    outs = [_v3_doc([_claim("政策宽松")], mechanism="就业数据疲软→加息预期降温→利多黄金")]
+    assert mechanism_validity(cases, outs) == 1.0
+
+
+def test_mechanism_validity_absent_mechanism_is_valid():
+    """Required-optional: a v2 bare-list entry or a dict without "mechanism"
+    is valid."""
+    cases = [_case("mechanism", {}), _case("mechanism", {})]
+    outs = [
+        {"us_monetary": [_claim("政策宽松")]},            # v2 bare list
+        {"us_monetary": {"claims": [_claim("政策宽松")]}},  # v3, no mechanism key
+    ]
+    assert mechanism_validity(cases, outs) == 1.0
+
+
+def test_mechanism_validity_digit_bearing_is_invalid():
+    cases = [_case("mechanism", {})]
+    outs = [_v3_doc([_claim("政策宽松")], mechanism="降息25bp→利多黄金")]
+    assert mechanism_validity(cases, outs) == 0.0
+
+
+def test_mechanism_validity_ref_marker_is_invalid():
+    cases = [_case("mechanism", {})]
+    outs = [_v3_doc([_claim("政策宽松")],
+                    mechanism="政策宽松→利多 [ref:aaaaaaaaaaaaaaaa]")]
+    assert mechanism_validity(cases, outs) == 0.0
+
+
+def test_mechanism_validity_oversized_is_invalid():
+    cases = [_case("mechanism", {})]
+    outs = [_v3_doc([_claim("政策宽松")], mechanism="货" * 61)]
+    assert mechanism_validity(cases, outs) == 0.0
+
+
+def test_mechanism_validity_non_cjk_is_invalid():
+    cases = [_case("mechanism", {})]
+    outs = [_v3_doc([_claim("政策宽松")], mechanism="dovish pivot, bullish gold")]
+    assert mechanism_validity(cases, outs) == 0.0
+
+
+def test_mechanism_validity_degraded_empty_output_is_miss():
+    """Finding-3 convention: the degraded {} from drive_case counts as a miss."""
+    cases = [_case("mechanism", {})]
+    outs = [{}]
+    assert mechanism_validity(cases, outs) == 0.0
+
+
+def test_mechanism_validity_no_mechanism_cases_vacuous():
+    cases = [_case("no-numbers", {})]
+    outs = [_doc([_claim("情绪偏中性")])]
+    assert mechanism_validity(cases, outs) == 1.0

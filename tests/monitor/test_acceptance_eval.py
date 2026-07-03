@@ -152,3 +152,17 @@ def test_report_header_schema_cannot_drift_from_trace(monkeypatch, tmp_path: Pat
     trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
     assert f"schema {SCHEMA_VERSION}" in html
     assert trace["schema_version"] == SCHEMA_VERSION == "7"
+
+
+def test_report_header_prompt_cannot_drift_from_constant(monkeypatch, tmp_path: Path):
+    """Item 002 AC10 / RD-4: monitor_cmd's Provenance consumes
+    narrative_macro.PROMPT_VERSION — the report header renders `prompt 3` and
+    the hardcoded "2" literal is gone."""
+    from irc.monitor.narrative_macro import PROMPT_VERSION
+    funds = [_fund("008986")]
+    _patch(monkeypatch, funds, [_stale_view("008986")])
+    monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert f"prompt {PROMPT_VERSION}" in html
+    assert PROMPT_VERSION == "3"
