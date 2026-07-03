@@ -150,3 +150,69 @@ Each independently verifiable:
   before editing (001 lands after 003 in execution order, so drift is unlikely but possible).
 
 **None unresolved** — all questions closed from MASTER-SPEC, the source spec, and the code.
+
+## Resolved decisions
+
+Grill session 2026-07-03 (grill-with-docs, autonomous). Numbered G1–G12 to stay distinct
+from brainstorming Q1–Q10 above. Upstream P6 locks were NOT reopened. Every factual claim
+in the spec (call-site line, import line, file lengths, test-line range, `_contributions`
+value-copy, single-caller grep) was re-verified against current code — **all accurate, no
+strike-throughs required**.
+
+- **G1 — Name of the promoted σ-threshold constant?**
+  A: `_LOW_AGREEMENT_STDEV = 0.5` in `src/irc/monitor/signal.py`, beside `_DIVERGE = 0.3`.
+  Rationale: mirrors the `low_factor_agreement` code it gates; the underscore cross-module
+  import follows the existing `annotate.py` ← `signal._FAMILY_OF` precedent (spec Q3).
+- **G2 — σ comparison vs display rounding?**
+  A: compare the RAW recomputed `statistics.pstdev` against `_LOW_AGREEMENT_STDEV` (gate
+  parity); display σ at 2dp (`{:.2f}`) and the threshold via `{:g}` (renders `0.5`, never
+  `0.50`). Rationale: comparison-before-rounding makes a false `σ=… ≥ 0.5` claim impossible;
+  `{:g}` keeps the rendered threshold byte-equal to the locked example.
+- **G3 — Do the pairwise branches recheck the trigger predicate (honesty parity with Q9)?**
+  A: NO — a pairwise detail renders whenever both named factors are present, no trigger
+  recheck. Rationale: the pairwise line asserts nothing beyond the values it prints (unlike
+  the σ sentence's explicit `≥ 0.5` claim); duplicating `_divergence`'s three predicates in
+  the renderer is exactly the drift G1/Q3 avoids; codes and contributions are fields of one
+  frozen `SignalRecord` computed in a single pass, so production inconsistency is impossible.
+  The Q9 σ recheck is a byproduct of a recomputation the renderer needs anyway (to choose
+  grouped vs dispersion form), not an extra honesty gate to generalize.
+- **G4 — Import hygiene at `render_cards.py:5` after the swap?**
+  A: the import REPLACES `divergence_caveat` with `divergence_caveat_detail` (not extended —
+  the old name would be an unused import; ruff-enforced). `divergence_caveat` stays public
+  in `render_factors` for its exact-string tests and the internal fallback.
+- **G5 — How do the four AC-5 fallback cases route?**
+  A: all delegate to `divergence_caveat(code)` — one fallback carrier, one code path;
+  unknown-code `escape(code)` passthrough comes for free. Never read `_DIVERGENCE_CAVEATS`
+  directly from the detail function.
+- **G6 — AC-7 test shape given `tests/monitor/test_render_cards.py:11` `_rec` hardcodes `contributions=()`?**
+  A: extend `_rec` with a `contribs=()` keyword parameter (default preserves every existing
+  call site byte-for-byte) rather than adding a parallel builder. Same-file convention, zero
+  churn.
+- **G7 — Are 偏多/偏空 sign-group labels honest for `heat` (inverted crowding semantics)?**
+  A: yes — verified `annotate.py`: ALL factor values share the positive-supports-ADD
+  convention (heat caps calm at +0.3, overheated negative), which is what makes the composite
+  a weighted sum. Sign-grouping by contribution value is semantically consistent for every
+  factor; no per-factor exception needed.
+- **G8 — Negative zero in the 中性 group?**
+  A: normalize `value + 0.0` before formatting (IEEE: `-0.0 + 0.0 == 0.0`) so a defensive
+  `-0.0` renders `+0.00`, never `-0.00`. Blanket rule (no-op for nonzero values).
+- **G9 — `、` separator before the trailing 中性 group (`… ↔ 偏空 trend -0.75、中性 constituent +0.00`) — misparse risk?**
+  A: keep as spec'd. The inline `中性` label disambiguates, exact-zero floats are
+  defensive-rare, and a third separator would add vocabulary for a corner case; the format
+  is already pinned by AC-3's exact-string test.
+- **G10 — New CONTEXT.md term for the group labels or the detail function?**
+  A: none. 偏多/偏空/中性 reuse the report-wide direction-gloss vocabulary
+  (`annotate._market_dir`); they are factor-direction glosses, never [[Directional bias]]
+  values, and carry no trade verbs. "Divergence caveat detail" is a render implementation
+  detail, not a domain term — adding it would bloat the glossary.
+- **G11 — Is AC-4's "no behavior change" claim safe against the eval layer (AC-9 forbids `src/irc/monitor/eval/` edits)?**
+  A: yes — verified: `eval/determinism.py:94` diffs `divergence_codes` by recomputing through
+  the same `_divergence` (a pure literal→name rename is invisible to it);
+  `tests/monitor/test_signal.py` holds no source-literal assertion on `0.5`; the static
+  string `各因子方向/强度不一致` appears in exactly one test file
+  (`tests/monitor/test_render_factors.py`) — no golden-bytes report test locks it.
+- **G12 — Does this item need a new ADR?**
+  A: no — the three-of-three bar fails on all prongs: render detail is cheap to reverse,
+  unsurprising (ADR 0018 already locks divergence codes as "caveats, never suppressors",
+  a posture this item preserves), and carries no hard trade-off. ADR 0004 renderer
+  determinism is satisfied by fixed-order iteration + ASCII `{:+.2f}` (spec Constraints).
