@@ -297,8 +297,8 @@
         <rect x="908" y="444" width="302" height="72" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
         <text x="1059" y="466" fill="white" font-size="11" font-weight="600" text-anchor="middle">Eval spine · trace + gate + panel</text>
         <text x="1059" y="482" fill="#94a3b8" font-size="8" text-anchor="middle">M1 gate {signal, impact, narrative}: FAIL → EVAL-GATED 🛡</text>
-        <text x="1059" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">WARN/stale → ⚠ caveated · inline monitor_forward re-score</text>
-        <text x="1059" y="509" fill="#34d399" font-size="8" text-anchor="middle">eval_trace schema "6" · engine "4"</text>
+        <text x="1059" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">WARN/stale → ⚠ caveated（带原因） · inline monitor_forward re-score</text>
+        <text x="1059" y="509" fill="#34d399" font-size="8" text-anchor="middle">eval_trace schema "7" · engine "4"</text>
 
         <!-- render / write -->
         <rect x="908" y="552" width="250" height="80" rx="6" fill="#0f172a"/>
@@ -332,7 +332,7 @@
         <text x="922" y="794" fill="#a78bfa" font-size="9">• monitor.json</text>
         <text x="1040" y="794" fill="#94a3b8" font-size="8">machine summary · SENTINEL (last)</text>
         <text x="922" y="812" fill="#a78bfa" font-size="9">• eval_trace.json</text>
-        <text x="1040" y="812" fill="#94a3b8" font-size="8">schema "6" · eval spine input</text>
+        <text x="1040" y="812" fill="#94a3b8" font-size="8">schema "7" · eval spine input</text>
 
         <!-- ledger appends -->
         <rect x="908" y="856" width="300" height="68" rx="6" fill="#0f172a"/>
@@ -372,7 +372,7 @@
         <rect x="1026" y="950" width="220" height="56" rx="6" fill="#0f172a"/>
         <rect x="1026" y="950" width="220" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
         <text x="1136" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc eval monitor_*</text>
-        <text x="1136" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">forward (weekly) · impact/narrative (live-gated, paid)</text>
+        <text x="1136" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">forward (weekly) · impact/narrative (Sat wrapper auto, paid)</text>
 
         <!-- ============================ LEGEND ============================ -->
         <text x="908" y="188" fill="white" font-size="11" font-weight="600">Legend</text>
@@ -427,7 +427,7 @@
         <ul>
           <li>• 7 artifacts + 2 ledger appends · atomic .tmp → os.replace · sentinel = monitor.json</li>
           <li>• Gaps ship as N/A + reason code; dark columns collapse with honest reasons</li>
-          <li>• 今日速览: 偏向变化 · 可操作 · 数据健康 (all gate-respecting)</li>
+          <li>• 今日速览: run-global caveat 行（首行） · 偏向变化 · 可操作 · 数据健康 (all gate-respecting)</li>
           <li>• Forward panel honest: insufficient_data until engine-3 blocks mature (only trend-only ~0.54 accrued)</li>
         </ul>
       </div>
@@ -435,7 +435,7 @@
 
     <!-- Footer -->
     <p class="footer">
-      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 / 0021 / 0022 · report v3 · engine "4" · eval schema "6"<br>
+      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 / 0021 / 0022 · report v3 · engine "4" · eval schema "7"<br>
       ops manual → <a href="../monitor/README.md" style="color:#22d3ee;text-decoration:none;">docs/monitor/README.md</a> · validation &amp; eval layer → companion <a href="../../evals/docs/monitor-eval-workflow.html" style="color:#34d399;text-decoration:none;">evals/docs/monitor-eval-workflow.html</a>
     </p>
   </div>

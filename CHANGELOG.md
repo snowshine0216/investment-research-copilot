@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor report: self-explanatory caveats + weekly LLM-suite auto-refresh (2026-07-03)
+
+- **⚠ caveated is now self-explanatory and self-healing** (report-v4
+  explainability WS-1 / P1+P2+OD-3, item 001). `resolve_health` age-stamps the
+  stale reason (`("stale, 15d",)`); `apply_eval_gate`'s caveated branch
+  populates `GateDecision.reason` (`monitor_impact: UNKNOWN (stale, 15d); …` —
+  FAIL branch unchanged); the caveated chip becomes an anchor to the Validation
+  panel with a Chinese-labeled tooltip; run-global LLM-suite causes dedupe to
+  ONE first-position 今日速览 line
+  (`全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新`); fund-specific
+  (`monitor_signal`) causes render per-card as 为何有保留; the Validation panel
+  gains its anchor id + a manual-refresh remediation hint. New explicit
+  `RUN_GLOBAL_STAGES` literal in `eval/gate.py` (equality-guarded vs `M1 − M0`).
+  `ops/launchd/run-weekly.sh` appends two best-effort watchdog-bounded live
+  eval runs (`env IRC_RUN_LIVE_LLM_EVAL=1 …`, `IRC_WEEKLY_EVAL_TIMEOUT` default
+  900 s, after notify — never affects the wrapper rc or paging; eval-live spend
+  gate unchanged) so a weekly cadence keeps both suites fresh under
+  `STALE_AFTER_DAYS = 14`. eval-trace `schema_version` "6" → **"7"** (shape
+  unchanged — `gate.reason` just stops being empty); the constant is unified
+  (`trace.SCHEMA_VERSION` now feeds the report-header `Provenance`, RD-1). No
+  `_ENGINE_VERSION` change; forward ledger untouched (rows carry no
+  schema_version; `gate_reason` is write-only — RD-8).
+
 ### Added — monitor report: divergence caveats name factors with signed values (2026-07-03)
 
 - **风险 divergence caveat lines in the monitor report now show which factors
