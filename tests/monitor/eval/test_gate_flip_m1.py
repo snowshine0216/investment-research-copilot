@@ -112,6 +112,10 @@ def test_missing_suite_reports_fail_open(tmp_path: Path):  # AC20
                                                                 suite_healths=suite_healths, trading_days=None)
     assert gates[0].suppressed is False
     assert gates[0].badge == "caveated"  # Finding 1: missing report must be caveated, not validated
+    # report v4 item 001: the caveated reason is populated end-to-end through
+    # _suite_eval -> _compute_gates (absent reports carry no age).
+    assert gates[0].reason == ("monitor_impact: UNKNOWN (absent); "
+                               "monitor_narrative: UNKNOWN (absent)")
 
 
 def test_no_call_precedence_when_status_not_ok(tmp_path: Path):  # AC19 NO_CALL branch
