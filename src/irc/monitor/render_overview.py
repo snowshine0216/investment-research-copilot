@@ -4,11 +4,12 @@ respecting) / 数据健康 (dark-factor + gate + stale-eval counts). Each row
 dropped when empty; all-empty -> one muted quiet line. No I/O — all inputs
 already exist in the command layer."""
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from html import escape
 
-from irc.monitor.eval.gate import published_state
+from irc.monitor.eval.gate import RUN_GLOBAL_STAGES, published_state
 
 
 @dataclass(frozen=True)
@@ -192,3 +193,31 @@ def compute_data_health(
             + (1 if predictive_stale else 0)
         ),
     )
+
+
+# ── Caveat reason surfaces (report v4 item 001, P2) ───────────────────────────
+# The three locked Chinese labels (P2); everything else passes through raw.
+_SUITE_LABELS_CN = {"monitor_impact": "影响评分质量评估",
+                    "monitor_narrative": "叙事质量评估"}
+_STALE_REASON_RE = re.compile(r"stale, (\d+)d")
+
+
+def caveat_tooltip(reason: str) -> str:
+    """PURE: gate caveat reason -> Chinese-labeled tooltip text. Stage prefixes
+    map via _SUITE_LABELS_CN; a `stale, {N}d` reason renders 上次质量评估已过期
+    {N}天; unmapped stages / other reason strings pass through raw. Returns
+    UNESCAPED text — the badge escapes at the HTML edge."""
+    segments = []
+    for seg in reason.split("; "):
+        head, sep, rest = seg.partition(": ")
+        body = _STALE_REASON_RE.sub(lambda m: f"上次质量评估已过期 {m.group(1)}天", rest)
+        segments.append(f"{_SUITE_LABELS_CN.get(head, head)}{sep}{body}")
+    return "; ".join(segments)
+
+
+def fund_specific_segments(reason: str) -> tuple[str, ...]:
+    """PURE: caveat-reason segments NOT attributed to a run-global stage
+    (prefix before ': ' not in RUN_GLOBAL_STAGES) — today: monitor_signal WARNs.
+    Only "; " splits segments; reason strings may contain ", "/": " (RD-7)."""
+    return tuple(seg for seg in reason.split("; ")
+                 if seg and seg.partition(": ")[0] not in RUN_GLOBAL_STAGES)

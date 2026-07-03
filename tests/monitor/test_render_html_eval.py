@@ -130,3 +130,28 @@ def test_panel_vocabulary_and_age_e2e_through_real_render_report():
     sig_row_html = html.split("monitor_signal")[1].split("</tr>")[0]
     assert ">PASS<" in sig_row_html  # gate-relevant stage keeps raw vocabulary
     assert "age-amber" in html
+
+
+# ── report v4 item 001: caveated chip = anchor + Chinese tooltip ─────────────
+
+
+def test_caveated_chip_is_anchor_with_chinese_tooltip():
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    html = _render(_view(bias="ADD_BIAS"), _gate(badge="caveated", reason=reason))
+    assert '<a class="val-chip val-caveated" href="#validation-panel"' in html
+    assert "影响评分质量评估: UNKNOWN (上次质量评估已过期 15天)" in html
+    assert "叙事质量评估: UNKNOWN (上次质量评估已过期 16天)" in html
+    assert ">⚠ caveated</a>" in html
+
+
+def test_caveated_tooltip_is_html_escaped():
+    html = _render(_view(), _gate(badge="caveated",
+                                  reason='monitor_signal: WARN (gap "12d" & more)'))
+    assert 'title="monitor_signal: WARN (gap &quot;12d&quot; &amp; more)"' in html
+
+
+def test_validated_chip_stays_plain_span_no_anchor_no_tooltip():
+    html = _render(_view(), _gate(badge="validated"))
+    assert '<span class="val-chip val-validated">✓ validated</span>' in html
+    assert '<a class="val-chip val-validated"' not in html

@@ -25,7 +25,8 @@ from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
 from irc.monitor.render_overview import (
-    compute_actionable, compute_data_health, compute_flips, overview_html,
+    caveat_tooltip, compute_actionable, compute_data_health, compute_flips,
+    overview_html,
 )
 
 
@@ -156,6 +157,7 @@ _CSS = (
     ".muted{color:#8c959f}"
     ".eval-gated{background:#57606a;color:#fff}"
     ".val-chip{font-size:11px;margin-left:6px;padding:1px 4px;border-radius:3px}"
+    "a.val-chip{text-decoration:none}"
     ".val-validated{color:#1a7f37}"
     ".val-caveated{color:#bf8700}"
     ".validation-panel{margin:16px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px}"
@@ -255,6 +257,21 @@ def _flow_outage_note(views: tuple[FundView, ...]) -> str:
             "(flow unavailable today; lean fell back to 5-factor)</div>")
 
 
+def _chip(gate: GateDecision) -> str:
+    """P2: caveated chip = anchor to #validation-panel with the Chinese-labeled
+    caveat reason as an escaped tooltip; validated stays a plain span (no
+    tooltip, no anchor — an anchor with an empty tooltip invites misreading)."""
+    cls_label = _CHIP.get(gate.badge)
+    if not cls_label:
+        return ""
+    cls, label = cls_label
+    if gate.badge != "caveated":
+        return f'<span class="val-chip {cls}">{label}</span>'
+    title = escape(caveat_tooltip(gate.reason))
+    return (f'<a class="val-chip {cls}" href="#validation-panel" '
+            f'title="{title}">{label}</a>')
+
+
 def _badge(view: FundView, gate: GateDecision | None) -> str:
     if gate is None:
         if view.signal.status != "ok":
@@ -265,12 +282,7 @@ def _badge(view: FundView, gate: GateDecision | None) -> str:
         return f'<span class="badge no-call">{_NO_CALL}</span>'
     if state == _EVAL_GATED:
         return '<span class="badge eval-gated">EVAL-GATED 🛡</span>'
-    chip = ""
-    cls_label = _CHIP.get(gate.badge)
-    if cls_label:
-        cls, label = cls_label
-        chip = f'<span class="val-chip {cls}">{label}</span>'
-    return f'<span class="badge {state.lower()}">{escape(state)}</span>{chip}'
+    return f'<span class="badge {state.lower()}">{escape(state)}</span>{_chip(gate)}'
 
 
 def _markers(view: FundView) -> tuple[EventMarker, ...]:

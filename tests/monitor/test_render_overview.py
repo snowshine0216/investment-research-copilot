@@ -206,3 +206,34 @@ def test_compute_data_health_stale_count_includes_stale_predictive_artifact():
     health = compute_data_health((), {}, rows, stale_eval_days=10,
                                  today="2026-06-16", predictive_stale=True)
     assert health.stale_eval_count == 2   # 1 stale suite stamp + 1 stale predictive artifact
+
+
+# ── report v4 item 001: caveat label map / tooltip / segment classification ──
+
+
+def test_caveat_tooltip_maps_stage_labels_and_stale_age():
+    from irc.monitor.render_overview import caveat_tooltip
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    assert caveat_tooltip(reason) == (
+        "影响评分质量评估: UNKNOWN (上次质量评估已过期 15天); "
+        "叙事质量评估: UNKNOWN (上次质量评估已过期 16天)")
+
+
+def test_caveat_tooltip_unmapped_stage_and_reasons_pass_raw():
+    # P2 locks only the three Chinese labels — monitor_signal and raw metric
+    # strings (gap 12d etc.) pass through untranslated (open question 11).
+    from irc.monitor.render_overview import caveat_tooltip
+    assert caveat_tooltip("monitor_signal: WARN (gap 12d)") == "monitor_signal: WARN (gap 12d)"
+    assert caveat_tooltip("") == ""
+
+
+def test_fund_specific_segments_filters_run_global_prefixes():
+    from irc.monitor.render_overview import fund_specific_segments
+    reason = ("monitor_signal: WARN (gap 12d); "
+              "monitor_impact: UNKNOWN (stale, 15d)")
+    assert fund_specific_segments(reason) == ("monitor_signal: WARN (gap 12d)",)
+    assert fund_specific_segments("") == ()
+    assert fund_specific_segments(
+        "monitor_impact: UNKNOWN (stale, 15d); monitor_narrative: UNKNOWN (stale, 16d)"
+    ) == ()
