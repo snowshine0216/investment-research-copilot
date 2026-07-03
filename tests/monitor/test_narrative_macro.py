@@ -326,3 +326,171 @@ def test_parse_theme_claims_rejects_bare_string_citation_ids():
              "citation_ids": "abcd1234abcd1234"}]
     with pytest.raises(_MacroNarrErr, match="citation_ids not a list"):
         _parse_theme_claims(rows, (), hardened=False)
+
+
+# ── F3: non-str attribution_strength hardening (todos-critical-fixes 001) ──────
+
+
+def test_parse_theme_claims_rejects_list_valued_attribution_strength():
+    """AC1: an unhashable list strength (real LLM output shape) must raise
+    _MacroNarrErr like every other schema violation — never TypeError from
+    the _VALID_STRENGTH set-membership hash test."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    rows = [{"claim": "央行本周维持利率不变，符合市场预期。",
+             "attribution_strength": ["consistent_with"], "citation_ids": []}]
+    with pytest.raises(_MacroNarrErr, match="schema_invalid: bad attribution_strength"):
+        _parse_theme_claims(rows, (), hardened=False)
+
+
+def test_parse_theme_claims_rejects_dict_valued_attribution_strength():
+    """AC2: a dict-wrapped strength is also unhashable — same _MacroNarrErr path."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    rows = [{"claim": "央行本周维持利率不变，符合市场预期。",
+             "attribution_strength": {"value": "consistent_with"}, "citation_ids": []}]
+    with pytest.raises(_MacroNarrErr, match="schema_invalid: bad attribution_strength"):
+        _parse_theme_claims(rows, (), hardened=False)
+
+
+def test_parse_theme_claims_rejects_hashable_non_str_attribution_strength():
+    """AC3 regression pin: hashable non-strs (None, int) already reach
+    _MacroNarrErr today via failed set membership; the new isinstance guard
+    must not change that."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    for bad in (None, 3):
+        rows = [{"claim": "央行本周维持利率不变，符合市场预期。",
+                 "attribution_strength": bad, "citation_ids": []}]
+        with pytest.raises(_MacroNarrErr, match="schema_invalid: bad attribution_strength"):
+            _parse_theme_claims(rows, (), hardened=False)
+
+
+def test_parse_theme_claims_list_strength_raises_even_when_hardened():
+    """AC6: the hardened attempt raises like any schema violation — only the
+    CJK language guard has hardened-drop semantics."""
+    from irc.monitor.narrative_macro import _parse_theme_claims, _MacroNarrErr
+
+    rows = [{"claim": "央行本周维持利率不变，符合市场预期。",
+             "attribution_strength": ["consistent_with"], "citation_ids": []}]
+    with pytest.raises(_MacroNarrErr, match="schema_invalid: bad attribution_strength"):
+        _parse_theme_claims(rows, (), hardened=True)
+
+
+def test_gather_macro_narrative_list_strength_consumes_retry_then_ok(monkeypatch):
+    """AC4 (+AC7 exact-str pin): a list-valued strength on attempt 1 consumes
+    ONE schema retry; the valid attempt-2 payload then parses normally. No
+    exception escapes gather_macro_narrative."""
+    from irc.monitor.narrative_macro import gather_macro_narrative, build_macro_pool
+    from irc.research.search.types import SearchHit
+    import irc.monitor.narrative_macro as nm
+    import json as _json
+
+    monkeypatch.setattr(nm, "resolve_route", lambda task, route: type(
+        "RR", (), {"provider": "testprovider"})())
+    monkeypatch.setattr(nm, "_resolve_model", lambda rr: "test-model")
+
+    hit = SearchHit(title="Fed holds", url="https://reuters.com/fed", snippet="x",
+                    published_iso="2026-06-15", source_domain="reuters.com")
+    pool = build_macro_pool({"us_monetary": (hit,)})
+    cid = pool["us_monetary"][0].citation_id
+
+    bad_body = {"us_monetary": [
+        {"claim": "美联储本周维持利率不变，符合市场预期。",
+         "attribution_strength": ["consistent_with"], "citation_ids": [cid]},
+    ]}
+    good_body = {"us_monetary": [
+        {"claim": "美联储本周维持利率不变，符合市场预期。",
+         "attribution_strength": "consistent_with", "citation_ids": [cid]},
+    ]}
+
+    calls = {"n": 0}
+
+    def _call(task, messages, route, **kw):
+        calls["n"] += 1
+        return _fake_resp(_json.dumps(bad_body if calls["n"] == 1 else good_body))
+
+    result = gather_macro_narrative(theme_pool=pool, route=object(), call=_call)
+    assert result.doc.status == "ok"
+    assert len(result.doc.blocks) == 1
+    assert result.doc.blocks[0].theme == "us_monetary"
+    assert result.doc.blocks[0].claims[0].attribution_strength == "consistent_with"
+    assert calls["n"] == 2
+    assert len(result.cost_entries) == 2
+
+
+def test_gather_macro_narrative_persistent_list_strength_degrades_after_full_budget(
+    monkeypatch,
+):
+    """AC5: a persistently bad strength exhausts the WHOLE retry budget
+    (_MAX_SCHEMA_RETRIES + 1 = 3 calls, 3 cost entries) then degrades via the
+    normal (blocks=(), status=last_err) path — it never raises out of
+    gather_macro_narrative, so the monitor_cmd gather_error guard is never
+    the mechanism for this shape."""
+    from irc.monitor.narrative_macro import (
+        _MAX_SCHEMA_RETRIES, build_macro_pool, gather_macro_narrative,
+    )
+    from irc.research.search.types import SearchHit
+    import irc.monitor.narrative_macro as nm
+    import json as _json
+
+    monkeypatch.setattr(nm, "resolve_route", lambda task, route: type(
+        "RR", (), {"provider": "testprovider"})())
+    monkeypatch.setattr(nm, "_resolve_model", lambda rr: "test-model")
+
+    hit = SearchHit(title="Fed holds", url="https://reuters.com/fed", snippet="x",
+                    published_iso="2026-06-15", source_domain="reuters.com")
+    pool = build_macro_pool({"us_monetary": (hit,)})
+    cid = pool["us_monetary"][0].citation_id
+
+    bad_body = {"us_monetary": [
+        {"claim": "美联储本周维持利率不变，符合市场预期。",
+         "attribution_strength": ["consistent_with"], "citation_ids": [cid]},
+    ]}
+
+    calls = {"n": 0}
+
+    def _call(task, messages, route, **kw):
+        calls["n"] += 1
+        return _fake_resp(_json.dumps(bad_body))
+
+    result = gather_macro_narrative(theme_pool=pool, route=object(), call=_call)
+    assert result.doc.blocks == ()
+    assert "bad attribution_strength" in result.doc.status
+    assert calls["n"] == _MAX_SCHEMA_RETRIES + 1   # 3 today; pinned to the constant
+    assert len(result.cost_entries) == _MAX_SCHEMA_RETRIES + 1
+
+
+def test_gather_macro_narrative_does_not_launder_parse_type_errors(monkeypatch):
+    """AC8 pin: the gather except tuple stays (json.JSONDecodeError,
+    _MacroNarrErr). A coding-bug TypeError raised inside the parse block must
+    propagate, NOT be consumed as a silent schema retry."""
+    from irc.monitor.narrative_macro import gather_macro_narrative, build_macro_pool
+    from irc.research.search.types import SearchHit
+    import irc.monitor.narrative_macro as nm
+    import json as _json
+
+    monkeypatch.setattr(nm, "resolve_route", lambda task, route: type(
+        "RR", (), {"provider": "testprovider"})())
+    monkeypatch.setattr(nm, "_resolve_model", lambda rr: "test-model")
+
+    def _boom(*a, **k):
+        raise TypeError("coding bug")
+
+    monkeypatch.setattr(nm, "_parse_theme_claims", _boom)
+
+    hit = SearchHit(title="Fed holds", url="https://reuters.com/fed", snippet="x",
+                    published_iso="2026-06-15", source_domain="reuters.com")
+    pool = build_macro_pool({"us_monetary": (hit,)})
+    cid = pool["us_monetary"][0].citation_id
+
+    body = {"us_monetary": [
+        {"claim": "美联储本周维持利率不变。", "attribution_strength": "consistent_with",
+         "citation_ids": [cid]},
+    ]}
+
+    def _call(task, messages, route, **kw):
+        return _fake_resp(_json.dumps(body))
+
+    with pytest.raises(TypeError, match="coding bug"):
+        gather_macro_narrative(theme_pool=pool, route=object(), call=_call)

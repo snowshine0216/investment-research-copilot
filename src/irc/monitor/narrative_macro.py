@@ -120,7 +120,7 @@ def _parse_theme_claims(
         if not isinstance(r, dict):
             raise _MacroNarrErr(f"schema_invalid: row not a dict ({type(r).__name__})")
         strength = r.get("attribution_strength")
-        if strength not in _VALID_STRENGTH:
+        if not isinstance(strength, str) or strength not in _VALID_STRENGTH:
             raise _MacroNarrErr(f"schema_invalid: bad attribution_strength {strength!r}")
         claim_text = str(r.get("claim", ""))
         if _banned_verb_present(claim_text) and strength != "supported_attribution":

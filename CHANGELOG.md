@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — macro narrative: non-str `attribution_strength` consumes the schema-retry budget instead of degrading the whole block (2026-07-03)
+
+- **`_parse_theme_claims` (`src/irc/monitor/narrative_macro.py`) now type-guards
+  `attribution_strength` before the `_VALID_STRENGTH` set-membership test.** An
+  unhashable LLM value (e.g. `["consistent_with"]` — a real output shape) previously
+  raised `TypeError`, escaping `gather_macro_narrative`'s
+  `(json.JSONDecodeError, _MacroNarrErr)` retry loop into the `monitor_cmd.py` blanket
+  guard: the WHOLE 宏观面速览 block degraded to `gather_error:` with the retry budget
+  skipped. Any non-`str` value now raises the existing
+  `schema_invalid: bad attribution_strength ...` `_MacroNarrErr`, consuming a normal
+  schema retry and, only on exhaustion, degrading via the standard
+  `(blocks=(), status=last_err)` path. The gather `except` tuple is deliberately
+  unchanged (catching `TypeError` there would launder future coding bugs into silent
+  retries). No `_ENGINE_VERSION` or trace `schema_version` change. No VERSION bump.
+
 ### Changed — constituent/macro news factor normalized by Σweight; `_ENGINE_VERSION` 3 → 4 (2026-07-03)
 
 - **`aggregate_news_factor` value is now the weight-normalized mean** —
