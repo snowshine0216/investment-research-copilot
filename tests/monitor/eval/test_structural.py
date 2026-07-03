@@ -429,3 +429,48 @@ def test_flow_coverage_surfaces_warmup_and_source():
     joined = " ".join(h.reasons)
     assert "flow_source batch_today" in joined
     assert "flow_rows_min" in joined  # warm-up curve (min rows-per-symbol)
+
+
+# ---- 004 AC-12: valuation_coverage_health board_pe_freshness reason ----
+
+
+def _val_cov_trace():
+    return {"holding_metrics": {
+        "rows": [{"symbol": "600519", "weight_pct": 60.0, "val_score": 0.5,
+                  "industry_score": 0.2, "false_cheap": False}],
+        "valuation_aggregate": {"value": 0.5, "reason": None,
+                                "covered_weight_ratio": 0.6},
+    }}
+
+
+def test_val_cov_board_pe_fresh_reason_appended():
+    h = valuation_coverage_health(
+        _val_cov_trace(),
+        board_pe_freshness={"state": "FRESH", "as_of": "2026-07-03", "age_td": 0})
+    assert h.status == "PASS"
+    assert "board_pe FRESH" in h.reasons
+
+
+def test_val_cov_board_pe_stale_reason_names_age_and_date():
+    h = valuation_coverage_health(
+        _val_cov_trace(),
+        board_pe_freshness={"state": "STALE", "as_of": "2026-06-30", "age_td": 2})
+    assert "board_pe STALE-2 (as_of 2026-06-30)" in h.reasons
+
+
+def test_val_cov_board_pe_dark_reason_and_status_stays_pass():
+    h = valuation_coverage_health(
+        _val_cov_trace(),
+        board_pe_freshness={"state": "DARK", "as_of": None, "age_td": None})
+    assert "board_pe DARK" in h.reasons
+    assert h.status == "PASS"          # panel-only, never a gate
+
+
+def test_val_cov_no_kwarg_back_compat_no_board_pe_reason():
+    h = valuation_coverage_health(_val_cov_trace())
+    assert not any(r.startswith("board_pe") for r in h.reasons)
+
+
+def test_val_cov_malformed_freshness_dict_degrades_to_no_reason():
+    h = valuation_coverage_health(_val_cov_trace(), board_pe_freshness={"weird": 1})
+    assert not any(r.startswith("board_pe") for r in h.reasons)

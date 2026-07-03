@@ -13,7 +13,8 @@ from irc.monitor.types import EvidenceItem, MonitorFund
 # Public: also consumed by monitor_cmd's Provenance so the report header can
 # never drift from the trace (RD-1). Bumped 6->7 by report v4 item 001 (shape
 # unchanged — gate.reason just stops being empty); items 002/004 land their
-# fields under "7" WITHOUT bumping again.
+# fields under "7" WITHOUT bumping again (002: mechanism/mechanism_dropped +
+# unmatched_impact_keys; 004: run-level board_pe_freshness).
 SCHEMA_VERSION = "7"
 
 
@@ -206,6 +207,7 @@ def build_eval_trace(
     trading_days: frozenset[date] | None = None,
     macro_narrative=None,
     unmatched_impact_keys: tuple[str, ...] = (),
+    board_pe_freshness: dict | None = None,
 ) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -221,4 +223,9 @@ def build_eval_trace(
         # would otherwise be invisible (chip stays "no record" forever,
         # indistinguishable from honest absence).
         "unmatched_impact_keys": list(unmatched_impact_keys),
+        # 004 (AC-11): run-level board-PE freshness marker — the
+        # board_pe_staleness.freshness_dict projection {"state","as_of","age_td"},
+        # or None when the caller doesn't pass one (additive back-compat under
+        # the EXISTING "7", same pattern as macro_narrative).
+        "board_pe_freshness": board_pe_freshness,
     }
