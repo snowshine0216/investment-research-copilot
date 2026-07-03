@@ -40,8 +40,10 @@ the cached snapshot is foreign-heavy (rule 2.5 territory) AND its
 `fund_level_evidence` lacks a data leg or an information leg, re-run ONLY
 the fund-level legs (`_fetch_active_fund_level_evidence`, 4 AkShare calls:
 1 NAV + `fund_announcement_{dividend,report,personnel}_em`), merge the
-result into the cached snapshot with a pure function, and re-write the
-cache when the evidence improved. Holdings and per-constituent evidence are
+result into the cached snapshot with a pure function — **leg-wise, monotone
+per leg** (grill R3): fresh entries win for a leg the refetch produced;
+cached entries are retained for a leg it didn't — and re-write the cache
+when the evidence improved. Holdings and per-constituent evidence are
 untouched (they are healthy by construction on this path — a data-leg gap
 or quarter roll already forces a full refetch upstream). The preflight
 budget classifier learns a fourth class so the plan stays honest without
@@ -65,21 +67,46 @@ Each AC is independently verifiable. Test files mirror sources.
   (the TODO-correction shape); foreign-heavy + both legs → False; CN-heavy
   (<0.50) + empty evidence → False; empty `constituent_analyses` → False
   (share 0.0 — load-bearing for AC8's lockdown fixture).
-- **AC2 (pure merge).** New module
+- **AC2 (pure merge — leg-wise, monotone).** New module
   `src/irc/fundamentals/fund_level_repair.py` (<200 lines) with pure
   `merge_fund_level_evidence(snap: ActiveFundSnapshot,
   evidence: tuple[ThesisEvidence, ...], failures: list[str])
   -> ActiveFundSnapshot` that returns a NEW frozen instance
-  (`dataclasses.replace`) where: `fund_level_evidence` is replaced by
-  `evidence`; `fund_level_failure_reasons` has the stale
+  (`dataclasses.replace`) where: ~~`fund_level_evidence` is replaced by
+  `evidence`~~ **[grill R3 — full replacement can DROP a surviving cached
+  leg under the 2026-06-21 throttle pattern (cached info-only + fresh
+  data-only would swap legs and oscillate instead of healing); the merge is
+  leg-wise]** `fund_level_evidence` is merged **per leg by
+  `citation_kind`**: the merged data leg = the fresh `citation_kind=="data"`
+  entries when the refetch produced ≥1, else the cached data-kind entries;
+  same rule independently for `citation_kind=="information"`; merged tuple
+  ordered data-leg entries first then information-leg entries (the producer
+  order of `_fetch_active_fund_level_evidence` — NAV then announcements).
+  Leg presence is therefore monotone non-decreasing across a repair.
+  ~~`fund_level_failure_reasons` has the stale
   `fund_nav_unavailable:{fund_id}` / `fund_announcements_unavailable:{fund_id}`
-  entries stripped and the fresh `failures` appended (unrelated reasons —
-  e.g. `holdings_quarter_parse_failed:{fund_id}` — preserved in order); ALL
+  entries stripped and the fresh `failures` appended~~ **[grill R3 —
+  appending a fresh leg-failure while the merged snapshot retains that
+  cached leg would break the producer invariant]**
+  `fund_level_failure_reasons` has BOTH
+  `fund_nav_unavailable:{fund_id}` and
+  `fund_announcements_unavailable:{fund_id}` stripped, then re-appends
+  `fund_nav_unavailable:{fund_id}` iff the MERGED evidence has no data leg
+  and `fund_announcements_unavailable:{fund_id}` iff it has no information
+  leg — preserving `_build_active_fund_snapshot`'s own invariant
+  (leg-failure string present ⟺ leg absent in evidence;
+  `snapshot.py:505–506, :522–523`). Unrelated reasons — e.g.
+  `holdings_quarter_parse_failed:{fund_id}` — preserved in order. ALL
   other fields byte-identical, **including `cache_probed_at`** (the repair
   is orthogonal to holdings-quarter freshness — it must not extend or
   shorten the `_is_stale` window). Mirror tests in
   `tests/fundamentals/test_fund_level_repair.py`; input snapshot asserted
-  unmutated.
+  unmutated. Required cases: cached info-only + fresh data-only → merged
+  carries BOTH legs and zero leg-failure strings (the heal-under-throttle
+  case — the TODO's own motivating shape); cached data-only + fresh
+  info-only → both legs; cached empty + fresh both → fresh verbatim; fresh
+  empty with both fetch legs failed → merged `fund_level_evidence` byte-
+  identical to cached (so AC4 writes nothing).
 - **AC3 (fail-safe refetch wrapper).** Same module: thin I/O wrapper
   `refetch_fund_level_evidence(snap: ActiveFundSnapshot) ->
   ActiveFundSnapshot` calls `_fetch_active_fund_level_evidence(snap.fund_id)`
@@ -94,12 +121,21 @@ Each AC is independently verifiable. Test files mirror sources.
   `src/irc/commands/opportunity_cmd.py`, invoked in `_build_rows` on the
   cached-serve branch ONLY (the `else: snap_obj = probed` arm after
   `_maybe_freshness_probe` returns `refresh=False`, currently :910–912),
-  BEFORE `_write_state_complete`. Behavior: when
+  BEFORE `_write_state_complete`. The helper receives the **post-probe
+  served snapshot** (`probed`), NOT the pre-probe `cached` (grill R4): when
+  the probe advanced `cache_probed_at` and wrote the cache, merging into
+  the pre-probe snapshot would roll the probe date back on the second
+  write and re-trigger probes every run. Behavior: when
   `foreign_heavy_fund_level_gap(snap)` is False → returns `snap` with zero
   fetch calls and zero writes; when True → `refetch_fund_level_evidence`,
   then `write_active_fund_cache(merged, root)` ONLY IF
   `merged.fund_level_evidence != snap.fund_level_evidence` AND
-  `merged.source_report_quarter` is non-empty (P0-5 pattern); cache-write
+  `merged.source_report_quarter` is non-empty (P0-5 pattern; the write
+  reuses `write_active_fund_cache`, so disclosure-quarter keying and the
+  `.tmp.{pid} → replace` atomic pattern are inherited — the merged snapshot
+  keeps `source_report_quarter` byte-identical, so it lands on the SAME
+  quarter path; a probe-then-repair run performs two atomic writes to that
+  path, which is benign); cache-write
   failure → `cache_write_failed:{fund_id}:{type}` on stderr and the merged
   snapshot is still served in-memory (existing degrade pattern from
   `_maybe_freshness_probe` :290–298). The repair does NOT run on: the
@@ -119,7 +155,17 @@ Each AC is independently verifiable. Test files mirror sources.
   expected runtime path). All unpack/patch sites updated (grep-verified
   exhaustive list): `opportunity_cmd.py:776`;
   `tests/commands/test_opportunity_cmd.py:675, :719` (3-tuple unpacks) and
-  `:930` (`return_value=(0, 0, 0)` stub → 4-tuple). New classifier tests:
+  `:930` (`return_value=(0, 0, 0)` stub → 4-tuple). **[grill R1 — list
+  independently re-verified 2026-07-03 by grep over `src/`, `tests/`,
+  `evals/`, `scripts/`: exactly these 4 sites and nothing else; in
+  particular `tests/opportunity/` and `tests/narrative/` carry ZERO
+  references (the repo-memory lambda-break precedent does not recur here),
+  and `fund_eval_cmd.py` / `narrative_autobuild.py` never call the
+  classifier. The two positional `FetchPlan(5, 0, 0, 0, 10)` constructions
+  (`tests/commands/test_opportunity_cmd.py:480`,
+  `tests/commands/test_opportunity_cmd_acceptance.py:100`) bind only the
+  first 5 params and are unaffected by the new defaulted field.]**
+  New classifier tests:
   fresh foreign-heavy gapped cache → `(0, 0, 0, 1)`; same but data-leg gap
   too → `(0, 1, 0, 0)`; date-stale + gapped → `(0, 0, 1, 1)`.
 - **AC6 (FetchPlan accounting — no 35× regression).** `FetchPlan` (:90)
@@ -152,9 +198,14 @@ Each AC is independently verifiable. Test files mirror sources.
   unmodified: `test_snapshot_cache_within_window_zero_akshare_calls`
   (AC15 — its fixture has empty `constituent_analyses` ⇒ foreign share 0.0
   ⇒ predicate False ⇒ still zero calls),
-  `test_snapshot_cache_expired_probe_same_quarter_reuses` (AC16 — CN-only
-  constituent ⇒ predicate False ⇒ probe-only, exactly 1
-  `fund_portfolio_hold_em` call), and
+  `test_snapshot_cache_expired_probe_same_quarter_reuses` (AC16 — ~~CN-only
+  constituent ⇒ predicate False~~ **[grill R6 — wrong rationale, verified
+  in code: the `_prewrite_active_fund_cache` fixture
+  (`test_publishable_set_lockdown.py:596–617`) writes
+  `constituent_analyses=()`; the CN stock 600519 appears only in the PROBE
+  holdings frame, which never lands on the cached snapshot]** empty
+  `constituent_analyses` fixture ⇒ foreign share 0.0 ⇒ predicate False ⇒
+  probe-only, exactly 1 `fund_portfolio_hold_em` call), and
   `test_snapshot_cache_probe_failure_fail_closed_refetch` (AC17). All four
   existing `_maybe_freshness_probe` unit tests
   (`tests/commands/test_opportunity_cmd.py:565–652`) pass unmodified —
@@ -184,11 +235,29 @@ Each AC is independently verifiable. Test files mirror sources.
   VERSION bump). TODOS.md line 21 marked `[x]` with
   `**Resolved 2026-07-03:**` annotation naming the predicate, the repair
   module, the trigger-condition correction (leg-gap, not `== ()`), and the
-  test names. CONTEXT.md "Foreign-heavy fund (rule 2.5 short-circuit)"
+  test names. ~~CONTEXT.md "Foreign-heavy fund (rule 2.5 short-circuit)"
   entry gains one sentence documenting the cached-path repair probe
   (leg-gap trigger, 4-call cost, no backoff); ADR 0003 §7 gains a matching
   addendum sentence. No new CONTEXT term is minted — the probe is an
-  operational repair inside the existing rule-2.5 vocabulary.
+  operational repair inside the existing rule-2.5 vocabulary.~~
+  **[grill R7 — the repair IS a third cached-active-fund fetch class
+  (beside full refetch and freshness probe) with its own budget class and
+  merge semantics; "operational detail" undersold it]** CONTEXT.md changes
+  were applied AT GRILL TIME (2026-07-03): a new **"Fund-level evidence
+  repair (repair probe)"** term (leg-gap trigger, 4-call cost, leg-wise
+  monotone merge, leg-failure ⟺ leg-absence invariant, no backoff, own
+  `FetchPlan` class, `cache_probed_at` untouched) plus a cross-reference
+  sentence in the "Foreign-heavy fund (rule 2.5 short-circuit)" entry —
+  implementation must VERIFY the as-built behavior matches the entry and
+  amend it if any detail shifts. ADR 0003 §7 gains an addendum PARAGRAPH
+  (not one sentence) at implementation time: repair trigger + 4-call cost +
+  leg-wise merge + no-backoff rationale + `active_fund_fund_level_repair`
+  budget class, AND corrects §7's stale "Fetch budget impact" claim
+  ("2 additional AkShare calls … adds ~100 calls" → 4 calls
+  (1 NAV + 3 announcement endpoints) … ~200 — the code's
+  `per_active` "+4" term and `_FUND_ANN_TOPIC_FNS` already prove 4). No
+  standalone ADR: amendment-in-place is ADR 0003's own locked structural
+  choice (§7 Alternative B rejection).
 
 ## Non-goals
 
@@ -217,6 +286,11 @@ Each AC is independently verifiable. Test files mirror sources.
 - **No narrative-path change.** `irc narrative --analyze` builds fresh
   snapshots and is Policy-B-free (CONTEXT.md "Narrative path is
   Policy-B-free"); it never serves this cache path.
+- **No `irc eval-funds` change** (grill R8). `fund_eval_cmd.py` reads
+  cached snapshots read-only via `load_active_fund_cache`
+  (`fund_eval_cmd.py:117`) and is Policy-B-free; the repair never runs
+  there. It benefits indirectly: a repair executed by `irc opportunity`
+  heals the shared on-disk cache that eval-funds subsequently loads.
 - **No `--rebuild-fundamentals` / miss-path change** — full builds already
   fetch the fund-level legs unconditionally.
 
@@ -245,7 +319,12 @@ Each AC is independently verifiable. Test files mirror sources.
   the 35-call `per_active` term — locked by AC6. Classifier and runtime
   must agree on the trigger predicate (both call
   `foreign_heavy_fund_level_gap`) so `FetchPlan.total_calls` cannot drift
-  from actual calls.
+  from actual calls — **modulo the PRE-EXISTING quarter-roll under-count**
+  (grill R2): a `stale_probe_only` fund whose probe discovers a rolled
+  quarter goes `refresh=True` → 35 actual calls against 1 planned, today
+  and unchanged by this item. A probe+repair-classified fund on that path
+  costs 35, not 5+35 — the repair is skipped on the `refresh=True` arm
+  (AC4), so the new class never compounds the existing under-count.
 - **Known-failure diff-scoping.** Full pytest is NOT green on main (24
   pre-existing failures); replay any failing id on main before assuming a
   regression. `tests/commands/` runs per-file only (whole-dir hangs).
@@ -300,7 +379,14 @@ Each AC is independently verifiable. Test files mirror sources.
   P0-5). A partial heal (e.g. NAV recovered, announcements still down) is
   persisted — honest audit trail, better evidence for item 002's union —
   and the still-gapped surface re-triggers the probe next run. A no-change
-  result writes nothing (idempotent, no pointless disk churn).
+  result writes nothing (idempotent, no pointless disk churn). **[grill R3
+  amendment: with the leg-wise merge, the partial heal is strictly
+  stronger — a fresh leg is ADDED next to the surviving cached leg instead
+  of replacing the whole tuple, so under the throttle pattern (cached
+  info-only, fresh data-only) the fund heals to BOTH legs in one run
+  rather than oscillating between single-leg states; "changed" then
+  coincides with "improved" because repair fires only on gapped caches
+  (at most one cached leg) and legs are monotone under the merge.]**
 - **Q7 — scope: all gapped active funds or foreign-heavy only?**
   Foreign-heavy only (the TODO's condition; conservative). For CN-heavy
   funds the fund-level legs are advisory (rule 2.5 never fires; the
@@ -325,4 +411,98 @@ Each AC is independently verifiable. Test files mirror sources.
   a data-only-constituent foreign-heavy fund can regain `intact` instead
   of `evidence_insufficient`. Both are downstream effects of healed data,
   requiring zero changes in `thesis_evidence.py` or the stamps (verified:
-  both read `snapshot.fund_level_evidence` directly).
+  both read `snapshot.fund_level_evidence` directly). **[grill R5 —
+  ordering verified and DESIRED: the repair runs at `snap_obj` resolution
+  in `_build_rows` (:910–912), strictly BEFORE `build_opportunity_row`
+  (:935) invokes `evaluate_policy_b` and `derive_thesis_from_evidence` on
+  that snapshot, so a healed fund can flip `evidence_insufficient →
+  intact` (and gapped → publishable) WITHIN the same run — a single-run
+  heal, not a next-run heal. ADR 0003 §8's empty-flattened guard still
+  holds independently: a repair never adds constituent evidence, so an
+  all-pure-failure fund stays `evidence_insufficient` even with both
+  fund-level legs restored.]**
+
+## Resolved decisions (grill 2026-07-03)
+
+All spec code-location, call-count, and fixture claims were re-verified in
+source (not trusted from the spec's own text) before these resolutions.
+
+- **R1 — 4-tuple call/patch-site list is COMPLETE.** Grep over `src/`,
+  `tests/`, `evals/`, `scripts/` finds exactly the 4 sites AC5 lists
+  (`opportunity_cmd.py:776`; `test_opportunity_cmd.py:675`, `:719`,
+  `:930`). `tests/opportunity/` and `tests/narrative/` have zero
+  references; `fund_eval_cmd.py` and `narrative_autobuild.py` never call
+  the classifier. Positional `FetchPlan(5, 0, 0, 0, 10)` constructions
+  (2 sites) bind only the first 5 params — safe with the new defaulted
+  field appended.
+- **R2 — Budget math CONFIRMED at 4; plan/runtime agreement qualified.**
+  `_fetch_active_fund_level_evidence` performs exactly 4 `_ak_call`s:
+  1 × `fund_open_fund_info_em` (NAV, `akshare_fundamentals.py:577`) +
+  3 × `_FUND_ANN_TOPIC_FNS` endpoints (`:619–623`, `:682–686`).
+  Probe+repair = 5 is the intended charge for the date-stale + gapped
+  fund. The only plan/actual divergence is the PRE-EXISTING quarter-roll
+  under-count on the probe path (1 planned vs 35 actual), which the
+  repair class never compounds (repair skipped on `refresh=True`).
+  Constraint "Budget-trap guard" amended for honesty.
+- **R3 — Merge semantics CORRECTED: full replacement → leg-wise monotone
+  merge.** The spec's original "replace `fund_level_evidence` by
+  `evidence`" fails its own motivating scenario: the TODO's NAV-only
+  outage leaves an info-only cache; under the 2026-06-21 EastMoney
+  throttle pattern the repair plausibly returns data-only (NAV recovered,
+  3 announcement endpoints throttled), and full replacement would DROP
+  the surviving cached info leg — swapping legs and oscillating forever
+  instead of healing. Leg-wise merge (fresh leg wins when produced,
+  cached leg retained when not) heals to both legs in one run. Retaining
+  a cached leg is no staler than the cached-serve path itself (the whole
+  snapshot is being reused inside `IRC_CACHE_FRESHNESS_DAYS`).
+  Failure-reason handling re-pinned to the producer invariant:
+  leg-failure string present ⟺ leg absent in MERGED evidence
+  (`snapshot.py:505–506, :522–523` establish it at build time). AC2, the
+  Goal, and Q6 amended; new merge test cases enumerated in AC2.
+- **R4 — Cache invariants INHERITED + post-probe input pinned.** The
+  repair writes via the existing `write_active_fund_cache`
+  (`snapshot_cache.py:224–233`): disclosure-quarter keying and the
+  `.tmp.{pid} → replace` atomic pattern come for free; the merge keeps
+  `source_report_quarter` byte-identical so the write targets the SAME
+  quarter path. AC4 now pins that the helper merges into the POST-probe
+  snapshot (`probed`) — merging into pre-probe `cached` would roll back
+  the probe-advanced `cache_probed_at` on the second write and re-trigger
+  probes every run. Probe-then-repair performing two atomic writes to one
+  path is benign and accepted (fusing them would re-entangle the two
+  concerns Q2 separated).
+- **R5 — Item 002 ordering verified, single-run heal INTENDED.** Repair
+  at `snap_obj` resolution precedes `evaluate_policy_b` +
+  `derive_thesis_from_evidence` inside `build_opportunity_row`; §8's
+  empty-flattened guard is unaffected (repair never adds constituent
+  evidence). Recorded in Q9.
+- **R6 — AC16 fixture rationale corrected.** The lockdown fixture
+  `_prewrite_active_fund_cache` writes `constituent_analyses=()` — the
+  predicate is False via the empty guard (share 0.0), NOT via a CN-only
+  constituent (600519 exists only in the probe's holdings frame, which
+  never lands on the cached snapshot). Matters because an implementer
+  misled by the old rationale could "fix" the test instead of the
+  predicate when empty-snapshot behavior misbehaves.
+- **R7 — Terminology: "Fund-level evidence repair" IS a domain term.**
+  It is a third cached-active-fund fetch class beside the full refetch
+  and the fail-closed freshness probe, with its own budget class, trigger
+  predicate, and merge semantics. CONTEXT.md entry added at grill time
+  (plus a cross-reference in the "Foreign-heavy fund" entry); AC11's "no
+  new term" claim struck. No standalone ADR (fails the
+  amendment-in-place bar ADR 0003 §7 itself locked); instead AC11's ADR
+  0003 §7 addendum is widened to a paragraph and must also fix §7's
+  stale "2 additional AkShare calls (~100)" claim (actual: 4, ~200).
+- **R8 — `irc eval-funds` explicitly out of scope.** Read-only cache
+  consumer, Policy-B-free; benefits indirectly once `irc opportunity`
+  repairs the shared cache. Added to Non-goals.
+- **R9 — Q2's three-return-path coverage re-verified.** The single
+  insertion point after `_maybe_freshness_probe` covers fresh
+  early-return (:278–279), probe-success (:299), and cache-write-degrade
+  (:298). On the degrade path (disk failing) the repair's own cache write
+  likely fails too → AC4's stderr-and-serve-in-memory degrade applies;
+  no special-casing needed.
+- **R10 — Verdict basis.** No unresolvable contradiction found between
+  the spec and ADR 0001/0002/0003, CONTEXT.md, or the code. Two
+  substantive corrections (R3 merge semantics, R6 fixture rationale) and
+  one qualification (R2) were resolvable in place; the plan phase should
+  treat AC2's leg-wise merge and AC4's post-probe input as the binding
+  shapes.
