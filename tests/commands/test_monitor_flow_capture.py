@@ -28,10 +28,11 @@ def test_run_flow_capture_appends_completed_day(tmp_path, monkeypatch):
     assert store["000651"] == [["2026-07-01", 7.0]]
 
 
-def test_provisional_note_never_writes_store(tmp_path, monkeypatch):
+def test_batch_note_never_writes_store(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "fetch_flow_today_batch",
-                        lambda symbols: ({"600519": 11.78}, {"600519": None}))  # intraday-provisional
-    note = mc._provisional_flow_note(tmp_path, ("600519",))
+                        lambda symbols: ({"600519": 11.78}, {"600519": "酿酒行业"}))
+    note, industry = mc._batch_flow_industry(tmp_path, ("600519",))
     assert note == {"600519": 11.78}
-    # CRITICAL (D6/trap §8): the provisional path must NOT create/modify the store
+    assert industry == {"600519": "酿酒行业"}
+    # CRITICAL (D6/trap §8): the 12:15 path must NOT create/modify the FLOW store
     assert not (tmp_path / "data" / "monitor" / "fund_flow_series.json").exists()

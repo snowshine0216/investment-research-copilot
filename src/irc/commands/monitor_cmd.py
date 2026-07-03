@@ -34,6 +34,9 @@ from irc.monitor.source_tiers import SourceTiers, classify, tiers_from_config
 from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
 from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
+from irc.monitor.industry_map_store import (
+    fresh_slice, load_store as load_industry_map_store, record_seen,
+)
 from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
@@ -194,6 +197,7 @@ def build_evidence_pool(fund: MonitorFund, *, theme_results: dict[str, tuple]) -
 
 _TOP_N_HOLDINGS = 5
 _FLOW_STORE_REL = ("data", "monitor", "fund_flow_series.json")
+_INDUSTRY_MAP_REL = ("data", "monitor", "stock_industry_map.json")
 
 
 def _load_flow_store_slice(root: Path, symbols) -> dict:
@@ -209,18 +213,40 @@ def _load_flow_store_slice(root: Path, symbols) -> dict:
         return {}
 
 
-def _provisional_flow_note(root: Path, symbols) -> dict | None:
-    """EDGE-read only: today's intraday f184 as a 盘中提示 annotation for the 12:15
-    brief. NEVER persisted (no append_today here) — the store's newest row stays a
-    COMPLETED day (D6/trap §8). Degrades to None on any error (no annotation)."""
+def _batch_flow_industry(root: Path, symbols) -> tuple[dict | None, dict | None]:
+    """EDGE-read only: the ONE 12:15 ulist.np batch — today's intraday f184 (盘中
+    提示 annotation, NEVER persisted here: no append_today, D6/trap §8) AND the
+    f127 行业 map (merged into the cross-day store by the caller, AC-5). Full-
+    basket secids (AC-3). Degrades to (None, None) on any error."""
     if not symbols:
-        return None
+        return None, None
     try:
-        flow, _industry = fetch_flow_today_batch(tuple(symbols))
-        return flow
-    except Exception:  # noqa: BLE001 — annotation is best-effort
-        _log.warning("_provisional_flow_note failed", exc_info=True)
-        return None
+        return fetch_flow_today_batch(tuple(symbols))
+    except Exception:  # noqa: BLE001 — annotation + industry merge are best-effort
+        _log.warning("_batch_flow_industry failed", exc_info=True)
+        return None, None
+
+
+def _record_industry_seen(root: Path, today: str, industry_by_symbol: dict | None) -> None:
+    """EDGE: best-effort merge of batch/fallback 行业 into the cross-day store
+    (AC-5/Q3). A merge/write failure is logged and never crashes the brief or
+    the capture job."""
+    if not industry_by_symbol:
+        return
+    try:
+        record_seen(root.joinpath(*_INDUSTRY_MAP_REL), today, industry_by_symbol)
+    except Exception:  # noqa: BLE001 — degrade, never crash
+        _log.warning("industry map store merge failed", exc_info=True)
+
+
+def _industry_serving_map(root: Path, today: str) -> dict[str, str]:
+    """EDGE-read: fresh_slice (≤30 calendar days) of the cross-day store, built
+    AFTER today's batch merge so today's f127 is already in it (AC-6). {} on error."""
+    try:
+        return fresh_slice(load_industry_map_store(root.joinpath(*_INDUSTRY_MAP_REL)), today)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("industry map store read failed", exc_info=True)
+        return {}
 
 
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
@@ -313,13 +339,29 @@ def _provisional_flow_for_fund(top5: tuple, provisional_flow: dict | None) -> fl
     return sum(present) / len(present)
 
 
-def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
-    """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
-    (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
-    loads the store slice for the union of all active-fund symbols and passes it
-    through to every _process_fund call (see `run_monitor`); a caller invoking
-    _process_fund directly (e.g. tests) without a slice still falls back to
-    _load_flow_store_slice for library robustness."""
+def _industry_map_for(full_symbols, *, root: Path, today: str, serving: dict | None):
+    """EDGE (AC-6): store→batch serving map FIRST; the per-symbol stock/get path
+    fires ONLY for symbols absent from it (fallback-only, ADR 0020 addendum);
+    fallback results merge back into the cross-day store (Q3 — merge_seen's
+    None-skip is the poisoning guard, RD-4). serving=None (direct caller) → all
+    symbols fall back (pre-004 behaviour)."""
+    served = serving or {}
+    missing = tuple(s for s in full_symbols if s not in served)
+    fallback: dict = {}
+    if missing:
+        fallback = fetch_stock_industry_map(
+            missing, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+        _record_industry_seen(root, today, fallback)
+    return {**{s: served[s] for s in full_symbols if s in served}, **fallback}
+
+
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice,
+                               board_pe=None, industry_serving=None):
+    """EDGE: consume flow (top-5, run-level store slice) + 行业 (store→batch
+    serving map, per-symbol fallback-only, AC-6) + the run-level board-PE table
+    (fetch-first, AC-8) → full-basket HoldingMetrics. A direct caller passing
+    neither board_pe nor industry_serving gets the pre-004 lazy-fetch behaviour
+    (library robustness — mirrors the flow_slice fallback)."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
     flow_series = {s: flow_slice.get(s) for s in flow_symbols}
@@ -327,13 +369,14 @@ def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con
     if con is None:
         return build_holding_metrics(full_holdings, {}, flow_series)
     series_by_code = _stock_series_by_code(con, full_symbols)
-    industry_pe, _board_pe_freshness = fetch_industry_pe(
-        cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
-    industry_map = fetch_stock_industry_map(
-        full_symbols, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+    if board_pe is None:  # direct caller → lazy fetch (freshness half unused here)
+        board_pe = fetch_industry_pe(
+            cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    industry_map = _industry_map_for(full_symbols, root=root, today=today,
+                                     serving=industry_serving)
     return build_holding_metrics(
         full_holdings, series_by_code, flow_series,
-        industry_by_symbol=industry_map, industry_pe_by_industry=industry_pe)
+        industry_by_symbol=industry_map, industry_pe_by_industry=board_pe[0])
 
 
 def _impact_rows_from(impacts: ImpactsResult, fund: MonitorFund) -> tuple[ImpactRow, ...]:
@@ -854,6 +897,7 @@ def _process_fund(
     theme_results: dict[str, tuple] | None = None,
     provisional_flow: dict | None = None,
     provisional_flow_as_of: str | None = None,
+    industry_serving: dict | None = None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → view (+ eval bundle).
 
@@ -905,7 +949,8 @@ def _process_fund(
                 full_holdings, top5, fund.id, root=root, today=today, con=con,
                 flow_slice=(flow_slice if flow_slice is not None
                             else _load_flow_store_slice(
-                                root, tuple(h.symbol for h in top5))))
+                                root, tuple(h.symbol for h in top5))),
+                industry_serving=industry_serving)
         provisional_pct = _provisional_flow_for_fund(top5, provisional_flow)
 
     if con is not None:
@@ -990,7 +1035,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
-    provisional_flow = _provisional_flow_note(root, _capture_union_symbols(funds, root))
+    batch_symbols = _full_basket_union_symbols(funds, root)        # AC-3: full-basket secids
+    provisional_flow, batch_industry = _batch_flow_industry(root, batch_symbols)
     # EDGE clock read (allowed HERE, never in render_*): stamp the ACTUAL fetch
     # time for the 盘中提示 annotation (spec §8 截至HH:MM — the 15:45 capture
     # rerun renders its own time, never a hardcoded 12:15).
@@ -998,6 +1044,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
         datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
         if provisional_flow else None
     )
+    _record_industry_seen(root, _today, batch_industry)            # AC-5 (12:15 site)
+    industry_serving = _industry_serving_map(root, _today)         # AC-6: post-merge slice
     theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
@@ -1009,6 +1057,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                 today=_today, flow_slice=flow_slice, theme_results=theme_results,
                 provisional_flow=provisional_flow,
                 provisional_flow_as_of=provisional_flow_as_of,
+                industry_serving=industry_serving,
             )
             views.append(view)
             bundles.append(bundle)
@@ -1110,6 +1159,26 @@ def _capture_union_symbols(funds, root: Path) -> tuple:
         top = sorted(snap.constituent_analyses, key=lambda c: c.weight_pct,
                      reverse=True)[:_TOP_N_HOLDINGS]
         syms.extend(h.symbol for h in top)
+    return tuple(dict.fromkeys(syms))
+
+
+def _full_basket_union_symbols(funds, root: Path) -> tuple:
+    """The union of the monitor set's active-fund FULL disclosed baskets (AC-3),
+    dedup-ordered. Feeds BOTH ulist.np batch call sites — P7's point is filling
+    行业 for the full basket in the same single call. The flow STORE stays
+    top-5-scoped via the _capture_union_symbols slice-back (D5). top-5 union ⊆
+    full-basket union by construction (top5 = full[:5] per fund, RD-1)."""
+    from irc.monitor.profiles import PROFILES
+    syms: list[str] = []
+    for fund in funds:
+        spec = PROFILES.get(fund.analysis_profile)
+        if not (spec and spec.lookthrough == "active_fund"):
+            continue
+        snap = load_latest_active_fund_cached(fund.id, root / "data")
+        if snap is None:
+            continue
+        full = sorted(snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True)
+        syms.extend(h.symbol for h in full)
     return tuple(dict.fromkeys(syms))
 
 

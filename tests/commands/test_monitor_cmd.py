@@ -674,13 +674,13 @@ def test_provisional_flow_for_fund_no_values_present_returns_none():
     assert mc._provisional_flow_for_fund(top5, {"999999": 1.0}) is None
 
 
-def test_run_monitor_calls_provisional_flow_note_once_per_run(tmp_path, monkeypatch):
+def test_run_monitor_calls_batch_flow_industry_once_per_run(tmp_path, monkeypatch):
     """Budget note (spec §8): +1 proxied data-plane call at 12:15, not per-fund."""
     import irc.commands.monitor_cmd as mc
     _patch_edges(monkeypatch)
     calls = []
-    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: (
-        calls.append(symbols) or None
+    monkeypatch.setattr(mc, "_batch_flow_industry", lambda root, symbols: (
+        calls.append(symbols) or (None, None)
     ))
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
@@ -696,7 +696,7 @@ def test_run_monitor_provisional_flow_note_error_degrades_to_no_annotation(tmp_p
     annotation."""
     import irc.commands.monitor_cmd as mc
     _patch_edges(monkeypatch)
-    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    monkeypatch.setattr(mc, "_batch_flow_industry", lambda root, symbols: (None, None))
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
 

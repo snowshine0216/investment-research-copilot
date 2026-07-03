@@ -492,7 +492,7 @@ def test_run_monitor_constituent_citation_gets_snapshot_badge_in_appendix(tmp_pa
     # exists today (monitor_cmd.py:181) — patch it now so the Phase-6 sweep
     # re-running this file stays offline (active-fund symbols would otherwise
     # trigger a real fetch_flow_today_batch call there).
-    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    monkeypatch.setattr(mc, "_batch_flow_industry", lambda root, symbols: (None, None))
 
     rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
     assert rc == 0
