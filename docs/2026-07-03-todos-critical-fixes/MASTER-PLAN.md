@@ -6,7 +6,13 @@ Project type: **non-web** (Python CLI — post-ship verifier is `/verify`, never
 Feature branch: `autodev/todos-critical-fixes-feature` (synthesized off `main` @ 221a34e4, pushed)
 Branch prefix: `claude/todos-critical-fixes-` (e.g. `claude/todos-critical-fixes-001`)
 Run dir: `docs/2026-07-03-todos-critical-fixes/`
-Item order: (locked after dependency scan — see below)
+Item order: 001, 002, 004 (locked 2026-07-03 after dependency scan)
+
+Dependency-scan outcome: no hard cross-item dependencies; ordering is smallest-first with
+same-file adjacency (002 before 004 keeps `opportunity_cmd.py` edits from interleaving).
+Item 003 RECLASSIFIED OUT during the scan review: the venue wiring already exists on main
+(`inputs_build.py` ← `opportunity_cmd.py:1497`), and the small_watch demotion was
+deliberately removed by PR #25 (`ae5a7d88`). TODOS.md annotated as resolved (doc-only).
 
 ## Per-item pipeline (backlog mode, no shortcuts)
 

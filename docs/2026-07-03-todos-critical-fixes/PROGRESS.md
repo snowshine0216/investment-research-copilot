@@ -6,17 +6,20 @@ Run dir: `docs/2026-07-03-todos-critical-fixes/` · Mode: backlog · PR shape: A
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
-| 003 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column pre-filled ⏭️ for all items: project type is non-web → `/verify` is the post-ship
 verifier (XOR rule).
 
+Item 003 row all-⏭️: reclassified OUT at dependency-scan review — stale TODO, already
+resolved on main (see SKIPPED.md). TODOS.md annotated resolved-as-built, doc-only.
+
 ## Run-level
 
 | gate | status |
 |------|--------|
-| dependency scan | ⏳ |
+| dependency scan | ✅ order locked: 001, 002, 004 (003 reclassified OUT — stale TODO, see SKIPPED.md) |
 | run-doc-sync | ⏳ |
 | run-final-verify | ⏳ |
 | close-out (roll-up PR opened, left for user) | ⏳ |

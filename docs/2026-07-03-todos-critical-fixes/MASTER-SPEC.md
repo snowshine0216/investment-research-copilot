@@ -16,7 +16,6 @@ crash-class bugs actionable today without live repro, SMEs, or credentials.
 |----|-------|---------------|-------|
 | 001 | `attribution_strength` unhashable shape escapes macro schema-retry loop | 15 | crash-class (daily monitor path), P2 |
 | 002 | `ActiveFundSnapshot` thesis path lacks dual-leg coverage check | 51 | correctness (false `intact` → `core_dca`) |
-| 003 | Opportunity venue filtering not wired (`venue_compatible` always True) | 70 | correctness (venue-incompatible → `core_dca`) |
 | 004 | Mixed-fund stale-cache with empty `fund_level_evidence` not force-retried | 21 | reliability (7-day cache poisoning) |
 
 Item details (verbatim intent from TODOS.md + invocation):
@@ -36,10 +35,6 @@ Extend the dual-leg check to the `ActiveFundSnapshot` branch. CONTEXT.md "dual-c
 gate" is the terminology source; `thesis_state` is set ONLY by `derive_thesis_from_evidence`
 (never Policy B).
 
-**003** — `OpportunityInput.venue_compatible` is always `True`; wire it from
-`bundle.account.venues` so venue-incompatible instruments are routed to `small_watch`
-instead of `core_dca`.
-
 **004** — when `_fetch_active_fund_level_evidence` returns `()` (e.g. NAV fetch failed once)
 and the fund's CN constituents satisfy `_active_snapshot_has_required_data_leg_gap`, the
 snapshot is cached with empty evidence; next runs reuse it and rule 2.5 emits
@@ -49,7 +44,11 @@ Fix per TODO: freshness probe — if `fund_level_evidence == ()` AND
 
 ### OUT
 
-None — all four selected items are IN. (Other TODOS.md open items were not selected for
+| id | Title | Reason |
+|----|-------|--------|
+| 003 | Opportunity venue filtering not wired | **Stale TODO — already resolved on main.** Reclassified OUT at dependency-scan review (2026-07-03). The wiring exists: `_build_input` (`opportunity/inputs_build.py`) sets `venue_compatible` from `instr.venue_required` ∩ `available_venues`, threaded from `bundle.account.accounts[*].available_venues` (`opportunity_cmd.py:1497`). The "route to small_watch" half was deliberately reversed by PR #25 (`ae5a7d88`, "remove venue_compatible downgrade gate"), locked by `test_venue_incompatible_does_not_block_core_dca`. Action taken: TODOS.md annotated `[x]` resolved-as-built; no code change. |
+
+(Originally all four selected items were IN; 003 dropped on evidence above.) (Other TODOS.md open items were not selected for
 this run: they are polish / observability / test-strengthening / diagnosis-blocked —
 notably the memo "exit-0-zero-writes" ghost, which is UNSOLVED and requires a live
 occurrence with captured stdout.)
