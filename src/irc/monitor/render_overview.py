@@ -4,11 +4,12 @@ respecting) / 数据健康 (dark-factor + gate + stale-eval counts). Each row
 dropped when empty; all-empty -> one muted quiet line. No I/O — all inputs
 already exist in the command layer."""
 from __future__ import annotations
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from html import escape
 
-from irc.monitor.eval.gate import published_state
+from irc.monitor.eval.gate import RUN_GLOBAL_STAGES, published_state
 
 
 @dataclass(frozen=True)
@@ -78,10 +79,13 @@ def _health_row(health: DataHealthCounts) -> str:
 
 def overview_html(
     *, flips: tuple[BiasFlip, ...], actionable: tuple[ActionableFund, ...],
-    health: DataHealthCounts,
+    health: DataHealthCounts, caveat_row_html: str = "",
 ) -> str:
-    """PURE: 今日速览 strip. Each row dropped when empty; all-empty -> quiet line."""
-    rows = "".join((_flip_row(flips), _actionable_row(actionable), _health_row(health)))
+    """PURE: 今日速览 strip. Caveat line FIRST (RD-5 — it sets the trust level
+    for everything below) and counts as a row for the all-empty check; other
+    rows dropped when empty; all-empty -> quiet line."""
+    rows = "".join((caveat_row_html, _flip_row(flips), _actionable_row(actionable),
+                    _health_row(health)))
     if not rows:
         return '<section class="overview"><p class="muted">今日无变化，数据健康</p></section>'
     return f'<section class="overview"><h2>今日速览</h2>{rows}</section>'
@@ -192,3 +196,86 @@ def compute_data_health(
             + (1 if predictive_stale else 0)
         ),
     )
+
+
+# ── Caveat reason surfaces (report v4 item 001, P2) ───────────────────────────
+# The three locked Chinese labels (P2); everything else passes through raw.
+_SUITE_LABELS_CN = {"monitor_impact": "影响评分质量评估",
+                    "monitor_narrative": "叙事质量评估"}
+_STALE_REASON_RE = re.compile(r"stale, (\d+)d")
+
+
+def caveat_tooltip(reason: str) -> str:
+    """PURE: gate caveat reason -> Chinese-labeled tooltip text. Stage prefixes
+    map via _SUITE_LABELS_CN; a `stale, {N}d` reason renders 上次质量评估已过期
+    {N}天; unmapped stages / other reason strings pass through raw. Returns
+    UNESCAPED text — the badge escapes at the HTML edge."""
+    segments = []
+    for seg in reason.split("; "):
+        head, sep, rest = seg.partition(": ")
+        body = _STALE_REASON_RE.sub(lambda m: f"上次质量评估已过期 {m.group(1)}天", rest)
+        segments.append(f"{_SUITE_LABELS_CN.get(head, head)}{sep}{body}")
+    return "; ".join(segments)
+
+
+def fund_specific_segments(reason: str) -> tuple[str, ...]:
+    """PURE: caveat-reason segments NOT attributed to a run-global stage
+    (prefix before ': ' not in RUN_GLOBAL_STAGES) — today: monitor_signal WARNs.
+    Only "; " splits segments; reason strings may contain ", "/": " (RD-7)."""
+    return tuple(seg for seg in reason.split("; ")
+                 if seg and seg.partition(": ")[0] not in RUN_GLOBAL_STAGES)
+
+
+_MISSING_SUITE_REASONS = frozenset({"absent", "skipped", "corrupt_ran_at"})
+
+
+def _stale_age(reasons: tuple[str, ...]) -> int | None:
+    """Age from an already-stamped `stale, {N}d` reason — NEVER re-clocked
+    (open question 4: tooltip/trace/panel/overview cannot disagree)."""
+    for r in reasons:
+        m = _STALE_REASON_RE.search(r)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _suite_fragment(row) -> str:
+    """RD-4 fallback fragment: 过期 {N}天 (stale) / 缺失 (absent, skipped,
+    corrupt_ran_at) / the raw status (fresh-unhealthy — no invented Chinese)."""
+    age = _stale_age(row.reasons)
+    if age is not None:
+        return f"过期 {age}天"
+    if any(r in _MISSING_SUITE_REASONS for r in row.reasons):
+        return "缺失"
+    return row.status
+
+
+def _cause_text(rows: tuple) -> str:
+    """Locked wordings for both-stale and both-absent/skipped; every other
+    combination -> per-suite `{中文label}：{fragment}` joined ` · ` (RD-4)."""
+    ages = [_stale_age(r.reasons) for r in rows]
+    if len(rows) == 2 and all(a is not None for a in ages):
+        return f"LLM质量评估过期 {ages[0]}/{ages[1]}天"
+    if len(rows) == 2 and all(
+            any(x in ("absent", "skipped") for x in r.reasons) for r in rows):
+        return "LLM质量评估缺失"
+    return " · ".join(
+        f"{_SUITE_LABELS_CN.get(r.stage, r.stage)}：{_suite_fragment(r)}" for r in rows)
+
+
+def caveat_row(panel_rows: tuple, gates: dict) -> str:
+    """PURE: the ONE run-global 今日速览 caveat line (P2 dedupe, RD-4/RD-5).
+    Suite causes come from the structured panel rows (stage ∈ RUN_GLOBAL_STAGES,
+    status WARN/UNKNOWN); the fund count from the gate map. "" when both suites
+    are healthy OR when no fund's badge is actually caveated (a fund can be
+    gated instead — the line never overstates, open question 9)."""
+    rows = tuple(r for r in panel_rows
+                 if r.stage in RUN_GLOBAL_STAGES and r.status in ("WARN", "UNKNOWN"))
+    if not rows:
+        return ""
+    n = sum(1 for g in gates.values() if g.badge == "caveated")
+    if n == 0:
+        return ""
+    prefix = "全部基金" if n == len(gates) else f"{n}只基金"
+    text = f"{prefix} caveated：{_cause_text(rows)} · 周六自动刷新"
+    return f'<div class="overview-row caveat-line">⚠ {escape(text)}</div>'

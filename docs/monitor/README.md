@@ -147,6 +147,16 @@ watchdog, completion keyed on `decision_report.json`, then
 `bash ops/launchd/install.sh`; the wrapper does not force `RESEARCH_ENABLED` —
 set it in `.env` for research-backed weekly runs.
 
+After `notify-status`, the wrapper best-effort refreshes the two live LLM eval
+suites (`env IRC_RUN_LIVE_LLM_EVAL=1 … irc eval monitor_impact` /
+`monitor_narrative`, each under its own `IRC_WEEKLY_EVAL_TIMEOUT` watchdog,
+default 900 s) so the daily brief's suite healths stay fresh under
+`STALE_AFTER_DAYS = 14`. Eval failures/timeouts are logged breadcrumbs — they
+never change the weekly exit code and never page. Edge case: a same-day manual
+`irc run` (idempotency-sentinel skip) also skips that Saturday's eval refresh —
+the daily report degrades to the stale caveat chip + validation-panel hint;
+run the manual command from the maintenance table below to clear it.
+
 **Promotion notification is built in**: the decision stage diffs today's
 `opportunity_report.json` against the most recent prior run's; any fund newly
 reaching `core_dca` (or `dca_action` → `accelerate_dca`) lands in the
@@ -191,7 +201,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | Cadence | Task | Command |
 |---|---|---|
 | Monthly | Rebuild the generated CN fund universe (feeds weekly discovery) | `uv run irc universe build-cn-funds && uv run irc config validate` |
-| Monthly-ish (paid, manual) | Live LLM eval suites — the only check on MiniMax output *quality*; without a fresh report the daily gate fails open to ⚠ caveated | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` (same for `monitor_narrative`) |
+| Weekly, automated (Saturday wrapper, best-effort) | Live LLM eval suites — the only check on MiniMax output *quality*; without a fresh report the daily gate fails open to ⚠ caveated (the chip tooltip + 今日速览 line now name the stale suite and its age). `run-weekly.sh` refreshes both suites after notify (900 s watchdog each via `IRC_WEEKLY_EVAL_TIMEOUT`; failures never page; eval-live spend gate applies). Manual remediation / fallback — e.g. after a same-day manual run preempted the Saturday fire: | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` (same for `monitor_narrative`) |
 | Quarterly (automated) | Monitor constituent snapshots | `uv run irc monitor snapshot` (also run once when onboarding a fund) |
 | Quarterly / on holdings roll | Per-stock PE/PB history refresh backing dual-track valuation | `uv run irc fundamentals stock-valuation` (30-day freshness skip makes reruns cheap) |
 | Quarterly | Broad-pipeline fundamentals (weekly loop's thesis evidence) | `uv run irc fundamentals snapshot --target all --top-n 10` |

@@ -130,3 +130,79 @@ def test_panel_vocabulary_and_age_e2e_through_real_render_report():
     sig_row_html = html.split("monitor_signal")[1].split("</tr>")[0]
     assert ">PASS<" in sig_row_html  # gate-relevant stage keeps raw vocabulary
     assert "age-amber" in html
+
+
+# ── report v4 item 001: caveated chip = anchor + Chinese tooltip ─────────────
+
+
+def test_caveated_chip_is_anchor_with_chinese_tooltip():
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    html = _render(_view(bias="ADD_BIAS"), _gate(badge="caveated", reason=reason))
+    assert '<a class="val-chip val-caveated" href="#validation-panel"' in html
+    assert "影响评分质量评估: UNKNOWN (上次质量评估已过期 15天)" in html
+    assert "叙事质量评估: UNKNOWN (上次质量评估已过期 16天)" in html
+    assert ">⚠ caveated</a>" in html
+
+
+def test_caveated_tooltip_is_html_escaped():
+    html = _render(_view(), _gate(badge="caveated",
+                                  reason='monitor_signal: WARN (gap "12d" & more)'))
+    assert 'title="monitor_signal: WARN (gap &quot;12d&quot; &amp; more)"' in html
+
+
+def test_validated_chip_stays_plain_span_no_anchor_no_tooltip():
+    html = _render(_view(), _gate(badge="validated"))
+    assert '<span class="val-chip val-validated">✓ validated</span>' in html
+    assert '<a class="val-chip val-validated"' not in html
+
+
+def test_run_global_caveat_renders_once_in_overview_not_per_card():
+    # P2 dedupe: ONE overview line, never repeated per card; trace-side reason
+    # stays per-fund and complete regardless (criterion 9).
+    from irc.monitor.render_html import render_report
+    from irc.monitor.eval.types import ValidationPanelRow
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    rows = (ValidationPanelRow("monitor_impact", "UNKNOWN", "—", ("stale, 15d",)),
+            ValidationPanelRow("monitor_narrative", "UNKNOWN", "—", ("stale, 16d",)))
+    prov = Provenance("1", "1", "1", "")
+    html = render_report((_view(),), prov, prior_signal=None, now=_NOW, now_dt=_NOW_DT,
+                         gates={"008986": _gate(badge="caveated", reason=reason)},
+                         panel_rows=rows)
+    assert html.count("全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新") == 1
+
+
+# ── report v4 item 001: card-level 为何有保留 (fund-specific causes only) ────
+
+
+def test_card_caveat_line_for_fund_specific_cause():
+    html = _render(_view(), _gate(badge="caveated",
+                                  reason="monitor_signal: WARN (gap 12d)"))
+    assert "为何有保留：monitor_signal: WARN (gap 12d)" in html
+
+
+def test_no_card_caveat_line_for_run_global_only_cause():
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    html = _render(_view(), _gate(badge="caveated", reason=reason))
+    assert "为何有保留" not in html
+
+
+def test_card_caveat_line_mixed_shows_only_fund_specific_segment():
+    reason = ("monitor_signal: WARN (gap 12d); "
+              "monitor_impact: UNKNOWN (stale, 15d)")
+    html = _render(_view(), _gate(badge="caveated", reason=reason))
+    assert "为何有保留：monitor_signal: WARN (gap 12d)</p>" in html
+
+
+def test_no_card_caveat_line_when_validated():
+    html = _render(_view(), _gate(badge="validated"))
+    assert "为何有保留" not in html
+
+
+def test_no_card_caveat_line_when_gated():
+    # FAIL-branch reasons are prefix-free; the guard is badge == "caveated".
+    html = _render(_view(), _gate(badge="gated", suppressed=True,
+                                  reason="nav_quality FAIL"))
+    assert "为何有保留" not in html

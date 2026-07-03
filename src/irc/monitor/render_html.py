@@ -25,7 +25,8 @@ from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
 from irc.monitor.render_overview import (
-    compute_actionable, compute_data_health, compute_flips, overview_html,
+    caveat_row, caveat_tooltip, compute_actionable, compute_data_health,
+    compute_flips, fund_specific_segments, overview_html,
 )
 
 
@@ -156,6 +157,7 @@ _CSS = (
     ".muted{color:#8c959f}"
     ".eval-gated{background:#57606a;color:#fff}"
     ".val-chip{font-size:11px;margin-left:6px;padding:1px 4px;border-radius:3px}"
+    "a.val-chip{text-decoration:none}"
     ".val-validated{color:#1a7f37}"
     ".val-caveated{color:#bf8700}"
     ".validation-panel{margin:16px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px}"
@@ -255,6 +257,21 @@ def _flow_outage_note(views: tuple[FundView, ...]) -> str:
             "(flow unavailable today; lean fell back to 5-factor)</div>")
 
 
+def _chip(gate: GateDecision) -> str:
+    """P2: caveated chip = anchor to #validation-panel with the Chinese-labeled
+    caveat reason as an escaped tooltip; validated stays a plain span (no
+    tooltip, no anchor — an anchor with an empty tooltip invites misreading)."""
+    cls_label = _CHIP.get(gate.badge)
+    if not cls_label:
+        return ""
+    cls, label = cls_label
+    if gate.badge != "caveated":
+        return f'<span class="val-chip {cls}">{label}</span>'
+    title = escape(caveat_tooltip(gate.reason))
+    return (f'<a class="val-chip {cls}" href="#validation-panel" '
+            f'title="{title}">{label}</a>')
+
+
 def _badge(view: FundView, gate: GateDecision | None) -> str:
     if gate is None:
         if view.signal.status != "ok":
@@ -265,12 +282,7 @@ def _badge(view: FundView, gate: GateDecision | None) -> str:
         return f'<span class="badge no-call">{_NO_CALL}</span>'
     if state == _EVAL_GATED:
         return '<span class="badge eval-gated">EVAL-GATED 🛡</span>'
-    chip = ""
-    cls_label = _CHIP.get(gate.badge)
-    if cls_label:
-        cls, label = cls_label
-        chip = f'<span class="val-chip {cls}">{label}</span>'
-    return f'<span class="badge {state.lower()}">{escape(state)}</span>{chip}'
+    return f'<span class="badge {state.lower()}">{escape(state)}</span>{_chip(gate)}'
 
 
 def _markers(view: FundView) -> tuple[EventMarker, ...]:
@@ -307,11 +319,24 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
     )
 
 
+def _card_caveat(gate: GateDecision | None) -> str:
+    """P2: 为何有保留 — fund-specific caveat segments only. Run-global causes
+    dedupe to the ONE overview line; gated funds (prefix-free FAIL reasons)
+    and validated funds render nothing."""
+    if gate is None or gate.badge != "caveated":
+        return ""
+    segments = fund_specific_segments(gate.reason)
+    if not segments:
+        return ""
+    return f'<p class="card-caveat muted">为何有保留：{escape("; ".join(segments))}</p>'
+
+
 def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
+        f"{_card_caveat(gate)}"
         f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
         f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
@@ -461,7 +486,8 @@ def render_report(
         views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
         predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
     )
-    overview = overview_html(flips=flips, actionable=actionable, health=health)
+    overview = overview_html(flips=flips, actionable=actionable, health=health,
+                             caveat_row_html=caveat_row(panel_rows, g))
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)

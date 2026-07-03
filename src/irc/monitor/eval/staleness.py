@@ -22,7 +22,8 @@ def resolve_health(
         return StageHealth(report.stage, "UNKNOWN", ("corrupt_ran_at",))
     if ran_at.tzinfo is None:
         ran_at = ran_at.replace(tzinfo=now.tzinfo)
-    if (now - ran_at).days > stale_after_days:
-        return StageHealth(report.stage, "UNKNOWN", ("stale",))
+    age_days = (now - ran_at).days
+    if age_days > stale_after_days:
+        return StageHealth(report.stage, "UNKNOWN", (f"stale, {age_days}d",))
     failing = tuple(m.name for m in report.metrics if m.status in ("FAIL", "WARN"))
     return StageHealth(report.stage, report.overall, failing)  # type: ignore[arg-type]

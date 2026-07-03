@@ -66,6 +66,7 @@ worker — and reports `rc=124`.
 | `run-flow-capture.sh` | `IRC_FLOW_CAPTURE_TIMEOUT` (300s / 5 min) | `rc=124` **logged, does NOT page** (best-effort capture; the next brief shows flow N/A) |
 | `run-fundamentals.sh` | `IRC_SNAPSHOT_TIMEOUT` (3600s / 60 min) | `rc=124` **logged loudly, does NOT page** (protective-only) |
 | `run-weekly.sh` | `IRC_WEEKLY_TIMEOUT` (7200s / 2h) | `rc=124` → `notify-status --run-kind weekly` pages **"timeout"** |
+| `run-weekly.sh` — eval-refresh step | `IRC_WEEKLY_EVAL_TIMEOUT` (900s per suite) | `rc=124` **logged, does NOT page** (best-effort; runs after notify; wrapper rc unchanged) |
 
 **`com.irc.weekly`** restores the weekly full-pipeline schedule removed with the
 legacy `com.irc.weekly-full` (2026-06-15). Completion sentinel is
@@ -74,6 +75,14 @@ artifact proving the whole chain completed); `run --resume` remains the manual
 same-day recovery after a halt. The wrapper does not force `RESEARCH_ENABLED` —
 set it in `.env` for research-backed weekly runs. Its per-run logs are
 `outputs/_logs/run-weekly.<ts>.log`.
+
+After notify, the wrapper best-effort refreshes the two live LLM eval suites
+(`env IRC_RUN_LIVE_LLM_EVAL=1 "$UV_BIN" run irc eval monitor_impact` /
+`monitor_narrative`) under per-run `IRC_WEEKLY_EVAL_TIMEOUT` watchdogs —
+failures/timeouts are logged, never paged, and never alter the wrapper's exit
+code (OD-3, report v4 item 001; the `env` prefix is required because
+`run_with_watchdog` execs its argv — a bare `VAR=1` word would be run as a
+command name).
 
 **Why the asymmetry.** The monitor job has a single `monitor.json` completion
 sentinel, so a timeout is a clean pageable outcome. The snapshot job has **no

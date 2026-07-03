@@ -261,10 +261,24 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_6():
+def test_schema_version_is_7():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
                          engine_version="3", run_date="2026-06-21")
-    assert t["schema_version"] == "6"
+    assert t["schema_version"] == "7"
+
+
+def test_caveated_gate_reason_lands_in_trace_non_empty():
+    # Criterion 10: schema 7's only content change — gate.reason stops being
+    # empty for caveated funds; shape is untouched.
+    from irc.monitor.eval.types import GateDecision
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    gate = GateDecision("008986", False, (), "caveated", reason)
+    t = build_eval_trace(((_fund(), _good_view(), gate, _bundle()),),
+                         engine_version="4", run_date="2026-07-03")
+    entry = t["funds"]["008986"]
+    assert entry["validation_badge"] == "caveated"
+    assert entry["gate"]["reason"] == reason
 
 
 def test_trace_emits_holding_metrics_block():

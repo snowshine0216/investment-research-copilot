@@ -53,3 +53,38 @@ def test_panel_badge_tally_appears_once_not_per_row():
     assert html.count("gated: 7") == 1
     # per-stage attribution (the gating stage + its reason) is still present
     assert "monitor_impact" in html and "magnitude_band_pass" in html
+
+
+# ── report v4 item 001: anchor id + remediation hint ─────────────────────────
+
+_HINT = ("IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact / "
+         "monitor_narrative（受 eval-live 花费闸门约束）")
+
+
+def test_panel_section_carries_validation_panel_anchor_id():
+    html = validation_panel_html(rows=(_row("monitor_signal", "PASS"),),
+                                 badge_counts={}, now=_NOW)
+    assert '<section class="validation-panel" id="validation-panel">' in html
+
+
+def test_panel_remediation_hint_when_suite_row_unknown():
+    rows = (_row("monitor_signal", "PASS"),
+            _row("monitor_impact", "UNKNOWN", ("stale, 15d",)))
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
+    assert _HINT in html
+
+
+def test_panel_remediation_hint_when_suite_row_warn():
+    # Open question 10: WARN (fresh-unhealthy) is remedied by the same command.
+    rows = (_row("monitor_narrative", "WARN", ("attribution_validity",)),)
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
+    assert _HINT in html
+
+
+def test_panel_no_remediation_hint_when_suites_healthy():
+    # A monitor_signal WARN is fund-specific — the hint keys on suite rows only.
+    rows = (_row("monitor_signal", "WARN", ("gap 12d",)),
+            _row("monitor_impact", "PASS"),
+            _row("monitor_narrative", "PASS"))
+    html = validation_panel_html(rows=rows, badge_counts={}, now=_NOW)
+    assert _HINT not in html

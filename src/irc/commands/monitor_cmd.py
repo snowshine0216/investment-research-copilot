@@ -55,7 +55,7 @@ from irc.monitor.eval.structural import (
     valuation_reconciliation, valuation_coverage_health,
 )
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
-from irc.monitor.eval.trace import build_eval_trace
+from irc.monitor.eval.trace import SCHEMA_VERSION, build_eval_trace
 from irc.monitor.trading_calendar import load_trading_days
 from irc.monitor.eval.forward_log import append_ledger, ledger_row, latest_per_key
 from irc.monitor.render_timeline import BiasTimeline
@@ -482,7 +482,7 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
                    purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
-    prov = Provenance(_ENGINE_VERSION, "2", "6", "")
+    prov = Provenance(_ENGINE_VERSION, "2", SCHEMA_VERSION, "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior,
                          now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,

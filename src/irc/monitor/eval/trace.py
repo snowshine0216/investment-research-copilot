@@ -10,7 +10,11 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "6"
+# Public: also consumed by monitor_cmd's Provenance so the report header can
+# never drift from the trace (RD-1). Bumped 6->7 by report v4 item 001 (shape
+# unchanged — gate.reason just stops being empty); items 002/004 land their
+# fields under "7" WITHOUT bumping again.
+SCHEMA_VERSION = "7"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -198,7 +202,7 @@ def build_eval_trace(
     macro_narrative=None,
 ) -> dict:
     return {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "engine_version": engine_version,
         "run_date": run_date,
         "funds": {fund.id: _fund_entry(fund, view, gate, bundle, trading_days)

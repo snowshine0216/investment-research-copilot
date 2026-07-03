@@ -79,7 +79,7 @@ def test_trace_carries_missing_trading_days_from_calendar(monkeypatch, tmp_path:
         (tmp_path / "outputs" / "2026-06-16" / "monitor" / "eval_trace.json")
         .read_text(encoding="utf-8"))
     assert trace["funds"]["008986"]["nav"]["missing_trading_days"] == 0
-    assert trace["schema_version"] == "6"
+    assert trace["schema_version"] == "7"
 
 
 def test_stale_nav_fund_is_eval_gated_and_panel_names_it(monkeypatch, tmp_path: Path):
@@ -138,3 +138,17 @@ def test_acceptance_spring_festival_run_day_after_holiday_validates():
     health = nav_quality(projection, minimum_observations=2, stale_days=400,
                          today=_dt.date(2026, 2, 23))
     assert health.status == "PASS"
+
+
+def test_report_header_schema_cannot_drift_from_trace(monkeypatch, tmp_path: Path):
+    """RD-1: monitor_cmd's Provenance consumes trace.SCHEMA_VERSION — the report
+    header and eval_trace.json move together by construction."""
+    from irc.monitor.eval.trace import SCHEMA_VERSION
+    funds = [_fund("008986")]
+    _patch(monkeypatch, funds, [_stale_view("008986")])
+    monitor_cmd.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    out = tmp_path / "outputs" / "2026-06-16" / "monitor"
+    html = (out / "report.html").read_text(encoding="utf-8")
+    trace = json.loads((out / "eval_trace.json").read_text(encoding="utf-8"))
+    assert f"schema {SCHEMA_VERSION}" in html
+    assert trace["schema_version"] == SCHEMA_VERSION == "7"
