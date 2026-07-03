@@ -131,3 +131,10 @@ def test_valuation_flow_conflict_expensive_but_inflow():
 def test_no_conflict_when_aligned():
     present = (_s("valuation", 1.0), _s("flow", 0.5))  # cheap + inflow → aligned
     assert "valuation_flow_conflict" not in _divergence(present)
+
+
+def test_low_agreement_stdev_constant_is_named_and_locked():
+    # G1: the σ gate for low_factor_agreement is a named constant beside _DIVERGE,
+    # imported by render_factors so the rendered "≥ 0.5" can never drift from the gate.
+    from irc.monitor import signal
+    assert signal._LOW_AGREEMENT_STDEV == 0.5

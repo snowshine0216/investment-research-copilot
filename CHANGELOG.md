@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor report: divergence caveats name factors with signed values (2026-07-03)
+
+- **风险 divergence caveat lines in the monitor report now show which factors
+  disagree and by how much** (report-v4 explainability WS-3 / P6). New pure
+  `divergence_caveat_detail(code, contributions)` in `monitor/render_factors.py`
+  renders e.g. `趋势与宏观背离：趋势 -0.75（价格动能向下） vs 宏观 +0.62（新闻/宏观偏多）`
+  and, for `low_factor_agreement`, every present factor grouped 偏多/偏空（中性 tail）
+  or the dispersion-only form `强度离散 σ=0.56 ≥ 0.5`. The static
+  `_DIVERGENCE_CAVEATS` map is retained as fallback for unknown codes / missing
+  factors. `signal.py`'s inline `0.5` threshold is promoted to
+  `_LOW_AGREEMENT_STDEV` (behavior-neutral, single source of truth shared with the
+  renderer's σ sentence). No eval-trace `schema_version` change, no
+  `_ENGINE_VERSION` change.
+
 ### Fixed — fund-level evidence repair probe for foreign-heavy cached snapshots (2026-07-03)
 
 - **A cached foreign-heavy `ActiveFundSnapshot` with a rule-2.5 fund-level evidence
