@@ -463,6 +463,37 @@ def test_run_monitor_threads_macro_narrative_into_trace_and_narrative_json(
     assert narrative["__macro__"]["blocks"][0]["theme"] == "gold_drivers"
 
 
+def test_run_monitor_threads_macro_impacts_into_render(tmp_path, monkeypatch):
+    """Item 002 AC5 (dark-factor trap class): the SAME per-fund macro
+    ValidatedImpact tuples the trace serializes must reach render_report's
+    macro_impacts_by_fund through the REAL run_monitor -> _write_outputs chain."""
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.render_html import render_report as real_render
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    seen = {}
+
+    def spy(views, prov, **kw):
+        seen["macro_impacts_by_fund"] = kw.get("macro_impacts_by_fund")
+        return real_render(views, prov, **kw)
+
+    monkeypatch.setattr(mc, "render_report", spy)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    got = seen["macro_impacts_by_fund"]
+    assert got is not None and set(got)          # one entry per monitored fund
+    trace = json.loads((tmp_path / "outputs" / "2026-06-16" / "monitor" /
+                        "eval_trace.json").read_text(encoding="utf-8"))
+    for fid, impacts in got.items():
+        assert [i.impact for i in impacts] == [
+            r["impact"] for r in trace["funds"][fid]["impacts"]["macro"]]
+
+
 def test_run_monitor_survives_gather_macro_narrative_raising(tmp_path, monkeypatch, caplog):
     """F1 (P0, ship-review round 1): gather_macro_narrative raising ANY exception
     (valid-JSON-wrong-shape LLM output, provider bug, etc.) must never kill the

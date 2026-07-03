@@ -481,7 +481,9 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    tiers: SourceTiers | None = None,
                    constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
-                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
+                   purchase_tags: dict | None = None,
+                   macro_impacts_by_fund: dict | None = None,
+                   *, now_dt: datetime) -> None:
     prov = Provenance(_ENGINE_VERSION, "2", SCHEMA_VERSION, "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior,
@@ -491,7 +493,8 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
                          tiers=tiers, constituent_pool_items=constituent_pool_items,
                          prior_run_date=prior_run_date, purchase_tags=purchase_tags,
-                         stale_eval_days=STALE_EVAL_DAYS)
+                         stale_eval_days=STALE_EVAL_DAYS,
+                         macro_impacts_by_fund=macro_impacts_by_fund)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -1052,7 +1055,9 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                    macro_pool_items=macro_pool_items, tiers=tiers,
                    constituent_pool_items=constituent_pool_items,
                    prior_run_date=prior_run_date,
-                   purchase_tags=purchase_tags, now_dt=now_dt)
+                   purchase_tags=purchase_tags,
+                   macro_impacts_by_fund={b.fund_id: b.macro_impacts for b in bundles},
+                   now_dt=now_dt)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,
