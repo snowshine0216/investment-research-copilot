@@ -6,7 +6,10 @@ Project type: **non-web** (Python CLI — post-ship verifier is `/verify`, never
 Feature branch: `autodev/todos-critical-fixes-feature` (synthesized off `main` @ 221a34e4, pushed)
 Branch prefix: `claude/todos-critical-fixes-` (e.g. `claude/todos-critical-fixes-001`)
 Run dir: `docs/2026-07-03-todos-critical-fixes/`
-Item order: 001, 002, 004 (locked 2026-07-03 after dependency scan)
+Item order: 001, 002, 005, 004 (001/002/004 locked 2026-07-03 after dependency scan;
+005 appended mid-run by direct user instruction and slotted after 002 — small, independent
+of 002/004, user-requested promptly. 005's spec is user-authored in-turn → spec + grill
+dispatches ⏭️ pre-completed for that item only; plan onward runs normally.)
 
 Dependency-scan outcome: no hard cross-item dependencies; ordering is smallest-first with
 same-file adjacency (002 before 004 keeps `opportunity_cmd.py` edits from interleaving).

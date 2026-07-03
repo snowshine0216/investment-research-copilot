@@ -17,6 +17,7 @@ crash-class bugs actionable today without live repro, SMEs, or credentials.
 | 001 | `attribution_strength` unhashable shape escapes macro schema-retry loop | 15 | crash-class (daily monitor path), P2 |
 | 002 | `ActiveFundSnapshot` thesis path lacks dual-leg coverage check | 51 | correctness (false `intact` → `core_dca`) |
 | 004 | Mixed-fund stale-cache with empty `fund_level_evidence` not force-retried | 21 | reliability (7-day cache poisoning) |
+| 005 | Delete production-dead `src/irc/monitor/narrative.py` (+ test cleanup) | user instruction 2026-07-03 mid-run | dead code carrying the item-001 latent TypeError twin |
 
 Item details (verbatim intent from TODOS.md + invocation):
 
@@ -34,6 +35,15 @@ can reach `intact` → and with cheap valuation + cold heat + acceptable quality
 Extend the dual-leg check to the `ActiveFundSnapshot` branch. CONTEXT.md "dual-coverage
 gate" is the terminology source; `thesis_state` is set ONLY by `derive_thesis_from_evidence`
 (never Policy B).
+
+**005** — added mid-run by direct user instruction (2026-07-03): `narrative.py::_parse_claims`
+has the same unguarded `strength not in _VALID_STRENGTH` membership test item 001 fixed in
+`narrative_macro.py`, but the module's public entry `gather_narrative` has zero production
+callers since report v3 (per-fund LLM narrative dropped; contract test asserts
+`not hasattr(mc, "gather_narrative")`). User decision procedure: confirmed-dead → delete
+module + mirror tests + stale monkeypatch scaffolding (option 1); reachable → isinstance
+hardening (option 2). Orchestrator investigation confirmed DEAD → option 1. Spec is
+user-authored (items/005-spec.md records the evidence); spec/grill dispatches ⏭️.
 
 **004** — when `_fetch_active_fund_level_evidence` returns `()` (e.g. NAV fetch failed once)
 and the fund's CN constituents satisfy `_active_snapshot_has_required_data_leg_gap`, the
