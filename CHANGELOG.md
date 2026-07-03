@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — fund-level evidence repair probe for foreign-heavy cached snapshots (2026-07-03)
+
+- **A cached foreign-heavy `ActiveFundSnapshot` with a rule-2.5 fund-level evidence
+  leg gap no longer re-emits `foreign_heavy_fund_level_evidence_missing` for up to
+  `IRC_CACHE_FRESHNESS_DAYS` (default 7) on stale evidence.** New repair probe on the
+  cached-serve path (`_maybe_fund_level_evidence_repair`, `opportunity_cmd.py`,
+  post-probe snapshot): when the new public predicate `foreign_heavy_fund_level_gap`
+  (co-located with rule 2.5 in `policy_b.py` — single source of truth) is True, ONLY
+  the fund-level legs are re-fetched (4 AkShare calls: 1 NAV + 3 announcement
+  endpoints) and **leg-wise monotonically merged** by the new pure module
+  `src/irc/fundamentals/fund_level_repair.py` — per leg, fresh entries win when
+  produced, cached entries are retained when not, and leg-failure strings are
+  present ⟺ the leg is absent in the merged evidence (producer invariant).
+  `cache_probed_at`, holdings, and constituent evidence untouched; the cache is
+  re-written only when the evidence changed (P0-5 quarter guard inherited via
+  `write_active_fund_cache`); fetch failures degrade to serving the cached snapshot;
+  no backoff (re-fires each run until healed). Preflight budget:
+  `_classify_active_fund_scores` returns a 4-tuple and `FetchPlan` gains
+  `active_fund_fund_level_repair` charged at ×4 — never the ~35-call full-refetch
+  term (the historical over-estimate trap class). Trigger deliberately corrected
+  from the TODO's `fund_level_evidence == ()` to the rule-2.5 leg-gap mirror (a
+  NAV-only outage leaves a non-empty info-only tuple that `== ()` would never
+  repair). ADR 0003 §7 addendum added; §7's stale "2 additional AkShare calls
+  (~100)" claim corrected to 4 (~200), matching the `snapshot.py` docstring fix.
+  No VERSION bump.
+
 ### Removed — production-dead per-fund narrative module `src/irc/monitor/narrative.py` (2026-07-03)
 
 - **`src/irc/monitor/narrative.py` (per-fund `gather_narrative` + `NarrativeResult`)

@@ -483,8 +483,9 @@ def _fetch_active_fund_level_evidence(
     scope="instrument", owner_instrument_id=fund_id, parent_fund_id=None,
     constituent_key=None. Returns (evidence_tuple, failure_reasons_list).
     Item 001 (ADR 0003 §7): Policy B rule 2.5 consumes the data + information
-    legs to short-circuit foreign-heavy funds. Per-fund call delta = 2 AkShare
-    calls; see `_fetch_budget` in opportunity_cmd.py (default budget 2000).
+    legs to short-circuit foreign-heavy funds. Per-fund call delta = 4 AkShare
+    calls (1 NAV + 3 announcement endpoints, `_FUND_ANN_TOPIC_FNS`); see
+    `_fetch_budget` in opportunity_cmd.py (default budget 2000).
     """
     evidence: list[ThesisEvidence] = []
     failures: list[str] = []
