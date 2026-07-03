@@ -34,6 +34,7 @@ from irc.monitor.source_tiers import SourceTiers, classify, tiers_from_config
 from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
 from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
+from irc.monitor.board_pe_staleness import BoardPeFreshness, freshness_dict
 from irc.monitor.industry_map_store import (
     fresh_slice, load_store as load_industry_map_store, record_seen,
 )
@@ -249,6 +250,31 @@ def _industry_serving_map(root: Path, today: str) -> dict[str, str]:
         return {}
 
 
+def _wants_board_pe(funds, con) -> bool:
+    """Board PE is consumed only inside _build_full_basket_metrics, which is
+    con-gated AND active-fund-gated — skip the run-level fetch when nothing will
+    read the table (gold-only configs / no DuckDB stay network-free, the same
+    effective gating the lazy pre-004 call had). Trace key degrades to None."""
+    from irc.monitor.profiles import PROFILES
+    if con is None:
+        return False
+    return any((spec := PROFILES.get(f.analysis_profile)) is not None
+               and spec.lookthrough == "active_fund" for f in funds)
+
+
+def _fetch_board_pe(root: Path, today: str, trading_days) -> tuple[dict, BoardPeFreshness]:
+    """EDGE (AC-8 fetch-first): the ONE board-PE fetch per run, at run_monitor
+    level BEFORE the per-fund loop (ahead of any per-symbol fallback storm,
+    adjacent to the one batch call). Degrades to ({}, DARK) — never crashes."""
+    try:
+        return fetch_industry_pe(
+            cache_dir=root / "data" / "monitor" / "industry_pe", today=today,
+            trading_days=trading_days)
+    except Exception:  # noqa: BLE001 — fetch_industry_pe never raises; belt+braces
+        _log.warning("board PE run-level fetch failed", exc_info=True)
+        return {}, BoardPeFreshness("DARK", None, None)
+
+
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
     """Convert one ConstituentAnalysis → owner-bound EvidenceItems.
 
@@ -400,6 +426,7 @@ def _make_view(
     purchase_table=None,
     provisional_flow_pct: float | None = None,
     provisional_flow_as_of: str | None = None,
+    board_pe_freshness=None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -424,6 +451,7 @@ def _make_view(
         themes=fund.themes,
         provisional_flow_pct=provisional_flow_pct,
         provisional_flow_as_of=provisional_flow_as_of,
+        board_pe_freshness=board_pe_freshness,
     )
 
 
@@ -570,7 +598,7 @@ def _write_drilldown(out: Path, views: tuple) -> None:
         (
             v.fund_id, v.name_cn, v.holding_metrics,
             aggregate_flow(v.holding_metrics), v.signal,
-            aggregate_valuation(v.holding_metrics),
+            aggregate_valuation(v.holding_metrics), v.board_pe_freshness,
         )
         for v in views if v.holding_metrics
     )
@@ -610,6 +638,7 @@ def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, suite_healths: tuple[StageHealth, ...],
     trading_days: frozenset[date] | None,
+    board_pe_freshness: dict | None = None,
 ) -> tuple[tuple[GateDecision, ...], dict, dict, dict, dict, dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
@@ -679,7 +708,8 @@ def _compute_gates(
                 reasons=(f"{fund.id}: reconciliation_error: {exc!r}",),
             )
         try:
-            val_cov_healths[fund.id] = valuation_coverage_health(projection)
+            val_cov_healths[fund.id] = valuation_coverage_health(
+                projection, board_pe_freshness=board_pe_freshness)
         except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
             _log.warning(
                 "valuation_coverage_health failed for %s: %r", fund.id, exc, exc_info=True,
@@ -702,6 +732,7 @@ def _write_eval_artifacts(
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
     trading_days: frozenset[date] | None, macro_narrative=None,
     unmatched_keys: tuple[str, ...] = (),
+    board_pe_freshness: dict | None = None,
 ) -> None:
     """EDGE: serialize eval_trace.json (now carrying the run-level macro_narrative
     field, schema 5->6) + append the forward ledger. Failures are logged and
@@ -712,6 +743,7 @@ def _write_eval_artifacts(
             engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
             macro_narrative=macro_narrative,
             unmatched_impact_keys=unmatched_keys,
+            board_pe_freshness=board_pe_freshness,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -898,6 +930,7 @@ def _process_fund(
     provisional_flow: dict | None = None,
     provisional_flow_as_of: str | None = None,
     industry_serving: dict | None = None,
+    board_pe=None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → view (+ eval bundle).
 
@@ -950,7 +983,7 @@ def _process_fund(
                 flow_slice=(flow_slice if flow_slice is not None
                             else _load_flow_store_slice(
                                 root, tuple(h.symbol for h in top5))),
-                industry_serving=industry_serving)
+                industry_serving=industry_serving, board_pe=board_pe)
         provisional_pct = _provisional_flow_for_fund(top5, provisional_flow)
 
     if con is not None:
@@ -981,7 +1014,8 @@ def _process_fund(
     view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
                       holding_metrics=holding_metrics, purchase_table=purchase_table,
                       provisional_flow_pct=provisional_pct,
-                      provisional_flow_as_of=provisional_flow_as_of)
+                      provisional_flow_as_of=provisional_flow_as_of,
+                      board_pe_freshness=(board_pe[1] if board_pe is not None else None))
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -1046,6 +1080,10 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     )
     _record_industry_seen(root, _today, batch_industry)            # AC-5 (12:15 site)
     industry_serving = _industry_serving_map(root, _today)         # AC-6: post-merge slice
+    trading_days = load_trading_days(date.today(), root=root)      # hoisted (Q10)
+    board_pe = (_fetch_board_pe(root, _today, trading_days)        # AC-8: fetch-first
+                if _wants_board_pe(funds, con) else None)
+    board_pe_dict = freshness_dict(board_pe[1]) if board_pe is not None else None
     theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
     bundles: list[FundTraceBundle] = []
@@ -1057,7 +1095,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                 today=_today, flow_slice=flow_slice, theme_results=theme_results,
                 provisional_flow=provisional_flow,
                 provisional_flow_as_of=provisional_flow_as_of,
-                industry_serving=industry_serving,
+                industry_serving=industry_serving, board_pe=board_pe,
             )
             views.append(view)
             bundles.append(bundle)
@@ -1075,14 +1113,13 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     all_costs.extend(macro_result.cost_entries)
     macro_pool_items = tuple(ev for items in macro_pool.values() for ev in items)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
-    trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
     (gates, signal_healths, deterministic_healths,
      flow_recon_healths, flow_cov_healths, val_recon_healths, val_cov_healths) = (
         _compute_gates(
             list(funds), views, bundles,
             min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
-            trading_days=trading_days)
+            trading_days=trading_days, board_pe_freshness=board_pe_dict)
     )
     panel_rows = build_panel_rows(
         signal_healths, deterministic_healths, now=_now_iso(), suite_rows=suite_rows,
@@ -1112,7 +1149,8 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days,
                           macro_narrative=macro_result.doc,
-                          unmatched_keys=unmatched_keys)
+                          unmatched_keys=unmatched_keys,
+                          board_pe_freshness=board_pe_dict)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)

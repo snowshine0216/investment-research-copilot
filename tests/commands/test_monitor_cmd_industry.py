@@ -195,3 +195,115 @@ def test_full_basket_union_dedup_ordered_and_supersets_top5(tmp_path):
     assert len(full) == 7
     assert set(top5) <= set(full)                     # top-5 union ⊆ full-basket union
     assert full == tuple(dict.fromkeys(full))         # dedup-ordered
+
+
+# ---- AC-8: fetch-first order + run-level threading ----
+
+
+def test_board_pe_fetch_first_before_any_per_symbol_fallback(tmp_path, monkeypatch):
+    """AC-8 call-order recorder: the board-PE fetch fires ONCE, at run level,
+    BEFORE the first per-symbol fallback, across a 2-active-fund run."""
+    _wire_two_fund_run(tmp_path, monkeypatch, batch_industry=None)   # nothing batched
+    order = []
+    monkeypatch.setattr(
+        mc, "fetch_industry_pe",
+        lambda **kw: order.append("board_pe")
+        or ({}, BoardPeFreshness("DARK", None, None)))
+    monkeypatch.setattr(
+        mc, "fetch_stock_industry_map",
+        lambda symbols, **kw: order.append("fallback") or {s: None for s in symbols})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    assert order.count("board_pe") == 1              # ONE fetch per run, run-level
+    assert order.count("fallback") == 2              # one per active fund
+    assert order.index("board_pe") < order.index("fallback")
+
+
+def test_board_pe_fetch_receives_hoisted_trading_days(tmp_path, monkeypatch):
+    """Q10: the hoisted load_trading_days frozenset is threaded to the board-PE
+    fetch (and load_trading_days is still called exactly once per run)."""
+    _wire_two_fund_run(tmp_path, monkeypatch, batch_industry={"600519": "酿酒行业",
+                                                              "000651": "家电行业"})
+    tds = frozenset({date(2026, 7, 2), date(2026, 7, 3)})
+    calendar_calls = []
+    monkeypatch.setattr(mc, "load_trading_days",
+                        lambda today, root: calendar_calls.append(1) or tds)
+    seen = {}
+
+    def _probe(**kw):
+        seen["trading_days"] = kw.get("trading_days")
+        return {}, BoardPeFreshness("DARK", None, None)
+
+    monkeypatch.setattr(mc, "fetch_industry_pe", _probe)
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", lambda symbols, **kw: {})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    assert seen["trading_days"] == tds
+    assert len(calendar_calls) == 1                  # hoist is a pure move — one call
+
+
+def test_trace_carries_run_level_board_pe_freshness(tmp_path, monkeypatch):
+    """AC-11 wiring: run_monitor threads the freshness dict into eval_trace.json."""
+    _wire_two_fund_run(tmp_path, monkeypatch,
+                       batch_industry={"600519": "酿酒行业", "000651": "家电行业"})
+    monkeypatch.setattr(mc, "fetch_industry_pe",
+                        lambda **kw: ({"酿酒行业": 30.0},
+                                      BoardPeFreshness("STALE", "2026-07-02", 1)))
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", lambda symbols, **kw: {})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    trace = json.loads((tmp_path / "outputs" / "2026-07-03" / "monitor" /
+                        "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["schema_version"] == "7"            # AC-11: NO second bump
+    assert trace["board_pe_freshness"] == {"state": "STALE", "as_of": "2026-07-02",
+                                           "age_td": 1}
+
+
+def test_report_and_drilldown_carry_stale_age_tag_end_to_end(tmp_path, monkeypatch):
+    """AC-13 wiring: STALE freshness renders the exact age tag on BOTH surfaces."""
+    _wire_two_fund_run(tmp_path, monkeypatch,
+                       batch_industry={"600519": "酿酒行业", "000651": "家电行业"})
+    monkeypatch.setattr(mc, "fetch_industry_pe",
+                        lambda **kw: ({"酿酒行业": 30.0},
+                                      BoardPeFreshness("STALE", "2026-07-02", 1)))
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", lambda symbols, **kw: {})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    out = tmp_path / "outputs" / "2026-07-03" / "monitor"
+    tag = "板块PE 引用 2026-07-02 · 1个交易日前"
+    assert tag in (out / "report.html").read_text(encoding="utf-8")
+    assert tag in (out / "drilldown.html").read_text(encoding="utf-8")
+
+
+def test_panel_reason_carries_board_pe_state(tmp_path, monkeypatch):
+    """AC-12 wiring: the valuation_coverage panel row surfaces the run-level state."""
+    _wire_two_fund_run(tmp_path, monkeypatch,
+                       batch_industry={"600519": "酿酒行业", "000651": "家电行业"})
+    monkeypatch.setattr(mc, "fetch_industry_pe",
+                        lambda **kw: ({"酿酒行业": 30.0},
+                                      BoardPeFreshness("STALE", "2026-07-02", 1)))
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", lambda symbols, **kw: {})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    html = (tmp_path / "outputs" / "2026-07-03" / "monitor" / "report.html").read_text(
+        encoding="utf-8")
+    assert "board_pe STALE-1 (as_of 2026-07-02)" in html
+
+
+def test_no_active_funds_or_no_con_skips_board_pe_fetch(tmp_path, monkeypatch):
+    """_wants_board_pe: the run-level fetch is skipped when nothing will consume
+    the table (con=None here — no data/local.duckdb) — keeps gold-only/offline
+    runs network-free; trace key degrades to None (AC-11 back-compat)."""
+    _wire_two_fund_run(tmp_path, monkeypatch, batch_industry=None)
+    (tmp_path / "data" / "local.duckdb").unlink()     # con stays None
+    called = []
+    monkeypatch.setattr(mc, "fetch_industry_pe",
+                        lambda **kw: called.append(1)
+                        or ({}, BoardPeFreshness("DARK", None, None)))
+    monkeypatch.setattr(mc, "fetch_stock_industry_map", lambda symbols, **kw: {})
+    rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-07-03")
+    assert rc == 0
+    assert called == []
+    trace = json.loads((tmp_path / "outputs" / "2026-07-03" / "monitor" /
+                        "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["board_pe_freshness"] is None
