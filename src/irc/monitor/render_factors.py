@@ -1,7 +1,9 @@
 from __future__ import annotations
+import statistics
 from html import escape
 from irc.monitor.types import FactorContribution, FactorScore, SignalRecord
 from irc.monitor.annotate import factor_annotation, composite_annotation
+from irc.monitor.signal import _LOW_AGREEMENT_STDEV
 
 CANONICAL_FACTOR_ORDER = ("trend", "valuation", "flow", "heat", "macro_tilt", "constituent")
 
@@ -49,12 +51,44 @@ def _pairwise_detail(code: str, contributions: tuple[FactorContribution, ...]) -
     return f"{title}：{_factor_phrase(a, by[a])} vs {_factor_phrase(b, by[b])}"
 
 
+def _canonical_order(cs: tuple[FactorContribution, ...]) -> tuple[FactorContribution, ...]:
+    rank = {n: i for i, n in enumerate(CANONICAL_FACTOR_ORDER)}
+    return tuple(sorted(cs, key=lambda c: rank.get(c.name, len(CANONICAL_FACTOR_ORDER))))
+
+
+def _group(ordered: tuple[FactorContribution, ...], keep) -> str:
+    return "、".join(f"{escape(c.name)} {_signed(c.value)}" for c in ordered if keep(c.value))
+
+
+def _grouped_by_sign(contributions: tuple[FactorContribution, ...]) -> str:
+    ordered = _canonical_order(contributions)
+    pos = _group(ordered, lambda v: v > 0)
+    neg = _group(ordered, lambda v: v < 0)
+    zero = _group(ordered, lambda v: v == 0)
+    tail = f"、中性 {zero}" if zero else ""  # Q5: exact-zero factors trail as 中性
+    return f"因子分歧较大：偏多 {pos} ↔ 偏空 {neg}{tail}"
+
+
+def _low_agreement_detail(contributions: tuple[FactorContribution, ...]) -> str:
+    vals = [c.value for c in contributions]
+    if len(vals) < 2:
+        return divergence_caveat("low_factor_agreement")  # AC-5 fallback
+    if any(v > 0 for v in vals) and any(v < 0 for v in vals):
+        return _grouped_by_sign(contributions)  # Q4: grouped wins when signs conflict
+    sigma = statistics.pstdev(vals)  # RAW value gates (G2); rounding is display-only
+    if sigma < _LOW_AGREEMENT_STDEV:
+        return divergence_caveat("low_factor_agreement")  # Q9: never a false σ claim
+    return f"因子分歧较大：强度离散 σ={sigma:.2f} ≥ {_LOW_AGREEMENT_STDEV:g}"
+
+
 def divergence_caveat_detail(code: str, contributions: tuple[FactorContribution, ...]) -> str:
     """PURE: divergence code + present contributions → parametrized caveat naming the
     disagreeing factors with signed values; every degraded case delegates to
     divergence_caveat(code) (static map / escaped-passthrough fallback, G5)."""
     if code in _PAIRWISE:
         return _pairwise_detail(code, contributions)
+    if code == "low_factor_agreement":
+        return _low_agreement_detail(contributions)
     return divergence_caveat(code)
 
 

@@ -142,3 +142,65 @@ def test_factor_table_na_row_jiedu_blank():
     html = factor_table_html(rec, scores, {})
     # N/A row: 解读 cell present but empty (—)
     assert "heat_no_data" in html
+
+
+def test_low_agreement_mixed_sign_grouped_canonical_order():
+    contribs = (_fc("heat", 0.30), _fc("macro_tilt", 0.62), _fc("trend", -0.75))
+    assert divergence_caveat_detail("low_factor_agreement", contribs) == (
+        "因子分歧较大：偏多 heat +0.30、macro_tilt +0.62 ↔ 偏空 trend -0.75"
+    )
+
+
+def test_low_agreement_zero_factor_appends_neutral_group():
+    contribs = (
+        _fc("heat", 0.30), _fc("macro_tilt", 0.62), _fc("trend", -0.75),
+        _fc("constituent", 0.0),
+    )
+    assert divergence_caveat_detail("low_factor_agreement", contribs) == (
+        "因子分歧较大：偏多 heat +0.30、macro_tilt +0.62 ↔ 偏空 trend -0.75、中性 constituent +0.00"
+    )
+
+
+def test_low_agreement_negative_zero_renders_plus_zero():
+    contribs = (_fc("trend", 0.75), _fc("heat", -0.60), _fc("constituent", -0.0))
+    out = divergence_caveat_detail("low_factor_agreement", contribs)
+    assert "中性 constituent +0.00" in out  # G8: -0.0 lands in 中性, formatted +0.00
+    assert "-0.00" not in out
+
+
+def test_low_agreement_dispersion_only_sigma_sentence():
+    # same-sign values; pstdev([0.10, 1.22]) = 0.56 — reproduces the locked example σ
+    contribs = (_fc("trend", 0.10), _fc("macro_tilt", 1.22))
+    assert divergence_caveat_detail("low_factor_agreement", contribs) == (
+        "因子分歧较大：强度离散 σ=0.56 ≥ 0.5"
+    )
+
+
+def test_low_agreement_fewer_than_two_values_falls_back():
+    assert divergence_caveat_detail("low_factor_agreement", (_fc("trend", 0.9),)) == (
+        "因子分歧较大：各因子方向/强度不一致"
+    )
+    assert divergence_caveat_detail("low_factor_agreement", ()) == (
+        "因子分歧较大：各因子方向/强度不一致"
+    )
+
+
+def test_low_agreement_sigma_below_threshold_falls_back():
+    # same sign, pstdev([0.10, 0.30]) = 0.10 < 0.5 → never render a false σ claim (Q9)
+    contribs = (_fc("trend", 0.10), _fc("macro_tilt", 0.30))
+    assert divergence_caveat_detail("low_factor_agreement", contribs) == (
+        "因子分歧较大：各因子方向/强度不一致"
+    )
+
+
+def test_grouped_hostile_factor_name_is_html_escaped():
+    contribs = (_fc("<b>", 0.30), _fc("trend", -0.75))
+    out = divergence_caveat_detail("low_factor_agreement", contribs)
+    assert "<b>" not in out       # AC-8: lands inside <li> unescaped by the caller
+    assert "&lt;b&gt;" in out
+
+
+def test_grouped_unknown_factor_name_sorts_after_canonical():
+    contribs = (_fc("zz_future", 0.20), _fc("heat", 0.30), _fc("trend", -0.75))
+    out = divergence_caveat_detail("low_factor_agreement", contribs)
+    assert "偏多 heat +0.30、zz_future +0.20" in out  # Q8: unknowns append in input order
