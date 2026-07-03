@@ -2,7 +2,7 @@ from __future__ import annotations
 from html import escape
 from irc.monitor.types import Claim, NarrativeDoc, SignalRecord
 from irc.monitor.narrative_macro import theme_display_name
-from irc.monitor.render_factors import divergence_caveat
+from irc.monitor.render_factors import divergence_caveat_detail
 from irc.monitor.market_composite import MarketCompositeView
 
 _HONESTY = "市场面综合分 前瞻验证累积中 · 目前仅趋势单因子有历史命中 ~0.54"
@@ -99,7 +99,10 @@ def verdict_block_html(rec: SignalRecord, narr: NarrativeDoc, idx) -> str:
 
 def risk_block_html(rec: SignalRecord, narr: NarrativeDoc, idx) -> str:
     """PURE: divergence caveats + MiniMax risk claims; muted placeholder if empty."""
-    caveats = [f"<li>{divergence_caveat(code)}</li>" for code in rec.divergence_codes]
+    caveats = [
+        f"<li>{divergence_caveat_detail(code, rec.contributions)}</li>"
+        for code in rec.divergence_codes
+    ]
     risk_claims = (
         [_claim_html(c, idx) for c in narr.risk_commentary] if narr.status == "ok" else []
     )

@@ -1,4 +1,4 @@
-from irc.monitor.types import SignalRecord, NarrativeDoc, Claim
+from irc.monitor.types import SignalRecord, NarrativeDoc, Claim, FactorContribution
 from irc.monitor.render_cards import (
     verdict_block_html, risk_block_html, narrative_sections_html, _claim_html)
 from irc.monitor.render_html import CitationIndex
@@ -9,10 +9,11 @@ _EMPTY_IDX = CitationIndex((), {})
 
 
 def _rec(status="ok", bias="ADD_BIAS", c=0.5563, conf=0.9, fams=("price-momentum", "news"),
-         aw=0.8, div=()):
+         aw=0.8, div=(), contribs=()):
     return SignalRecord(
         fund_id="x", status=status, bias=bias, composite=c, signal_confidence=conf,
-        available_weight=aw, present_families=fams, contributions=(), divergence_codes=div,
+        available_weight=aw, present_families=fams, contributions=contribs,
+        divergence_codes=div,
     )
 
 
@@ -82,6 +83,21 @@ def test_risk_block_includes_risk_claims_with_refs():
 def test_risk_block_empty_renders_muted_placeholder():
     html = risk_block_html(_rec(div=()), _narr(), _EMPTY_IDX)
     assert "无显著风险信号" in html
+
+
+def test_risk_block_divergence_detail_names_factors_not_static_string():
+    # AC-7: with codes AND the required contributions, the risk block names the
+    # disagreeing factors with signed values and drops the bare static string.
+    contribs = (
+        FactorContribution("trend", 0.5, -0.75, -0.375, 1.0, True, ""),
+        FactorContribution("macro_tilt", 0.5, 0.62, 0.31, 1.0, True, ""),
+    )
+    html = risk_block_html(
+        _rec(div=("trend_macro_conflict", "low_factor_agreement"), contribs=contribs),
+        _narr(), _EMPTY_IDX)
+    assert "趋势 -0.75" in html and "宏观 +0.62" in html   # pairwise detail
+    assert "偏多 macro_tilt +0.62" in html                  # grouped low-agreement detail
+    assert "各因子方向/强度不一致" not in html               # bare static string gone
 
 
 def test_narrative_sections_only_price_action():
