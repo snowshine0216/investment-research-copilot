@@ -647,3 +647,19 @@ def test_run_monitor_provisional_flow_note_error_degrades_to_no_annotation(tmp_p
     html = (tmp_path / "outputs" / "2026-06-16" / "monitor" / "report.html").read_text(
         encoding="utf-8")
     assert "盘中主力净流入" not in html   # no annotation, no crash
+
+
+def test_narrative_dump_macro_blocks_carry_mechanism():
+    """Item 002 AC11: narrative.json's __macro__ block dump gains the additive
+    mechanism key (write-only debug artifact — verified reader-free, RD-12)."""
+    from irc.commands.monitor_cmd import _narrative_dump
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    from irc.monitor.types import Claim
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("gold_drivers",
+                                (Claim("黄金受支撑。", "consistent_with", ()),),
+                                mechanism="美元走弱→利多黄金"),),
+        status="ok")
+    out = _narrative_dump([], doc)
+    assert out["__macro__"]["blocks"][0]["mechanism"] == "美元走弱→利多黄金"

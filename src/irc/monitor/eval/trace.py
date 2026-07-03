@@ -185,7 +185,7 @@ def _macro_narrative(doc) -> dict | None:
     return {
         "status": doc.status,
         "blocks": [
-            {"theme": b.theme, "claims": [
+            {"theme": b.theme, "mechanism": b.mechanism, "claims": [
                 {"claim": c.claim, "attribution_strength": c.attribution_strength,
                  "citation_ids": list(c.citation_ids)}
                 for c in b.claims

@@ -454,10 +454,12 @@ def _macro_theme_section(
     # chip set + order stay config-derived (_invert_fund_themes) — the renderer
     # NEVER invents a chip for an impact key outside the config chip list.
     chips = "".join(_fund_chip(fid, recs.get(fid)) for fid in funds)
+    mech = ("" if block.mechanism is None else
+            f'<p class="macro-mechanism">对本组基金的传导：{escape(block.mechanism)}</p>')
     body = "".join(_macro_claim_html(c, idx) for c in block.claims)
     return (
         f'<div class="macro-theme" id="macro-{escape(block.theme)}">'
-        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{body}</div>"
+        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{mech}{body}</div>"
     )
 
 

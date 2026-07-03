@@ -354,3 +354,24 @@ def test_flow_rows_flows_through_real_builder_into_trace_and_warmup_check():
     health = flow_coverage_health(t["funds"]["519069"])
     assert health.status == "PASS"
     assert "flow_rows_min 0" in health.reasons
+
+
+def test_macro_narrative_mechanism_field_lands_under_unchanged_schema_7():
+    """Item 002 AC11/AC14: additive per-theme mechanism under the EXISTING "7" —
+    the no-second-bump cross-cutting rule (trace.py:16)."""
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("us_monetary",
+                                (Claim("美联储维持利率不变。", "consistent_with", ()),),
+                                mechanism="就业数据疲软→加息预期降温→利多黄金"),
+                MacroThemeBlock("geopolitics",
+                                (Claim("地缘风险上升。", "possible_driver", ()),))),
+        status="ok")
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04",
+                         macro_narrative=doc)
+    blocks = t["macro_narrative"]["blocks"]
+    assert blocks[0]["mechanism"] == "就业数据疲软→加息预期降温→利多黄金"
+    assert blocks[1]["mechanism"] is None
+    assert t["schema_version"] == "7"          # NO second bump

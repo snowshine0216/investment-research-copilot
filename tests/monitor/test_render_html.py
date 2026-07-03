@@ -535,3 +535,47 @@ def test_macro_theme_section_without_index_still_carries_tags():
 
     html = macro_narrative_html(_macro_doc(), fund_themes_by_theme={})
     assert '<span class="claim-strength">方向一致</span>' in html
+
+
+# ── Item 002 P5: 传导 mechanism line ──────────────────────────────────────────
+
+
+def _macro_doc_with_mechanism(mechanism):
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    return MacroNarrativeDoc(
+        blocks=(MacroThemeBlock(
+            "us_monetary", (Claim("美联储本周维持利率不变。", "consistent_with", ()),),
+            mechanism=mechanism),),
+        status="ok")
+
+
+def test_macro_mechanism_line_renders_between_chips_and_claims():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism("就业数据疲软→加息预期降温→利多黄金"),
+        fund_themes_by_theme={"us_monetary": ("270023",)})
+    assert ('<p class="macro-mechanism">对本组基金的传导：'
+            '就业数据疲软→加息预期降温→利多黄金</p>') in html
+    # placement (Q13): h3 -> fund chips -> mechanism -> claims
+    assert (html.index('class="fund-chips"') < html.index('class="macro-mechanism"')
+            < html.index("美联储本周维持利率不变。"))
+
+
+def test_macro_mechanism_absent_renders_no_empty_element():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism(None), fund_themes_by_theme={"us_monetary": ()})
+    assert "macro-mechanism" not in html
+    assert "对本组基金的传导" not in html
+
+
+def test_macro_mechanism_is_escaped():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism('<script>alert(1)</script>→利多'),
+        fund_themes_by_theme={"us_monetary": ()})
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html

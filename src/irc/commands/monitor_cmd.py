@@ -447,7 +447,8 @@ def _narrative_dump(views: list[FundView], macro_doc: MacroNarrativeDoc | None) 
         {
             "status": macro_doc.status,
             "blocks": [
-                {"theme": b.theme, "claims": [c.claim for c in b.claims]}
+                {"theme": b.theme, "mechanism": b.mechanism,
+                 "claims": [c.claim for c in b.claims]}
                 for b in macro_doc.blocks
             ],
         }
