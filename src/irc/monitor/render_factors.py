@@ -12,10 +12,50 @@ _DIVERGENCE_CAVEATS = {
     "valuation_flow_conflict": "估值与资金流背离：便宜但资金流出 / 偏贵但资金流入",
 }
 
+_PAIRWISE = {  # code → (title, factor_a, factor_b); factor order follows the code name
+    "trend_valuation_conflict": ("趋势与估值背离", "trend", "valuation"),
+    "trend_macro_conflict": ("趋势与宏观背离", "trend", "macro_tilt"),
+    "valuation_flow_conflict": ("估值与资金流背离", "valuation", "flow"),
+}
+_DISPLAY_NAME = {"trend": "趋势", "macro_tilt": "宏观", "valuation": "估值", "flow": "资金流"}
+_SIGN_GLOSS = {  # factor → (gloss when value >= 0, gloss when value < 0)
+    "trend": ("价格动能向上", "价格动能向下"),
+    "macro_tilt": ("新闻/宏观偏多", "新闻/宏观偏空"),
+    "valuation": ("估值偏便宜", "估值偏贵"),
+    "flow": ("资金净流入", "资金净流出"),
+}
+
 
 def divergence_caveat(code: str) -> str:
     """PURE: divergence code → fixed Chinese caveat; unknown → escaped raw code."""
     return _DIVERGENCE_CAVEATS.get(code, escape(code))
+
+
+def _signed(v: float) -> str:
+    return f"{v + 0.0:+.2f}"  # +0.0 normalizes -0.0 so it renders +0.00, never -0.00 (G8)
+
+
+def _factor_phrase(name: str, value: float) -> str:
+    pos_gloss, neg_gloss = _SIGN_GLOSS[name]
+    gloss = neg_gloss if value < 0 else pos_gloss
+    return f"{_DISPLAY_NAME[name]} {_signed(value)}（{gloss}）"
+
+
+def _pairwise_detail(code: str, contributions: tuple[FactorContribution, ...]) -> str:
+    title, a, b = _PAIRWISE[code]
+    by = {c.name: c.value for c in contributions}
+    if a not in by or b not in by:
+        return divergence_caveat(code)  # AC-5: required factor absent → static fallback
+    return f"{title}：{_factor_phrase(a, by[a])} vs {_factor_phrase(b, by[b])}"
+
+
+def divergence_caveat_detail(code: str, contributions: tuple[FactorContribution, ...]) -> str:
+    """PURE: divergence code + present contributions → parametrized caveat naming the
+    disagreeing factors with signed values; every degraded case delegates to
+    divergence_caveat(code) (static map / escaped-passthrough fallback, G5)."""
+    if code in _PAIRWISE:
+        return _pairwise_detail(code, contributions)
+    return divergence_caveat(code)
 
 
 def _num(x: float) -> str:

@@ -1,6 +1,7 @@
 from irc.monitor.types import FactorScore, FactorContribution, SignalRecord
 from irc.monitor.render_factors import (
-    CANONICAL_FACTOR_ORDER, divergence_caveat, factor_table_html, returns_table_html,
+    CANONICAL_FACTOR_ORDER, divergence_caveat, divergence_caveat_detail,
+    factor_table_html, returns_table_html,
 )
 
 
@@ -24,6 +25,42 @@ def test_divergence_map_strings_are_exact():
 
 def test_unknown_divergence_code_is_escaped_passthrough():
     assert divergence_caveat("<x>") == "&lt;x&gt;"
+
+
+def _fc(name, value):
+    return FactorContribution(name, 0.5, value, 0.5 * value, 1.0, True, "")
+
+
+def test_trend_macro_conflict_detail_is_exact():
+    contribs = (_fc("trend", -0.75), _fc("macro_tilt", 0.62))
+    assert divergence_caveat_detail("trend_macro_conflict", contribs) == (
+        "趋势与宏观背离：趋势 -0.75（价格动能向下） vs 宏观 +0.62（新闻/宏观偏多）"
+    )
+
+
+def test_trend_valuation_conflict_detail_is_exact():
+    contribs = (_fc("trend", 0.45), _fc("valuation", -0.80))
+    assert divergence_caveat_detail("trend_valuation_conflict", contribs) == (
+        "趋势与估值背离：趋势 +0.45（价格动能向上） vs 估值 -0.80（估值偏贵）"
+    )
+
+
+def test_valuation_flow_conflict_detail_is_exact():
+    contribs = (_fc("valuation", 0.80), _fc("flow", -0.45))
+    assert divergence_caveat_detail("valuation_flow_conflict", contribs) == (
+        "估值与资金流背离：估值 +0.80（估值偏便宜） vs 资金流 -0.45（资金净流出）"
+    )
+
+
+def test_pairwise_detail_missing_factor_falls_back_to_static_string():
+    contribs = (_fc("trend", -0.75),)  # macro_tilt absent → AC-5 fallback
+    assert divergence_caveat_detail("trend_macro_conflict", contribs) == (
+        "趋势与宏观背离：价格动能与宏观信号方向相反"
+    )
+
+
+def test_detail_unknown_code_is_escaped_passthrough():
+    assert divergence_caveat_detail("<x>", ()) == "&lt;x&gt;"
 
 
 def _rec(contribs, divergence=()):
