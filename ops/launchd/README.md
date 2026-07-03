@@ -1,12 +1,14 @@
 # IRC local scheduler (launchd) — ops runbook
 
-Two user LaunchAgents run the `irc` pipeline unattended and notify on outcome
-(macOS notification always; optional Feishu webhook). Architecture: ADR 0016.
+Four user LaunchAgents run the `irc` pipelines unattended and notify on
+outcome (macOS notification always; optional Feishu webhook). Architecture: ADR 0016.
 
 | Label | Schedule (Asia/Shanghai) | Command | Gate |
 |---|---|---|---|
 | `com.irc.monitor` | Daily 12:15 | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `monitor.json` already exists |
-| `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct 06:00 | `irc monitor snapshot` | none (unconditional) |
+| `com.irc.flow-capture` | Daily 15:45 (after the 15:00 close) | `irc monitor flow-capture` | skips weekends + CN holidays; single-instance lock `.flow-capture.lock`; best-effort — no notification |
+| `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct 08:00 | `irc monitor snapshot` | none (unconditional) |
+| `com.irc.weekly` | Saturday 09:00 | `irc run` (full pipeline) → `irc notify-status --run-kind weekly` | once-per-day skip if `decision_report.json` exists; lock `.weekly.lock`; pages on failure/halt/action (incl. **promotions** — funds newly reaching core_dca/accelerate_dca) |
 
 **Previous labels removed:** `com.irc.daily` (Mon–Fri 17:30/20:00/22:30) and
 `com.irc.weekly-full` (Sat 09:00) are no longer present. If you have an older
@@ -61,7 +63,17 @@ worker — and reports `rc=124`.
 | Wrapper | Timeout env (default) | On timeout |
 |---|---|---|
 | `run-monitor.sh` | `IRC_MONITOR_TIMEOUT` (1800s / 30 min) | `rc=124` → `notify-status` pages **"timeout"** (`classify` maps 124) |
+| `run-flow-capture.sh` | `IRC_FLOW_CAPTURE_TIMEOUT` (300s / 5 min) | `rc=124` **logged, does NOT page** (best-effort capture; the next brief shows flow N/A) |
 | `run-fundamentals.sh` | `IRC_SNAPSHOT_TIMEOUT` (3600s / 60 min) | `rc=124` **logged loudly, does NOT page** (protective-only) |
+| `run-weekly.sh` | `IRC_WEEKLY_TIMEOUT` (7200s / 2h) | `rc=124` → `notify-status --run-kind weekly` pages **"timeout"** |
+
+**`com.irc.weekly`** restores the weekly full-pipeline schedule removed with the
+legacy `com.irc.weekly-full` (2026-06-15). Completion sentinel is
+`outputs/<date>/decision_report.json` (the LAST stage's output — the only
+artifact proving the whole chain completed); `run --resume` remains the manual
+same-day recovery after a halt. The wrapper does not force `RESEARCH_ENABLED` —
+set it in `.env` for research-backed weekly runs. Its per-run logs are
+`outputs/_logs/run-weekly.<ts>.log`.
 
 **Why the asymmetry.** The monitor job has a single `monitor.json` completion
 sentinel, so a timeout is a clean pageable outcome. The snapshot job has **no

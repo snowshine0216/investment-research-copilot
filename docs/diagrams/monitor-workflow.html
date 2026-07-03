@@ -75,12 +75,12 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">Daily directional-bias brief for the 10-fund Monitor set · config → per-fund loop (fetch · LLM · factors · signal · narrative) → report + per-stock drill-down</p>
+      <p class="subtitle">Daily 12:15 brief for the 10-fund Monitor set · run-level prep (purchase · flow slice · theme search ×1/theme) → per-fund loop ×10 (NAV · impacts · factors · signal) → 宏观面速览 → eval spine → report v3 · plus 15:45 flow capture &amp; quarterly snapshot jobs</p>
     </div>
 
     <!-- Main Diagram -->
     <div class="diagram-container">
-      <svg viewBox="0 0 1320 900">
+      <svg viewBox="0 0 1320 1040">
         <defs>
           <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
             <polygon points="0 0, 10 3.5, 0 7" fill="#64748b" />
@@ -94,278 +94,349 @@
         <rect width="100%" height="100%" fill="url(#grid)" />
 
         <!-- ===== Per-fund loop boundary ===== -->
-        <rect x="200" y="164" width="648" height="600" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
-        <text x="212" y="186" fill="#fbbf24" font-size="11" font-weight="600">per-fund loop × 10 — for fund in resolve_funds(cfg)</text>
+        <rect x="200" y="250" width="648" height="488" rx="12" fill="rgba(251, 191, 36, 0.04)" stroke="#fbbf24" stroke-width="1" stroke-dasharray="8,4"/>
+        <text x="212" y="270" fill="#fbbf24" font-size="11" font-weight="600">per-fund loop × 10 — for fund in resolve_funds(cfg)</text>
 
         <!-- ============================ ARROWS ============================ -->
         <!-- top control chain -->
-        <line x1="180" y1="96" x2="206" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="193" y="90" fill="#94a3b8" font-size="8" text-anchor="middle">run</text>
-        <line x1="400" y1="96" x2="426" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <line x1="600" y1="96" x2="626" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="180" y1="96" x2="204" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <line x1="374" y1="96" x2="398" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="386" y="90" fill="#94a3b8" font-size="8" text-anchor="middle">exit 5 halts</text>
+        <line x1="558" y1="96" x2="582" y2="96" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
         <!-- config loads -->
-        <line x1="182" y1="162" x2="232" y2="121" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
-        <text x="186" y="138" fill="#94a3b8" font-size="8">loads</text>
-        <!-- resolve -> loop -->
-        <line x1="730" y1="120" x2="730" y2="162" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="736" y="146" fill="#94a3b8" font-size="8">10× MonitorFund</text>
+        <line x1="182" y1="168" x2="236" y2="126" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
+        <text x="186" y="146" fill="#94a3b8" font-size="8">loads</text>
         <!-- llm.yaml -> Impacts (routing) -->
-        <line x1="182" y1="256" x2="221" y2="350" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
-        <text x="120" y="300" fill="#94a3b8" font-size="8">route → MiniMax</text>
+        <line x1="182" y1="262" x2="280" y2="370" stroke="#94a3b8" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
+        <text x="150" y="316" fill="#94a3b8" font-size="8">route → MiniMax</text>
+        <!-- resolve -> loop (between B2 and B3) -->
+        <line x1="647" y1="120" x2="647" y2="248" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="653" y="242" fill="#94a3b8" font-size="8">10× MonitorFund</text>
 
-        <!-- layer 1 -> layer 2 -->
-        <line x1="515" y1="278" x2="455" y2="319" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="470" y="304" fill="#94a3b8" font-size="8" text-anchor="end">themes</text>
-        <line x1="538" y1="278" x2="612" y2="319" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="600" y="300" fill="#94a3b8" font-size="8">pool</text>
-        <line x1="700" y1="278" x2="488" y2="319" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="612" y="292" fill="#94a3b8" font-size="8" text-anchor="end">top-5 holdings</text>
+        <!-- run-level prep -> loop / right column -->
+        <line x1="302" y1="218" x2="302" y2="248" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="308" y="240" fill="#94a3b8" font-size="8">限购 + AUMΔ → heat</text>
+        <line x1="530" y1="218" x2="700" y2="280" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="590" y="252" fill="#94a3b8" font-size="8">flow slice</text>
+        <line x1="770" y1="218" x2="540" y2="280" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="676" y="270" fill="#94a3b8" font-size="8">shared theme_results</text>
+        <!-- theme pool -> macro narrative (over the top corridor) -->
+        <path d="M 770 150 L 770 130 L 1250 130 L 1250 376 L 1210 376" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1010" y="126" fill="#94a3b8" font-size="8" text-anchor="middle">theme pool (synthetic theme:&lt;name&gt; owners)</text>
 
         <!-- NAV -> Factor scores (left corridor) -->
-        <path d="M 252 276 L 212 300 L 212 452 L 222 452" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="255" y="302" fill="#94a3b8" font-size="8">acc-NAV → trend</text>
+        <path d="M 252 342 L 212 362 L 212 495 L 222 495" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="256" y="366" fill="#94a3b8" font-size="8">acc-NAV → trend</text>
+
+        <!-- Evidence pool -> Impacts -->
+        <line x1="500" y1="342" x2="420" y2="376" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="500" y="366" fill="#94a3b8" font-size="8">evidence rows</text>
+
+        <!-- Constituent metrics -> Factor scores -->
+        <path d="M 741 342 L 741 495 L 630 495" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="747" y="430" fill="#94a3b8" font-size="8">valuation + flow + per-stock</text>
 
         <!-- Impacts -> Factor scores -->
-        <line x1="362" y1="390" x2="362" y2="436" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="368" y="416" fill="#94a3b8" font-size="8">macro_rows + constituent_rows</text>
+        <line x1="364" y1="440" x2="364" y2="474" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="370" y="462" fill="#94a3b8" font-size="8">macro_rows + constituent_rows</text>
 
         <!-- Factor -> Signal -> FundView -->
-        <line x1="426" y1="500" x2="426" y2="546" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="432" y="526" fill="#94a3b8" font-size="8">6 scores</text>
-        <line x1="426" y1="610" x2="426" y2="656" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="432" y="636" fill="#94a3b8" font-size="8">status + bias</text>
+        <line x1="426" y1="538" x2="426" y2="572" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="432" y="560" fill="#94a3b8" font-size="8">6 scores</text>
+        <line x1="426" y1="636" x2="426" y2="660" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="432" y="654" fill="#94a3b8" font-size="8">status + bias</text>
 
-        <!-- Narrative -> FundView -->
-        <path d="M 689 390 L 689 636 L 564 636 L 564 656" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="695" y="468" fill="#94a3b8" font-size="8">claims</text>
+        <!-- FundView -> eval spine -->
+        <line x1="628" y1="690" x2="906" y2="486" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="740" y="618" fill="#94a3b8" font-size="8">× 10 FundView + trace bundle</text>
 
-        <!-- FundView -> write_outputs -->
-        <line x1="628" y1="686" x2="904" y2="592" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="724" y="624" fill="#94a3b8" font-size="8">× 10 FundView</text>
+        <!-- macro -> eval spine -> render -> outputs -->
+        <line x1="1058" y1="408" x2="1058" y2="442" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1064" y="430" fill="#94a3b8" font-size="8">macro doc</text>
+        <line x1="1033" y1="516" x2="1033" y2="550" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1039" y="538" fill="#94a3b8" font-size="8">gates + panel + Δ vs prior</text>
+        <line x1="1033" y1="632" x2="1033" y2="658" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1039" y="652" fill="#94a3b8" font-size="8">atomic writes</text>
+        <!-- render -> record -->
+        <line x1="1158" y1="592" x2="1174" y2="592" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="1150" y="570" fill="#94a3b8" font-size="8">all_costs</text>
+        <!-- eval spine -> ledger appends (left corridor of right column) -->
+        <path d="M 908 500 L 890 500 L 890 888 L 906 888" fill="none" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="884" y="800" fill="#94a3b8" font-size="8" text-anchor="end">appends</text>
 
-        <!-- prior signal -> write -->
-        <line x1="1020" y1="510" x2="1020" y2="554" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="1026" y="536" fill="#94a3b8" font-size="8">Δ vs prior</text>
-        <!-- write -> outputs files -->
-        <line x1="1020" y1="622" x2="1020" y2="662" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="1026" y="646" fill="#94a3b8" font-size="8">atomic write</text>
-        <!-- write -> record -->
-        <line x1="1132" y1="589" x2="1154" y2="589" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <text x="1100" y="566" fill="#94a3b8" font-size="8">all_costs</text>
-
-        <!-- snapshot job -> cache -->
-        <line x1="640" y1="823" x2="656" y2="823" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
-        <!-- cache -> Constituent pool (quarterly feed) -->
-        <path d="M 840 798 L 840 243 L 832 243" fill="none" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
-        <text x="826" y="296" fill="#a78bfa" font-size="8" text-anchor="end">← cached holdings</text>
+        <!-- flow-capture job -> store -> run-level slice (dashed cache feed) -->
+        <line x1="224" y1="978" x2="250" y2="978" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <text x="237" y="972" fill="#94a3b8" font-size="8" text-anchor="middle">append</text>
+        <path d="M 367 948 L 367 936 L 192 936 L 192 184 L 412 184" fill="none" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
+        <!-- snapshot job -> cache -> constituent pool (dashed cache feed) -->
+        <line x1="750" y1="978" x2="776" y2="978" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M 888 948 L 888 936 L 862 936 L 862 306 L 850 306" fill="none" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,4" marker-end="url(#arrowhead)"/>
+        <!-- ledger -> weekly eval -->
+        <line x1="1108" y1="924" x2="1108" y2="948" stroke="#64748b" stroke-width="1.5" marker-end="url(#arrowhead)"/>
 
         <!-- ============================ NODES ============================ -->
         <!-- launchd -->
-        <rect x="24" y="72" width="156" height="48" rx="6" fill="#0f172a"/>
-        <rect x="24" y="72" width="156" height="48" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="102" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd · daily</text>
-        <text x="102" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">scheduled trigger</text>
+        <rect x="24" y="68" width="156" height="56" rx="6" fill="#0f172a"/>
+        <rect x="24" y="68" width="156" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="102" y="86" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd · 12:15 daily</text>
+        <text x="102" y="100" fill="#94a3b8" font-size="8" text-anchor="middle">holiday gate · lock · watchdog 30m</text>
+        <text x="102" y="113" fill="#94a3b8" font-size="8" text-anchor="middle">→ notify-status (pages on fail/action)</text>
 
         <!-- config/monitor.yaml -->
-        <rect x="24" y="150" width="156" height="52" rx="6" fill="#0f172a"/>
-        <rect x="24" y="150" width="156" height="52" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="102" y="172" fill="white" font-size="11" font-weight="600" text-anchor="middle">monitor.yaml</text>
-        <text x="102" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">Monitor set · 7 funds</text>
+        <rect x="24" y="150" width="156" height="64" rx="6" fill="#0f172a"/>
+        <rect x="24" y="150" width="156" height="64" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="102" y="170" fill="white" font-size="11" font-weight="600" text-anchor="middle">monitor.yaml</text>
+        <text x="102" y="186" fill="#94a3b8" font-size="8" text-anchor="middle">Monitor set · 10 funds</text>
+        <text x="102" y="200" fill="#94a3b8" font-size="8" text-anchor="middle">+ source_tiers (ADR 0022)</text>
 
         <!-- config/llm.yaml -->
-        <rect x="24" y="232" width="156" height="48" rx="6" fill="#0f172a"/>
-        <rect x="24" y="232" width="156" height="48" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="102" y="253" fill="white" font-size="11" font-weight="600" text-anchor="middle">llm.yaml</text>
-        <text x="102" y="268" fill="#94a3b8" font-size="8" text-anchor="middle">task → provider routing</text>
+        <rect x="24" y="238" width="156" height="48" rx="6" fill="#0f172a"/>
+        <rect x="24" y="238" width="156" height="48" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="102" y="259" fill="white" font-size="11" font-weight="600" text-anchor="middle">llm.yaml</text>
+        <text x="102" y="274" fill="#94a3b8" font-size="8" text-anchor="middle">task → provider routing</text>
 
         <!-- irc monitor -->
-        <rect x="210" y="72" width="190" height="48" rx="6" fill="#0f172a"/>
-        <rect x="210" y="72" width="190" height="48" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="305" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc monitor</text>
-        <text x="305" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">EDGE orchestrator · run_monitor</text>
+        <rect x="204" y="72" width="170" height="48" rx="6" fill="#0f172a"/>
+        <rect x="204" y="72" width="170" height="48" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="289" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc monitor</text>
+        <text x="289" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">EDGE orchestrator · run_monitor</text>
 
         <!-- preflight gate -->
-        <rect x="430" y="72" width="170" height="48" rx="6" fill="#0f172a"/>
-        <rect x="430" y="72" width="170" height="48" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="515" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">preflight_gate</text>
-        <text x="515" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">spend/balance · exit≠0 halts</text>
+        <rect x="398" y="72" width="160" height="48" rx="6" fill="#0f172a"/>
+        <rect x="398" y="72" width="160" height="48" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="478" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">preflight_gate</text>
+        <text x="478" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">spend/balance gate</text>
 
         <!-- resolve_funds -->
-        <rect x="630" y="72" width="200" height="48" rx="6" fill="#0f172a"/>
-        <rect x="630" y="72" width="200" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="730" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">resolve_funds</text>
-        <text x="730" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">→ 10× MonitorFund (eff. weights)</text>
+        <rect x="582" y="72" width="180" height="48" rx="6" fill="#0f172a"/>
+        <rect x="582" y="72" width="180" height="48" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="672" y="93" fill="white" font-size="11" font-weight="600" text-anchor="middle">resolve_funds</text>
+        <text x="672" y="108" fill="#94a3b8" font-size="8" text-anchor="middle">profiles + eff. weights (ADR 0018)</text>
 
-        <!-- Layer 1: NAV fetch -->
-        <rect x="224" y="210" width="184" height="66" rx="6" fill="#0f172a"/>
-        <rect x="224" y="210" width="184" height="66" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="316" y="232" fill="white" font-size="11" font-weight="600" text-anchor="middle">NAV fetch</text>
-        <text x="316" y="248" fill="#94a3b8" font-size="8" text-anchor="middle">nav_series_for · acc-NAV series</text>
-        <text x="316" y="262" fill="#fbbf24" font-size="8" text-anchor="middle">src: AkShare</text>
+        <!-- ===== run-level prep row ===== -->
+        <!-- purchase table -->
+        <rect x="210" y="150" width="184" height="68" rx="6" fill="#0f172a"/>
+        <rect x="210" y="150" width="184" height="68" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="302" y="172" fill="white" font-size="11" font-weight="600" text-anchor="middle">Purchase table</text>
+        <text x="302" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">fetch_purchase_table · ×1/run</text>
+        <text x="302" y="202" fill="#fbbf24" font-size="8" text-anchor="middle">src: AkShare · heat + 限购 tag</text>
 
-        <!-- Layer 1: Evidence pool -->
-        <rect x="432" y="210" width="184" height="66" rx="6" fill="#0f172a"/>
-        <rect x="432" y="210" width="184" height="66" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="524" y="232" fill="white" font-size="11" font-weight="600" text-anchor="middle">Evidence pool</text>
-        <text x="524" y="248" fill="#94a3b8" font-size="8" text-anchor="middle">build_evidence_pool · theme search</text>
-        <text x="524" y="262" fill="#fbbf24" font-size="8" text-anchor="middle">src: Web Search · owner-bound</text>
+        <!-- flow store slice + provisional -->
+        <rect x="414" y="150" width="200" height="68" rx="6" fill="#0f172a"/>
+        <rect x="414" y="150" width="200" height="68" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="514" y="172" fill="white" font-size="11" font-weight="600" text-anchor="middle">Flow slice + 盘中 batch</text>
+        <text x="514" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">completed-day store slice ·×1 provisional f184</text>
+        <text x="514" y="202" fill="#fbbf24" font-size="8" text-anchor="middle">ulist.np · IRC_CN_PROXY · render-only 盘中提示</text>
 
-        <!-- Layer 1: Constituent pool -->
-        <rect x="640" y="210" width="190" height="66" rx="6" fill="#0f172a"/>
-        <rect x="640" y="210" width="190" height="66" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="735" y="232" fill="white" font-size="11" font-weight="600" text-anchor="middle">Constituent pool + drill-down</text>
-        <text x="735" y="248" fill="#94a3b8" font-size="8" text-anchor="middle">build_constituent_pool · top-5 · holding_metrics</text>
-        <text x="735" y="262" fill="#fbbf24" font-size="8" text-anchor="middle">per-stock PB/PE + 主力净流入 · active/qdii</text>
+        <!-- theme search -->
+        <rect x="680" y="150" width="180" height="68" rx="6" fill="#0f172a"/>
+        <rect x="680" y="150" width="180" height="68" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="770" y="172" fill="white" font-size="11" font-weight="600" text-anchor="middle">Theme search</text>
+        <text x="770" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">×1 per unique theme (~8 calls)</text>
+        <text x="770" y="202" fill="#fbbf24" font-size="8" text-anchor="middle">Web Search · tier gate: blocked dropped</text>
 
-        <!-- Layer 2: Impacts -->
-        <rect x="224" y="322" width="276" height="68" rx="6" fill="#0f172a"/>
-        <rect x="224" y="322" width="276" height="68" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-        <text x="362" y="344" fill="white" font-size="11" font-weight="600" text-anchor="middle">Impacts · monitor_impact</text>
-        <text x="362" y="360" fill="#94a3b8" font-size="8" text-anchor="middle">news → impact[-1,1] · confidence</text>
-        <text x="362" y="375" fill="#fb7185" font-size="8" text-anchor="middle">schema-valid · retry≤2 · ×1–2 calls · MiniMax</text>
+        <!-- ===== per-fund loop row 1 ===== -->
+        <!-- NAV fetch -->
+        <rect x="224" y="282" width="184" height="60" rx="6" fill="#0f172a"/>
+        <rect x="224" y="282" width="184" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="316" y="303" fill="white" font-size="11" font-weight="600" text-anchor="middle">NAV fetch</text>
+        <text x="316" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">nav_series_for · acc-NAV · ≥251 obs</text>
+        <text x="316" y="332" fill="#fbbf24" font-size="8" text-anchor="middle">src: AkShare</text>
 
-        <!-- Layer 2: Narrative -->
-        <rect x="548" y="322" width="282" height="68" rx="6" fill="#0f172a"/>
-        <rect x="548" y="322" width="282" height="68" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
-        <text x="689" y="344" fill="white" font-size="11" font-weight="600" text-anchor="middle">Narrative · monitor_narrative</text>
-        <text x="689" y="360" fill="#94a3b8" font-size="8" text-anchor="middle">CN claims · attribution_strength · [ref]</text>
-        <text x="689" y="375" fill="#fb7185" font-size="8" text-anchor="middle">banned-verb guard · cite-resolve · MiniMax</text>
+        <!-- Evidence pool (pure assembly) -->
+        <rect x="432" y="282" width="190" height="60" rx="6" fill="#0f172a"/>
+        <rect x="432" y="282" width="190" height="60" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="527" y="303" fill="white" font-size="11" font-weight="600" text-anchor="middle">Evidence pool</text>
+        <text x="527" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">pure assembly ← theme_results</text>
+        <text x="527" y="332" fill="#34d399" font-size="8" text-anchor="middle">owner-bound cids · ADR 0017</text>
 
-        <!-- Layer 3: Factor scores -->
-        <rect x="224" y="438" width="404" height="62" rx="6" fill="#0f172a"/>
-        <rect x="224" y="438" width="404" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="426" y="461" fill="white" font-size="11" font-weight="600" text-anchor="middle">Factor scores · build_factor_scores</text>
-        <text x="426" y="477" fill="#94a3b8" font-size="8" text-anchor="middle">trend · valuation · flow · heat · macro_tilt · constituent</text>
-        <text x="426" y="491" fill="#94a3b8" font-size="8" text-anchor="middle">6× FactorScore (eligible | N/A + reason) · valuation dual-track + flow + heat (ADR 0019/0020)</text>
+        <!-- Constituent pool + metrics -->
+        <rect x="646" y="282" width="190" height="60" rx="6" fill="#0f172a"/>
+        <rect x="646" y="282" width="190" height="60" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="741" y="303" fill="white" font-size="11" font-weight="600" text-anchor="middle">Constituents + metrics</text>
+        <text x="741" y="318" fill="#94a3b8" font-size="8" text-anchor="middle">snapshot basket · per-stock PB/PE + flow</text>
+        <text x="741" y="332" fill="#fbbf24" font-size="8" text-anchor="middle">industry PE via IRC_CN_PROXY</text>
 
-        <!-- Layer 4: Signal -->
-        <rect x="224" y="548" width="404" height="62" rx="6" fill="#0f172a"/>
-        <rect x="224" y="548" width="404" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
-        <text x="426" y="571" fill="white" font-size="11" font-weight="600" text-anchor="middle">Signal · compute_signal</text>
-        <text x="426" y="587" fill="#94a3b8" font-size="8" text-anchor="middle">coverage gate: trend ∧ ≥2 families ∧ Σw ≥ 0.60 ∧ conf ≥ min</text>
-        <text x="426" y="601" fill="#94a3b8" font-size="8" text-anchor="middle">status {ok | insufficient | low_conf} · bias {ADD | NEUTRAL | REDUCE}</text>
+        <!-- Impacts LLM -->
+        <rect x="224" y="378" width="280" height="62" rx="6" fill="#0f172a"/>
+        <rect x="224" y="378" width="280" height="62" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="364" y="400" fill="white" font-size="11" font-weight="600" text-anchor="middle">Impacts · monitor_impact</text>
+        <text x="364" y="416" fill="#94a3b8" font-size="8" text-anchor="middle">news → impact[-1,1] · confidence · citation_ids</text>
+        <text x="364" y="430" fill="#fb7185" font-size="8" text-anchor="middle">schema-valid · retry≤2 · ×1–2 calls/fund · MiniMax</text>
 
-        <!-- Layer 5: FundView -->
-        <rect x="224" y="658" width="404" height="62" rx="6" fill="#0f172a"/>
-        <rect x="224" y="658" width="404" height="62" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
-        <text x="426" y="681" fill="white" font-size="11" font-weight="600" text-anchor="middle">FundView · _make_view</text>
-        <text x="426" y="697" fill="#94a3b8" font-size="8" text-anchor="middle">NAV + signal + narrative + evidence + return table</text>
-        <text x="426" y="711" fill="#94a3b8" font-size="8" text-anchor="middle">per-fund render model</text>
+        <!-- Factor scores -->
+        <rect x="224" y="476" width="404" height="62" rx="6" fill="#0f172a"/>
+        <rect x="224" y="476" width="404" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="426" y="498" fill="white" font-size="11" font-weight="600" text-anchor="middle">Factor scores · build_factor_scores</text>
+        <text x="426" y="514" fill="#94a3b8" font-size="8" text-anchor="middle">trend · valuation · flow · heat · macro_tilt · constituent — eligible | N/A + reason</text>
+        <text x="426" y="528" fill="#94a3b8" font-size="8" text-anchor="middle">dual-track 0.60·self + 0.40·industry + False-Cheap clamp (ADR 0020) · flow blend 0.4·5d + 0.6·20d (ADR 0019)</text>
 
-        <!-- prior signal -->
-        <rect x="908" y="458" width="224" height="52" rx="6" fill="#0f172a"/>
-        <rect x="908" y="458" width="224" height="52" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
-        <text x="1020" y="480" fill="white" font-size="11" font-weight="600" text-anchor="middle">_read_prior_signal</text>
-        <text x="1020" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">prev signal.json → changed-since-yesterday</text>
+        <!-- Signal -->
+        <rect x="224" y="574" width="404" height="62" rx="6" fill="#0f172a"/>
+        <rect x="224" y="574" width="404" height="62" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="426" y="596" fill="white" font-size="11" font-weight="600" text-anchor="middle">Signal · compute_signal</text>
+        <text x="426" y="612" fill="#94a3b8" font-size="8" text-anchor="middle">gate: trend ∧ ≥2 families ∧ Σw ≥ 0.60 ∧ conf ≥ 0.50 · bands ±0.40</text>
+        <text x="426" y="626" fill="#94a3b8" font-size="8" text-anchor="middle">bias {ADD | NEUTRAL | REDUCE} + market composite 市场面 (news-free anchor, ADR 0021)</text>
 
-        <!-- write outputs -->
-        <rect x="908" y="556" width="224" height="66" rx="6" fill="#0f172a"/>
-        <rect x="908" y="556" width="224" height="66" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="1020" y="578" fill="white" font-size="11" font-weight="600" text-anchor="middle">_write_outputs</text>
-        <text x="1020" y="594" fill="#94a3b8" font-size="8" text-anchor="middle">render_report · serialise JSON</text>
-        <text x="1020" y="608" fill="#a78bfa" font-size="8" text-anchor="middle">pure HTML · no JS · byte-stable</text>
+        <!-- FundView -->
+        <rect x="224" y="662" width="404" height="56" rx="6" fill="#0f172a"/>
+        <rect x="224" y="662" width="404" height="56" rx="6" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1.5"/>
+        <text x="426" y="684" fill="white" font-size="11" font-weight="600" text-anchor="middle">FundView · _make_view</text>
+        <text x="426" y="700" fill="#94a3b8" font-size="8" text-anchor="middle">NAV + signal + annotations + evidence + returns + drill-down model</text>
+
+        <!-- ===== right column ===== -->
+        <!-- Macro narrative -->
+        <rect x="908" y="344" width="302" height="64" rx="6" fill="#0f172a"/>
+        <rect x="908" y="344" width="302" height="64" rx="6" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1.5"/>
+        <text x="1059" y="366" fill="white" font-size="11" font-weight="600" text-anchor="middle">宏观面速览 · monitor_narrative</text>
+        <text x="1059" y="382" fill="#94a3b8" font-size="8" text-anchor="middle">ONE run-level call (was 10/fund) · ≤3 claims/theme</text>
+        <text x="1059" y="396" fill="#fb7185" font-size="8" text-anchor="middle">banned-verb + CJK≥30% guards · cite-resolve · MiniMax</text>
+
+        <!-- Eval spine -->
+        <rect x="908" y="444" width="302" height="72" rx="6" fill="#0f172a"/>
+        <rect x="908" y="444" width="302" height="72" rx="6" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1.5"/>
+        <text x="1059" y="466" fill="white" font-size="11" font-weight="600" text-anchor="middle">Eval spine · trace + gate + panel</text>
+        <text x="1059" y="482" fill="#94a3b8" font-size="8" text-anchor="middle">M1 gate {signal, impact, narrative}: FAIL → EVAL-GATED 🛡</text>
+        <text x="1059" y="496" fill="#94a3b8" font-size="8" text-anchor="middle">WARN/stale → ⚠ caveated · inline monitor_forward re-score</text>
+        <text x="1059" y="509" fill="#34d399" font-size="8" text-anchor="middle">eval_trace schema "6" · engine "4"</text>
+
+        <!-- render / write -->
+        <rect x="908" y="552" width="250" height="80" rx="6" fill="#0f172a"/>
+        <rect x="908" y="552" width="250" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1033" y="574" fill="white" font-size="11" font-weight="600" text-anchor="middle">_write_outputs · report v3</text>
+        <text x="1033" y="590" fill="#94a3b8" font-size="8" text-anchor="middle">今日速览 · 市场面 anchor · heatmap/timeline/bars</text>
+        <text x="1033" y="604" fill="#94a3b8" font-size="8" text-anchor="middle">citation dedup + tier badges · honest dark-data</text>
+        <text x="1033" y="618" fill="#a78bfa" font-size="8" text-anchor="middle">pure HTML · no JS · byte-stable</text>
 
         <!-- record_command_run -->
-        <rect x="1156" y="556" width="140" height="66" rx="6" fill="#0f172a"/>
-        <rect x="1156" y="556" width="140" height="66" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="1226" y="582" fill="white" font-size="9" font-weight="600" text-anchor="middle">record_command_run</text>
-        <text x="1226" y="598" fill="#94a3b8" font-size="8" text-anchor="middle">spend ledger</text>
-        <text x="1226" y="610" fill="#94a3b8" font-size="8" text-anchor="middle">EWMA learning</text>
+        <rect x="1176" y="552" width="132" height="80" rx="6" fill="#0f172a"/>
+        <rect x="1176" y="552" width="132" height="80" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="1242" y="580" fill="white" font-size="9" font-weight="600" text-anchor="middle">record_command_run</text>
+        <text x="1242" y="596" fill="#94a3b8" font-size="8" text-anchor="middle">spend ledger</text>
+        <text x="1242" y="610" fill="#94a3b8" font-size="8" text-anchor="middle">EWMA learning</text>
 
         <!-- outputs files -->
-        <rect x="908" y="664" width="300" height="160" rx="6" fill="#0f172a"/>
-        <rect x="908" y="664" width="300" height="160" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="1058" y="686" fill="white" font-size="11" font-weight="600" text-anchor="middle">outputs/&lt;date&gt;/monitor/</text>
-        <text x="922" y="708" fill="#a78bfa" font-size="9">• report.html</text>
-        <text x="1070" y="708" fill="#94a3b8" font-size="8">cards + NAV chart + evidence</text>
-        <text x="922" y="726" fill="#94a3b8" font-size="9">• signal.json</text>
-        <text x="1070" y="726" fill="#94a3b8" font-size="8">status + bias per fund</text>
-        <text x="922" y="744" fill="#94a3b8" font-size="9">• impacts.json</text>
-        <text x="1070" y="744" fill="#94a3b8" font-size="8">factor contributions</text>
-        <text x="922" y="762" fill="#94a3b8" font-size="9">• narrative.json</text>
-        <text x="1070" y="762" fill="#94a3b8" font-size="8">claims per section</text>
-        <text x="922" y="780" fill="#94a3b8" font-size="9">• monitor.json</text>
-        <text x="1070" y="780" fill="#94a3b8" font-size="8">machine summary</text>
-        <text x="922" y="798" fill="#a78bfa" font-size="9">• drilldown.html</text>
-        <text x="1070" y="798" fill="#94a3b8" font-size="8">per-stock board + roll-up</text>
-        <text x="922" y="816" fill="#a78bfa" font-size="9">• eval_trace.json</text>
-        <text x="1070" y="816" fill="#94a3b8" font-size="8">schema "4" · eval spine</text>
+        <rect x="908" y="660" width="300" height="176" rx="6" fill="#0f172a"/>
+        <rect x="908" y="660" width="300" height="176" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1058" y="682" fill="white" font-size="11" font-weight="600" text-anchor="middle">outputs/&lt;date&gt;/monitor/</text>
+        <text x="922" y="704" fill="#a78bfa" font-size="9">• report.html</text>
+        <text x="1040" y="704" fill="#94a3b8" font-size="8">v3 brief · 今日速览 + 3 charts</text>
+        <text x="922" y="722" fill="#a78bfa" font-size="9">• drilldown.html</text>
+        <text x="1040" y="722" fill="#94a3b8" font-size="8">per-stock PB/PE + 行业 + flow board</text>
+        <text x="922" y="740" fill="#94a3b8" font-size="9">• signal.json</text>
+        <text x="1040" y="740" fill="#94a3b8" font-size="8">status + bias per fund</text>
+        <text x="922" y="758" fill="#94a3b8" font-size="9">• impacts.json</text>
+        <text x="1040" y="758" fill="#94a3b8" font-size="8">LLM impact rows</text>
+        <text x="922" y="776" fill="#94a3b8" font-size="9">• narrative.json</text>
+        <text x="1040" y="776" fill="#94a3b8" font-size="8">"__macro__" block · per-fund empty</text>
+        <text x="922" y="794" fill="#a78bfa" font-size="9">• monitor.json</text>
+        <text x="1040" y="794" fill="#94a3b8" font-size="8">machine summary · SENTINEL (last)</text>
+        <text x="922" y="812" fill="#a78bfa" font-size="9">• eval_trace.json</text>
+        <text x="1040" y="812" fill="#94a3b8" font-size="8">schema "6" · eval spine input</text>
 
-        <!-- snapshot job (quarterly) -->
-        <rect x="430" y="798" width="210" height="50" rx="6" fill="#0f172a"/>
-        <rect x="430" y="798" width="210" height="50" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="535" y="820" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc monitor snapshot</text>
-        <text x="535" y="836" fill="#94a3b8" font-size="8" text-anchor="middle">quarterly · typed lookthrough targets</text>
+        <!-- ledger appends -->
+        <rect x="908" y="856" width="300" height="68" rx="6" fill="#0f172a"/>
+        <rect x="908" y="856" width="300" height="68" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="1058" y="876" fill="white" font-size="11" font-weight="600" text-anchor="middle">data/monitor/ · run appends</text>
+        <text x="922" y="896" fill="#a78bfa" font-size="9">• forward_ledger.jsonl</text>
+        <text x="1075" y="896" fill="#94a3b8" font-size="8">+ market_composite / market_bias</text>
+        <text x="922" y="912" fill="#94a3b8" font-size="9">• nav_history.jsonl</text>
+        <text x="1075" y="912" fill="#94a3b8" font-size="8">bounded NAV tail</text>
+
+        <!-- ===== bottom band: sibling jobs ===== -->
+        <!-- flow-capture job -->
+        <rect x="24" y="950" width="200" height="56" rx="6" fill="#0f172a"/>
+        <rect x="24" y="950" width="200" height="56" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="124" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd 15:45 · flow-capture</text>
+        <text x="124" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">ulist.np ×1 post-close · best-effort, no page</text>
+
+        <!-- flow store -->
+        <rect x="252" y="950" width="230" height="56" rx="6" fill="#0f172a"/>
+        <rect x="252" y="950" width="230" height="56" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="367" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">fund_flow_series.json</text>
+        <text x="367" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">data/monitor/ · completed days · ~25 td</text>
+
+        <!-- snapshot job -->
+        <rect x="520" y="950" width="230" height="56" rx="6" fill="#0f172a"/>
+        <rect x="520" y="950" width="230" height="56" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
+        <text x="635" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd quarterly · snapshot</text>
+        <text x="635" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">irc monitor snapshot · typed lookthrough targets</text>
 
         <!-- snapshot cache -->
-        <rect x="660" y="798" width="200" height="50" rx="6" fill="#0f172a"/>
-        <rect x="660" y="798" width="200" height="50" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="760" y="820" fill="white" font-size="11" font-weight="600" text-anchor="middle">snapshot cache</text>
-        <text x="760" y="836" fill="#94a3b8" font-size="8" text-anchor="middle">data/ · ActiveFundSnapshot</text>
+        <rect x="778" y="950" width="220" height="56" rx="6" fill="#0f172a"/>
+        <rect x="778" y="950" width="220" height="56" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
+        <text x="888" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">snapshot cache</text>
+        <text x="888" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">data/fundamentals/&lt;Q&gt; · ActiveFundSnapshot</text>
+
+        <!-- weekly eval -->
+        <rect x="1026" y="950" width="220" height="56" rx="6" fill="#0f172a"/>
+        <rect x="1026" y="950" width="220" height="56" rx="6" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1.5"/>
+        <text x="1136" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">irc eval monitor_*</text>
+        <text x="1136" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">forward (weekly) · impact/narrative (live-gated, paid)</text>
 
         <!-- ============================ LEGEND ============================ -->
         <text x="908" y="188" fill="white" font-size="11" font-weight="600">Legend</text>
         <rect x="908" y="200" width="16" height="10" rx="2" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1"/>
-        <text x="930" y="209" fill="#94a3b8" font-size="9">EDGE I/O — AkShare · Web · ledger</text>
+        <text x="930" y="209" fill="#94a3b8" font-size="9">EDGE I/O — AkShare · Web · EastMoney (IRC_CN_PROXY)</text>
         <rect x="908" y="220" width="16" height="10" rx="2" fill="rgba(6, 78, 59, 0.4)" stroke="#34d399" stroke-width="1"/>
         <text x="930" y="229" fill="#94a3b8" font-size="9">Pure compute — deterministic core</text>
         <rect x="908" y="240" width="16" height="10" rx="2" fill="rgba(136, 19, 55, 0.4)" stroke="#fb7185" stroke-width="1"/>
-        <text x="930" y="249" fill="#94a3b8" font-size="9">LLM · MiniMax — impact / narrative</text>
+        <text x="930" y="249" fill="#94a3b8" font-size="9">LLM · MiniMax — impacts ×1–2/fund · macro ×1/run</text>
         <rect x="908" y="260" width="16" height="10" rx="2" fill="rgba(8, 51, 68, 0.4)" stroke="#22d3ee" stroke-width="1"/>
         <text x="930" y="269" fill="#94a3b8" font-size="9">Config / View model</text>
         <rect x="908" y="280" width="16" height="10" rx="2" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1"/>
         <text x="930" y="289" fill="#94a3b8" font-size="9">Cache / Outputs (filesystem)</text>
         <rect x="908" y="300" width="16" height="10" rx="2" fill="rgba(30, 41, 59, 0.5)" stroke="#94a3b8" stroke-width="1"/>
-        <text x="930" y="309" fill="#94a3b8" font-size="9">Trigger / external source</text>
+        <text x="930" y="309" fill="#94a3b8" font-size="9">Trigger / scheduler / offline eval</text>
         <line x1="908" y1="324" x2="924" y2="324" stroke="#a78bfa" stroke-width="1.3" stroke-dasharray="5,4"/>
-        <text x="930" y="327" fill="#94a3b8" font-size="9">quarterly feed / config routing</text>
+        <text x="930" y="327" fill="#94a3b8" font-size="9">cache feed (flow store · snapshots) / config routing</text>
       </svg>
     </div>
 
     <!-- Info Cards -->
     <div class="cards">
       <div class="card">
-        <div class="card-header"><div class="card-dot rose"></div><h3>Evidence isolation · ADR 0017</h3></div>
+        <div class="card-header"><div class="card-dot rose"></div><h3>Evidence &amp; citations · ADR 0017 / 0022</h3></div>
         <ul>
-          <li>• Monitor owns <code>EvidenceItem</code> — no <code>scope</code> field</li>
-          <li>• Owner-bound by construction (per-fund pool)</li>
-          <li>• citation_id = 16-hex sha256(owner_fund:url:date)</li>
-          <li>• Never touches the dual-coverage gate</li>
+          <li>• Theme search ×1 per unique theme; blocked domains dropped at ingest</li>
+          <li>• Tier badges: 权威 (t1) · 财经媒体 (t2) · 未分级 (t3, kept) · 快照 (constituent)</li>
+          <li>• Owner-bound cids (16-hex) · macro pool uses synthetic <code>theme:&lt;name&gt;</code> owners</li>
+          <li>• Appendix deduped by (url|title, date) · never touches the dual-coverage gate</li>
         </ul>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-dot emerald"></div><h3>Signal &amp; coverage gate</h3></div>
+        <div class="card-header"><div class="card-dot emerald"></div><h3>Signal, anchor &amp; gating</h3></div>
         <ul>
-          <li>• 6 factors → renorm weights w′ᵢ → composite C</li>
-          <li>• Gate: trend ∧ ≥2 families ∧ Σw ≥ 0.60</li>
-          <li>• confidence ≥ minimum_confidence else low_confidence</li>
-          <li>• bands → ADD_BIAS / NEUTRAL / REDUCE_BIAS</li>
+          <li>• 6 factors → renorm weights → composite C · bands ±0.40 · conf ≥ 0.50</li>
+          <li>• 市场面 market composite = C minus news factors — the stable decision anchor</li>
+          <li>• Coverage gate: trend ∧ ≥2 families ∧ Σw ≥ 0.60, else NO_CALL</li>
+          <li>• Eval M1 gate: FAIL → EVAL-GATED 🛡 · WARN/stale → ⚠ caveated · else ✓</li>
         </ul>
       </div>
       <div class="card">
         <div class="card-header"><div class="card-dot amber"></div><h3>I/O, LLM &amp; schedule</h3></div>
         <ul>
           <li>• EDGE = <code>monitor_cmd</code> only; cores stay pure</li>
-          <li>• AkShare NAV · Web Search · snapshot cache</li>
-          <li>• monitor_impact / monitor_narrative → MiniMax (fast, non-reasoning)</li>
-          <li>• preflight spend gate + ledger · launchd daily · snapshot quarterly</li>
+          <li>• MiniMax fast non-reasoning: monitor_impact ×1–2/fund + monitor_narrative ×1/run</li>
+          <li>• EastMoney data plane (flow · industry PE · stock PE/PB) via IRC_CN_PROXY</li>
+          <li>• launchd 12:15 brief / 15:45 flow capture / quarterly snapshot · locks + watchdogs · spend gate (exit 5)</li>
         </ul>
       </div>
       <div class="card">
-        <div class="card-header"><div class="card-dot violet"></div><h3>Outputs &amp; resilience</h3></div>
+        <div class="card-header"><div class="card-dot violet"></div><h3>Outputs &amp; honesty</h3></div>
         <ul>
-          <li>• outputs/&lt;date&gt;/monitor/report.html (+ 4 JSON)</li>
-          <li>• prior-signal Δ "changed since yesterday"</li>
-          <li>• atomic writes (.tmp.{pid} → os.replace)</li>
-          <li>• degrade-not-crash: gaps surface as N/A + reason</li>
+          <li>• 7 artifacts + 2 ledger appends · atomic .tmp → os.replace · sentinel = monitor.json</li>
+          <li>• Gaps ship as N/A + reason code; dark columns collapse with honest reasons</li>
+          <li>• 今日速览: 偏向变化 · 可操作 · 数据健康 (all gate-respecting)</li>
+          <li>• Forward panel honest: insufficient_data until engine-3 blocks mature (only trend-only ~0.54 accrued)</li>
         </ul>
       </div>
     </div>
 
     <!-- Footer -->
     <p class="footer">
-      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 · v2.1 (flow factor + per-stock drill-down + dual-track valuation)<br>
-      validation &amp; eval layer (eval_trace.json · EVAL_GATED · forward ledger) → companion <a href="../../evals/docs/monitor-eval-workflow.html" style="color:#34d399;text-decoration:none;">evals/docs/monitor-eval-workflow.html</a>
+      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 / 0021 / 0022 · report v3 · engine "4" · eval schema "6"<br>
+      ops manual → <a href="../monitor/README.md" style="color:#22d3ee;text-decoration:none;">docs/monitor/README.md</a> · validation &amp; eval layer → companion <a href="../../evals/docs/monitor-eval-workflow.html" style="color:#34d399;text-decoration:none;">evals/docs/monitor-eval-workflow.html</a>
     </p>
   </div>
 

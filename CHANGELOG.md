@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed — constituent/macro news factor normalized by Σweight; `_ENGINE_VERSION` 3 → 4 (2026-07-03)
+
+- **`aggregate_news_factor` value is now the weight-normalized mean** —
+  `clamp(Σ w·impact·conf / Σw)` — instead of an unnormalized clamped sum
+  (`news_factor.py:25`; the returned confidence was already normalized). With
+  percent-scale constituent weights (Σw ≈ 30–50) the sum pinned the constituent
+  factor at exactly ±1.00 for 6/7 active funds (2026-07-02 eval_trace), erasing
+  all magnitude discrimination; macro rows (unit theme weights) were a SUM over
+  themes, clamping gold/QDII macro_tilt at 1.0 and amplifying single-theme
+  swings. Aggregation is now weight-scale invariant.
+- This CHANGES the composite `C`, so **`_ENGINE_VERSION` bumps "3" → "4"** —
+  forward-ledger populations restart maturity under engine 4 (the predictive
+  panel stays honestly `insufficient_data` until new blocks mature). The M2
+  property spec (`tests/monitor/test_news_factor_property.py`) is updated to
+  lock the normalized semantics.
+
+### Added — weekly schedule restored + fund-promotion notification (2026-07-03)
+
+- **Promotion diff (`src/irc/decision/promotions.py`, pure):** the decision
+  stage now compares today's `opportunity_report.json` rows against the most
+  recent prior run's; a fund newly reaching `core_dca` (state track) or
+  `accelerate_dca` (dca track) is a *promotion*. Promotions render as a
+  新晋关注 section in `decision_report.md`, are embedded as a `promotions`
+  block + `summary.promotion_count`/`promotion_ids` in `decision_report.json`,
+  and page through `irc notify-status --run-kind weekly` as an **action** severity
+  with the fund ids in the body (first run with no prior report → empty diff,
+  never a page-everything storm).
+- **`com.irc.weekly` launchd agent (Saturday 09:00)** restores the weekly full
+  `irc run` schedule removed with `com.irc.weekly-full` (2026-06-15):
+  run-monitor.sh pattern — lib-run.sh lock (`.weekly.lock`) + watchdog
+  (`IRC_WEEKLY_TIMEOUT`, 7200s), fresh `outputs/_logs/run-weekly.<ts>.log`,
+  `/dev/null` launchd log paths, `decision_report.json` completion sentinel,
+  then `notify-status --run-kind weekly`. `install.sh`/`uninstall.sh` know the new
+  agent; **uninstall.sh also gains the previously-missing `com.irc.flow-capture`
+  entry** and clears all per-job lock dirs.
+
+### Fixed — weekly pipeline halt diagnosability + memo output-contract hardening (2026-07-03)
+
+- Three weekly halts (06-17 / 06-20 / 07-02) recorded only "stage exit code 1"
+  with the real error lost to terminal scrollback. The three generic-rc-1
+  ingest paths (**invalid `.env` config**, **prices DB-write failure**, **NAV
+  DB-write failure**) now write a structured `HaltReason` sidecar
+  (`invalid_env_config` / `db_write_failed` with the first error), so
+  `PIPELINE_HALTED.md` names the cause; remediation texts added. (Ingest itself
+  reproduced clean on 2026-07-03 — the halts were transient/environmental.)
+- The `missing_required_outputs` halt detail now names the directory the
+  contract checked, and the memo stage (06-19's "exited 0 but wrote no
+  memo.md" class) is hardened both ways: the latest-scoring **fallback is loud**
+  (names the input dir + today's output dir on stdout) and a final
+  **orchestrator-contract self-check** fails the stage non-zero if
+  `outputs/<today>/` lacks `memo.md`/`memo_blocked.md` at return time.
+
 ### Added — monitor report v3 readability: source tiers, one macro narrative, citation dedup, 今日速览, honest dark-data (ADR 0022 / ADR 0017 addendum, 2026-07-02)
 
 - **Evidence source tiers gate ingest** (`src/irc/monitor/source_tiers.py`, `source_tiers:` in `config/monitor.yaml` + template): blocked domains (facebook/x/letsdatascience/…) are dropped at the theme-search edge before becoming evidence (drop counts logged); tier 1 权威 / tier 2 财经媒体 badge in the appendix; unknown domains KEPT and badged 未分级; snapshot-derived constituent evidence badges 快照 (outside the tier system). Config missing/malformed → everything tier 3 + logged warning, never fatal.
