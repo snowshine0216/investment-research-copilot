@@ -5,7 +5,7 @@ Run dir: `docs/2026-07-03-todos-critical-fixes/` · Mode: backlog · PR shape: A
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 001 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-001 | ✅ f61f5e5c+a77aba13 | ✅ | ✅ [#195](https://github.com/snowshine0216/investment-research-copilot/pull/195) | ⏭️ | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 7ddeea80 |
-| 002 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-002 | ✅ de05779c+5e39574b | ✅ | ✅ [#196](https://github.com/snowshine0216/investment-research-copilot/pull/196) | ⏭️ | 🔄 | ✅ nits-deferred | 🔄 | ⏳ | ⏳ |
+| 002 | ✅ | ✅ | ✅ | ✅ claude/todos-critical-fixes-002 | ✅ de05779c+5e39574b | ✅ | ✅ [#196](https://github.com/snowshine0216/investment-research-copilot/pull/196) | ⏭️ | ✅ | ✅ nits-deferred | ✅ | ✅ 0 rounds | ✅ 2594b26a |
 | 003 | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ | ⏭️ |
 | 004 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 005 | ⏭️ user-authored | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
