@@ -45,6 +45,12 @@ class MacroThemeBlock:
     theme: str
     claims: tuple[Claim, ...]
     mechanism: str | None = None   # ≤60-char 传导 clause; required-optional (P5)
+    # 002 ship-review round 1, Finding 2 (P1): True iff the LLM emitted a
+    # present (non-null) "mechanism" value that _validate_mechanism then
+    # dropped (oversized/injection-bearing/non-CJK/etc). Distinguishes
+    # "present-but-invalid" from "the LLM omitted it" — both collapse to
+    # mechanism=None otherwise, indistinguishable in trace/dump.
+    mechanism_dropped: bool = False
 
 
 @dataclass(frozen=True)
@@ -169,21 +175,29 @@ def _validate_mechanism(raw) -> str | None:
     return stripped
 
 
-def _split_theme_value(value) -> tuple[list, str | None]:
+def _split_theme_value(value) -> tuple[list, str | None, bool]:
     """RD-3(a) shape dispatch, run BEFORE _parse_theme_claims' not-a-list check:
     dict -> v3 object ({"mechanism","claims"}); anything else -> v2 (claims-only,
     mechanism None; a non-list falls through to _parse_theme_claims which keeps
     today's 'theme value not a list' error verbatim). A v3 object whose "claims"
     is missing or not a list raises _MacroNarrErr — a v3 object that cannot
-    yield claims IS a claim-level schema defect (consumes a retry)."""
+    yield claims IS a claim-level schema defect (consumes a retry).
+
+    Returns (claims, mechanism, mechanism_dropped) — mechanism_dropped is True
+    only on the PRESENT-but-invalid path (Finding 2): the raw "mechanism" value
+    was non-None but _validate_mechanism rejected it. Absence (missing key or
+    explicit null) is NOT a drop — both parse to raw=None and stay False."""
     if isinstance(value, dict):
         claims = value.get("claims")
         if not isinstance(claims, list):
             raise _MacroNarrErr(
                 "schema_invalid: v3 theme object claims not a list "
                 f"({type(claims).__name__})")
-        return claims, _validate_mechanism(value.get("mechanism"))
-    return value, None
+        raw_mechanism = value.get("mechanism")
+        mechanism = _validate_mechanism(raw_mechanism)
+        dropped = raw_mechanism is not None and mechanism is None
+        return claims, mechanism, dropped
+    return value, None, False
 
 
 _PROMPT_SYSTEM_V3 = (
@@ -263,10 +277,10 @@ def gather_macro_narrative(
                 value = data.get(theme, [])
                 if not value:      # [], {}, absent -> skip theme, exactly as today
                     continue
-                rows, mechanism = _split_theme_value(value)
+                rows, mechanism, mechanism_dropped = _split_theme_value(value)
                 claims = _parse_theme_claims(rows, pool, hardened=hardened)
                 if claims:         # claims-driven emission (RD-3(b)) — unchanged
-                    blocks.append(MacroThemeBlock(theme, claims, mechanism))
+                    blocks.append(MacroThemeBlock(theme, claims, mechanism, mechanism_dropped))
             return MacroNarrativeResult(MacroNarrativeDoc(tuple(blocks), "ok"), tuple(costs))
         except (json.JSONDecodeError, _MacroNarrErr) as exc:
             last_err = (

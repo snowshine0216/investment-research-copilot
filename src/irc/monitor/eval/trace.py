@@ -185,7 +185,12 @@ def _macro_narrative(doc) -> dict | None:
     return {
         "status": doc.status,
         "blocks": [
-            {"theme": b.theme, "mechanism": b.mechanism, "claims": [
+            {"theme": b.theme, "mechanism": b.mechanism,
+             # 002 ship-review round 1, Finding 2 (P1): additive under the
+             # EXISTING "7" — distinguishes present-but-dropped (True) from
+             # the LLM simply omitting the field (False), both of which
+             # collapse to mechanism=None otherwise.
+             "mechanism_dropped": b.mechanism_dropped, "claims": [
                 {"claim": c.claim, "attribution_strength": c.attribution_strength,
                  "citation_ids": list(c.citation_ids)}
                 for c in b.claims
@@ -200,6 +205,7 @@ def build_eval_trace(
     *, engine_version: str, run_date: str,
     trading_days: frozenset[date] | None = None,
     macro_narrative=None,
+    unmatched_impact_keys: tuple[str, ...] = (),
 ) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
@@ -208,4 +214,11 @@ def build_eval_trace(
         "funds": {fund.id: _fund_entry(fund, view, gate, bundle, trading_days)
                   for fund, view, gate, bundle in items},
         "macro_narrative": _macro_narrative(macro_narrative),
+        # 002 ship-review round 1, Finding 1 (P0): sorted/deduped
+        # irc.monitor.macro_direction.unmatched_impact_keys(...) result,
+        # additive under the EXISTING schema_version "7" (no second bump) —
+        # a fund's macro impact key with no match in the rendered theme set
+        # would otherwise be invisible (chip stays "no record" forever,
+        # indistinguishable from honest absence).
+        "unmatched_impact_keys": list(unmatched_impact_keys),
     }

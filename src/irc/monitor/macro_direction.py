@@ -47,3 +47,21 @@ def format_signed(value: float) -> str:
         return "+0"
     text = f"{value:+.2f}".rstrip("0").rstrip(".")
     return "+0" if text == "-0" else text
+
+
+def unmatched_impact_keys(
+    known_themes: set[str],
+    macro_impacts_by_fund: dict[str, tuple[ValidatedImpact, ...]],
+) -> tuple[str, ...]:
+    """Sorted, deduped `ValidatedImpact.key` values present in impacts but
+    ABSENT from `known_themes` (002 ship-review round 1, Finding 1, P0).
+
+    `ValidatedImpact.key` is a raw, unvalidated LLM echo (impact_validate.py:37,
+    never checked against the theme namespace) joined against narrative theme
+    names by `join_macro_impacts`. A typo'd/stale/renamed key files an impact
+    under a key nobody reads: the fund's chip renders as "no record" forever,
+    indistinguishable from honest absence, with zero signal. This helper is
+    the pure detector; the effects edge (monitor_cmd) logs + traces the
+    result — this function itself performs no I/O and never raises."""
+    keys = {imp.key for impacts in macro_impacts_by_fund.values() for imp in impacts}
+    return tuple(sorted(keys - known_themes))

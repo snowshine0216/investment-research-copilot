@@ -77,8 +77,10 @@ def _stub_gate(view):
 def test_top_level_keys():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
                          engine_version="1", run_date="2026-06-16")
+    # 002 ship-review round 1 Finding 1: unmatched_impact_keys is additive
+    # under the unchanged schema "7" (see test_unmatched_impact_keys_* below).
     assert set(t) == {"schema_version", "engine_version", "run_date", "funds",
-                  "macro_narrative"}
+                  "macro_narrative", "unmatched_impact_keys"}
     assert t["engine_version"] == "1" and t["run_date"] == "2026-06-16"
     assert "008986" in t["funds"]
 
@@ -375,3 +377,47 @@ def test_macro_narrative_mechanism_field_lands_under_unchanged_schema_7():
     assert blocks[0]["mechanism"] == "就业数据疲软→加息预期降温→利多黄金"
     assert blocks[1]["mechanism"] is None
     assert t["schema_version"] == "7"          # NO second bump
+
+
+def test_unmatched_impact_keys_default_empty_lands_under_unchanged_schema_7():
+    """002 ship-review round 1, Finding 1 (P0): default (no unmatched keys
+    passed) is an empty tuple — additive under the EXISTING "7", no second
+    bump, and present even when macro_narrative itself is None (the mismatch
+    is a property of the impacts join, independent of narrative doc status)."""
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04")
+    assert t["macro_narrative"] is None
+    assert t["unmatched_impact_keys"] == []
+    assert t["schema_version"] == "7"
+
+
+def test_unmatched_impact_keys_threaded_verbatim_into_trace():
+    t = build_eval_trace(
+        ((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+        engine_version="4", run_date="2026-07-04",
+        unmatched_impact_keys=("gold_drivrs", "weird_llm_key"))
+    assert t["unmatched_impact_keys"] == ["gold_drivrs", "weird_llm_key"]
+    assert t["schema_version"] == "7"
+
+
+def test_macro_narrative_mechanism_dropped_field_lands_under_unchanged_schema_7():
+    """002 ship-review round 1, Finding 2 (P1): a present-but-invalid mechanism
+    (mechanism=None, mechanism_dropped=True) must be traceable as distinct from
+    "the LLM omitted it" (mechanism=None, mechanism_dropped=False) — additive
+    under the EXISTING "7", no second bump."""
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("us_monetary",
+                                (Claim("美联储维持利率不变。", "consistent_with", ()),),
+                                mechanism=None, mechanism_dropped=True),
+                MacroThemeBlock("geopolitics",
+                                (Claim("地缘风险上升。", "possible_driver", ()),))),
+        status="ok")
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04",
+                         macro_narrative=doc)
+    blocks = t["macro_narrative"]["blocks"]
+    assert blocks[0]["mechanism"] is None and blocks[0]["mechanism_dropped"] is True
+    assert blocks[1]["mechanism"] is None and blocks[1]["mechanism_dropped"] is False
+    assert t["schema_version"] == "7"

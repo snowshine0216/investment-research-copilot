@@ -494,6 +494,64 @@ def test_run_monitor_threads_macro_impacts_into_render(tmp_path, monkeypatch):
             r["impact"] for r in trace["funds"][fid]["impacts"]["macro"]]
 
 
+def test_run_monitor_logs_and_traces_unmatched_impact_keys(tmp_path, monkeypatch, caplog):
+    """002 ship-review round 1, Finding 1 (P0): a macro impact key with no
+    match in the fund's rendered theme set (typo'd/stale/renamed LLM echo,
+    impact_validate.py:37) must be surfaced at the effects edge — a WARNING
+    naming the key, and an additive eval_trace.json field — instead of
+    silently filing the impact under a key nobody reads."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+    from irc.monitor.evidence import make_evidence_item
+    from irc.monitor.impacts import ImpactsResult
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    ev = make_evidence_item("Reuters", "yields", "2026-06-15", "https://r", "008986")
+    # 008986's fund.themes are (gold_drivers, geopolitics) per _YAML; echo a
+    # typo'd key ("gold_drivrs") that matches NEITHER.
+    monkeypatch.setattr(mc, "gather_impacts", lambda **k: ImpactsResult(
+        k["fund_id"], (ValidatedImpact("gold_drivrs", 0.5, 0.9, (ev.citation_id,)),),
+        "ok", (),
+    ))
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    assert any(
+        "gold_drivrs" in r.message for r in caplog.records
+    ), [r.message for r in caplog.records]
+    trace = json.loads((tmp_path / "outputs" / "2026-06-16" / "monitor" /
+                        "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["unmatched_impact_keys"] == ["gold_drivrs"]
+
+
+def test_run_monitor_no_warning_when_all_impact_keys_match_themes(tmp_path, monkeypatch, caplog):
+    """Happy path: _patch_edges' default gather_impacts stub echoes keys
+    (gold_drivers, geopolitics) matching 008986's fund.themes exactly ->
+    no unmatched-key warning, and the trace field is empty."""
+    import logging
+    import irc.commands.monitor_cmd as mc
+
+    _patch_edges(monkeypatch)
+    monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
+    monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "monitor.yaml").write_text(_YAML, encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        rc = mc.run_monitor(repo_root=str(tmp_path), today="2026-06-16")
+    assert rc == 0
+    assert not any("unmatched" in r.message.lower() for r in caplog.records)
+    trace = json.loads((tmp_path / "outputs" / "2026-06-16" / "monitor" /
+                        "eval_trace.json").read_text(encoding="utf-8"))
+    assert trace["unmatched_impact_keys"] == []
+
+
 def test_run_monitor_survives_gather_macro_narrative_raising(tmp_path, monkeypatch, caplog):
     """F1 (P0, ship-review round 1): gather_macro_narrative raising ANY exception
     (valid-JSON-wrong-shape LLM output, provider bug, etc.) must never kill the
@@ -663,3 +721,21 @@ def test_narrative_dump_macro_blocks_carry_mechanism():
         status="ok")
     out = _narrative_dump([], doc)
     assert out["__macro__"]["blocks"][0]["mechanism"] == "美元走弱→利多黄金"
+
+
+def test_narrative_dump_macro_blocks_carry_mechanism_dropped_flag():
+    """002 ship-review round 1, Finding 2 (P1): a present-but-invalid
+    mechanism must be distinguishable from "the LLM omitted it" in the
+    write-only narrative.json debug artifact — mechanism_dropped=True."""
+    from irc.commands.monitor_cmd import _narrative_dump
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    from irc.monitor.types import Claim
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("gold_drivers",
+                                (Claim("黄金受支撑。", "consistent_with", ()),),
+                                mechanism=None, mechanism_dropped=True),),
+        status="ok")
+    out = _narrative_dump([], doc)
+    assert out["__macro__"]["blocks"][0]["mechanism"] is None
+    assert out["__macro__"]["blocks"][0]["mechanism_dropped"] is True

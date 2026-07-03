@@ -1,6 +1,8 @@
 from __future__ import annotations
 from irc.monitor.impact_validate import ValidatedImpact
-from irc.monitor.macro_direction import direction_class, format_signed, join_macro_impacts
+from irc.monitor.macro_direction import (
+    direction_class, format_signed, join_macro_impacts, unmatched_impact_keys,
+)
 
 
 def _imp(key, impact=0.5, confidence=0.7, cids=()):
@@ -78,3 +80,42 @@ def test_format_signed_tiny_negative_never_renders_minus_zero():
     # -0.001 formats to "-0.00" -> trims to "-0"; the post-trim normalisation
     # extends RD-8 to every value that ROUNDS to zero at 2dp.
     assert format_signed(-0.001) == "+0"
+
+
+# ---- unmatched_impact_keys (002 ship-review round 1, Finding 1, P0) ----
+#
+# ValidatedImpact.key is a raw, unvalidated LLM echo (impact_validate.py:37):
+# a typo'd/stale/renamed key files an impact under a key nobody reads, and
+# the fund's chip renders as "no record" forever — indistinguishable from
+# honest absence. This helper surfaces that silent mismatch so the effects
+# edge (monitor_cmd) can log + trace it.
+
+
+def test_unmatched_returns_empty_when_every_key_is_known():
+    known = {"us_monetary", "gold_drivers"}
+    impacts = {"270023": (_imp("us_monetary"),), "008986": (_imp("gold_drivers"),)}
+    assert unmatched_impact_keys(known, impacts) == ()
+
+
+def test_unmatched_surfaces_key_absent_from_known_themes():
+    known = {"us_monetary"}
+    impacts = {"270023": (_imp("us_monetary"),), "008986": (_imp("gold_drivrs"),)}  # typo
+    assert unmatched_impact_keys(known, impacts) == ("gold_drivrs",)
+
+
+def test_unmatched_is_sorted_and_deduped_across_funds():
+    known = {"us_monetary"}
+    impacts = {
+        "270023": (_imp("weird_a"), _imp("weird_b")),
+        "008986": (_imp("weird_b"),),   # same off-namespace key, different fund
+    }
+    assert unmatched_impact_keys(known, impacts) == ("weird_a", "weird_b")
+
+
+def test_unmatched_empty_input_returns_empty():
+    assert unmatched_impact_keys({"us_monetary"}, {}) == ()
+
+
+def test_unmatched_empty_known_themes_surfaces_everything():
+    impacts = {"270023": (_imp("us_monetary"),)}
+    assert unmatched_impact_keys(set(), impacts) == ("us_monetary",)

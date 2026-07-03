@@ -701,3 +701,105 @@ def test_gather_v3_invalid_claim_rows_still_consume_retry(monkeypatch):
     assert calls["n"] == 2
     assert result.doc.status == "ok"
     assert result.doc.blocks[0].mechanism is None   # dict without "mechanism" -> None
+
+
+# ── 002 ship-review round 1, Finding 2 (P1): mechanism_dropped visibility ────
+#
+# _validate_mechanism drops a present-but-invalid mechanism to None, which was
+# indistinguishable from "LLM omitted it" in trace/dump. MacroThemeBlock now
+# records per-block whether a mechanism was present-but-dropped.
+
+
+def test_block_mechanism_dropped_defaults_false():
+    from irc.monitor.narrative_macro import Claim, MacroThemeBlock
+    block = MacroThemeBlock("us_monetary", (Claim("x", "consistent_with", ()),))
+    assert block.mechanism_dropped is False
+
+
+def test_gather_invalid_mechanism_sets_dropped_flag(monkeypatch):
+    """Present-but-invalid (oversized) -> mechanism None AND mechanism_dropped True."""
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": {"mechanism": "货" * 61,     # oversized -> drop
+                            "claims": [_claim_row(cid)]}}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism is None
+    assert result.doc.blocks[0].mechanism_dropped is True
+
+
+def test_gather_injection_bearing_mechanism_sets_dropped_flag(monkeypatch):
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": {"mechanism": "美联储​转鸽→利多黄金",  # zero-width evasion
+                            "claims": [_claim_row(cid)]}}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism is None
+    assert result.doc.blocks[0].mechanism_dropped is True
+
+
+def test_gather_valid_mechanism_dropped_flag_stays_false(monkeypatch):
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": {"mechanism": "美联储转鸽→利多黄金",
+                            "claims": [_claim_row(cid)]}}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism == "美联储转鸽→利多黄金"
+    assert result.doc.blocks[0].mechanism_dropped is False
+
+
+def test_gather_v2_bare_list_mechanism_absent_is_not_dropped(monkeypatch):
+    """Absence (v2 bare-list shape, no mechanism key at all) is NOT the same
+    as present-but-invalid: mechanism_dropped stays False — "LLM omitted it"
+    must remain distinguishable from "LLM emitted something defective"."""
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": [_claim_row(cid)]}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism is None
+    assert result.doc.blocks[0].mechanism_dropped is False
+
+
+def test_gather_v3_object_no_mechanism_key_is_not_dropped(monkeypatch):
+    """v3 object present but its "mechanism" key absent (None via .get) is
+    also absence, not a drop."""
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": {"claims": [_claim_row(cid)]}}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism is None
+    assert result.doc.blocks[0].mechanism_dropped is False
+
+
+def test_gather_v3_explicit_null_mechanism_is_not_dropped(monkeypatch):
+    """An explicit JSON null for "mechanism" is indistinguishable from a
+    missing key once parsed (both become Python None) — correctly NOT a drop."""
+    from irc.monitor.narrative_macro import gather_macro_narrative
+    import json as _json
+    _monkeypatch_route(monkeypatch)
+    pool, cid = _one_theme_pool()
+    body = {"us_monetary": {"mechanism": None, "claims": [_claim_row(cid)]}}
+    result = gather_macro_narrative(
+        theme_pool=pool, route=object(),
+        call=lambda *a, **k: _fake_resp(_json.dumps(body)))
+    assert result.doc.blocks[0].mechanism is None
+    assert result.doc.blocks[0].mechanism_dropped is False
