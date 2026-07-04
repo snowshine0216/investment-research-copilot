@@ -17,12 +17,11 @@ Notes:
 - Feature branch `autodev/monitor-v4-explainability-feature` synthesized off `main` at intake (main is protected; no merge opt-in this turn).
 - Grill-session doc edits (CONTEXT.md *Board-PE freshness state* + flow-note update) and the source spec committed with the design artifacts.
 
-## Final status (2026-07-03 ~23:5x CST)
+## Final status (RUN CLOSED 2026-07-04 ~13:5x CST)
 
-- **Items merged into the feature branch:** 003 (#200 → `8a8e6994`), 001 (#201 → `d894a644`), 002 (#202 → `34d2e3bf`). All per-item gates green (grill, drift, ship triple-review, verify, pr-review); P0s in 002/004 caught and fixed in-flow pre-merge.
-- **Item env-paused at merge:** 004 (#203, all quality gates green). Blocker: AC-15 live f184 two-axis spot-check — EastMoney push2 502/conn-abort across ~7 attempts (tunnel proxy + direct + single-secid), 21:50–23:20 CST. **Unblock path:** in a working window (12:15/15:45 daily windows known-good) run `uv run python docs/2026-07-03-monitor-v4-explainability/items/004-spotcheck-ac15.py` → expect `AC-15 PASS` → `gh pr merge 203 --squash --delete-branch`. The final 004 tracker row rides in #203 itself.
-- **Run-level gates:** doc-sync PASS (run-doc-sync.md) · final-verify PASS (run-final-verify.md, 26/26 cross-item assertions) · cross-cutting tests 1154+294+45 green (1 pre-existing evals failure reproduced on main, diff-scoped).
-- Feature branch: autodev/monitor-v4-explainability-feature
-- Feature-branch PR: https://github.com/snowshine0216/investment-research-copilot/pull/204
-- Merged into protected branch: no (PR left open for user review)
-- `.autodev-current` RETAINED — the run is not fully closed until #203 lands; a fresh session resumes at 004-merge via this file + the unblock path above.
+- **All 4 items merged.** Per-item PRs into the feature branch: 003 (#200 → `8a8e6994`), 001 (#201 → `d894a644`), 002 (#202 → `34d2e3bf`), 004 (#203 → `0d12271b`, merged 2026-07-04 after AC-15 PASSED at 13:39 CST: f184 byte-identity 30/30 across both perturbation axes — the 07-03-night blocker was a push2 outage, cleared by morning).
+- **Roll-up PR #204 → main MERGED (squash `921623aa`) on explicit user opt-in ("merge to main"), 2026-07-04.** Feature branch deleted.
+- **Run-level gates:** doc-sync PASS · final-verify PASS (26/26 cross-item assertions) · cross-cutting tests green (1 pre-existing evals failure reproduced on main, diff-scoped) · integrated sanity post-004: tests/monitor/ 1092 passed.
+- **Post-merge ops (2026-07-04):** launchd agents reinstalled via `install.sh` (all 4 loaded, exit 0; includes its built-in cold-start `irc monitor snapshot`, OK); manual `IRC_RUN_LIVE_LLM_EVAL=1 irc eval monitor_impact` + `monitor_narrative` run to clear the stale-suite caveats (results in session log); next trading-day 12:15 brief is the remaining visual verification (今日速览 caveat line gone once suites fresh, 行业 fill, board-PE freshness state).
+- **Open follow-up (TODOS.md):** verify Monday whether `ulist.np` serves f127 live (Saturday spot-check returned 0/60 industries — honest degradation to per-symbol fallback if real; switch batch source to the `clist` fund-flow interface if confirmed).
+- `.autodev-current` deleted — run closed. The run dir remains the durable audit record.
