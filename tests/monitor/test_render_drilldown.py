@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from irc.monitor.board_pe_staleness import BoardPeFreshness
 from irc.monitor.holding_metrics import FlowAggregate, HoldingMetric, ValuationAggregate
 from irc.monitor.render_drilldown import (
+    board_pe_age_note_html,
     drilldown_page_html,
+    drilldown_section_html,
     flow_rollup_html,
     holdings_board_html,
 )
@@ -288,3 +291,46 @@ def test_holdings_board_html_pb_dark_column_uses_valuation_reason_when_present()
     pb_note = html.split("本表全暗列：")[1].split("</p>")[0]
     pb_part = [p for p in pb_note.split("、") if p.startswith("PB")][0]
     assert "no_series" in pb_part
+
+
+# ---- 004 AC-13: 板块PE age tag ----
+
+
+def test_age_note_exact_text_when_stale():
+    html = board_pe_age_note_html(BoardPeFreshness("STALE", "2026-06-30", 2))
+    assert "板块PE 引用 2026-06-30 · 2个交易日前" in html
+    assert "na-reason" in html     # muted styling via the EXISTING class (no CSS change)
+
+
+def test_age_note_empty_for_fresh_dark_none():
+    assert board_pe_age_note_html(None) == ""
+    assert board_pe_age_note_html(BoardPeFreshness("FRESH", "2026-07-03", 0)) == ""
+    assert board_pe_age_note_html(BoardPeFreshness("DARK", None, None)) == ""
+
+
+def test_drilldown_section_places_tag_adjacent_to_board():
+    metrics = (_m("600519", 12.0, pe=30.0),)
+    agg = FlowAggregate(value=None, reason="flow_no_data", covered_weight_ratio=0.0)
+    html = drilldown_section_html(
+        "易方达蓝筹", "519069", metrics, agg, _sig(),
+        board_pe_freshness=BoardPeFreshness("STALE", "2026-07-01", 1))
+    assert "板块PE 引用 2026-07-01 · 1个交易日前" in html
+    assert html.index("holdings-board") < html.index("板块PE 引用")
+
+
+def test_drilldown_page_row7_threads_age_tag():
+    metrics = (_m("600519", 12.0, pe=30.0),)
+    agg = FlowAggregate(value=None, reason="flow_no_data", covered_weight_ratio=0.0)
+    val_agg = ValuationAggregate(value=None, reason="valuation_no_data",
+                                 covered_weight_ratio=0.0)
+    bpf = BoardPeFreshness("STALE", "2026-07-01", 1)
+    html = drilldown_page_html((("519069", "易方达蓝筹", metrics, agg, _sig(),
+                                 val_agg, bpf),))
+    assert "板块PE 引用 2026-07-01 · 1个交易日前" in html
+
+
+def test_drilldown_page_5_and_6_tuple_rows_render_without_tag():
+    metrics = (_m("600519", 12.0),)
+    agg = FlowAggregate(value=None, reason="flow_no_data", covered_weight_ratio=0.0)
+    html = drilldown_page_html((("519069", "易方达蓝筹", metrics, agg, _sig()),))
+    assert "板块PE 引用" not in html

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor industry fill: batch-first 行业 + board-PE serve-while-stale (2026-07-03)
+
+- **行业 names go batch-first** (report-v4 explainability WS-4 / P7, item 004):
+  the ONE existing `ulist.np` batch call carries `f127` at both call sites
+  (12:15 brief + 15:45 capture, full-basket secids with top-5 flow-store
+  slice-back); parsed names accumulate in the new cross-day
+  `data/monitor/stock_industry_map.json` (refresh-on-seen, serve-while-stale
+  ≤ 30 calendar days, None/blank never written); the per-symbol `stock/get`
+  path is fallback-only (~0 calls/day in steady state, ending the ~60-call
+  throttle storm). New `monitor/industry_map_store.py`.
+- **Board-PE three-state freshness + fetch-first** (P8, OD-1): the paginated
+  board-PE fetch runs ONCE at run level before the per-fund loop; on
+  empty/failed fetch the newest NON-EMPTY cached table ≤ 3 trading days old
+  feeds factor math as STALE-N with an explicit `板块PE 引用 <date> ·
+  N个交易日前` tag on the report card + drilldown (> 3 td / no calendar on the
+  stale branch → DARK → `industry_no_data`, `val_score == self_score`); the
+  15:45 capture job best-effort refreshes board PE after the flow append. New
+  `monitor/board_pe_staleness.py`; run-level `board_pe_freshness` trace key
+  (additive under schema "7", no bump) + `board_pe FRESH/STALE-N/DARK` panel
+  reason. `_ENGINE_VERSION` and `KNOWN_NA_REASONS` unchanged (ADR 0020
+  addendum 2026-07-03).
+
 ### Added — monitor report: macro direction chips + strength tags + 传导 mechanism clause (2026-07-03)
 
 - **宏观面速览 now answers "对哪只基金、利多还是利空、为什么"** (report-v4

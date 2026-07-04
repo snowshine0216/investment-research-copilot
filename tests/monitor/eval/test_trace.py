@@ -80,7 +80,7 @@ def test_top_level_keys():
     # 002 ship-review round 1 Finding 1: unmatched_impact_keys is additive
     # under the unchanged schema "7" (see test_unmatched_impact_keys_* below).
     assert set(t) == {"schema_version", "engine_version", "run_date", "funds",
-                  "macro_narrative", "unmatched_impact_keys"}
+                  "macro_narrative", "unmatched_impact_keys", "board_pe_freshness"}
     assert t["engine_version"] == "1" and t["run_date"] == "2026-06-16"
     assert "008986" in t["funds"]
 
@@ -421,3 +421,25 @@ def test_macro_narrative_mechanism_dropped_field_lands_under_unchanged_schema_7(
     assert blocks[0]["mechanism"] is None and blocks[0]["mechanism_dropped"] is True
     assert blocks[1]["mechanism"] is None and blocks[1]["mechanism_dropped"] is False
     assert t["schema_version"] == "7"
+
+
+def test_board_pe_freshness_lands_under_unchanged_schema_7():
+    """004 AC-11: run-level {"state","as_of","age_td"} marker, additive — NO bump."""
+    from irc.monitor.eval.trace import SCHEMA_VERSION
+    view = _good_view()
+    t = build_eval_trace(((_fund(), view, _stub_gate(view), _bundle()),),
+                         engine_version="1", run_date="2026-07-03",
+                         board_pe_freshness={"state": "STALE", "as_of": "2026-07-01",
+                                             "age_td": 2})
+    assert SCHEMA_VERSION == "7"
+    assert t["schema_version"] == "7"
+    assert t["board_pe_freshness"] == {"state": "STALE", "as_of": "2026-07-01",
+                                       "age_td": 2}
+
+
+def test_board_pe_freshness_defaults_to_none_back_compat():
+    """Callers that don't pass one (old paths, _compute_gates projections) → None."""
+    view = _good_view()
+    t = build_eval_trace(((_fund(), view, _stub_gate(view), _bundle()),),
+                         engine_version="1", run_date="2026-07-03")
+    assert t["board_pe_freshness"] is None

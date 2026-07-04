@@ -219,7 +219,7 @@ def test_run_monitor_board_dark_note_collapses_all_na_industry_column(tmp_path, 
     monkeypatch.setattr(mc, "gather_impacts", lambda **k: _FakeImpacts())
     monkeypatch.setattr(mc, "fetch_purchase_table", lambda: None)
     monkeypatch.setattr(mc, "record_command_run", lambda **k: None)
-    monkeypatch.setattr(mc, "_provisional_flow_note", lambda root, symbols: None)
+    monkeypatch.setattr(mc, "_batch_flow_industry", lambda root, symbols: (None, None))
     # No data/local.duckdb written -> run_monitor's own `db_path.exists()` guard
     # keeps con=None; no flow store written -> _load_flow_store_slice degrades to
     # {} — both are real production degrade paths, not hand-built fixtures.

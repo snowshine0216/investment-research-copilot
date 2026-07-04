@@ -15,7 +15,8 @@ from irc.monitor.macro_direction import direction_class, format_signed, join_mac
 from irc.monitor.types import EvidenceItem
 from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.render_drilldown import (
-    holdings_board_html, flow_rollup_html, provisional_flow_annotation_html,
+    board_pe_age_note_html, holdings_board_html, flow_rollup_html,
+    provisional_flow_annotation_html,
 )
 from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
@@ -236,6 +237,7 @@ def _drilldown_block(view: FundView) -> str:
         symbol_value=view.provisional_flow_pct,
         as_of_hhmm=view.provisional_flow_as_of or "")
     return (holdings_board_html(view.holding_metrics)
+            + board_pe_age_note_html(view.board_pe_freshness)
             + flow_rollup_html(view.holding_metrics, agg, view.signal)
             + provisional)
 

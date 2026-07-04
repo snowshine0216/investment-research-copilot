@@ -787,7 +787,9 @@ def stale_fallback(cache_dir: Path, today: str, trading_days) -> tuple[dict, Boa
 - [ ] **Step 4: Run to verify green**
 
 Run: `uv run pytest tests/monitor/test_board_pe_staleness.py -q`
-Expected: 14 passed.
+Expected: 15 passed. (Doc note: an earlier draft said "14 passed" — the
+verbatim Step 1 test code above always had 15 `def test_...` functions; this
+is a doc miscount fixed during 004-drift review, not a code divergence.)
 
 - [ ] **Step 5: Lint + commit**
 
