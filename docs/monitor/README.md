@@ -41,7 +41,7 @@ covered in [Weekly process](#weekly-process); the daily/quarterly three:
 | Time (Asia/Shanghai) | Agent | What runs |
 |---|---|---|
 | 12:15 daily | `com.irc.monitor` | `irc monitor` → `irc notify-status --run-kind monitor`. Wrapper skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `outputs/<date>/monitor/monitor.json` exists; single-instance lock; 30-min watchdog (timeout pages as `rc=124`). |
-| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (~25 trading-day retention). Best-effort: 5-min watchdog, no page. **Never run manually before the 15:00 close** — the manual path is unguarded. |
+| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f127`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f127` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog, no page. **Never run manually before the 15:00 close** — the manual path is unguarded. |
 | 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | `irc monitor snapshot` — refreshes the typed per-fund constituent caches the valuation/constituent factors read. Protective 60-min watchdog, no page (a lapse surfaces as N/A factors in the next brief). |
 
 The 12:15 slot is after the CN morning session closes, leaving the 15:00 close
@@ -58,6 +58,15 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
 3. **One purchase-table fetch** (heat factor + 限购 tag), **one flow-store slice**
    (completed days, union of active-fund top-5 symbols) + **one provisional
    intraday flow batch** (盘中提示 annotation only — rendered, never persisted).
+   - **行业 is batch-first (ADR 0020 addendum 2026-07-03):** the one `ulist.np`
+     batch call carries `f127`; names accumulate cross-day in
+     `data/monitor/stock_industry_map.json` (serve-while-stale ≤ 30 calendar
+     days, refresh-on-seen). The per-symbol `stock/get` path fires only for
+     symbols absent from that map (~never in steady state). Board PE is
+     fetched ONCE at run level before the per-fund loop; on failure the most
+     recent non-empty cached table ≤ 3 trading days old feeds factor math with
+     an explicit `板块PE 引用 <date> · N个交易日前` tag (FRESH / STALE-N / DARK —
+     see CONTEXT.md *Board-PE freshness state*).
 4. **Theme search once per unique theme** (~8 provider calls, not per-fund). The
    **source-tier gate** (ADR 0022) drops blocked domains at ingest; everything else
    is kept and badged (tier 1 权威 / tier 2 财经媒体 / unknown 未分级).
@@ -66,13 +75,15 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
    `monitor_impact` LLM scoring (macro rows; plus constituent rows for
    look-through profiles; schema-validated, ≤2 retries) → dual-track valuation +
    per-stock holding metrics → 6 factor scores → coverage-gated signal → bias.
-6. **One `monitor_narrative` LLM call** builds the run-level 宏观面速览 macro block
-   (≤3 claims/theme, attribution-verb guard, CJK guard, citations resolved). The
-   old 10 per-fund narratives are gone (v3).
+6. **One `monitor_narrative` LLM call** (prompt v3) builds the run-level 宏观面速览
+   macro block (≤3 claims/theme, attribution-verb guard, CJK guard, citations
+   resolved, plus an optional ≤60-char per-theme 传导 mechanism clause —
+   invalid mechanisms are dropped, never truncated, never retried). The old 10
+   per-fund narratives are gone.
 7. **Eval spine**: in-run health per fund → M1 gate (`monitor_signal` /
    `monitor_impact` / `monitor_narrative` FAIL ⇒ **EVAL-GATED 🛡**, WARN/stale ⇒
    ⚠ caveated), validation panel, inline `monitor_forward` re-score (so the
-   predictive panel is same-day fresh), `eval_trace.json` (schema 6),
+   predictive panel is same-day fresh), `eval_trace.json` (schema 7),
    `forward_ledger.jsonl` + `nav_history.jsonl` appends.
 8. **Render + write** (atomic, fixed order): `report.html` → `signal.json` →
    `impacts.json` → `narrative.json` → `monitor.json` (the completion sentinel),
@@ -120,8 +131,11 @@ Open `outputs/<date>/monitor/report.html`:
    ✓ validated / ⚠ caveated chip, composite vs. market composite.
 3. If a bias moved: the fund card explains it — market-composite decision line,
    contribution bars (market vs. 新闻面 marked), factor table with N/A reasons,
-   NAV chart with evidence markers, 宏观面速览 theme chips, and the per-stock
-   drill-down (PE/PB + industry leg + value-trap badge + flow) for active funds.
+   NAV chart with evidence markers, 宏观面速览 direction chips (signed per-theme
+   impact, 绿 ≥ +0.15 · 红 ≤ −0.15 · 灰其间; 无数值 = 当日无记录) with claim
+   strength tags (可能主因/方向一致/已证实归因/归因未知) and a per-theme
+   对本组基金的传导 line, and the per-stock drill-down (PE/PB + industry leg +
+   value-trap badge + flow) for active funds.
 4. **Validation panel** + **predictive panel**: informational stages render 观测
    (never PASS); suite ages go amber at ≥ 10 days, UNKNOWN at ≥ 14; the forward
    panel says `insufficient_data` honestly until engine-3 blocks mature — the only
@@ -146,6 +160,16 @@ watchdog, completion keyed on `decision_report.json`, then
 `irc notify-status --run-kind weekly`. Install/refresh agents with
 `bash ops/launchd/install.sh`; the wrapper does not force `RESEARCH_ENABLED` —
 set it in `.env` for research-backed weekly runs.
+
+After `notify-status`, the wrapper best-effort refreshes the two live LLM eval
+suites (`env IRC_RUN_LIVE_LLM_EVAL=1 … irc eval monitor_impact` /
+`monitor_narrative`, each under its own `IRC_WEEKLY_EVAL_TIMEOUT` watchdog,
+default 900 s) so the daily brief's suite healths stay fresh under
+`STALE_AFTER_DAYS = 14`. Eval failures/timeouts are logged breadcrumbs — they
+never change the weekly exit code and never page. Edge case: a same-day manual
+`irc run` (idempotency-sentinel skip) also skips that Saturday's eval refresh —
+the daily report degrades to the stale caveat chip + validation-panel hint;
+run the manual command from the maintenance table below to clear it.
 
 **Promotion notification is built in**: the decision stage diffs today's
 `opportunity_report.json` against the most recent prior run's; any fund newly
@@ -191,7 +215,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | Cadence | Task | Command |
 |---|---|---|
 | Monthly | Rebuild the generated CN fund universe (feeds weekly discovery) | `uv run irc universe build-cn-funds && uv run irc config validate` |
-| Monthly-ish (paid, manual) | Live LLM eval suites — the only check on MiniMax output *quality*; without a fresh report the daily gate fails open to ⚠ caveated | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` (same for `monitor_narrative`) |
+| Weekly, automated (Saturday wrapper, best-effort) | Live LLM eval suites — the only check on MiniMax output *quality*; without a fresh report the daily gate fails open to ⚠ caveated (the chip tooltip + 今日速览 line now name the stale suite and its age). `run-weekly.sh` refreshes both suites after notify (900 s watchdog each via `IRC_WEEKLY_EVAL_TIMEOUT`; failures never page; eval-live spend gate applies). Manual remediation / fallback — e.g. after a same-day manual run preempted the Saturday fire: | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` (same for `monitor_narrative`) |
 | Quarterly (automated) | Monitor constituent snapshots | `uv run irc monitor snapshot` (also run once when onboarding a fund) |
 | Quarterly / on holdings roll | Per-stock PE/PB history refresh backing dual-track valuation | `uv run irc fundamentals stock-valuation` (30-day freshness skip makes reruns cheap) |
 | Quarterly | Broad-pipeline fundamentals (weekly loop's thesis evidence) | `uv run irc fundamentals snapshot --target all --top-n 10` |
@@ -205,9 +229,11 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | `outputs/<date>/monitor/drilldown.html` | Per-stock valuation + flow board per active fund |
 | `outputs/<date>/monitor/monitor.json` | Machine summary — **written last; the completion/idempotency sentinel** |
 | `outputs/<date>/monitor/signal.json` / `impacts.json` / `narrative.json` | Per-fund signal, LLM impact rows, macro block (`__macro__`) |
-| `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 6, engine 4) |
+| `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 7, engine 4) |
 | `data/monitor/forward_ledger.jsonl` | Append-only per-fund-per-day rows (incl. `market_composite`/`market_bias`) scored by `monitor_forward` |
 | `data/monitor/fund_flow_series.json` | Completed-day flow store (written only by the 15:45 job) |
+| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f127; fallback merges too) |
+| `data/monitor/industry_pe/<date>.json` | Board-PE day cache (non-empty parses only; stale-served ≤ 3 td with an age tag) |
 | `outputs/_logs/run-*.log` | Per-fire wrapper logs (14-day retention) |
 
 ## Environment
@@ -235,6 +261,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | Schedule silently dead, `last exit code = 78` | launchd log-file provenance trap — see [`ops/launchd/README.md`](../../ops/launchd/README.md) |
 | Weekly `irc run` halted | `outputs/<date>/PIPELINE_HALTED.md` names the stage; fix, then `uv run irc run --resume` (same day) or re-run |
 | Run stops with exit 5 | Spend gate: top up / edit `config/spend_balances.yaml` / `IRC_SKIP_SPEND_GATE=1` |
+| 行业/行业PE columns dark | Check the panel's `board_pe FRESH/STALE-N/DARK` reason + `stock_industry_map.json` coverage; a DARK board PE ≤ 3 td heals from the 15:45 refresh (P8c) |
 
 ## One-time ops (historical, completed)
 

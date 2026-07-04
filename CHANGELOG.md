@@ -7,6 +7,88 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — monitor industry fill: batch-first 行业 + board-PE serve-while-stale (2026-07-03)
+
+- **行业 names go batch-first** (report-v4 explainability WS-4 / P7, item 004):
+  the ONE existing `ulist.np` batch call carries `f127` at both call sites
+  (12:15 brief + 15:45 capture, full-basket secids with top-5 flow-store
+  slice-back); parsed names accumulate in the new cross-day
+  `data/monitor/stock_industry_map.json` (refresh-on-seen, serve-while-stale
+  ≤ 30 calendar days, None/blank never written); the per-symbol `stock/get`
+  path is fallback-only (~0 calls/day in steady state, ending the ~60-call
+  throttle storm). New `monitor/industry_map_store.py`.
+- **Board-PE three-state freshness + fetch-first** (P8, OD-1): the paginated
+  board-PE fetch runs ONCE at run level before the per-fund loop; on
+  empty/failed fetch the newest NON-EMPTY cached table ≤ 3 trading days old
+  feeds factor math as STALE-N with an explicit `板块PE 引用 <date> ·
+  N个交易日前` tag on the report card + drilldown (> 3 td / no calendar on the
+  stale branch → DARK → `industry_no_data`, `val_score == self_score`); the
+  15:45 capture job best-effort refreshes board PE after the flow append. New
+  `monitor/board_pe_staleness.py`; run-level `board_pe_freshness` trace key
+  (additive under schema "7", no bump) + `board_pe FRESH/STALE-N/DARK` panel
+  reason. `_ENGINE_VERSION` and `KNOWN_NA_REASONS` unchanged (ADR 0020
+  addendum 2026-07-03).
+
+### Added — monitor report: macro direction chips + strength tags + 传导 mechanism clause (2026-07-03)
+
+- **宏观面速览 now answers "对哪只基金、利多还是利空、为什么"** (report-v4
+  explainability WS-2 / P3+P4+P5, item 002). (1) Direction chips: each theme's
+  affected-fund chips render color + inline signed impact deterministically
+  joined from the fund's validated `impacts["macro"]` records (new pure
+  `monitor/macro_direction.py`; 绿 ≥ +0.15 · 红 ≤ −0.15 · 灰其间 — display-only
+  bands; absence ≠ zero: no record → uncolored bare chip; confidence trace +
+  `title`-attr only; one legend line; rendered values == trace values by
+  construction). (2) Every claim bullet carries its `attribution_strength` tag
+  (可能主因 / 方向一致 / 已证实归因 / 归因未知), on both render paths. (3) The
+  single `monitor_narrative` call bumps prompt **2 → 3**
+  (`narrative_macro.PROMPT_VERSION`, consumed by the report-header Provenance):
+  per theme an optional ≤60-char Chinese causal-chain `mechanism` clause
+  rendered as `对本组基金的传导：…` — required-optional (invalid → field dropped,
+  never truncated, never consumes a schema retry; sanitizer-changed ⇒ dropped),
+  with a v2/v3 dual-shape parser so bare-list outputs still work. Trace: additive
+  per-theme `mechanism` field under the EXISTING schema `"7"` (no bump). Evals:
+  `monitor_narrative` corpus + pure `mechanism_validity` metric (FAIL <0.80;
+  predicate reproduced verbatim per ADR 0017 §3.3 scorer purity). No
+  `_ENGINE_VERSION` change; no factor/weights/bands change; forward ledger
+  untouched.
+
+### Added — monitor report: self-explanatory caveats + weekly LLM-suite auto-refresh (2026-07-03)
+
+- **⚠ caveated is now self-explanatory and self-healing** (report-v4
+  explainability WS-1 / P1+P2+OD-3, item 001). `resolve_health` age-stamps the
+  stale reason (`("stale, 15d",)`); `apply_eval_gate`'s caveated branch
+  populates `GateDecision.reason` (`monitor_impact: UNKNOWN (stale, 15d); …` —
+  FAIL branch unchanged); the caveated chip becomes an anchor to the Validation
+  panel with a Chinese-labeled tooltip; run-global LLM-suite causes dedupe to
+  ONE first-position 今日速览 line
+  (`全部基金 caveated：LLM质量评估过期 15/16天 · 周六自动刷新`); fund-specific
+  (`monitor_signal`) causes render per-card as 为何有保留; the Validation panel
+  gains its anchor id + a manual-refresh remediation hint. New explicit
+  `RUN_GLOBAL_STAGES` literal in `eval/gate.py` (equality-guarded vs `M1 − M0`).
+  `ops/launchd/run-weekly.sh` appends two best-effort watchdog-bounded live
+  eval runs (`env IRC_RUN_LIVE_LLM_EVAL=1 …`, `IRC_WEEKLY_EVAL_TIMEOUT` default
+  900 s, after notify — never affects the wrapper rc or paging; eval-live spend
+  gate unchanged) so a weekly cadence keeps both suites fresh under
+  `STALE_AFTER_DAYS = 14`. eval-trace `schema_version` "6" → **"7"** (shape
+  unchanged — `gate.reason` just stops being empty); the constant is unified
+  (`trace.SCHEMA_VERSION` now feeds the report-header `Provenance`, RD-1). No
+  `_ENGINE_VERSION` change; forward ledger untouched (rows carry no
+  schema_version; `gate_reason` is write-only — RD-8).
+
+### Added — monitor report: divergence caveats name factors with signed values (2026-07-03)
+
+- **风险 divergence caveat lines in the monitor report now show which factors
+  disagree and by how much** (report-v4 explainability WS-3 / P6). New pure
+  `divergence_caveat_detail(code, contributions)` in `monitor/render_factors.py`
+  renders e.g. `趋势与宏观背离：趋势 -0.75（价格动能向下） vs 宏观 +0.62（新闻/宏观偏多）`
+  and, for `low_factor_agreement`, every present factor grouped 偏多/偏空（中性 tail）
+  or the dispersion-only form `强度离散 σ=0.56 ≥ 0.5`. The static
+  `_DIVERGENCE_CAVEATS` map is retained as fallback for unknown codes / missing
+  factors. `signal.py`'s inline `0.5` threshold is promoted to
+  `_LOW_AGREEMENT_STDEV` (behavior-neutral, single source of truth shared with the
+  renderer's σ sentence). No eval-trace `schema_version` change, no
+  `_ENGINE_VERSION` change.
+
 ### Fixed — fund-level evidence repair probe for foreign-heavy cached snapshots (2026-07-03)
 
 - **A cached foreign-heavy `ActiveFundSnapshot` with a rule-2.5 fund-level evidence

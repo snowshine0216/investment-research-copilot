@@ -10,6 +10,7 @@ _FAMILY_OF = {
 _MIN_FAMILIES = 2
 _MIN_AVAILABLE_WEIGHT = 0.60
 _DIVERGE = 0.3
+_LOW_AGREEMENT_STDEV = 0.5  # σ gate for low_factor_agreement; rendered in the caveat detail
 
 
 def _present(scores: tuple[FactorScore, ...]) -> tuple[FactorScore, ...]:
@@ -56,7 +57,7 @@ def _divergence(present: tuple[FactorScore, ...]) -> tuple[str, ...]:
     ):
         codes.append("valuation_flow_conflict")
     vals = [s.value for s in present]
-    if len(vals) >= 2 and (statistics.pstdev(vals) >= 0.5 or (
+    if len(vals) >= 2 and (statistics.pstdev(vals) >= _LOW_AGREEMENT_STDEV or (
         any(x > 0 for x in vals) and any(x < 0 for x in vals)
     )):
         codes.append("low_factor_agreement")

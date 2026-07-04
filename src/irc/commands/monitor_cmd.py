@@ -34,12 +34,18 @@ from irc.monitor.source_tiers import SourceTiers, classify, tiers_from_config
 from irc.monitor.flow_batch_fetch import fetch_flow_today_batch
 from irc.monitor.flow_series_store import append_today, load_store, series_slice
 from irc.monitor.holding_metrics import build_holding_metrics, aggregate_flow, aggregate_valuation
+from irc.monitor.board_pe_staleness import BoardPeFreshness, freshness_dict
+from irc.monitor.industry_map_store import (
+    fresh_slice, load_store as load_industry_map_store, record_seen,
+)
 from irc.monitor.industry_valuation import fetch_industry_pe, fetch_stock_industry_map
 from irc.monitor.render_drilldown import drilldown_page_html
 from irc.monitor.fetch import NavFetchResult, nav_series_for
 from irc.monitor.impacts import ImpactsResult, gather_impacts
+from irc.monitor.macro_direction import unmatched_impact_keys
 from irc.monitor.narrative_macro import (
-    build_macro_pool, gather_macro_narrative, MacroNarrativeDoc, MacroNarrativeResult,
+    PROMPT_VERSION, build_macro_pool, gather_macro_narrative,
+    MacroNarrativeDoc, MacroNarrativeResult,
 )
 from irc.monitor.news_factor import ImpactRow
 from irc.monitor.profiles import theme_query_seed
@@ -55,7 +61,7 @@ from irc.monitor.eval.structural import (
     valuation_reconciliation, valuation_coverage_health,
 )
 from irc.monitor.eval.staleness import STALE_AFTER_DAYS, resolve_health
-from irc.monitor.eval.trace import build_eval_trace
+from irc.monitor.eval.trace import SCHEMA_VERSION, build_eval_trace
 from irc.monitor.trading_calendar import load_trading_days
 from irc.monitor.eval.forward_log import append_ledger, ledger_row, latest_per_key
 from irc.monitor.render_timeline import BiasTimeline
@@ -192,6 +198,7 @@ def build_evidence_pool(fund: MonitorFund, *, theme_results: dict[str, tuple]) -
 
 _TOP_N_HOLDINGS = 5
 _FLOW_STORE_REL = ("data", "monitor", "fund_flow_series.json")
+_INDUSTRY_MAP_REL = ("data", "monitor", "stock_industry_map.json")
 
 
 def _load_flow_store_slice(root: Path, symbols) -> dict:
@@ -207,17 +214,65 @@ def _load_flow_store_slice(root: Path, symbols) -> dict:
         return {}
 
 
-def _provisional_flow_note(root: Path, symbols) -> dict | None:
-    """EDGE-read only: today's intraday f184 as a 盘中提示 annotation for the 12:15
-    brief. NEVER persisted (no append_today here) — the store's newest row stays a
-    COMPLETED day (D6/trap §8). Degrades to None on any error (no annotation)."""
+def _batch_flow_industry(root: Path, symbols) -> tuple[dict | None, dict | None]:
+    """EDGE-read only: the ONE 12:15 ulist.np batch — today's intraday f184 (盘中
+    提示 annotation, NEVER persisted here: no append_today, D6/trap §8) AND the
+    f127 行业 map (merged into the cross-day store by the caller, AC-5). Full-
+    basket secids (AC-3). Degrades to (None, None) on any error."""
     if not symbols:
-        return None
+        return None, None
     try:
         return fetch_flow_today_batch(tuple(symbols))
-    except Exception:  # noqa: BLE001 — annotation is best-effort
-        _log.warning("_provisional_flow_note failed", exc_info=True)
-        return None
+    except Exception:  # noqa: BLE001 — annotation + industry merge are best-effort
+        _log.warning("_batch_flow_industry failed", exc_info=True)
+        return None, None
+
+
+def _record_industry_seen(root: Path, today: str, industry_by_symbol: dict | None) -> None:
+    """EDGE: best-effort merge of batch/fallback 行业 into the cross-day store
+    (AC-5/Q3). A merge/write failure is logged and never crashes the brief or
+    the capture job."""
+    if not industry_by_symbol:
+        return
+    try:
+        record_seen(root.joinpath(*_INDUSTRY_MAP_REL), today, industry_by_symbol)
+    except Exception:  # noqa: BLE001 — degrade, never crash
+        _log.warning("industry map store merge failed", exc_info=True)
+
+
+def _industry_serving_map(root: Path, today: str) -> dict[str, str]:
+    """EDGE-read: fresh_slice (≤30 calendar days) of the cross-day store, built
+    AFTER today's batch merge so today's f127 is already in it (AC-6). {} on error."""
+    try:
+        return fresh_slice(load_industry_map_store(root.joinpath(*_INDUSTRY_MAP_REL)), today)
+    except Exception:  # noqa: BLE001 — degrade, never crash the brief
+        _log.warning("industry map store read failed", exc_info=True)
+        return {}
+
+
+def _wants_board_pe(funds, con) -> bool:
+    """Board PE is consumed only inside _build_full_basket_metrics, which is
+    con-gated AND active-fund-gated — skip the run-level fetch when nothing will
+    read the table (gold-only configs / no DuckDB stay network-free, the same
+    effective gating the lazy pre-004 call had). Trace key degrades to None."""
+    from irc.monitor.profiles import PROFILES
+    if con is None:
+        return False
+    return any((spec := PROFILES.get(f.analysis_profile)) is not None
+               and spec.lookthrough == "active_fund" for f in funds)
+
+
+def _fetch_board_pe(root: Path, today: str, trading_days) -> tuple[dict, BoardPeFreshness]:
+    """EDGE (AC-8 fetch-first): the ONE board-PE fetch per run, at run_monitor
+    level BEFORE the per-fund loop (ahead of any per-symbol fallback storm,
+    adjacent to the one batch call). Degrades to ({}, DARK) — never crashes."""
+    try:
+        return fetch_industry_pe(
+            cache_dir=root / "data" / "monitor" / "industry_pe", today=today,
+            trading_days=trading_days)
+    except Exception:  # noqa: BLE001 — fetch_industry_pe never raises; belt+braces
+        _log.warning("board PE run-level fetch failed", exc_info=True)
+        return {}, BoardPeFreshness("DARK", None, None)
 
 
 def _evidence_items_for_holding(holding, fund_id: str) -> tuple:
@@ -310,13 +365,29 @@ def _provisional_flow_for_fund(top5: tuple, provisional_flow: dict | None) -> fl
     return sum(present) / len(present)
 
 
-def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice):
-    """EDGE: consume flow (top-5, from the run-level store slice) + fetch industry
-    (full basket) → full-basket HoldingMetrics. Flow is read ONCE per run: run_monitor
-    loads the store slice for the union of all active-fund symbols and passes it
-    through to every _process_fund call (see `run_monitor`); a caller invoking
-    _process_fund directly (e.g. tests) without a slice still falls back to
-    _load_flow_store_slice for library robustness."""
+def _industry_map_for(full_symbols, *, root: Path, today: str, serving: dict | None):
+    """EDGE (AC-6): store→batch serving map FIRST; the per-symbol stock/get path
+    fires ONLY for symbols absent from it (fallback-only, ADR 0020 addendum);
+    fallback results merge back into the cross-day store (Q3 — merge_seen's
+    None-skip is the poisoning guard, RD-4). serving=None (direct caller) → all
+    symbols fall back (pre-004 behaviour)."""
+    served = serving or {}
+    missing = tuple(s for s in full_symbols if s not in served)
+    fallback: dict = {}
+    if missing:
+        fallback = fetch_stock_industry_map(
+            missing, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+        _record_industry_seen(root, today, fallback)
+    return {**{s: served[s] for s in full_symbols if s in served}, **fallback}
+
+
+def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con, flow_slice,
+                               board_pe=None, industry_serving=None):
+    """EDGE: consume flow (top-5, run-level store slice) + 行业 (store→batch
+    serving map, per-symbol fallback-only, AC-6) + the run-level board-PE table
+    (fetch-first, AC-8) → full-basket HoldingMetrics. A direct caller passing
+    neither board_pe nor industry_serving gets the pre-004 lazy-fetch behaviour
+    (library robustness — mirrors the flow_slice fallback)."""
     from irc.opportunity.inputs_loader import _stock_series_by_code
     flow_symbols = tuple(h.symbol for h in top5)
     flow_series = {s: flow_slice.get(s) for s in flow_symbols}
@@ -324,13 +395,14 @@ def _build_full_basket_metrics(full_holdings, top5, fund_id, *, root, today, con
     if con is None:
         return build_holding_metrics(full_holdings, {}, flow_series)
     series_by_code = _stock_series_by_code(con, full_symbols)
-    industry_pe = fetch_industry_pe(
-        cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
-    industry_map = fetch_stock_industry_map(
-        full_symbols, cache_dir=root / "data" / "monitor" / "stock_industry", today=today)
+    if board_pe is None:  # direct caller → lazy fetch (freshness half unused here)
+        board_pe = fetch_industry_pe(
+            cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    industry_map = _industry_map_for(full_symbols, root=root, today=today,
+                                     serving=industry_serving)
     return build_holding_metrics(
         full_holdings, series_by_code, flow_series,
-        industry_by_symbol=industry_map, industry_pe_by_industry=industry_pe)
+        industry_by_symbol=industry_map, industry_pe_by_industry=board_pe[0])
 
 
 def _impact_rows_from(impacts: ImpactsResult, fund: MonitorFund) -> tuple[ImpactRow, ...]:
@@ -354,6 +426,7 @@ def _make_view(
     purchase_table=None,
     provisional_flow_pct: float | None = None,
     provisional_flow_as_of: str | None = None,
+    board_pe_freshness=None,
 ) -> FundView:
     mv = market_composite_view(signal, bands=fund.bands)
     return FundView(
@@ -378,6 +451,7 @@ def _make_view(
         themes=fund.themes,
         provisional_flow_pct=provisional_flow_pct,
         provisional_flow_as_of=provisional_flow_as_of,
+        board_pe_freshness=board_pe_freshness,
     )
 
 
@@ -446,7 +520,11 @@ def _narrative_dump(views: list[FundView], macro_doc: MacroNarrativeDoc | None) 
         {
             "status": macro_doc.status,
             "blocks": [
-                {"theme": b.theme, "claims": [c.claim for c in b.claims]}
+                {"theme": b.theme, "mechanism": b.mechanism,
+                 # 002 ship-review round 1, Finding 2 (P1): additive debug
+                 # key — present-but-dropped vs. LLM-omitted, both None otherwise.
+                 "mechanism_dropped": b.mechanism_dropped,
+                 "claims": [c.claim for c in b.claims]}
                 for b in macro_doc.blocks
             ],
         }
@@ -481,8 +559,10 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                    tiers: SourceTiers | None = None,
                    constituent_pool_items: tuple = (),
                    prior_run_date: str | None = None,
-                   purchase_tags: dict | None = None, *, now_dt: datetime) -> None:
-    prov = Provenance(_ENGINE_VERSION, "2", "6", "")
+                   purchase_tags: dict | None = None,
+                   macro_impacts_by_fund: dict | None = None,
+                   *, now_dt: datetime) -> None:
+    prov = Provenance(_ENGINE_VERSION, PROMPT_VERSION, SCHEMA_VERSION, "")
     gate_map = {g.fund_id: g for g in gates} if gates else None
     html = render_report(tuple(views), prov, prior_signal=prior,
                          now=now_dt.isoformat(timespec="seconds"), now_dt=now_dt,
@@ -491,7 +571,8 @@ def _write_outputs(out: Path, views: list[FundView], prior: dict | None,
                          macro_narrative=macro_doc, macro_pool_items=macro_pool_items,
                          tiers=tiers, constituent_pool_items=constituent_pool_items,
                          prior_run_date=prior_run_date, purchase_tags=purchase_tags,
-                         stale_eval_days=STALE_EVAL_DAYS)
+                         stale_eval_days=STALE_EVAL_DAYS,
+                         macro_impacts_by_fund=macro_impacts_by_fund)
     atomic_write_text(out / "report.html", html)
     atomic_write_text(
         out / "signal.json",
@@ -517,7 +598,7 @@ def _write_drilldown(out: Path, views: tuple) -> None:
         (
             v.fund_id, v.name_cn, v.holding_metrics,
             aggregate_flow(v.holding_metrics), v.signal,
-            aggregate_valuation(v.holding_metrics),
+            aggregate_valuation(v.holding_metrics), v.board_pe_freshness,
         )
         for v in views if v.holding_metrics
     )
@@ -557,6 +638,7 @@ def _compute_gates(
     funds: list[MonitorFund], views: list[FundView], bundles: list[FundTraceBundle],
     *, min_obs: int, suite_healths: tuple[StageHealth, ...],
     trading_days: frozenset[date] | None,
+    board_pe_freshness: dict | None = None,
 ) -> tuple[tuple[GateDecision, ...], dict, dict, dict, dict, dict, dict]:
     """Build each fund's trace projection ONCE, derive its monitor_signal health AND
     its deterministic_scoring health from that single projection, append the two
@@ -626,7 +708,8 @@ def _compute_gates(
                 reasons=(f"{fund.id}: reconciliation_error: {exc!r}",),
             )
         try:
-            val_cov_healths[fund.id] = valuation_coverage_health(projection)
+            val_cov_healths[fund.id] = valuation_coverage_health(
+                projection, board_pe_freshness=board_pe_freshness)
         except Exception as exc:  # noqa: BLE001 — panel-only; must not crash the run
             _log.warning(
                 "valuation_coverage_health failed for %s: %r", fund.id, exc, exc_info=True,
@@ -648,6 +731,8 @@ def _write_eval_artifacts(
     out: Path, root: Path, funds: list[MonitorFund], views: list[FundView],
     bundles: list[FundTraceBundle], gates: tuple[GateDecision, ...], *, run_date: str,
     trading_days: frozenset[date] | None, macro_narrative=None,
+    unmatched_keys: tuple[str, ...] = (),
+    board_pe_freshness: dict | None = None,
 ) -> None:
     """EDGE: serialize eval_trace.json (now carrying the run-level macro_narrative
     field, schema 5->6) + append the forward ledger. Failures are logged and
@@ -657,6 +742,8 @@ def _write_eval_artifacts(
             tuple(zip(funds, views, gates, bundles)),
             engine_version=_ENGINE_VERSION, run_date=run_date, trading_days=trading_days,
             macro_narrative=macro_narrative,
+            unmatched_impact_keys=unmatched_keys,
+            board_pe_freshness=board_pe_freshness,
         )
         atomic_write_text(out / "eval_trace.json",
                           json.dumps(trace, ensure_ascii=False, indent=2))
@@ -842,6 +929,8 @@ def _process_fund(
     theme_results: dict[str, tuple] | None = None,
     provisional_flow: dict | None = None,
     provisional_flow_as_of: str | None = None,
+    industry_serving: dict | None = None,
+    board_pe=None,
 ) -> tuple[FundView, list, FundTraceBundle]:
     """Process one fund: fetch → impacts → signal → view (+ eval bundle).
 
@@ -893,7 +982,8 @@ def _process_fund(
                 full_holdings, top5, fund.id, root=root, today=today, con=con,
                 flow_slice=(flow_slice if flow_slice is not None
                             else _load_flow_store_slice(
-                                root, tuple(h.symbol for h in top5))))
+                                root, tuple(h.symbol for h in top5))),
+                industry_serving=industry_serving, board_pe=board_pe)
         provisional_pct = _provisional_flow_for_fund(top5, provisional_flow)
 
     if con is not None:
@@ -924,7 +1014,8 @@ def _process_fund(
     view = _make_view(fund, nav, signal, scores, empty_narr, pool, impacts.status,
                       holding_metrics=holding_metrics, purchase_table=purchase_table,
                       provisional_flow_pct=provisional_pct,
-                      provisional_flow_as_of=provisional_flow_as_of)
+                      provisional_flow_as_of=provisional_flow_as_of,
+                      board_pe_freshness=(board_pe[1] if board_pe is not None else None))
     bundle = FundTraceBundle(
         fund_id=fund.id,
         macro_impacts=impacts.impacts,
@@ -978,13 +1069,28 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     if purchase_table is None:
         _log.warning("monitor heat: purchase table unavailable → heat_no_data for all funds")
     flow_slice = _load_flow_store_slice(root, _capture_union_symbols(funds, root))
-    provisional_flow = _provisional_flow_note(root, _capture_union_symbols(funds, root))
+    batch_symbols = _full_basket_union_symbols(funds, root)        # AC-3: full-basket secids
+    provisional_flow, batch_industry = _batch_flow_industry(root, batch_symbols)
     # EDGE clock read (allowed HERE, never in render_*): stamp the ACTUAL fetch
     # time for the 盘中提示 annotation (spec §8 截至HH:MM — the 15:45 capture
     # rerun renders its own time, never a hardcoded 12:15).
     provisional_flow_as_of = (
         datetime.now(timezone(timedelta(hours=8))).strftime("%H:%M")
         if provisional_flow else None
+    )
+    _record_industry_seen(root, _today, batch_industry)            # AC-5 (12:15 site)
+    industry_serving = _industry_serving_map(root, _today)         # AC-6: post-merge slice
+    trading_days = load_trading_days(date.today(), root=root)      # hoisted (Q10)
+    wants_board_pe = _wants_board_pe(funds, con)
+    board_pe = _fetch_board_pe(root, _today, trading_days) if wants_board_pe else None
+    # Round-1 P1 fix: an intentional gate-skip must not collapse to the same
+    # None a caller-never-passed-the-field trace would show (pre-bump traces are
+    # indistinguishable from a genuine skip otherwise). NOT_REQUESTED names the
+    # skip explicitly; _board_pe_reason emits nothing for it (same silence as
+    # today's None path), and the STALE-only render whitelist never touches it.
+    board_pe_dict = (
+        freshness_dict(board_pe[1]) if board_pe is not None
+        else {"state": "NOT_REQUESTED", "as_of": None, "age_td": None}
     )
     theme_results = _build_theme_results(root, list(funds))
     views: list[FundView] = []
@@ -997,6 +1103,7 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                 today=_today, flow_slice=flow_slice, theme_results=theme_results,
                 provisional_flow=provisional_flow,
                 provisional_flow_as_of=provisional_flow_as_of,
+                industry_serving=industry_serving, board_pe=board_pe,
             )
             views.append(view)
             bundles.append(bundle)
@@ -1014,14 +1121,13 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     all_costs.extend(macro_result.cost_entries)
     macro_pool_items = tuple(ev for items in macro_pool.values() for ev in items)
     now_dt = datetime.now(timezone(timedelta(hours=8)))
-    trading_days = load_trading_days(date.today(), root=root)
     suite_healths, suite_rows = _suite_eval(root, _today, now_dt)
     (gates, signal_healths, deterministic_healths,
      flow_recon_healths, flow_cov_healths, val_recon_healths, val_cov_healths) = (
         _compute_gates(
             list(funds), views, bundles,
             min_obs=cfg.history.minimum_observations, suite_healths=suite_healths,
-            trading_days=trading_days)
+            trading_days=trading_days, board_pe_freshness=board_pe_dict)
     )
     panel_rows = build_panel_rows(
         signal_healths, deterministic_healths, now=_now_iso(), suite_rows=suite_rows,
@@ -1033,9 +1139,26 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
     prior, prior_run_date = _read_prior_signal_with_date(root, _today)
     out = root / "outputs" / _today / "monitor"
     out.mkdir(parents=True, exist_ok=True)
+    # 002 ship-review round 1, Finding 1 (P0): known themes = the same
+    # config-derived theme set the renderer's fund-chip lookup uses
+    # (mirrors render_html._invert_fund_themes' source, FundView.themes) —
+    # NOT a new config surface. A macro impact key absent from it is a
+    # typo'd/stale/renamed LLM echo that would otherwise render as silent
+    # "no record" forever (impact_validate.py:37 never validates the key).
+    known_themes = {theme for v in views for theme in v.themes}
+    macro_impacts_by_fund = {b.fund_id: b.macro_impacts for b in bundles}
+    unmatched_keys = unmatched_impact_keys(known_themes, macro_impacts_by_fund)
+    if unmatched_keys:
+        _log.warning(
+            "monitor: macro impact key(s) unmatched by any rendered theme "
+            "(typo'd/stale/renamed LLM echo, invisible on the report): %s",
+            ", ".join(unmatched_keys),
+        )
     _write_eval_artifacts(out, root, list(funds), views, bundles, gates,
                           run_date=_today, trading_days=trading_days,
-                          macro_narrative=macro_result.doc)
+                          macro_narrative=macro_result.doc,
+                          unmatched_keys=unmatched_keys,
+                          board_pe_freshness=board_pe_dict)
     _run_forward_eval(root, _today)  # Comp 0: same-day-fresh artifact; contained
     timeline = _build_bias_timeline(root)
     predictive_panel = _predictive_panel_model(root, today=_today)
@@ -1052,7 +1175,9 @@ def run_monitor(*, repo_root: str, today: str | None = None) -> int:
                    macro_pool_items=macro_pool_items, tiers=tiers,
                    constituent_pool_items=constituent_pool_items,
                    prior_run_date=prior_run_date,
-                   purchase_tags=purchase_tags, now_dt=now_dt)
+                   purchase_tags=purchase_tags,
+                   macro_impacts_by_fund=macro_impacts_by_fund,
+                   now_dt=now_dt)
     _write_drilldown(out, tuple(views))
     record_command_run(
         repo_root=root,
@@ -1083,26 +1208,65 @@ def _capture_union_symbols(funds, root: Path) -> tuple:
     return tuple(dict.fromkeys(syms))
 
 
+def _full_basket_union_symbols(funds, root: Path) -> tuple:
+    """The union of the monitor set's active-fund FULL disclosed baskets (AC-3),
+    dedup-ordered. Feeds BOTH ulist.np batch call sites — P7's point is filling
+    行业 for the full basket in the same single call. The flow STORE stays
+    top-5-scoped via the _capture_union_symbols slice-back (D5). top-5 union ⊆
+    full-basket union by construction (top5 = full[:5] per fund, RD-1)."""
+    from irc.monitor.profiles import PROFILES
+    syms: list[str] = []
+    for fund in funds:
+        spec = PROFILES.get(fund.analysis_profile)
+        if not (spec and spec.lookthrough == "active_fund"):
+            continue
+        snap = load_latest_active_fund_cached(fund.id, root / "data")
+        if snap is None:
+            continue
+        full = sorted(snap.constituent_analyses, key=lambda c: c.weight_pct, reverse=True)
+        syms.extend(h.symbol for h in full)
+    return tuple(dict.fromkeys(syms))
+
+
 def run_flow_capture(*, repo_root: str, today: str | None = None) -> int:
-    """EDGE (15:45 job, D6): ONE ulist.np batch → append the now-final f184 to the
-    completed-day store. No LLM, no report, no ledger. `today` MUST be a completed
-    CN trading day (the wrapper runs it after the 15:00 close)."""
+    """EDGE (15:45 job, D6): ONE ulist.np batch over the FULL-BASKET union (AC-3)
+    → append the now-final f184 to the completed-day store, SLICED BACK to the
+    top-5 union (D5 store scope/bytes unchanged) → merge f127 行业 into the
+    cross-day store (AC-5) → best-effort board-PE refresh strictly AFTER the
+    append (P8c/RD-6 — a watchdog kill loses only the refresh, never the flow
+    row). No LLM, no report, no ledger. `today` MUST be a completed CN trading
+    day (the wrapper runs it after the 15:00 close)."""
     root = Path(repo_root)
     _today = today or datetime.now(timezone(timedelta(hours=8))).date().isoformat()
     funds = resolve_funds(load_monitor_config(root))
-    symbols = _capture_union_symbols(funds, root)
-    if not symbols:
+    batch_symbols = _full_basket_union_symbols(funds, root)
+    if not batch_symbols:
         _log.warning("flow-capture: no active-fund symbols; nothing to capture")
         return 0
     try:
-        by_symbol = fetch_flow_today_batch(symbols)
+        flow_by_symbol, industry_by_symbol = fetch_flow_today_batch(batch_symbols)
     except Exception:  # noqa: BLE001 — degrade, never crash (breaker/abort posture)
         _log.warning("flow-capture: ulist.np batch failed", exc_info=True)
         return 0
+    top5_union = _capture_union_symbols(funds, root)
+    store_flow = {s: flow_by_symbol.get(s) for s in top5_union}   # AC-3 slice-back (D5)
     trading_days = load_trading_days(date.today(), root=root)
     tds = tuple(d.isoformat() for d in (trading_days or ()))
     append_today(root / "data" / "monitor" / "fund_flow_series.json", _today,
-                 by_symbol, keep_td=_FLOW_KEEP_TD, trading_days=tds)
-    print(f"flow-capture OK: {_today} appended {sum(v is not None for v in by_symbol.values())}"
-          f"/{len(symbols)} symbols")
+                 store_flow, keep_td=_FLOW_KEEP_TD, trading_days=tds)
+    print(f"flow-capture OK: {_today} appended "
+          f"{sum(v is not None for v in store_flow.values())}/{len(top5_union)} symbols")
+    _record_industry_seen(root, _today, industry_by_symbol)       # AC-5 (15:45 site)
+    _capture_board_pe(root, _today)                               # P8c AFTER append (RD-6)
     return 0
+
+
+def _capture_board_pe(root: Path, today: str) -> None:
+    """EDGE (P8c, AC-14): best-effort board-PE refresh in the proven rested 15:45
+    window so next morning's fallback is at worst 1 day old. Runs strictly AFTER
+    the flow append (RD-6). Never affects the capture rc; the freshness half is
+    ignored. Worst-case added time ≈ 203 s fits the 300 s protective watchdog."""
+    try:
+        fetch_industry_pe(cache_dir=root / "data" / "monitor" / "industry_pe", today=today)
+    except Exception:  # noqa: BLE001 — a board-PE failure never fails capture
+        _log.warning("flow-capture: board PE refresh failed", exc_info=True)

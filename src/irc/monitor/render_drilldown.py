@@ -189,6 +189,18 @@ def provisional_flow_annotation_html(*, symbol_value: float | None, as_of_hhmm: 
     )
 
 
+def board_pe_age_note_html(freshness) -> str:
+    """PURE (004 AC-13): 板块PE age tag for a STALE table — '' for FRESH / DARK /
+    None (FRESH needs no noise; DARK already surfaces as industry_no_data + the
+    行业覆盖/价值陷阱检测 notes — no new DARK string, KNOWN_NA_REASONS unchanged).
+    Duck-typed on BoardPeFreshness(.state/.as_of/.age_td); shared by both
+    surfaces so the wording can't drift (Q12)."""
+    if freshness is None or getattr(freshness, "state", None) != "STALE":
+        return ""
+    return (f'<div class="board-pe-age na-reason">板块PE 引用 '
+            f'{escape(freshness.as_of or "?")} · {freshness.age_td}个交易日前</div>')
+
+
 def _industry_coverage_ratio(metrics: tuple[HoldingMetric, ...]) -> float | None:
     """Fraction of COVERED-valuation weight whose industry leg resolved."""
     covered = [m for m in metrics if m.val_score is not None]
@@ -238,14 +250,17 @@ _DRILLDOWN_CSS = (
 
 def drilldown_section_html(
     name_cn: str, fund_id: str, metrics, agg, signal, val_agg=None,
+    board_pe_freshness=None,
 ) -> str:
     """PURE: one fund's board + roll-up section (reused by card + standalone page).
-    val_agg: optional ValuationAggregate; when present, appends valuation rollup."""
+    val_agg: optional ValuationAggregate → appends valuation rollup.
+    board_pe_freshness: optional → 板块PE age tag adjacent to the board (AC-13)."""
     val_html = valuation_rollup_html(metrics, val_agg) if val_agg is not None else ""
+    age_note = board_pe_age_note_html(board_pe_freshness)
     return (
         f"<section class='drilldown' id='dd-{escape(fund_id)}'>"
         f"<h2>{escape(name_cn)} ({escape(fund_id)})</h2>"
-        f"{holdings_board_html(metrics)}{flow_rollup_html(metrics, agg, signal)}"
+        f"{holdings_board_html(metrics)}{age_note}{flow_rollup_html(metrics, agg, signal)}"
         f"{val_html}</section>"
     )
 
@@ -253,12 +268,15 @@ def drilldown_section_html(
 def drilldown_page_html(views) -> str:
     """PURE: full standalone drilldown.html. views = iterable of
     (fund_id, name_cn, metrics, agg, signal) or
-    (fund_id, name_cn, metrics, agg, signal, val_agg).
+    (fund_id, name_cn, metrics, agg, signal, val_agg) or
+    (fund_id, name_cn, metrics, agg, signal, val_agg, board_pe_freshness).
     Self-contained: inline CSS, no JS."""
     def _section(row) -> str:
         fund_id, name_cn, metrics, agg, signal = row[:5]
         val_agg = row[5] if len(row) > 5 else None
-        return drilldown_section_html(name_cn, fund_id, metrics, agg, signal, val_agg)
+        bpf = row[6] if len(row) > 6 else None
+        return drilldown_section_html(name_cn, fund_id, metrics, agg, signal, val_agg,
+                                      board_pe_freshness=bpf)
 
     sections = "".join(_section(row) for row in views)
     return (

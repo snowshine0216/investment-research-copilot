@@ -74,3 +74,34 @@ def test_uninstall_covers_every_installed_agent() -> None:
     for label in ("com.irc.monitor", "com.irc.fundamentals-quarterly",
                   "com.irc.flow-capture", "com.irc.weekly"):
         assert label in uninstall, f"uninstall.sh missing {label}"
+
+
+def test_weekly_wrapper_appends_best_effort_live_llm_eval_refresh() -> None:
+    """OD-3 / report v4 item 001: two live eval runs, each watchdog-bounded and
+    individually || echo-guarded; the wrapper's exit code stays the pipeline rc.
+    The `env` prefix is LOAD-BEARING (RD-3): run_with_watchdog execs "$@" — a
+    bare IRC_RUN_LIVE_LLM_EVAL=1 word would be exec'd as a command NAME
+    (rc 127, silently masked by the best-effort guard) because bash parses
+    assignments before word expansion. Pin the exact env form."""
+    text = _wrapper()
+    assert text.count(
+        'run_with_watchdog "${IRC_WEEKLY_EVAL_TIMEOUT:-900}" env IRC_RUN_LIVE_LLM_EVAL=1'
+    ) == 2
+    assert "irc eval monitor_impact" in text
+    assert "irc eval monitor_narrative" in text
+
+
+def test_weekly_eval_refresh_after_notify_and_never_changes_wrapper_rc() -> None:
+    """Placement (open question 6): after notify-status (a hung eval can never
+    delay paging), before exit "$rc" (eval outcomes never touch the rc). The
+    sentinel/lock early-exits precede the append point, so a skipped day skips
+    the evals too (criterion 13)."""
+    text = _wrapper()
+    notify_pos = text.index("notify-status --run-kind weekly")
+    impact_pos = text.index("irc eval monitor_impact")
+    narrative_pos = text.index("irc eval monitor_narrative")
+    exit_pos = text.rindex('exit "$rc"')
+    assert notify_pos < impact_pos < narrative_pos < exit_pos
+    assert text.rstrip().endswith('exit "$rc"')
+    assert text.index('SENTINEL=') < impact_pos
+    assert text.index('acquire_lock "outputs/_logs/.weekly.lock"') < impact_pos

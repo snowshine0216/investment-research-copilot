@@ -13,6 +13,30 @@ _BANNED_VERBS = ("主因", "导致", "由于")  # narrative._banned_verb_present
 _DIGIT = re.compile(r"\d")
 _REF = re.compile(r"\[ref:[0-9a-f]{16}\]")
 
+# narrative_macro._MAX_MECHANISM_CHARS / _CJK_MIN_RATIO / _is_cjk_char /
+# _cjk_ratio, verbatim (RD-5: importing narrative_macro would transitively
+# import irc.llm.gateway and breach the ADR 0017 §3.3 scorer-purity ban —
+# same precedent as _BANNED_VERBS above).
+_MAX_MECHANISM_CHARS = 60
+_CJK_MIN_RATIO = 0.30
+
+
+def _is_cjk_char(ch: str) -> bool:
+    cp = ord(ch)
+    return (
+        0x4E00 <= cp <= 0x9FFF      # CJK Unified Ideographs
+        or 0x3000 <= cp <= 0x303F   # CJK punctuation
+        or 0xFF00 <= cp <= 0xFFEF   # fullwidth forms
+    )
+
+
+def _cjk_ratio(text: str) -> float:
+    non_ws = [c for c in text if not c.isspace()]
+    if not non_ws:
+        return 0.0
+    cjk = sum(1 for c in non_ws if _is_cjk_char(c))
+    return cjk / len(non_ws)
+
 
 def _frac(numer: int, denom: int) -> float:
     return numer / denom if denom else 1.0
@@ -20,8 +44,18 @@ def _frac(numer: int, denom: int) -> float:
 
 def _all_claims(output: dict) -> list[dict]:
     """Flatten claims across ALL top-level theme keys (arbitrary theme names;
-    do not hardcode). A degraded {} output yields []."""
-    return [c for claims in output.values() for c in claims]
+    do not hardcode). Dual-shape (prompt v3, item 002): a dict-shaped theme
+    value ({"mechanism","claims"}) contributes value.get("claims", []) when
+    that value is a list (else []); a list-shaped value (v2) contributes
+    itself. A degraded {} output yields []."""
+    out: list[dict] = []
+    for value in output.values():
+        if isinstance(value, dict):
+            claims = value.get("claims", [])
+            out.extend(claims if isinstance(claims, list) else [])
+        elif isinstance(value, list):
+            out.extend(value)
+    return out
 
 
 def _pool_cids(case: dict) -> set[str]:
@@ -124,3 +158,41 @@ def hallucination_rate(cases: list[dict], outputs: list[dict]) -> float:
             bad += 1 if (_DIGIT.search(text) or _REF.search(text)) else 0
     # Finding 3: cases present but all outputs degraded (total==0) → FAIL (1.0)
     return _frac(bad, total) if total else 1.0
+
+
+def _mechanism_valid(raw) -> bool:
+    """Production validity predicate (str, non-empty after strip, ≤60 code
+    points, CJK guard) — reproduced, not imported (RD-5) — PLUS the eval-only
+    digit / [ref:] checks (spec Q10: production does not drop on digits; the
+    metric counts them invalid)."""
+    if not isinstance(raw, str):
+        return False
+    stripped = raw.strip()
+    if not stripped or len(stripped) > _MAX_MECHANISM_CHARS:
+        return False
+    if _cjk_ratio(stripped) < _CJK_MIN_RATIO:
+        return False
+    return not (_DIGIT.search(stripped) or _REF.search(stripped))
+
+
+def mechanism_validity(cases: list[dict], outputs: list[dict]) -> float:
+    """Over "mechanism"-category cases: every theme entry must have an ABSENT
+    mechanism (required-optional — v2 bare-list entry, dict without the key, or
+    explicit null) or one passing _mechanism_valid. An output with NO theme
+    entries at all (the degraded {} from drive_case) is a miss for that case
+    (Finding-3 convention)."""
+    pairs = [(c, o) for c, o in zip(cases, outputs) if c["category"] == "mechanism"]
+    if not pairs:
+        return 1.0
+    hits = 0
+    for _c, o in pairs:
+        if not o:
+            continue   # degraded {} -> miss
+        ok = all(
+            not isinstance(value, dict)
+            or value.get("mechanism") is None
+            or _mechanism_valid(value["mechanism"])
+            for value in o.values()
+        )
+        hits += 1 if ok else 0
+    return _frac(hits, len(pairs))

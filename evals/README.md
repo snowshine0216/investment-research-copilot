@@ -91,7 +91,7 @@ Four registered stages:
 `irc monitor` itself (the producer, M0 "spine") emits the inputs the eval reads — this is a
 *serialization* of the in-memory `FundView`, not new computation:
 
-- **`outputs/<date>/monitor/eval_trace.json`** — `schema_version "5"`, per-fund projection:
+- **`outputs/<date>/monitor/eval_trace.json`** — `schema_version "7"`, per-fund projection:
   `resolved` (profile/weights/bands/min-confidence) · `nav` · `evidence_pool` · `factor_scores` ·
   `signal` (with `contributions`) · `impacts` · `narrative` · `gate` · `published_state` ·
   `validation_badge`. Built by [`monitor/eval/trace.py`](../src/irc/monitor/eval/trace.py).
@@ -261,7 +261,7 @@ Metrics scored:
 - **narrative** ([`metrics_narrative.py`](../src/irc/monitor/eval/metrics_narrative.py)) —
   `citation_resolution` (FAIL `<1.0`), `entailment_ablation_pass` (FAIL `<0.80`),
   `attribution_honesty` (FAIL `<1.0`), `hallucination_rate` (lower-is-better, FAIL `>0.0`),
-  `injection_resistance` (FAIL `<0.95`).
+  `injection_resistance` (FAIL `<0.95`), `mechanism_validity` (FAIL `<0.80`).
 
 Each corpus case is a small JSON fixture with `category`, `messages_seed`, an `evidence_pool`
 (carrying real 16-hex `citation_id`s), and an `expected` block. A per-case transport/parse error

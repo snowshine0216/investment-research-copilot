@@ -120,3 +120,42 @@ def test_empty_ran_at_returns_unknown_not_crash():
     h = resolve_health(bad_rep, now=_NOW, stale_after_days=14, stage="monitor_narrative")
     assert h.status == "UNKNOWN"
     assert "corrupt_ran_at" in h.reasons
+
+
+# ── report v4 item 001: age-stamped stale reason ─────────────────────────────
+
+
+def test_stale_reason_is_age_stamped_15d():
+    old = _NOW - timedelta(days=15)
+    h = resolve_health(_report("PASS", ran_at=old), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
+    assert h.status == "UNKNOWN"
+    assert h.reasons == ("stale, 15d",)
+
+
+def test_stale_reason_is_age_stamped_16d():
+    old = _NOW - timedelta(days=16)
+    h = resolve_health(_report("PASS", ran_at=old), now=_NOW, stale_after_days=14,
+                       stage="monitor_narrative")
+    assert h.reasons == ("stale, 16d",)
+
+
+def test_exactly_stale_after_days_is_not_stale_unchanged_boundary():
+    # As-built semantics: stale iff .days > stale_after_days (strict) — exactly
+    # 14d passes through. The minimum stamped age is therefore 15d (RD-7).
+    boundary = _NOW - timedelta(days=14)
+    h = resolve_health(_report("PASS", ran_at=boundary), now=_NOW, stale_after_days=14,
+                       stage="monitor_impact")
+    assert h.status == "PASS"
+
+
+def test_absent_skipped_corrupt_reasons_unchanged_no_age():
+    assert resolve_health(None, now=_NOW, stale_after_days=14,
+                          stage="monitor_impact").reasons == ("absent",)
+    assert resolve_health(_report("SKIPPED", ran_at=_NOW), now=_NOW,
+                          stale_after_days=14,
+                          stage="monitor_impact").reasons == ("skipped",)
+    bad = StageReport(stage="monitor_impact", ran_at="NOT-A-DATE", based_on=[],
+                      metrics=[], overall="PASS")
+    assert resolve_health(bad, now=_NOW, stale_after_days=14,
+                          stage="monitor_impact").reasons == ("corrupt_ran_at",)

@@ -59,4 +59,20 @@ run_with_watchdog "${IRC_WEEKLY_TIMEOUT:-7200}" "$UV_BIN" run irc run || rc=$?
 # `set -e` while leaving a breadcrumb — never a silent swallow.
 "$UV_BIN" run irc notify-status --run-kind weekly --last-exit-code "$rc" \
   || echo "[$TODAY] notify-status failed (rc=$?) — weekly rc was $rc (see above)"
+
+# Weekly LLM-suite refresh (OD-3, report v4 item 001): keep monitor_impact /
+# monitor_narrative fresh under STALE_AFTER_DAYS=14 so daily briefs stop
+# caveating on stale suites. Best-effort by construction: runs AFTER notify (a
+# hung eval can never delay paging), each bounded by its own watchdog, and
+# `|| echo` keeps any failure (rc=3 env-skip, rc=5 spend-gate, rc=124 timeout)
+# from aborting under `set -e`. The wrapper exits with the PIPELINE's rc.
+# The `env` prefix is LOAD-BEARING: run_with_watchdog execs "$@" — a bare
+# IRC_RUN_LIVE_LLM_EVAL=1 word would be exec'd as a command NAME (rc 127),
+# because bash parses assignments before word expansion (RD-3).
+run_with_watchdog "${IRC_WEEKLY_EVAL_TIMEOUT:-900}" env IRC_RUN_LIVE_LLM_EVAL=1 \
+  "$UV_BIN" run irc eval monitor_impact \
+  || echo "[$TODAY] weekly monitor_impact eval refresh failed (rc=$?) — best-effort, not paging"
+run_with_watchdog "${IRC_WEEKLY_EVAL_TIMEOUT:-900}" env IRC_RUN_LIVE_LLM_EVAL=1 \
+  "$UV_BIN" run irc eval monitor_narrative \
+  || echo "[$TODAY] weekly monitor_narrative eval refresh failed (rc=$?) — best-effort, not paging"
 exit "$rc"

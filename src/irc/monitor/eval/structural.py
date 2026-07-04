@@ -220,7 +220,25 @@ def valuation_reconciliation(t: dict) -> StageHealth:
     return StageHealth("valuation_reconciliation", "PASS", ())
 
 
-def valuation_coverage_health(t: dict) -> StageHealth:
+def _board_pe_reason(f: dict | None) -> tuple[str, ...]:
+    """Pure (004 AC-12): ONE panel reason for the run-level board-PE freshness
+    marker. Absent/malformed → () (old traces / other callers degrade silently).
+    NOT_REQUESTED (round-1 P1 fix: the intentional _wants_board_pe gate-skip,
+    distinct from a caller who never passed the field) emits NOTHING — same
+    silence as the pre-fix None path, so gold/QDII-only panels stay noise-free."""
+    if not isinstance(f, dict):
+        return ()
+    state = f.get("state")
+    if state == "STALE":
+        return (f"board_pe STALE-{f.get('age_td')} (as_of {f.get('as_of')})",)
+    if state in ("FRESH", "DARK"):
+        return (f"board_pe {state}",)
+    return ()   # NOT_REQUESTED / unknown state → silent, never a reason
+
+
+def valuation_coverage_health(
+    t: dict, *, board_pe_freshness: dict | None = None,
+) -> StageHealth:
     """PURE informational dual-track coverage tally (§5.E, panel-only, always PASS).
     Surfaces NAV coverage, industry-leg coverage over covered rows, and false_cheap
     tally. Empty holding_metrics → PASS with no reasons, never raises."""
@@ -242,4 +260,5 @@ def valuation_coverage_health(t: dict) -> StageHealth:
         reasons.append(f"nav_cover {round(nav_cov, 2)}")
     reasons.append(f"industry_cover {round(industry_cov, 2)}")
     reasons.append(f"false_cheap {false_cheap}")
+    reasons.extend(_board_pe_reason(board_pe_freshness))
     return StageHealth("valuation_coverage", "PASS", tuple(reasons))

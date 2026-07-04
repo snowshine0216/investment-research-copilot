@@ -77,8 +77,10 @@ def _stub_gate(view):
 def test_top_level_keys():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
                          engine_version="1", run_date="2026-06-16")
+    # 002 ship-review round 1 Finding 1: unmatched_impact_keys is additive
+    # under the unchanged schema "7" (see test_unmatched_impact_keys_* below).
     assert set(t) == {"schema_version", "engine_version", "run_date", "funds",
-                  "macro_narrative"}
+                  "macro_narrative", "unmatched_impact_keys", "board_pe_freshness"}
     assert t["engine_version"] == "1" and t["run_date"] == "2026-06-16"
     assert "008986" in t["funds"]
 
@@ -261,10 +263,24 @@ def test_nav_missing_trading_days_is_none_without_calendar():
     assert t["funds"]["008986"]["nav"]["missing_trading_days"] is None
 
 
-def test_schema_version_is_6():
+def test_schema_version_is_7():
     t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
                          engine_version="3", run_date="2026-06-21")
-    assert t["schema_version"] == "6"
+    assert t["schema_version"] == "7"
+
+
+def test_caveated_gate_reason_lands_in_trace_non_empty():
+    # Criterion 10: schema 7's only content change — gate.reason stops being
+    # empty for caveated funds; shape is untouched.
+    from irc.monitor.eval.types import GateDecision
+    reason = ("monitor_impact: UNKNOWN (stale, 15d); "
+              "monitor_narrative: UNKNOWN (stale, 16d)")
+    gate = GateDecision("008986", False, (), "caveated", reason)
+    t = build_eval_trace(((_fund(), _good_view(), gate, _bundle()),),
+                         engine_version="4", run_date="2026-07-03")
+    entry = t["funds"]["008986"]
+    assert entry["validation_badge"] == "caveated"
+    assert entry["gate"]["reason"] == reason
 
 
 def test_trace_emits_holding_metrics_block():
@@ -340,3 +356,90 @@ def test_flow_rows_flows_through_real_builder_into_trace_and_warmup_check():
     health = flow_coverage_health(t["funds"]["519069"])
     assert health.status == "PASS"
     assert "flow_rows_min 0" in health.reasons
+
+
+def test_macro_narrative_mechanism_field_lands_under_unchanged_schema_7():
+    """Item 002 AC11/AC14: additive per-theme mechanism under the EXISTING "7" —
+    the no-second-bump cross-cutting rule (trace.py:16)."""
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("us_monetary",
+                                (Claim("美联储维持利率不变。", "consistent_with", ()),),
+                                mechanism="就业数据疲软→加息预期降温→利多黄金"),
+                MacroThemeBlock("geopolitics",
+                                (Claim("地缘风险上升。", "possible_driver", ()),))),
+        status="ok")
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04",
+                         macro_narrative=doc)
+    blocks = t["macro_narrative"]["blocks"]
+    assert blocks[0]["mechanism"] == "就业数据疲软→加息预期降温→利多黄金"
+    assert blocks[1]["mechanism"] is None
+    assert t["schema_version"] == "7"          # NO second bump
+
+
+def test_unmatched_impact_keys_default_empty_lands_under_unchanged_schema_7():
+    """002 ship-review round 1, Finding 1 (P0): default (no unmatched keys
+    passed) is an empty tuple — additive under the EXISTING "7", no second
+    bump, and present even when macro_narrative itself is None (the mismatch
+    is a property of the impacts join, independent of narrative doc status)."""
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04")
+    assert t["macro_narrative"] is None
+    assert t["unmatched_impact_keys"] == []
+    assert t["schema_version"] == "7"
+
+
+def test_unmatched_impact_keys_threaded_verbatim_into_trace():
+    t = build_eval_trace(
+        ((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+        engine_version="4", run_date="2026-07-04",
+        unmatched_impact_keys=("gold_drivrs", "weird_llm_key"))
+    assert t["unmatched_impact_keys"] == ["gold_drivrs", "weird_llm_key"]
+    assert t["schema_version"] == "7"
+
+
+def test_macro_narrative_mechanism_dropped_field_lands_under_unchanged_schema_7():
+    """002 ship-review round 1, Finding 2 (P1): a present-but-invalid mechanism
+    (mechanism=None, mechanism_dropped=True) must be traceable as distinct from
+    "the LLM omitted it" (mechanism=None, mechanism_dropped=False) — additive
+    under the EXISTING "7", no second bump."""
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("us_monetary",
+                                (Claim("美联储维持利率不变。", "consistent_with", ()),),
+                                mechanism=None, mechanism_dropped=True),
+                MacroThemeBlock("geopolitics",
+                                (Claim("地缘风险上升。", "possible_driver", ()),))),
+        status="ok")
+    t = build_eval_trace(((_fund(), _good_view(), _stub_gate(_good_view()), _bundle()),),
+                         engine_version="4", run_date="2026-07-04",
+                         macro_narrative=doc)
+    blocks = t["macro_narrative"]["blocks"]
+    assert blocks[0]["mechanism"] is None and blocks[0]["mechanism_dropped"] is True
+    assert blocks[1]["mechanism"] is None and blocks[1]["mechanism_dropped"] is False
+    assert t["schema_version"] == "7"
+
+
+def test_board_pe_freshness_lands_under_unchanged_schema_7():
+    """004 AC-11: run-level {"state","as_of","age_td"} marker, additive — NO bump."""
+    from irc.monitor.eval.trace import SCHEMA_VERSION
+    view = _good_view()
+    t = build_eval_trace(((_fund(), view, _stub_gate(view), _bundle()),),
+                         engine_version="1", run_date="2026-07-03",
+                         board_pe_freshness={"state": "STALE", "as_of": "2026-07-01",
+                                             "age_td": 2})
+    assert SCHEMA_VERSION == "7"
+    assert t["schema_version"] == "7"
+    assert t["board_pe_freshness"] == {"state": "STALE", "as_of": "2026-07-01",
+                                       "age_td": 2}
+
+
+def test_board_pe_freshness_defaults_to_none_back_compat():
+    """Callers that don't pass one (old paths, _compute_gates projections) → None."""
+    view = _good_view()
+    t = build_eval_trace(((_fund(), view, _stub_gate(view), _bundle()),),
+                         engine_version="1", run_date="2026-07-03")
+    assert t["board_pe_freshness"] is None

@@ -10,7 +10,12 @@ from irc.monitor.impact_validate import ValidatedImpact
 from irc.monitor.render_types import FundView
 from irc.monitor.types import EvidenceItem, MonitorFund
 
-_SCHEMA_VERSION = "6"
+# Public: also consumed by monitor_cmd's Provenance so the report header can
+# never drift from the trace (RD-1). Bumped 6->7 by report v4 item 001 (shape
+# unchanged — gate.reason just stops being empty); items 002/004 land their
+# fields under "7" WITHOUT bumping again (002: mechanism/mechanism_dropped +
+# unmatched_impact_keys; 004: run-level board_pe_freshness).
+SCHEMA_VERSION = "7"
 
 
 def dedup_by_citation_id(items: tuple[EvidenceItem, ...]) -> list[dict]:
@@ -181,7 +186,12 @@ def _macro_narrative(doc) -> dict | None:
     return {
         "status": doc.status,
         "blocks": [
-            {"theme": b.theme, "claims": [
+            {"theme": b.theme, "mechanism": b.mechanism,
+             # 002 ship-review round 1, Finding 2 (P1): additive under the
+             # EXISTING "7" — distinguishes present-but-dropped (True) from
+             # the LLM simply omitting the field (False), both of which
+             # collapse to mechanism=None otherwise.
+             "mechanism_dropped": b.mechanism_dropped, "claims": [
                 {"claim": c.claim, "attribution_strength": c.attribution_strength,
                  "citation_ids": list(c.citation_ids)}
                 for c in b.claims
@@ -196,12 +206,26 @@ def build_eval_trace(
     *, engine_version: str, run_date: str,
     trading_days: frozenset[date] | None = None,
     macro_narrative=None,
+    unmatched_impact_keys: tuple[str, ...] = (),
+    board_pe_freshness: dict | None = None,
 ) -> dict:
     return {
-        "schema_version": _SCHEMA_VERSION,
+        "schema_version": SCHEMA_VERSION,
         "engine_version": engine_version,
         "run_date": run_date,
         "funds": {fund.id: _fund_entry(fund, view, gate, bundle, trading_days)
                   for fund, view, gate, bundle in items},
         "macro_narrative": _macro_narrative(macro_narrative),
+        # 002 ship-review round 1, Finding 1 (P0): sorted/deduped
+        # irc.monitor.macro_direction.unmatched_impact_keys(...) result,
+        # additive under the EXISTING schema_version "7" (no second bump) —
+        # a fund's macro impact key with no match in the rendered theme set
+        # would otherwise be invisible (chip stays "no record" forever,
+        # indistinguishable from honest absence).
+        "unmatched_impact_keys": list(unmatched_impact_keys),
+        # 004 (AC-11): run-level board-PE freshness marker — the
+        # board_pe_staleness.freshness_dict projection {"state","as_of","age_td"},
+        # or None when the caller doesn't pass one (additive back-compat under
+        # the EXISTING "7", same pattern as macro_narrative).
+        "board_pe_freshness": board_pe_freshness,
     }

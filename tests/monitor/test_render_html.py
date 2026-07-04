@@ -335,3 +335,276 @@ def test_macro_narrative_html_claims_capped_at_3_per_theme_defensively():
     )
     html = macro_narrative_html(doc, fund_themes_by_theme={"geopolitics": ()})
     assert "声明一。" in html and "声明二。" in html
+
+
+# ── Item 002 P3: macro direction chips + legend ───────────────────────────────
+
+
+_LEGEND = ('<p class="macro-legend">图例：数值 = 该主题对基金的影响（−1 利空 … +1 利多）；'
+           '绿 ≥ +0.15 · 红 ≤ −0.15 · 灰 = 其间；无数值 = 当日无该主题影响记录</p>')
+
+
+def _macro_doc(theme="us_monetary", claim_text="美联储本周维持利率不变。"):
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    return MacroNarrativeDoc(
+        blocks=(MacroThemeBlock(theme, (Claim(claim_text, "consistent_with", ()),)),),
+        status="ok")
+
+
+def test_macro_chip_with_record_has_direction_class_value_and_title():
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.render_html import macro_narrative_html
+
+    impacts = {"270023": (ValidatedImpact("us_monetary", 0.8, 0.7, ()),)}
+    html = macro_narrative_html(
+        _macro_doc(), fund_themes_by_theme={"us_monetary": ("270023", "009225")},
+        macro_impacts_by_fund=impacts)
+    assert ('<span class="fund-chip chip-pos" title="置信度 0.7">270023 +0.8</span>'
+            in html)
+    # fund WITHOUT a record renders exactly as today: bare chip, no color,
+    # no number, no title (absence ≠ zero)
+    assert '<span class="fund-chip">009225</span>' in html
+
+
+def test_macro_chip_direction_boundaries_and_true_zero():
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.render_html import macro_narrative_html
+
+    impacts = {
+        "a1": (ValidatedImpact("us_monetary", 0.15, 1.0, ()),),
+        "a2": (ValidatedImpact("us_monetary", -0.15, 0.5, ()),),
+        "a3": (ValidatedImpact("us_monetary", 0.0, 0.25, ()),),
+    }
+    html = macro_narrative_html(
+        _macro_doc(), fund_themes_by_theme={"us_monetary": ("a1", "a2", "a3")},
+        macro_impacts_by_fund=impacts)
+    assert '<span class="fund-chip chip-pos" title="置信度 1">a1 +0.15</span>' in html
+    assert '<span class="fund-chip chip-neg" title="置信度 0.5">a2 -0.15</span>' in html
+    # genuine 0.0 record: grey +0 chip — visibly distinct from an absent record
+    assert '<span class="fund-chip chip-flat" title="置信度 0.25">a3 +0</span>' in html
+
+
+def test_macro_renderer_never_invents_chips_beyond_config_list():
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.render_html import macro_narrative_html
+
+    impacts = {"999999": (ValidatedImpact("us_monetary", 0.9, 1.0, ()),)}  # not a chip
+    html = macro_narrative_html(
+        _macro_doc(), fund_themes_by_theme={"us_monetary": ("270023",)},
+        macro_impacts_by_fund=impacts)
+    assert "999999" not in html
+    assert '<span class="fund-chip">270023</span>' in html
+
+
+def test_macro_chip_text_is_escaped():
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.render_html import macro_narrative_html
+
+    impacts = {"<b>": (ValidatedImpact("us_monetary", 0.8, 0.7, ()),)}
+    html = macro_narrative_html(
+        _macro_doc(), fund_themes_by_theme={"us_monetary": ("<b>",)},
+        macro_impacts_by_fund=impacts)
+    assert "&lt;b&gt;" in html
+    assert "<b>" not in html
+
+
+def test_macro_impacts_default_none_degrades_to_bare_chips():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc(), fund_themes_by_theme={"us_monetary": ("270023",)})
+    assert '<span class="fund-chip">270023</span>' in html
+    assert "chip-pos" not in html and "chip-neg" not in html and "chip-flat" not in html
+
+
+def test_macro_legend_renders_once_after_h2_before_first_theme():
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    from irc.monitor.render_html import macro_narrative_html
+
+    doc = MacroNarrativeDoc(
+        blocks=(MacroThemeBlock("us_monetary", (Claim("一。", "consistent_with", ()),)),
+                MacroThemeBlock("geopolitics", (Claim("二。", "consistent_with", ()),))),
+        status="ok")
+    html = macro_narrative_html(doc, fund_themes_by_theme={})
+    assert html.count('class="macro-legend"') == 1
+    assert _LEGEND in html
+    assert (html.index("<h2>宏观面速览</h2>") < html.index('class="macro-legend"')
+            < html.index('class="macro-theme"'))
+
+
+def test_macro_legend_absent_when_section_degrades():
+    from irc.monitor.narrative_macro import MacroNarrativeDoc
+    from irc.monitor.render_html import macro_narrative_html
+
+    assert macro_narrative_html(None, fund_themes_by_theme={}) == ""
+    assert macro_narrative_html(
+        MacroNarrativeDoc((), "empty_pool"), fund_themes_by_theme={}) == ""
+
+
+def test_render_report_threads_macro_impacts_to_chips():
+    from irc.monitor.impact_validate import ValidatedImpact
+
+    v = dataclasses.replace(_view(), themes=("gold_drivers",))
+    doc = _macro_doc(theme="gold_drivers", claim_text="黄金受实际利率支撑。")
+    impacts = {"008986": (ValidatedImpact("gold_drivers", 0.8, 0.7, ()),)}
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT,
+                         macro_narrative=doc, macro_impacts_by_fund=impacts)
+    assert "008986 +0.8" in html
+
+
+def test_macro_chips_reconcile_with_eval_trace():
+    """AC6 / source-spec §4 bullet 2: ONE fixture set fed to BOTH build_eval_trace
+    and render_report. Each rendered chip's parsed value == round(trace impact, 2);
+    a chip carries color/number IFF the trace impacts["macro"] has a record with
+    that theme key for that fund."""
+    from irc.monitor.eval.trace import build_eval_trace
+    from irc.monitor.eval.types import FundTraceBundle, GateDecision
+    from irc.monitor.impact_validate import ValidatedImpact
+    from irc.monitor.types import MonitorFund
+
+    fund = MonitorFund(id="008986", name_cn="测试", market="CN",
+                       analysis_profile="gold_etf", themes=("gold_drivers",),
+                       constituent_news=False, weights={"trend": 1.0},
+                       bands={"buy": 0.1, "sell": -0.1}, minimum_confidence=0.5)
+    view = dataclasses.replace(_view(), themes=("gold_drivers",))
+    view2 = dataclasses.replace(_view(), fund_id="600000", themes=("gold_drivers",))
+    imp = ValidatedImpact("gold_drivers", 0.847, 0.7, ())     # rounds to +0.85
+    off = ValidatedImpact("unrendered_theme", -0.6, 0.5, ())  # trace-only
+    bundle = FundTraceBundle("008986", (imp, off), (), ())
+    gate = GateDecision("008986", False, (), "validated", "")
+    doc = _macro_doc(theme="gold_drivers", claim_text="黄金受实际利率支撑。")
+
+    trace = build_eval_trace(((fund, view, gate, bundle),), engine_version="4",
+                             run_date="2026-07-04", macro_narrative=doc)
+    html = render_report((view, view2), _prov(), prior_signal=None, now=_NOW,
+                         now_dt=_NOW_DT, macro_narrative=doc,
+                         macro_impacts_by_fund={"008986": bundle.macro_impacts})
+
+    chips_region = html.split('class="fund-chips">', 1)[1].split("</div>", 1)[0]
+    m = re.search(r'<span class="fund-chip (chip-\w+)" title="[^"]*">'
+                  r'008986 ([+\-][0-9.]+)</span>', chips_region)
+    assert m, chips_region
+    trace_rec = {r["key"]: r for r in
+                 trace["funds"]["008986"]["impacts"]["macro"]}["gold_drivers"]
+    assert float(m.group(2)) == round(trace_rec["impact"], 2)
+    assert m.group(1) == "chip-pos"
+    # IFF, no-record direction: 600000 has no macro record -> bare chip
+    assert '<span class="fund-chip">600000</span>' in chips_region
+    # IFF, off-theme direction: the unrendered_theme record is in the trace
+    # but renders NOWHERE (trace keeps it; the renderer never invents chips)
+    assert "unrendered_theme" not in html
+    assert any(r["key"] == "unrendered_theme"
+               for r in trace["funds"]["008986"]["impacts"]["macro"])
+
+
+# ── Item 002 P4: claim strength tags ─────────────────────────────────────────
+
+
+def test_macro_claim_strength_tags_all_four_values_on_idx_none_path():
+    """RD-7: the idx=None path folds into _macro_claim_html — tags on BOTH paths."""
+    from irc.monitor.render_html import _macro_claim_html
+
+    labels = {"possible_driver": "可能主因", "consistent_with": "方向一致",
+              "supported_attribution": "已证实归因", "unknown": "归因未知"}
+    for strength, label in labels.items():
+        html = _macro_claim_html(Claim("政策基调转向。", strength, ()), None)
+        assert f'<span class="claim-strength">{label}</span>' in html
+        assert "政策基调转向。" in html
+
+
+def test_macro_claim_unmapped_strength_falls_back_to_unknown_label():
+    """Unreachable today (_VALID_STRENGTH is closed) — cheap defense pin."""
+    from irc.monitor.render_html import _macro_claim_html
+
+    html = _macro_claim_html(Claim("政策基调转向。", "brand_new_value", ()), None)
+    assert '<span class="claim-strength">归因未知</span>' in html
+
+
+def test_macro_claim_with_idx_keeps_refs_and_gains_tag():
+    from irc.monitor.render_html import CitationIndex, _macro_claim_html
+
+    cid = "a" * 16
+    idx = CitationIndex(((cid, "Reuters", "t", "2026-07-01", ""),), {cid: 0})
+    html = _macro_claim_html(Claim("政策基调转向。", "consistent_with", (cid,)), idx)
+    assert '<span class="claim-strength">方向一致</span>' in html
+    assert f'href="#ev-{cid}"' in html
+
+
+def test_macro_theme_section_without_index_still_carries_tags():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(_macro_doc(), fund_themes_by_theme={})
+    assert '<span class="claim-strength">方向一致</span>' in html
+
+
+# ── Item 002 P5: 传导 mechanism line ──────────────────────────────────────────
+
+
+def _macro_doc_with_mechanism(mechanism):
+    from irc.monitor.narrative_macro import MacroNarrativeDoc, MacroThemeBlock
+    return MacroNarrativeDoc(
+        blocks=(MacroThemeBlock(
+            "us_monetary", (Claim("美联储本周维持利率不变。", "consistent_with", ()),),
+            mechanism=mechanism),),
+        status="ok")
+
+
+def test_macro_mechanism_line_renders_between_chips_and_claims():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism("就业数据疲软→加息预期降温→利多黄金"),
+        fund_themes_by_theme={"us_monetary": ("270023",)})
+    assert ('<p class="macro-mechanism">对本组基金的传导：'
+            '就业数据疲软→加息预期降温→利多黄金</p>') in html
+    # placement (Q13): h3 -> fund chips -> mechanism -> claims
+    assert (html.index('class="fund-chips"') < html.index('class="macro-mechanism"')
+            < html.index("美联储本周维持利率不变。"))
+
+
+def test_macro_mechanism_absent_renders_no_empty_element():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism(None), fund_themes_by_theme={"us_monetary": ()})
+    assert "macro-mechanism" not in html
+    assert "对本组基金的传导" not in html
+
+
+def test_macro_mechanism_is_escaped():
+    from irc.monitor.render_html import macro_narrative_html
+
+    html = macro_narrative_html(
+        _macro_doc_with_mechanism('<script>alert(1)</script>→利多'),
+        fund_themes_by_theme={"us_monetary": ()})
+    assert "<script>" not in html
+    assert "&lt;script&gt;" in html
+
+
+def test_card_drilldown_block_carries_stale_board_pe_age_tag():
+    """004 AC-13: the report card (phone-visible surface) renders the tag too."""
+    from irc.monitor.board_pe_staleness import BoardPeFreshness
+    from irc.monitor.holding_metrics import HoldingMetric
+
+    m = HoldingMetric(symbol="600519", name="茅台", weight_pct=9.0, pe=30.0, pb=8.0,
+                      pe_percentile=0.5, valuation_state="fair", valuation_reason=None,
+                      flow_pct_5d=None, flow_pct_20d=None, flow_score=None,
+                      flow_reason="flow_no_data")
+    v = dataclasses.replace(_view(), holding_metrics=(m,),
+                            board_pe_freshness=BoardPeFreshness("STALE", "2026-06-30", 2))
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
+    assert "板块PE 引用 2026-06-30 · 2个交易日前" in html
+
+
+def test_card_no_age_tag_when_fresh():
+    from irc.monitor.board_pe_staleness import BoardPeFreshness
+    from irc.monitor.holding_metrics import HoldingMetric
+
+    m = HoldingMetric(symbol="600519", name="茅台", weight_pct=9.0, pe=30.0, pb=8.0,
+                      pe_percentile=0.5, valuation_state="fair", valuation_reason=None,
+                      flow_pct_5d=None, flow_pct_20d=None, flow_score=None,
+                      flow_reason="flow_no_data")
+    v = dataclasses.replace(_view(), holding_metrics=(m,),
+                            board_pe_freshness=BoardPeFreshness("FRESH", "2026-06-15", 0))
+    html = render_report((v,), _prov(), prior_signal=None, now=_NOW, now_dt=_NOW_DT)
+    assert "板块PE 引用" not in html

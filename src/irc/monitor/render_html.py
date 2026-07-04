@@ -10,10 +10,13 @@ from irc.monitor.render_cards import (
     theme_chips_html,
 )
 from irc.monitor.narrative_macro import MacroNarrativeDoc, theme_display_name
+from irc.monitor.impact_validate import ValidatedImpact
+from irc.monitor.macro_direction import direction_class, format_signed, join_macro_impacts
 from irc.monitor.types import EvidenceItem
 from irc.monitor.render_factors import factor_table_html, returns_table_html
 from irc.monitor.render_drilldown import (
-    holdings_board_html, flow_rollup_html, provisional_flow_annotation_html,
+    board_pe_age_note_html, holdings_board_html, flow_rollup_html,
+    provisional_flow_annotation_html,
 )
 from irc.monitor.holding_metrics import aggregate_flow
 from irc.monitor.svg_chart import EventMarker, render_nav_chart
@@ -25,7 +28,8 @@ from irc.monitor.render_heatmap import factor_heatmap_html
 from irc.monitor.render_timeline import BiasTimeline, bias_timeline_html
 from irc.monitor.render_contrib import contribution_bars_svg
 from irc.monitor.render_overview import (
-    compute_actionable, compute_data_health, compute_flips, overview_html,
+    caveat_row, caveat_tooltip, compute_actionable, compute_data_health,
+    compute_flips, fund_specific_segments, overview_html,
 )
 
 
@@ -156,6 +160,7 @@ _CSS = (
     ".muted{color:#8c959f}"
     ".eval-gated{background:#57606a;color:#fff}"
     ".val-chip{font-size:11px;margin-left:6px;padding:1px 4px;border-radius:3px}"
+    "a.val-chip{text-decoration:none}"
     ".val-validated{color:#1a7f37}"
     ".val-caveated{color:#bf8700}"
     ".validation-panel{margin:16px 0;padding:8px;border:1px solid #d0d7de;border-radius:6px}"
@@ -196,6 +201,14 @@ _CSS = (
     ".age-amber{color:#bf8700}"
     ".dark-chip{font-size:11px;color:#bf8700;background:#fff8c5;padding:0 4px;border-radius:3px}"
     ".provisional-flow{font-size:12px;margin-top:4px}"
+    ".fund-chip{display:inline-block;margin:0 4px 2px 0;padding:1px 6px;"
+    "border:1px solid #d0d7de;border-radius:10px;font-size:12px}"
+    ".chip-pos{color:#1a7f37}"
+    ".chip-neg{color:#cf222e}"
+    ".chip-flat{color:#6e7781}"
+    ".claim-strength{font-size:11px;color:#57606a;margin-right:4px}"
+    ".macro-mechanism{font-size:13px;color:#57606a;margin:4px 0}"
+    ".macro-legend{font-size:11px;color:#8c959f;margin:4px 0}"
     "</style>"
 )
 
@@ -224,6 +237,7 @@ def _drilldown_block(view: FundView) -> str:
         symbol_value=view.provisional_flow_pct,
         as_of_hhmm=view.provisional_flow_as_of or "")
     return (holdings_board_html(view.holding_metrics)
+            + board_pe_age_note_html(view.board_pe_freshness)
             + flow_rollup_html(view.holding_metrics, agg, view.signal)
             + provisional)
 
@@ -255,6 +269,21 @@ def _flow_outage_note(views: tuple[FundView, ...]) -> str:
             "(flow unavailable today; lean fell back to 5-factor)</div>")
 
 
+def _chip(gate: GateDecision) -> str:
+    """P2: caveated chip = anchor to #validation-panel with the Chinese-labeled
+    caveat reason as an escaped tooltip; validated stays a plain span (no
+    tooltip, no anchor — an anchor with an empty tooltip invites misreading)."""
+    cls_label = _CHIP.get(gate.badge)
+    if not cls_label:
+        return ""
+    cls, label = cls_label
+    if gate.badge != "caveated":
+        return f'<span class="val-chip {cls}">{label}</span>'
+    title = escape(caveat_tooltip(gate.reason))
+    return (f'<a class="val-chip {cls}" href="#validation-panel" '
+            f'title="{title}">{label}</a>')
+
+
 def _badge(view: FundView, gate: GateDecision | None) -> str:
     if gate is None:
         if view.signal.status != "ok":
@@ -265,12 +294,7 @@ def _badge(view: FundView, gate: GateDecision | None) -> str:
         return f'<span class="badge no-call">{_NO_CALL}</span>'
     if state == _EVAL_GATED:
         return '<span class="badge eval-gated">EVAL-GATED 🛡</span>'
-    chip = ""
-    cls_label = _CHIP.get(gate.badge)
-    if cls_label:
-        cls, label = cls_label
-        chip = f'<span class="val-chip {cls}">{label}</span>'
-    return f'<span class="badge {state.lower()}">{escape(state)}</span>{chip}'
+    return f'<span class="badge {state.lower()}">{escape(state)}</span>{_chip(gate)}'
 
 
 def _markers(view: FundView) -> tuple[EventMarker, ...]:
@@ -307,11 +331,24 @@ def _summary_row(view: FundView, prior: dict | None, gate: GateDecision | None) 
     )
 
 
+def _card_caveat(gate: GateDecision | None) -> str:
+    """P2: 为何有保留 — fund-specific caveat segments only. Run-global causes
+    dedupe to the ONE overview line; gated funds (prefix-free FAIL reasons)
+    and validated funds render nothing."""
+    if gate is None or gate.badge != "caveated":
+        return ""
+    segments = fund_specific_segments(gate.reason)
+    if not segments:
+        return ""
+    return f'<p class="card-caveat muted">为何有保留：{escape("; ".join(segments))}</p>'
+
+
 def _card(view: FundView, gate: GateDecision | None, idx: CitationIndex) -> str:
     chart = render_nav_chart(view.nav_series, markers=_markers(view))
     return (
         f'<section class="fund-card" id="fund-{view.fund_id}">'
         f"<h2>{escape(view.name_cn)} ({view.fund_id}) {_badge(view, gate)}</h2>"
+        f"{_card_caveat(gate)}"
         f"{decision_line_html(view.market_view, purchase_tag=view.purchase_tag)}"
         f"{verdict_block_html(view.signal, view.narrative, idx)}"
         f"{chart}"
@@ -361,10 +398,23 @@ def _panel(
                                  badge_counts=_badge_counts(views, gates), now=now_dt)
 
 
-def _macro_claim_html(claim, idx: "CitationIndex") -> str:
+_STRENGTH_LABEL = {
+    "possible_driver": "可能主因",
+    "consistent_with": "方向一致",
+    "supported_attribution": "已证实归因",
+    "unknown": "归因未知",
+}
+_STRENGTH_FALLBACK = "归因未知"   # unreachable today (_VALID_STRENGTH closed) — defense
+
+
+def _macro_claim_html(claim, idx: "CitationIndex | None") -> str:
+    """P4: strength tag on EVERY claim, on BOTH render paths (RD-7 — the old
+    idx-None inline fallback folded in here; refs simply empty without an index)."""
+    label = _STRENGTH_LABEL.get(claim.attribution_strength, _STRENGTH_FALLBACK)
+    tag = f'<span class="claim-strength">{label}</span>'
     text = escape(claim.claim)
-    refs = "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
-    return f"<p>{text} {refs}</p>"
+    refs = "" if idx is None else "".join(_sup_local(cid, idx) for cid in claim.citation_ids)
+    return f"<p>{tag}{text} {refs}</p>"
 
 
 def _sup_local(cid: str, idx: "CitationIndex") -> str:
@@ -377,17 +427,41 @@ def _sup_local(cid: str, idx: "CitationIndex") -> str:
     return f'<sup><a href="#ev-{cid}" title="{title}">{n}</a></sup>'
 
 
+_MACRO_LEGEND = (
+    '<p class="macro-legend">图例：数值 = 该主题对基金的影响（−1 利空 … +1 利多）；'
+    '绿 ≥ +0.15 · 红 ≤ −0.15 · 灰 = 其间；无数值 = 当日无该主题影响记录</p>'
+)
+
+
+def _fund_chip(fid: str, rec: ValidatedImpact | None) -> str:
+    """P3 direction chip. WITH a joined record: direction color + inline signed
+    impact + confidence as a title attr (progressive enhancement — hover is not
+    a carrier, RD-6; the trace keeps the full record). WITHOUT: exactly as
+    before — bare chip, no color, no number, no title (absence ≠ zero)."""
+    if rec is None:
+        return f'<span class="fund-chip">{escape(fid)}</span>'
+    conf = format_signed(rec.confidence).removeprefix("+")
+    return (f'<span class="fund-chip {direction_class(rec.impact)}" '
+            f'title="置信度 {conf}">{escape(fid)} {format_signed(rec.impact)}</span>')
+
+
 def _macro_theme_section(
-    block, fund_themes_by_theme: dict[str, tuple[str, ...]], idx: "CitationIndex | None",
+    block, fund_themes_by_theme: dict[str, tuple[str, ...]],
+    idx: "CitationIndex | None",
+    impacts_for_theme: dict[str, ValidatedImpact] | None = None,
 ) -> str:
     label = escape(theme_display_name(block.theme))
     funds = fund_themes_by_theme.get(block.theme, ())
-    chips = "".join(f'<span class="fund-chip">{escape(fid)}</span>' for fid in funds)
-    body = "".join(_macro_claim_html(c, idx) if idx is not None else f"<p>{escape(c.claim)}</p>"
-                   for c in block.claims)
+    recs = impacts_for_theme or {}
+    # chip set + order stay config-derived (_invert_fund_themes) — the renderer
+    # NEVER invents a chip for an impact key outside the config chip list.
+    chips = "".join(_fund_chip(fid, recs.get(fid)) for fid in funds)
+    mech = ("" if block.mechanism is None else
+            f'<p class="macro-mechanism">对本组基金的传导：{escape(block.mechanism)}</p>')
+    body = "".join(_macro_claim_html(c, idx) for c in block.claims)
     return (
         f'<div class="macro-theme" id="macro-{escape(block.theme)}">'
-        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{body}</div>"
+        f"<h3>{label}</h3><div class=\"fund-chips\">{chips}</div>{mech}{body}</div>"
     )
 
 
@@ -395,14 +469,22 @@ def macro_narrative_html(
     doc: MacroNarrativeDoc | None,
     *, fund_themes_by_theme: dict[str, tuple[str, ...]],
     idx: "CitationIndex | None" = None,
+    macro_impacts_by_fund: dict[str, tuple[ValidatedImpact, ...]] | None = None,
 ) -> str:
     """PURE: 宏观面速览 section, theme-labeled Chinese subsections with #macro-<theme>
-    anchors + affected-fund chips (spec §5). None doc or 'empty_pool'/non-'ok'
-    status or zero blocks -> '' (degrades like the timeline/predictive panel)."""
+    anchors + affected-fund direction chips (item 002 P3: color + signed impact
+    joined deterministically from validated macro impacts; None/missing
+    macro_impacts_by_fund degrades to uncolored chips). None doc or
+    'empty_pool'/non-'ok' status or zero blocks -> '' (unchanged early-return —
+    the legend renders only when the section does)."""
     if doc is None or doc.status != "ok" or not doc.blocks:
         return ""
-    sections = "".join(_macro_theme_section(b, fund_themes_by_theme, idx) for b in doc.blocks)
-    return f'<section class="macro-narrative"><h2>宏观面速览</h2>{sections}</section>'
+    joined = join_macro_impacts(macro_impacts_by_fund or {})
+    sections = "".join(
+        _macro_theme_section(b, fund_themes_by_theme, idx, joined.get(b.theme))
+        for b in doc.blocks)
+    return (f'<section class="macro-narrative"><h2>宏观面速览</h2>'
+            f"{_MACRO_LEGEND}{sections}</section>")
 
 
 def _invert_fund_themes(views: tuple[FundView, ...]) -> dict[str, tuple[str, ...]]:
@@ -434,6 +516,7 @@ def render_report(
     prior_run_date: str | None = None,
     purchase_tags: dict[str, str | None] | None = None,
     stale_eval_days: int = 10,
+    macro_impacts_by_fund: dict[str, tuple[ValidatedImpact, ...]] | None = None,
 ) -> str:
     """PURE: self-contained HTML. No I/O, no JS, no remote refs."""
     header = (
@@ -461,7 +544,8 @@ def render_report(
         views, g, panel_rows, stale_eval_days=stale_eval_days, today=now[:10],
         predictive_stale=(predictive_panel.stale if predictive_panel is not None else False),
     )
-    overview = overview_html(flips=flips, actionable=actionable, health=health)
+    overview = overview_html(flips=flips, actionable=actionable, health=health,
+                             caveat_row_html=caveat_row(panel_rows, g))
     summary = (
         "<table class='summary'>"
         + "".join(_summary_row(v, prior_signal, g.get(v.fund_id)) for v in views)
@@ -472,7 +556,8 @@ def render_report(
     timeline_html = bias_timeline_html(timeline, fund_names=fund_names) if timeline is not None else ""
     fund_themes_by_theme = _invert_fund_themes(views)
     macro_html = macro_narrative_html(
-        macro_narrative, fund_themes_by_theme=fund_themes_by_theme, idx=idx)
+        macro_narrative, fund_themes_by_theme=fund_themes_by_theme, idx=idx,
+        macro_impacts_by_fund=macro_impacts_by_fund)
     cards = "".join(_card(v, g.get(v.fund_id), idx) for v in views)
     panel = _panel(views, gates, panel_rows, now_dt=now_dt)
     outage_note = _flow_outage_note(views)

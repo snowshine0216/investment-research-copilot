@@ -7,6 +7,7 @@ import re
 from datetime import datetime
 from html import escape
 from irc.monitor.eval.constants import STALE_EVAL_DAYS
+from irc.monitor.eval.gate import RUN_GLOBAL_STAGES
 from irc.monitor.eval.types import ValidationPanelRow
 
 _BADGE_ORDER = ("validated", "caveated", "gated")
@@ -63,6 +64,20 @@ def _ran_at_cell(ran_at: str, *, now: datetime) -> str:
     return f'{escape(ran_at)} <span{cls}>· {age}天前</span>'
 
 
+_REMEDIATION_HINT = (
+    '<p class="muted remediation">IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval '
+    "monitor_impact / monitor_narrative（受 eval-live 花费闸门约束）</p>"
+)
+
+
+def _remediation(rows: tuple[ValidationPanelRow, ...]) -> str:
+    """Hint iff any run-global LLM-suite row is UNKNOWN/WARN (open question 10:
+    absent/skipped/corrupt/warn are all remedied by the same manual command)."""
+    unhealthy = any(r.stage in RUN_GLOBAL_STAGES and r.status in ("UNKNOWN", "WARN")
+                    for r in rows)
+    return _REMEDIATION_HINT if unhealthy else ""
+
+
 def _row_html(row: ValidationPanelRow, *, now: datetime) -> str:
     reasons = "; ".join(row.reasons)
     cls = ' class="panel-amber"' if _is_amber(row) else ""
@@ -89,9 +104,9 @@ def validation_panel_html(
                if badges else "")
     body = "".join(_row_html(r, now=now) for r in rows)
     return (
-        '<section class="validation-panel"><h2>Validation</h2>'
+        '<section class="validation-panel" id="validation-panel"><h2>Validation</h2>'
         f"{summary}"
         '<table class="validation"><tr><th>stage</th><th>overall</th>'
         '<th>ran_at</th></tr>'
-        f"{body}</table></section>"
+        f"{body}</table>{_remediation(rows)}</section>"
     )
