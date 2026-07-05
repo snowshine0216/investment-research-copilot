@@ -276,6 +276,24 @@ def monitor_flow_capture(repo_root: str) -> None:
     raise SystemExit(run_flow_capture(repo_root=repo_root))
 
 
+@main.group(invoke_without_command=True,
+            help="Daily sector rotation radar (advisory; zero-LLM).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+@click.pass_context
+def rotation(ctx: click.Context, repo_root: str) -> None:
+    if ctx.invoked_subcommand is None:
+        from irc.commands.rotation_cmd import run_rotation
+        raise SystemExit(run_rotation(repo_root=repo_root))
+
+
+@rotation.command("seed",
+                  help="One-time resumable backfill (board history + holdings + stock→board map).")
+@click.option("--repo-root", type=click.Path(file_okay=False, exists=True), default=".")
+def rotation_seed(repo_root: str) -> None:
+    from irc.commands.rotation_cmd import run_rotation_seed
+    raise SystemExit(run_rotation_seed(repo_root=repo_root))
+
+
 @main.group(help="Fundamentals snapshot cache management.")
 def fundamentals() -> None:
     pass
