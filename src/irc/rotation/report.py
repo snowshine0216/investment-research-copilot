@@ -40,6 +40,27 @@ def _cand_line(c) -> str:
             f"{c.exposure_pct:.1f}% | {surface} | {c.holdings_as_of or 'N/A'} |")
 
 
+def _diag_value_str(value) -> str:
+    """Pure: render one diagnostics value human-readably (counts + list contents)."""
+    if isinstance(value, (list, tuple)):
+        return f"{len(value)}" + (f"（{', '.join(str(v) for v in value)}）" if value else "")
+    if isinstance(value, dict):
+        return "; ".join(f"{k}={_diag_value_str(v)}" for k, v in sorted(value.items()))
+    return str(value)
+
+
+def _diag_line(key: str, value) -> str:
+    return f"- {key}: {_diag_value_str(value)}"
+
+
+def _diagnostics_section(diagnostics: dict) -> list[str]:
+    """Pure: render every diagnostics field (AC8 — json is additive source of
+    truth, md suppresses nothing). Sorted by key for byte-stability (AC3)."""
+    if not diagnostics:
+        return []
+    return ["", "## 诊断"] + [_diag_line(k, diagnostics[k]) for k in sorted(diagnostics)]
+
+
 def to_md(report: RotationReport) -> str:
     """Pure: display markdown (additive subset; NO [ref:] markers — AC8)."""
     lines = [f"# 板块轮动雷达 (data_status: {report.data_status})", ""]
@@ -53,6 +74,7 @@ def to_md(report: RotationReport) -> str:
     lines += ["", "## 轮动候选基金", "| 基金 | 名称 | 板块 | 敞口 | 现有面 | 持仓季度 |",
               "|---|---|---|---|---|---|"]
     lines += [_cand_line(c) for c in report.candidates]
+    lines += _diagnostics_section(report.diagnostics)
     return "\n".join(lines) + "\n"
 
 
