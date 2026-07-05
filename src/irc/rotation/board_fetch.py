@@ -59,14 +59,16 @@ def parse_board_spot(payload: dict, *, today: str) -> tuple[BoardDay, ...]:
 def parse_board_hist(payload: dict, board_code: str, board_name: str
                      ) -> tuple[BoardDay, ...]:
     """Pure: kline/get payload → ascending daily BoardDay series. kline CSV is
-    'date,open,close,high,low,volume,amount,amplitude' (f51..f58) — NO turnover
-    field. chg% derived from close vs prev close; flow AND turnover are
-    INTENTIONALLY None on every backfill row (kline gives price/momentum only;
-    the turn leg accrues from live snapshot turnover f8 as snapshot days
-    accumulate, exactly like the flow leg). Fetching kline turnover is a deferred
-    follow-up (F7): akshare's board-hist interface reportedly carries turnover on
-    **f61** (换手率), but field codes are interface-specific here (see T1/f100-f127
-    scar) — do NOT add f61 without an AC1-style live probe first. Blank → ()."""
+    'date,open,close,high,low,volume,amount,amplitude,f59,f60,f61' when fetched
+    with the extended fields2 (F7); turnover_pct is sourced from position 10
+    (f61=换手率) via tolerant _f, and is None on any row shorter than 11 cols (old
+    8-col cache rows / legacy payloads degrade honestly — never a stray index read).
+    chg% is DERIVED from close vs prev close (f59 at pos 8 is a cross-check only,
+    NOT consumed — keep the tested logic). flow (main-inflow) and board_pe stay
+    None on every backfill row (kline carries neither; flow accrues from live
+    snapshot f184, PE only from the snapshot f9). f61 field code confirmed by the
+    AC1 probe (001-probe-notes.md); live reconfirmation is a documented follow-up.
+    Blank → ()."""
     data = payload.get("data") if isinstance(payload, dict) else None
     klines = data.get("klines") if isinstance(data, dict) else None
     if not klines:
@@ -82,9 +84,10 @@ def parse_board_hist(payload: dict, board_code: str, board_name: str
             continue
         chg = 0.0 if prev_close in (None, 0) else (close / prev_close - 1) * 100
         prev_close = close
+        turnover = _f(parts[10]) if len(parts) >= 11 else None  # f61=换手率 (F7)
         rows.append(BoardDay(date=d, board_code=board_code, board_name=board_name,
                              chg_pct=round(chg, 4), main_inflow_ratio=None,
-                             turnover_pct=None,  # kline fields2 (f51-f58) carry NO turnover — see F7
+                             turnover_pct=turnover,
                              board_pe=None,  # kline carries no PE (only the snapshot does)
                              source="backfill"))
     return tuple(rows)
@@ -129,7 +132,8 @@ def fetch_board_hist(board_code: str, board_name: str, *, http_get=None
     CN proxy → ascending BoardDay series. Raises on transport error."""
     get = http_get or _default_http_get
     params = {"ut": _UT, "fqt": "1", "end": "20500101", "lmt": "120", "klt": "101",
-              "fields1": "f1,f2,f3", "fields2": "f51,f52,f53,f54,f55,f56,f57,f58",
+              "fields1": "f1,f2,f3",
+              "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",  # +f61=换手率 (F7)
               "secid": f"90.{board_code}"}
     payload = get(_KLINE, params=params, headers=_HEADERS, timeout=20,
                   proxies=_proxies())

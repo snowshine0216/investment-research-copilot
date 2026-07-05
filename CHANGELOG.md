@@ -22,6 +22,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from day 1 (eval command deferred). Chained into the 15:45 flow-capture
   launchd wrapper, after the capture step, protective-only (a radar failure
   logs but never pages and never changes the wrapper's exit code).
+- **F7 — board-kline turnover from `f61`**: `irc rotation seed`'s board-history
+  backfill now sources per-day turnover from kline field `f61` (换手率; `fields2`
+  extended to `f51..f61`, parsed at position 10 via tolerant coercion), so the
+  turn leg has real history from seed day 1 instead of waiting ~20 live snapshot
+  days. Tolerant of legacy 8-col rows (turnover → `None`); chg% stays derived; no
+  `radar_version` bump (availability class). Field code confirmed by the AC1 probe.
+- **F8 — board endpoints egress-blocked (diagnosed, not code-fixable)**: the board
+  snapshot (`clist/get`) and history (`push2his kline/get`) are unreachable from
+  the current host egress — the proxy tunnel's exit IP is EM-blocked and direct
+  egress is burst-throttled (2-run matrix via `scripts/rotation_f8_diagnose.py`).
+  So `irc rotation seed` cannot run and the daily radar `abstain`s until a working
+  CN egress (CN-residential/EM-allowed exit, CN VPS, or paid CN source) exists; the
+  monitor's board-PE leg is dark since 06-30 for the same reason. Diagnosis +
+  staged fix plan: `docs/2026-07-05-sector-rotation-radar/F8-DIAGNOSIS-FIX-PLAN.md`.
 
 ### Added — monitor industry fill: batch-first 行业 + board-PE serve-while-stale (2026-07-03)
 
