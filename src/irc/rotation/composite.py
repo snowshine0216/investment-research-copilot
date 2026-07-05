@@ -59,19 +59,30 @@ def _percentile_ranks(values: Mapping[str, float]) -> dict[str, float]:
     return out
 
 
+def flow_leg_dark(signals: Mapping[str, dict]) -> bool:
+    """Pure: is the flow leg unusable for this cross-section? True iff there are no
+    boards or ANY board lacks a computable flow5. Enforces D6 "never per-board
+    mixing": the flow leg is used only when EVERY board has a real flow5 — else it
+    is dropped for ALL boards. This catches the post-seed window (backfill rows
+    carry main_inflow_ratio=None → flow5 None for every board until ~5 snapshot
+    days accumulate) that a today's-snapshot-only gate misses — the fabricated-0
+    dark-factor bug class."""
+    return (not signals) or any(s["flow5"] is None for s in signals.values())
+
+
 def cross_sectional(signals: Mapping[str, dict], *, flow_dark: bool
                     ) -> dict[str, float]:
-    """Pure: signals → composite percentile per board. flow_dark drops flow leg
-    for ALL boards (renorm 0.71·mom/0.29·turn). Missing flow5 for a board when
-    NOT flow_dark → treated as flow-absent globally is the caller's decision;
-    here a None flow5 contributes rank 0.0 only if flow_dark is False and some
-    board has flow (caller sets flow_dark when the whole leg is absent)."""
+    """Pure: signals → composite percentile per board. The flow leg is dropped for
+    ALL boards (renorm 0.71·mom/0.29·turn) when the caller forces `flow_dark` OR
+    when `flow_leg_dark(signals)` holds — so a board's None flow5 is NEVER
+    fabricated to 0.0 while another scores real flow (D6). When the flow leg is
+    kept, every flow5 is guaranteed non-None (flow_leg_dark screened it)."""
     mom = _percentile_ranks({c: s["mom20"] for c, s in signals.items()})
     turn = _percentile_ranks({c: s["turn_delta"] for c, s in signals.items()})
-    if flow_dark:
+    if flow_dark or flow_leg_dark(signals):
         denom = W_MOM + W_TURN
         return {c: (W_MOM * mom[c] + W_TURN * turn[c]) / denom for c in signals}
-    flow = _percentile_ranks({c: (s["flow5"] or 0.0) for c, s in signals.items()})
+    flow = _percentile_ranks({c: s["flow5"] for c, s in signals.items()})
     return {c: W_MOM * mom[c] + W_FLOW * flow[c] + W_TURN * turn[c] for c in signals}
 
 

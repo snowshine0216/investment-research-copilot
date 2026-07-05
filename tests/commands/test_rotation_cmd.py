@@ -142,6 +142,33 @@ def test_flow_present_keeps_ok_status(tmp_path):
     assert any(b["flow5"] is not None for b in js["board_states"])
 
 
+def test_partial_flow_gap_triggers_global_flow_dark(tmp_path):
+    """Dark-factor guard the today's-snapshot-only gate MISSED: a per-board flow gap
+    — one board's trailing-5 flow window all None (backfill-only, e.g. a freshly
+    seeded board) while ANOTHER board carries real flow today — must darken the flow
+    leg for ALL boards (D6), never fabricate a 0.0 for the gap board. `all(today
+    None)` is False here (BK1 has flow), so only the flow5-aware gate catches it."""
+    from irc.rotation.series_store import append_snapshot
+
+    p = tmp_path / "data" / "rotation" / "board_series.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for d in _HIST_TDS:
+        rows.append(BoardDay(d, "BK1", "半导体", 0.15, 1.0, 2.0, None, "backfill"))
+        rows.append(BoardDay(d, "BK2", "白酒", 0.15, None, 2.0, None, "backfill"))  # flow=None
+    append_snapshot(p, rows, keep_td=60, trading_days=_HIST_TDS)
+    _seed_holdings(tmp_path)
+
+    def spot(today):  # BK1 has flow today, BK2 still None → all(today None) is False
+        return (BoardDay(today, "BK1", "半导体", 9.0, 5.0, 8.0, 40.0, "snapshot"),
+                BoardDay(today, "BK2", "白酒", 2.0, None, 2.0, 12.0, "snapshot"))
+
+    _run(tmp_path, spot)
+    js, _ = _read_json(tmp_path)
+    assert js["data_status"] == "degraded_flow_dark"  # flow5-aware gate fired
+    assert all(b["flow5"] is None for b in js["board_states"])  # no fabricated-0 for BK2
+
+
 # --- HARD REQ 2: diagnostics populated end-to-end -------------------------------
 
 def test_normal_run_populates_diagnostics(tmp_path):

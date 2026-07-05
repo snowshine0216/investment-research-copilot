@@ -1,11 +1,15 @@
 """Thin command layer for `irc rotation` (daily) + `irc rotation seed` (§4, D11).
 
-Daily: 1 snapshot call + <=IRC_ROTATION_TOPUP_BUDGET top-up calls, all pure cores
-downstream. Advisory-only: exit 0 always, never pages (§7). Degradation: total
-failure -> abstain stub; flow leg absent -> GLOBAL flow_dark renorm (never a
-fabricated 0.0 inflow for some boards while others score real flow — the
-recurring dark-factor bug class in this codebase). Zero LLM/paid search -> no
-spend-gate preflight.
+Daily: 1 snapshot call, then all pure cores over CACHED holdings + stock-board
+map. The daily run is cache-only in v1: holdings/board-map cache misses are filled
+by `irc rotation seed` (IRC_ROTATION_TOPUP_BUDGET bounds seed's stock-board fetch
+chunk). The §8/D11 in-run bounded top-up for incremental misses between seeds is a
+named follow-up (F6) — a cold cache renders L1 normally and shows the seed-pointer
+line (§7), never a full inline fan-out. Advisory-only: exit 0 always, never pages
+(§7). Degradation: total failure -> abstain stub; flow leg absent (today's snapshot
+OR any board's flow5) -> GLOBAL flow_dark renorm (never a fabricated 0.0 inflow for
+some boards while others score real flow — the recurring dark-factor bug class in
+this codebase). Zero LLM/paid search -> no spend-gate preflight.
 """
 from __future__ import annotations
 
@@ -18,7 +22,12 @@ from irc.io_utils import atomic_write_text
 from irc.monitor.trading_calendar import load_trading_days
 from irc.rotation._cmd_helpers import load_membership, resolve_candidates
 from irc.rotation.board_fetch import fetch_board_spot
-from irc.rotation.composite import board_signals, cross_sectional, pe_percentiles
+from irc.rotation.composite import (
+    board_signals,
+    cross_sectional,
+    flow_leg_dark,
+    pe_percentiles,
+)
 from irc.rotation.ledger import append_rows, build_ledger_rows
 from irc.rotation.report import (
     RADAR_VERSION,
@@ -130,12 +139,16 @@ def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None,
     if not snapshot:
         _write_report(out_dir, abstain_report("snapshot returned no boards"))
         return 0
-    # HARD REQUIREMENT 1: decide flow_dark GLOBALLY for the whole run — a board
-    # never scores with real flow while another silently gets a fabricated 0.0.
-    flow_dark = all(b.main_inflow_ratio is None for b in snapshot)
     tds = _resolve_trading_days(root, _trading_days)
     series = append_snapshot(root.joinpath(*_SERIES_REL), snapshot,
                              keep_td=_KEEP_TD, trading_days=tds)
+    # HARD REQUIREMENT 1: decide flow_dark GLOBALLY and flow5-AWARE — a board never
+    # scores with real flow while another silently gets a fabricated 0.0. A
+    # today's-snapshot-only gate misses the post-seed window (backfill rows carry
+    # main_inflow_ratio=None → flow5 None for every board until ~5 snapshot days
+    # accumulate); flow_leg_dark closes that dark-factor gap (D6).
+    flow_dark = all(b.main_inflow_ratio is None for b in snapshot) or \
+        flow_leg_dark(board_signals(series))
     states, pe_coverage = _build_states(series, flow_dark=flow_dark)
     membership = load_membership(root, today=_today)
     candidates, new_ids, cand_diag = resolve_candidates(root, states, membership, today=_today)

@@ -55,6 +55,35 @@ def test_pe_percentiles_ranks_only_boards_with_pe():
     assert all(0.0 <= v <= 1.0 for v in pctls.values())
 
 
+def test_flow_leg_dark_prevents_fabricated_zero_flow():
+    """Post-seed window (dark-factor guard, D6): a board whose trailing-5-day flow
+    window is all None (backfill rows carry main_inflow_ratio=None) must NOT be
+    scored with a fabricated 0.0 flow while another board uses real flow. Even when
+    the caller does NOT force flow_dark, flow_leg_dark makes cross_sectional renorm
+    globally — so a None flow5 is never laundered into a 0.0 rank."""
+    from irc.rotation.composite import flow_leg_dark
+
+    with_flow = _series("BK1", [2.0] * 25, flows=[3.0] * 25, turns=[3.0] * 25)
+    no_flow = _series("BK2", [1.0] * 25, flows=[None] * 25, turns=[2.0] * 25)
+    sig = board_signals({"BK1": with_flow, "BK2": no_flow})
+    assert sig["BK2"]["flow5"] is None            # backfill-only recent flow window
+    assert flow_leg_dark(sig) is True             # leg unusable → must drop for all
+    # flow_dark=False must still renorm (never use the flow leg) → identical to forced:
+    assert cross_sectional(sig, flow_dark=False) == cross_sectional(sig, flow_dark=True)
+
+
+def test_flow_leg_kept_when_all_boards_have_flow5():
+    """Complement: when EVERY board has a real flow5, flow_leg_dark is False and the
+    flow leg is used (composite differs from the renormalized flow-dark result)."""
+    from irc.rotation.composite import flow_leg_dark
+
+    a = _series("BK1", [2.0] * 25, flows=[3.0] * 25, turns=[3.0] * 25)
+    b = _series("BK2", [0.0] * 25, flows=[0.0] * 25, turns=[1.0] * 25)
+    sig = board_signals({"BK1": a, "BK2": b})
+    assert flow_leg_dark(sig) is False
+    assert cross_sectional(sig, flow_dark=False) != cross_sectional(sig, flow_dark=True)
+
+
 def test_mom20_uniform_across_backfill_and_snapshot_source():
     """mom20 must not special-case row `source` — backfill rows derive chg_pct
     from close/prev_close, snapshot rows use EM field f3, but both represent the
