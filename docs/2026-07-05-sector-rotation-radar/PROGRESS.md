@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 
 <sub>branch: ✅ `claude/sector-rotation-radar-001` (off `autodev/sector-rotation-radar-feature`)</sub>
 <sub>impl: ✅ `d92321a7..bd1d75bb` (18 tasks; new `src/irc/rotation/` package + `rotation_cmd.py` + CLI + 15:45 wrapper chain + docs; 74 tests green). Survived a 2-worker concurrent race on Cluster 4a; 3 review findings fixed (AC8 diagnostics `3f2be6da`, composite flow5 dark-factor `ac517d07`); §8 daily top-up deferred → follow-up **F6** (documented in spec §12 / CONTEXT / docstring).</sub>
@@ -20,8 +20,15 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - **001-drift** ✅ → [`items/001-drift.md`](items/001-drift.md) (commit `34c6dc08`; 18/18 tasks present; F6 deferral documented in 4 places = accepted-divergence; `flow_leg_dark`+AC8 = accepted-improvements; only nit = `rotation_cmd.py` 245 lines, cosmetic)
 - **001-ship** ✅ → [`items/001-ship.md`](items/001-ship.md) — PR [#205](https://github.com/snowshine0216/investment-research-copilot/pull/205) → `autodev/sector-rotation-radar-feature` (non-protected base confirmed)
 - **001-review** ✅ → [`items/001-review.md`](items/001-review.md) — `/ship` steps 8+9, Verdict PASS-WITH-NITS (P0 none; 5 P1s fixed pre-push; 3 nits deferred)
-- **001-verify** 🔄 → `/verify` entry-point smoke (non-web)
-- **001-pr-review** 🔄 → `/code-review` on PR #205
+- **001-verify** ✅ → [`items/001-verify.md`](items/001-verify.md) — `/verify` PASS (round 2): `irc rotation --help`/`seed --help` rc 0; `irc rotation` no-proxy → rc 0 + `data_status: abstain`, AC5 no state mutation; 83 tests green; AC11 runtime isolation
+- **001-pr-review** ✅ → [`items/001-pr-review.md`](items/001-pr-review.md) — `/code-review` PASS-WITH-NITS (round 2): turn-leg blocker RESOLVED, no new findings, 3 non-blocking nits ([comment](https://github.com/snowshine0216/investment-research-copilot/pull/205#issuecomment-4885306457))
+- **001-fix** ✅ → **1 round**: pr-review round-1 FAIL (turn_delta fabricated-0 dark-factor, `board_fetch.py:81`) → fixed `b23b1291` (turn_leg_dark + generalized per-leg renorm + F7) → round-2 all 3 verdicts PASS/PASS-WITH-NITS. (Pre-ship `/ship` review round also fixed 5 P1s: NaN guard, ledger rename, degradation logging, docstring.)
+- **001-merge** ✅ → PR [#205](https://github.com/snowshine0216/investment-research-copilot/pull/205) **MERGED** (squash `5e98e07c`) into `autodev/sector-rotation-radar-feature`; sub-branch deleted.
+
+### Open nits / follow-ups (non-blocking, recorded)
+- F6 (daily in-run top-up), F7 (board-kline turnover fetch — needs AC1 probe), F1–F5 (spec §12). All in TODOS.md.
+- pr-review nits: duplicated `fund_id`/`name_cn` display fields; `diagnostics: dict` mutable field on frozen `RotationReport` (no active mutation); per-board file rewrite in `seed.py` (perf). 
+- Cosmetic: `rotation_cmd.py` 245 lines (soft <200); abstain-path WARNING logs a full traceback (log-noise if daily logs feed alerting).
 
 ## Notes
 
