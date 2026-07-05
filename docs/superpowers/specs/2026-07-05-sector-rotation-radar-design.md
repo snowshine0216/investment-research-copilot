@@ -1,6 +1,6 @@
 # Sector rotation radar (板块轮动雷达) — design spec
 
-**Date:** 2026-07-05 · **Status:** grilled + locked, ready for autodev (not built)
+**Date:** 2026-07-05 · **Status:** built 2026-07-05 (ADR 0023 Accepted)
 **ADR:** [0023 — sector rotation radar](../../docs/adr/0023-sector-rotation-radar.md)
 **Origin:** screening-process review 2026-07-05 — the only sector-driven fund-finding path today
 is `irc narrative` (manual, 3 hand-written YAMLs); nothing detects a hot sector, so 板块轮动
@@ -200,6 +200,10 @@ never `watchlist` for radar output, never `action`/`bias` for candidate semantic
   frozen "Narrative selector" domain decision — needs a CONTEXT.md amendment grill).
 - **F5** `tracked_index` precision join for ETFs (board → CSIndex mapping) + CSIndex momentum
   corroboration overlay.
+- **F6** Daily in-run bounded top-up (§8/D11): the daily `irc rotation` run is cache-only in v1;
+  the ≤50 in-run `IRC_ROTATION_TOPUP_BUDGET` top-up for incremental holdings/board-map cache
+  misses between seeds is deferred (the budget currently bounds seed's stock-board chunking).
+  Cold cache renders L1 + the seed-pointer line (§7).
 
 ## 13. Traps for the implementer (scar tissue, verified 2026-07-05)
 

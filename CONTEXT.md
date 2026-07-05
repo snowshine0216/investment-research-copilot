@@ -253,10 +253,11 @@ Canonical terms used in the opportunity / memo / discipline pipeline. Pointed to
 - **Narrative report is a display-only, non-SAME-3 surface** — `narrative/report.py`'s `render_report_md` is a **separate downstream artifact** that is NOT one of the three surfaces bound by the **SAME-3 invariant** / **ADR 0004 §3** citation-set-equality (those bind only the picks-table 证据 cell, the memo evidence-pool `[ref:...]` markers, and the discipline `_render_section` nested bullets — all in the opportunity/memo pipeline, locked by `tests/memo/test_same_3_invariant.py`, which never imports the narrative renderer). The narrative `.md` inline evidence cell still calls `select_citations(thesis_evidence, cap=3)` so it stays consistent with its own `.json` projection, but the per-fund **`### 证据明细` evidence appendix** (per-constituent `one_line_view` + capped per-constituent refs) and the **`[ref:hex]` footnote table** (resolving every inline/appendix marker from the fund's full evidence pool, deduped + sorted by `citation_id` ascending) are **display-only**: they expose a fuller, NON-capped pool and never enter any citation-set-equality check. This is the same "additive file outside the SAME-3 set" pattern accepted for `thesis_debate.md`. Adding the appendix/footnotes therefore cannot break SAME-3. _Avoid_: treating the narrative `.md` as a fourth SAME-3 surface, or pre-filtering its inline cell to match the appendix.
 - **Active-fund `质量=weak` is now a real cost/scale verdict (F-1 floor removed)** — `classify_product_quality` → `_classify_active_quality` (`states.py`) grades an active fund on **manager tenure + cost/scale** (`expense_ratio`, `aum_cny`, `tracking_error`, `premium_discount_pct` via `_passive_quality_score`). `aum_stability_pct` is **optional corroboration**, not a hard gate: when present and `<= _AUM_STABILITY_STRONG_MAX` (0.20) it permits `strong`; its **absence only caps the ceiling at `acceptable`** — it NEVER floors an otherwise-sound product to `weak`. An active fund is `weak` only on a genuine signal: tenure `< 2y`, fewer than 2 cost/scale metrics, or a negative cost/scale score; `evidence_insufficient` when `manager_tenure_years is None`. `aum_stability_pct` is still the documented **universal drop** (`decision/completeness.py:22`: "we do not yet ingest a multi-period AUM history" — `populate_inputs` never sets it, `metrics_loader.py:54` writes `NaN`), so until the F-1 data slice lands **no active fund can reach `strong`** (capped at `acceptable`). Consequence: `质量=weak` on an active-fund surface is now **signal, not noise** — read it together with the `产品驱动` raw drivers (费率/规模/任职/跟踪误差; `None` → `—`). The obsolete `_WEAK_FLOOR_LEGEND` / F-1 disclaimer in the narrative `.md` is **removed**. **Opportunity-state ripple**: a sound active fund that is cheap/quiet/intact + now-`acceptable` reaches `core_dca` instead of being suppressed to `small_watch` (`compose_opportunity_state` `decent_product` gate); this is the intended correction. _Avoid_: re-introducing an `aum_stability_pct`-absence floor; faking a stability value to unlock `strong` (it must stay honest-missing until F-1).
 
-## Sector rotation radar (`irc rotation`) — SPEC'd 2026-07-05, not built
+## Sector rotation radar (`irc rotation`) — built 2026-07-05
 
-Design: `docs/superpowers/specs/2026-07-05-sector-rotation-radar-design.md`, ADR 0023. The
-shipping item flips this marker to as-built.
+Design: `docs/superpowers/specs/2026-07-05-sector-rotation-radar-design.md`, ADR 0023 (Accepted).
+Shipped as-built 2026-07-05: `src/irc/rotation/`, `irc rotation` + `irc rotation seed`, chained
+into the 15:45 flow-capture wrapper (protective-only, AC10).
 
 - **Sector rotation radar** — the daily, deterministic, zero-LLM vertical (`irc rotation`) that
   ranks EM industry boards by a rotation composite and resolves emerging/hot boards to candidate
@@ -279,6 +280,10 @@ shipping item flips this marker to as-built.
   report and advances no state; on a flow-dark day it drops the flow leg for ALL boards and tags
   the report degraded. Stale values are never presented as fresh (same family as the monitor's
   FRESH/abstain-only flow convention).
+- **§12 follow-up F6 — daily in-run bounded top-up (§8/D11)**: the daily `irc rotation` run is
+  cache-only in v1; the ≤50 in-run `IRC_ROTATION_TOPUP_BUDGET` top-up for incremental
+  holdings/board-map cache misses between seeds is deferred (the budget currently bounds seed's
+  stock-board chunking). Cold cache renders L1 + the seed-pointer line (§7).
 
 ## Spend / balance gate
 
