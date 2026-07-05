@@ -120,7 +120,11 @@ def _resolve_trading_days(root: Path, _trading_days=None) -> tuple[str, ...]:
     if _trading_days is not None:
         return tuple(_trading_days)
     tds_set = load_trading_days(date.today(), root=root)
-    return tuple(d.isoformat() for d in (tds_set or ()))
+    if tds_set is None:
+        _log.warning("rotation: trading calendar unavailable; series-store "
+                     "pruning skipped this run (self-heals next run)")
+        return ()
+    return tuple(d.isoformat() for d in tds_set)
 
 
 def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None,
@@ -171,9 +175,12 @@ def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None,
 
 
 def _topup_budget() -> int:
+    raw = os.environ.get(_TOPUP_BUDGET_ENV, _TOPUP_BUDGET_DEFAULT)
     try:
-        return int(os.environ.get(_TOPUP_BUDGET_ENV, _TOPUP_BUDGET_DEFAULT))
+        return int(raw)
     except ValueError:
+        _log.warning("rotation: %s=%r is not an int; using default %d",
+                     _TOPUP_BUDGET_ENV, raw, _TOPUP_BUDGET_DEFAULT)
         return _TOPUP_BUDGET_DEFAULT
 
 
