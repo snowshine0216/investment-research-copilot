@@ -84,3 +84,11 @@ def test_record_seen_all_none_input_writes_nothing(tmp_path: Path):
     p = tmp_path / "stock_industry_map.json"
     record_seen(p, "2026-07-03", {"600519": None})
     assert not p.exists()                    # RD-4: a no-op merge never creates the file
+
+
+def test_merge_seen_stores_board_codes_as_industry():
+    # ADR 0023 D7: the rotation radar reuses this store to persist stock→EM-board-code
+    # mappings — board codes live in the `industry` slot (arbitrary strings already).
+    store = merge_seen({}, "2026-07-06", {"600001": "BK0475", "000002": "BK0438"})
+    served = fresh_slice(store, "2026-07-06")
+    assert served == {"600001": "BK0475", "000002": "BK0438"}

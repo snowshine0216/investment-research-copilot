@@ -47,3 +47,4 @@ data/spend/
 
 # Tool worktree artifacts
 .claire/
+.superpowers/

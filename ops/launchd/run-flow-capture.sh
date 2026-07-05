@@ -37,4 +37,12 @@ acquire_lock "outputs/_logs/.flow-capture.lock" || {
 rc=0
 run_with_watchdog "${IRC_FLOW_CAPTURE_TIMEOUT:-300}" "$UV_BIN" run irc monitor flow-capture || rc=$?
 echo "[$TODAY] flow-capture rc=$rc"
+
+# Sector rotation radar (ADR 0023 D1/§9): runs AFTER flow-capture, protective-only.
+# A non-zero radar exit is LOGGED but never pages and never changes $rc (the
+# flow-capture exit path is authoritative). Own watchdog; advisory command.
+radar_rc=0
+run_with_watchdog "${IRC_ROTATION_TIMEOUT:-300}" "$UV_BIN" run irc rotation || radar_rc=$?
+echo "[$TODAY] rotation rc=$radar_rc (advisory; does not affect flow-capture rc)"
+
 exit "$rc"

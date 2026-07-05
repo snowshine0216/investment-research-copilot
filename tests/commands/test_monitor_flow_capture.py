@@ -39,7 +39,7 @@ def test_run_flow_capture_appends_completed_day_top5_only(tmp_path, monkeypatch)
 
 
 def test_capture_merges_batch_industry_into_cross_day_store(tmp_path, monkeypatch):
-    """AC-5 (15:45 site): the f127 map — including the non-top-5 tail — lands in
+    """AC-5 (15:45 site): the 行业 map — including the non-top-5 tail — lands in
     stock_industry_map.json; None never merges."""
     _wire_capture(tmp_path, monkeypatch)
     rc = mc.run_flow_capture(repo_root=str(tmp_path), today="2026-07-01")

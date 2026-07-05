@@ -1,0 +1,126 @@
+# AC1 probe notes — EM board field codes (item 001, Task 1)
+
+**Date:** 2026-07-05
+**Script:** `scripts/rotation_probe.py`
+
+## Transport decision
+
+Raw `push2.eastmoney.com` / `push2his.eastmoney.com` interfaces via `requests`
+(NEVER curl-through-proxy — trap T2), routed through `IRC_CN_PROXY` at the edge
+when set (`irc.http_proxy.resolve_cn_proxy()`), same posture as
+`em_raw.fetch_board_pe_frame` / `flow_batch_fetch.fetch_flow_today_batch`.
+
+We did **not** use the akshare `stock_board_industry_*` wrappers, because:
+
+1. They hit the *same* `push2` host but add a pandas-parse layer that has
+   historically drifted silently (this is exactly why `em_raw` exists — to own
+   raw-JSON parsing directly, after the F4/F5 scars).
+2. The monitor's geo-throttle-aware posture (batch-first call shape,
+   `cached_fetch` breaker, `IRC_CN_PROXY`) only applies to the raw path, not to
+   an akshare-wrapped call.
+
+Snapshot endpoint: `clist/get` with `fs=m:90+t:2` (all industry boards, one
+paginated call — same interface `em_raw.fetch_board_pe_frame` already uses).
+Board history endpoint: `push2his.eastmoney.com/api/qt/stock/kline/get` per
+board `secid=90.<BKcode>` with daily klines (what `stock_board_industry_hist_em`
+wraps).
+
+## Live probe outcome — partial success, geo-throttle observed
+
+`IRC_CN_PROXY` is **not set** in this environment/session (`.env` has a value
+but it is not exported into the shell used for the probe run, per the task's
+stated setup). Running `scripts/rotation_probe.py` with direct egress:
+
+- **First invocation succeeded** (single attempt, no retry) and returned a real
+  SPOT row + 3 real HIST klines — see raw capture below.
+- **A second, unrelated ad-hoc probe request immediately afterward failed**
+  with `ConnectionError: Remote end closed connection without response`
+  (the connection was aborted mid-handshake — consistent with an
+  intermittent/geo-throttled EastMoney data-plane, the same class of failure
+  documented in the flow-coverage-recurrence memory: bursty CN-plane access
+  from this host is not reliably repeatable call-to-call).
+
+Per the plan's script contract, the probe is **single-attempt, no
+retry/hammer** (trap T3 — the breaker/probe posture is protective, never
+self-extending). We did not re-run it to "confirm" a stable multi-call
+sequence, because doing so would itself violate the never-hammer-live-EM rule
+this ADR is scarred from. Treat the one successful capture below as a
+confirming data point for field codes, but **not** as proof of stable,
+repeatable live access — that remains a documented follow-up.
+
+### Confirmed real capture (single successful call, 2026-07-05)
+
+```
+SPOT diff[0]: {"f2": 4149.53, "f3": -0.22, "f8": 0.79, "f9": 30.27, "f12": "BK0420", "f14": "航空机场", "f184": -4.39}
+HIST klines[:3]:
+  "2026-07-01,4082.64,4196.03,4203.31,4062.53,11307638,5200784715.00,3.44"
+  "2026-07-02,4228.61,4158.78,4254.00,4141.86,9632885,4386444542.00,2.67"
+  "2026-07-03,4162.12,4149.53,4198.39,4122.95,8399733,3858445826.00,1.81"
+```
+
+This single row **confirms** the akshare-known field-code mapping documented
+below for `clist/get` and `kline/get` on this interface (board code, name,
+change%, turnover%, PE, main-inflow%, price all landed in the expected
+positions with plausible values — 市盈率=30.27 for 航空机场/airport-aviation is
+a sane PE; the kline CSV parses into 8 comma-separated numeric fields matching
+date/open/close/high/low/volume/amount/amplitude).
+
+### Field codes (akshare-known, cross-checked against the live capture)
+
+**Snapshot (`clist/get`, `fs=m:90+t:2`):**
+
+| Field | Meaning | Notes |
+|---|---|---|
+| `f12` | 板块代码 (board code, e.g. `BK0420`) | primary key |
+| `f14` | 板块名称 (board name) | display |
+| `f3`  | 涨跌幅 (change %) | float |
+| `f8`  | 换手率 (turnover %) | float |
+| `f9`  | 市盈率 (board PE) | **same field `em_raw.parse_clist_boards` already reads** — PE comes inline at zero extra call cost. Tolerant: missing / `"-"` / non-numeric → `None` (some boards genuinely have no meaningful aggregate PE, e.g. loss-making board composites). |
+| `f184`| 主力净流入净占比 (main-inflow net %) | expected on this board interface (akshare board wrappers surface 主力净流入 from it); degrade to `None` only if genuinely absent at runtime |
+| `f2`  | 最新价 (latest index-like price) | not persisted in `BoardDay` (chg_pct is derived independently) |
+
+**History (`kline/get`, `secid=90.<BKcode>`, `klt=101` daily):**
+
+Each kline row is a comma-separated string: `f51,f52,f53,f54,f55,f56,f57,f58`.
+
+| Position | Field | Meaning |
+|---|---|---|
+| 0 | `f51` | 日期 (date, `YYYY-MM-DD`) |
+| 1 | `f52` | 开盘 (open) |
+| 2 | `f53` | 收盘 (close) |
+| 3 | `f54` | 最高 (high) |
+| 4 | `f55` | 最低 (low) |
+| 5 | `f56` | 成交量 (volume) |
+| 6 | `f57` | 成交额 (amount) |
+| 7 | `f58` | 振幅 (amplitude %) |
+
+The kline interface carries **no PE field** — board PE is only available from
+the snapshot (`f9`); this is why `BoardDay.board_pe` is populated on
+`source="snapshot"` rows and always `None` on `source="backfill"` rows.
+
+## Fixtures
+
+Given the intermittent/geo-throttled live access documented above, and per
+the plan's explicit fixture requirements (≥3 boards, at least one with a
+missing/non-numeric `f9` to exercise the `None` path; ≥25 daily klines), the
+fixtures are **hand-authored, synthetic-pending-live-confirmation**, shaped
+to match the confirmed real `data.diff` / `data.klines` envelope and field
+codes above (not simply copy-pasted from the one successful live row, so the
+missing-PE and multi-board cases are actually exercised):
+
+- `tests/rotation/fixtures/board_spot_sample.json` — 4 boards in `data.diff`
+  list form, one (`BK0459`) with `f9: "-"` to exercise the None path, one
+  (`BK0420`) with `f9` matching the real captured value (`30.27`) for realism.
+- `tests/rotation/fixtures/board_hist_sample.json` — 25 ascending daily klines
+  for `BK0475` (semiconductor board), same 8-field CSV-row shape as the real
+  capture above.
+
+**Live field-code confirmation beyond this single successful call is a
+documented follow-up** (mirrors the f127→f100 Saturday-probe lesson — field
+codes are interface-specific and should ultimately be reconfirmed against a
+larger, stable live sample once CN egress from this host is verified
+reliable/repeatable, not just single-shot). Parsers in
+`src/irc/rotation/board_fetch.py` are built defensively (tolerant coercion,
+never fabricate a row, never crash on blank/malformed payloads) against these
+akshare-known + live-spot-checked field codes, and are pinned against the
+fixtures above via regression tests.
