@@ -13,6 +13,7 @@ def test_build_skips_quiet():
                              (_bs("BK1", "emerging"), _bs("BK2", "quiet")), 1)
     assert [r["board_code"] for r in rows] == ["BK1"]
     assert rows[0]["radar_version"] == 1 and rows[0]["date"] == "2026-07-06"
+    assert rows[0]["mom20"] == 1.0 and "chg_pct" not in rows[0]
 
 
 def test_append_is_append_only(tmp_path):

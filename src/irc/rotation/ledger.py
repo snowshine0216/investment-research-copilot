@@ -1,7 +1,7 @@
 """Forward-ledger row builder (pure) + append (edge) — spec §5/D9, AC9.
 
 One row per (date × board) with state ≠ quiet: {date, board_code, state,
-composite_pctl, chg_pct, radar_version}. Append-only, atomic; a same-day rerun
+composite_pctl, mom20, radar_version}. Append-only, atomic; a same-day rerun
 does NOT duplicate (dedup by (date, board_code) already present). Corrupt/missing
 existing file → treated as empty (never crash). Eval command deferred (F1).
 """
@@ -23,7 +23,7 @@ def build_ledger_rows(date: str, board_states: Iterable[BoardState],
     """Pure: non-quiet board rows for the ledger."""
     return tuple(
         {"date": date, "board_code": b.board_code, "state": b.state,
-         "composite_pctl": round(b.composite_pctl, 4), "chg_pct": round(b.mom20, 4),
+         "composite_pctl": round(b.composite_pctl, 4), "mom20": round(b.mom20, 4),
          "radar_version": radar_version}
         for b in board_states if b.state != "quiet")
 

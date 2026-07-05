@@ -109,7 +109,7 @@ NO existing surface. Every row annotates: `on_discovered_watchlist` / `in_monito
 (from account.yaml when present) + `holdings_as_of` quarter (staleness is stated, never hidden).
 
 **Forward ledger** — one row per (date × board) with state ≠ quiet: date, board_code, state,
-composite_pctl, chg_pct, radar_version. Append-only, atomic.
+composite_pctl, mom20, radar_version. Append-only, atomic.
 
 ## 6. Signal definitions (initial values — tunable ONLY via forward eval, never silently)
 
