@@ -6,13 +6,13 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 **Evidence cells** (filled as phases pass):
 
 - **001-spec** ✅ → [`items/001-spec.md`](items/001-spec.md) (verbatim user spec; Goal + AC1–AC12 present)
 - **001-grill** ⏭️ → user-grilled (spec status "grilled + locked"; ADR 0023 + CONTEXT "Sector rotation radar" section are the grill artifacts). Orchestrator does not auto-invoke grill in spec mode.
-- **001-plan** ⏳ → Opus/session-model `superpowers:writing-plans` → `items/001-plan.md`
+- **001-plan** ✅ → [`items/001-plan.md`](items/001-plan.md) (writing-plans; 18 tasks / 90 steps; commits `e50a3e2a` + amendment `1cb3d3f5` wiring pe_pctl/chase_risk per §6; all AC1–AC12 mapped, 31 pytest verification cmds)
 - **001-verify** ⏳ → `/verify` (non-web; NOT `/qa`)
 - **001-pr-review** ⏳ → `/code-review` on the open PR
 
