@@ -12,6 +12,11 @@ Absence ≠ evidence: None/blank never written (RD-4 — a throttle classifies
 TRANSIENT upstream and can never reach here as a string). Corrupt/missing →
 {} (never crash the brief). Byte-stable atomic writes; a no-op merge writes
 nothing. Patterned on flow_series_store.py.
+
+Also serves the sector rotation radar (ADR 0023 D7): the same store persists
+stock→EM-board-code mappings (board codes are stored in the `industry` slot; the
+radar carries board display names separately from the daily snapshot). 30-day
+serve-while-stale semantics preserved — extended in place, not forked.
 """
 from __future__ import annotations
 
