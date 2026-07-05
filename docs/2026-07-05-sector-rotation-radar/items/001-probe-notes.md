@@ -124,3 +124,49 @@ reliable/repeatable, not just single-shot). Parsers in
 never fabricate a row, never crash on blank/malformed payloads) against these
 akshare-known + live-spot-checked field codes, and are pinned against the
 fixtures above via regression tests.
+
+## Addendum 2026-07-05 (post-merge) — F7 turnover probe: `f61` CONFIRMED
+
+AC1-style live probe for follow-up **F7** (board-kline turnover), run after
+PR #206 merged. Transport: `kline/get` via `IRC_CN_PROXY` tunnel
+(`resolve_cn_proxy()`, requests — T2), **2/2 calls succeeded** (production
+`fields2=f51..f58` + extended `fields2=f51..f61`, `secid=90.BK0475`, `lmt=5`).
+This also partially discharges the "reconfirm against a stable live sample"
+follow-up above for the kline interface: 3/3 successful kline calls total
+across both probe sessions, all field positions consistent.
+
+Extended request returns **11-column** kline CSV rows. Real capture:
+
+```
+production (f51-f58), 8 cols:
+  2026-07-02,3843.00,3880.50,3918.97,3828.06,39091339,29054997866.00,2.37
+  2026-07-03,3878.87,3880.94,3921.46,3847.28,33636435,24419122450.00,1.91
+probe (f51-f61), 11 cols:
+  2026-07-02,3843.00,3880.50,3918.97,3828.06,39091339,29054997866.00,2.37,1.20,46.11,0.29
+  2026-07-03,3878.87,3880.94,3921.46,3847.28,33636435,24419122450.00,1.91,0.01,0.44,0.25
+```
+
+| Position | Field | Meaning | Verification against the capture itself |
+|---|---|---|---|
+| 8 | `f59` | 涨跌幅 (change %) | 3880.94/3880.50 − 1 = +0.011% → `0.01` ✓ |
+| 9 | `f60` | 涨跌额 (change amt) | 3880.94 − 3880.50 = `0.44` exact ✓ |
+| 10 | `f61` | **换手率 (turnover %)** | 0.25/0.29 — correct percent scale for a bank board; same unit as snapshot `f8` ✓ |
+
+So `parse_board_hist` can source `turnover_pct` from position 10 once
+`fields2` is extended — **F7 is probe-cleared, ready to build**. Ordering
+matters: land F7 **before** the first `irc rotation seed`, because seed's
+resumability (AC2) skips boards already in the series store — backfill rows
+written with `turnover_pct=None` are never re-fetched, so a post-seed F7 only
+helps re-seeds/new boards while the turn leg waits ~20 live snapshot days.
+`f59` incidentally matches the derived `chg_pct` computation; keep deriving
+(don't switch tested logic), it's a free cross-check at most.
+
+Correction (cosmetic): live `data.name` for `BK0475` is **银行Ⅱ** (banks),
+not 半导体 as the fixture note above and the spec §5 example row label it
+(半导体 is a different BK code). No production impact — board codes are
+opaque keys joined from live payloads, names are display-only from the same
+payload — but don't "verify" future probes against the mislabel.
+
+Session caveat for future probes: a Claude Code sandboxed shell RESETS both
+direct push2his connections and the proxy CONNECT (baidu control succeeds) —
+probe from an unsandboxed shell before concluding anything about EM egress.
