@@ -1,7 +1,7 @@
 import json
 from pathlib import Path
 
-from irc.rotation.board_fetch import parse_board_spot, parse_board_hist
+from irc.rotation.board_fetch import _f, parse_board_spot, parse_board_hist
 
 _FIX = Path(__file__).parent / "fixtures"
 
@@ -44,3 +44,22 @@ def test_parse_board_hist_daily_rows():
 def test_parse_board_hist_tolerates_empty():
     assert parse_board_hist({"data": {"klines": []}}, "BK0475", "半导体") == ()
     assert parse_board_hist({}, "BK0475", "半导体") == ()
+
+
+def test_f_rejects_non_finite_strings():
+    assert _f("nan") is None
+    assert _f("inf") is None
+    assert _f("-inf") is None
+    assert _f("NaN") is None
+    assert _f("Infinity") is None
+
+
+def test_f_rejects_non_finite_floats():
+    assert _f(float("nan")) is None
+    assert _f(float("inf")) is None
+    assert _f(float("-inf")) is None
+
+
+def test_f_accepts_finite_values():
+    assert _f("1.5") == 1.5
+    assert _f(2) == 2.0

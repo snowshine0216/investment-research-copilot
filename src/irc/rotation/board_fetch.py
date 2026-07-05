@@ -8,6 +8,7 @@ on transport error so cached_fetch classifies TRANSIENT (never a fabricated row)
 """
 from __future__ import annotations
 
+import math
 import time
 
 from irc.http_proxy import resolve_cn_proxy
@@ -23,12 +24,17 @@ _MAX_PAGES = 2  # ~86 boards → 1 full page + tail
 
 
 def _f(value: object) -> float | None:
+    """Pure: tolerant float coercion. Rejects non-finite results (NaN/inf, incl.
+    the strings "nan"/"inf" which `float()` parses successfully) — a NaN/inf would
+    otherwise poison composite._percentile_ranks (non-transitive </== comparisons
+    → order-dependent ranks → AC3 determinism risk)."""
     if value in (None, "-", ""):
         return None
     try:
-        return float(value)
+        parsed = float(value)
     except (TypeError, ValueError):
         return None
+    return parsed if math.isfinite(parsed) else None
 
 
 def parse_board_spot(payload: dict, *, today: str) -> tuple[BoardDay, ...]:
