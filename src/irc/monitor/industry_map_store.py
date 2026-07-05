@@ -1,9 +1,11 @@
 """EDGE + pure merge: cross-day stock→东财行业 store (ADR 0020 addendum 2026-07-03).
 
 data/monitor/stock_industry_map.json = {symbol: {"industry": str, "seen_at":
-"YYYY-MM-DD"}}. Filled batch-first from the f127 field riding the ONE daily
+"YYYY-MM-DD"}}. Filled batch-first from the f100 field (行业) riding the ONE daily
 ulist.np call (both call sites: 12:15 brief + 15:45 capture); per-symbol
-fallback results merge too (Q3). Refresh-on-seen; serve-while-stale ≤ 30
+fallback results merge too (Q3). NB: f100 in ulist.np — NOT f127, which is
+numeric there; the per-symbol stock/get fallback correctly uses its own f127.
+Refresh-on-seen; serve-while-stale ≤ 30
 CALENDAR days — deliberately NOT trading days (industry membership is
 quasi-static; see CONTEXT.md 'Stock-industry map (cross-day store)').
 Absence ≠ evidence: None/blank never written (RD-4 — a throttle classifies
