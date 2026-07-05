@@ -89,7 +89,7 @@
 **Interfaces:**
 - Produces: recorded field codes for the board-snapshot + board-history endpoints, and two real-shaped payload fixtures the parsers in Task 3 pin against.
 
-**Transport decision (justify in probe notes):** Use the **raw `push2.eastmoney.com` interfaces via `requests` through `IRC_CN_PROXY`**, NOT the akshare `stock_board_industry_*` wrappers, because (a) the akshare EM board wrappers hit the *same* `push2` host but add pandas-parse layers that have historically drifted silently (em_raw exists precisely to own raw-JSON parsing — F4/F5 scar), and (b) the monitor's geo-throttle-aware posture (batch-first, `cached_fetch` breaker, `IRC_CN_PROXY`) only applies to the raw path. Snapshot: `clist/get` with `fs=m:90+t:2` (all industry boards, one paginated call — same interface as `em_raw.fetch_board_pe_frame`), requesting fields for board code (`f12`), board name (`f14`), change% (`f3`), main-inflow% (`f184` if present on this interface else the board fund-flow interface), turnover% (`f8`). Board history: `push2his.eastmoney.com/api/qt/stock/kline/get` per board `secid=90.<BKcode>` with daily klines (this is what `stock_board_industry_hist_em` wraps).
+**Transport decision (justify in probe notes):** Use the **raw `push2.eastmoney.com` interfaces via `requests` through `IRC_CN_PROXY`**, NOT the akshare `stock_board_industry_*` wrappers, because (a) the akshare EM board wrappers hit the *same* `push2` host but add pandas-parse layers that have historically drifted silently (em_raw exists precisely to own raw-JSON parsing — F4/F5 scar), and (b) the monitor's geo-throttle-aware posture (batch-first, `cached_fetch` breaker, `IRC_CN_PROXY`) only applies to the raw path. Snapshot: `clist/get` with `fs=m:90+t:2` (all industry boards, one paginated call — same interface as `em_raw.fetch_board_pe_frame`), requesting fields for board code (`f12`), board name (`f14`), change% (`f3`), main-inflow% (`f184`, expected on this board interface — akshare's board wrappers surface 主力净流入 from it; degrade only if genuinely absent at runtime), turnover% (`f8`), **board PE `f9` (市盈率)** — the SAME field `em_raw.parse_clist_boards` already reads, so PE comes inline at ZERO extra cost, same board-name/BK-code vocabulary. Board history: `push2his.eastmoney.com/api/qt/stock/kline/get` per board `secid=90.<BKcode>` with daily klines (this is what `stock_board_industry_hist_em` wraps).
 
 - [ ] **Step 1: Write the probe script**
 
@@ -130,7 +130,7 @@ def main() -> int:
     try:
         spot = _get(_CLIST, {"ut": _UT, "fltt": "2", "invt": "2", "np": "1",
                              "pz": "5", "pn": "1", "po": "1", "fs": "m:90+t:2",
-                             "fields": "f12,f14,f3,f8,f184,f2"})
+                             "fields": "f12,f14,f3,f8,f9,f184,f2"})
         print("SPOT diff[0]:", json.dumps(
             (spot.get("data") or {}).get("diff", [None])[0], ensure_ascii=False))
         # a board code from the spot payload for the kline probe
@@ -159,11 +159,11 @@ Expected (no egress): prints `PROBE FAILED` and exits 1 → apply the documented
 
 - [ ] **Step 3: Write probe notes (records the decision either way)**
 
-Write `001-probe-notes.md` capturing: chosen transport (raw push2), the confirmed OR akshare-derived field codes, and — if the probe failed — an explicit line: *"Live field-code confirmation is a documented follow-up (mirrors the f127→f100 Saturday-probe lesson); parsers built defensively against akshare-known EM board field codes and pinned with real-payload fixtures."* Include the known akshare EM board field codes: snapshot `clist` `f12`=board code, `f14`=name, `f3`=change%, `f8`=turnover%, `f184`=main-inflow net %, `f2`=latest price; kline `f51`=date, `f52`=open, `f53`=close, `f54`=high, `f55`=low, `f56`=volume, `f57`=amount, `f58`=amplitude.
+Write `001-probe-notes.md` capturing: chosen transport (raw push2), the confirmed OR akshare-derived field codes, and — if the probe failed — an explicit line: *"Live field-code confirmation is a documented follow-up (mirrors the f127→f100 Saturday-probe lesson); parsers built defensively against akshare-known EM board field codes and pinned with real-payload fixtures."* Include the known akshare EM board field codes: snapshot `clist` `f12`=board code, `f14`=name, `f3`=change%, `f8`=turnover%, `f9`=市盈率 (board PE — same field `em_raw.parse_clist_boards` reads), `f184`=main-inflow net %, `f2`=latest price; kline `f51`=date, `f52`=open, `f53`=close, `f54`=high, `f55`=low, `f56`=volume, `f57`=amount, `f58`=amplitude.
 
 - [ ] **Step 4: Capture fixtures**
 
-If the probe succeeded, save the real SPOT payload to `board_spot_sample.json` and the real HIST payload to `board_hist_sample.json`. If it failed, hand-author minimal real-shaped fixtures matching the documented field codes (≥3 boards in spot; ≥25 daily klines for one board in hist), clearly marked in `001-probe-notes.md` as synthetic-pending-live-confirmation.
+If the probe succeeded, save the real SPOT payload to `board_spot_sample.json` and the real HIST payload to `board_hist_sample.json`. If it failed, hand-author minimal real-shaped fixtures matching the documented field codes (≥3 boards in spot, **each carrying an `f9` PE value plus at least one board with a missing/`"-"` `f9` to exercise the None path**; ≥25 daily klines for one board in hist), clearly marked in `001-probe-notes.md` as synthetic-pending-live-confirmation.
 
 - [ ] **Step 5: Commit**
 
@@ -184,7 +184,7 @@ git commit -m "feat(rotation): AC1 board field-code probe + real-shaped fixtures
 - Test: `tests/rotation/test_types.py`
 
 **Interfaces:**
-- Produces: `BoardDay(date, board_code, board_name, chg_pct, main_inflow_ratio, turnover_pct, source)`; `BoardState(board_code, board_name, state, days_in_state, composite_pctl, mom20, flow5, turn_delta, pe_pctl, chase_risk)`; `ExposureRow(fund_id, name_cn, board_code, exposure_pct, matched_symbols, holdings_as_of)`; `RotationCandidate(fund_id, name_cn, board_code, board_name, exposure_pct, on_discovered_watchlist, in_monitor_set, held, holdings_as_of)`; `RotationReport(schema_version, radar_version, data_status, board_states, candidates, diagnostics)`. All frozen.
+- Produces: `BoardDay(date, board_code, board_name, chg_pct, main_inflow_ratio, turnover_pct, board_pe, source)` — `board_pe: float | None` carries the snapshot's f9 (市盈率) so pe_pctl is computed from the persisted series' latest day (AC3-safe, same idempotency as mom20/flow5/turnΔ); `BoardState(board_code, board_name, state, days_in_state, composite_pctl, mom20, flow5, turn_delta, pe_pctl, chase_risk)`; `ExposureRow(fund_id, name_cn, board_code, exposure_pct, matched_symbols, holdings_as_of)`; `RotationCandidate(fund_id, name_cn, board_code, board_name, exposure_pct, on_discovered_watchlist, in_monitor_set, held, holdings_as_of)`; `RotationReport(schema_version, radar_version, data_status, board_states, candidates, diagnostics)`. All frozen.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -200,9 +200,16 @@ from irc.rotation.types import (
 def test_board_day_is_frozen():
     bd = BoardDay(date="2026-07-06", board_code="BK0475", board_name="半导体",
                   chg_pct=2.31, main_inflow_ratio=1.84, turnover_pct=3.9,
-                  source="snapshot")
+                  board_pe=45.2, source="snapshot")
     with dataclasses.replace(bd, chg_pct=0.0) as _:  # replace returns a new obj
         pass
+
+
+def test_board_day_board_pe_optional():
+    bd = BoardDay(date="2026-07-06", board_code="BK0475", board_name="半导体",
+                  chg_pct=2.31, main_inflow_ratio=1.84, turnover_pct=3.9,
+                  board_pe=None, source="snapshot")
+    assert bd.board_pe is None
 
 
 def test_board_state_defaults_and_frozen():
@@ -226,7 +233,7 @@ Note: fix the `with dataclasses.replace(...)` line — `replace` doesn't return 
 def test_board_day_is_frozen():
     bd = BoardDay(date="2026-07-06", board_code="BK0475", board_name="半导体",
                   chg_pct=2.31, main_inflow_ratio=1.84, turnover_pct=3.9,
-                  source="snapshot")
+                  board_pe=45.2, source="snapshot")
     bd2 = dataclasses.replace(bd, chg_pct=0.0)
     assert bd2.chg_pct == 0.0 and bd.chg_pct == 2.31
 ```
@@ -254,6 +261,7 @@ class BoardDay:
     chg_pct: float
     main_inflow_ratio: float | None
     turnover_pct: float | None
+    board_pe: float | None  # f9 市盈率 from the snapshot; None when genuinely absent
     source: str  # "snapshot" | "backfill"
 
 
@@ -307,7 +315,7 @@ class RotationReport:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/rotation/test_types.py -v`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -353,6 +361,14 @@ def test_parse_board_spot_extracts_rows():
     assert r.board_code.startswith("BK")
     assert r.source == "snapshot" and r.date == "2026-07-06"
     assert isinstance(r.chg_pct, float)
+
+
+def test_parse_board_spot_extracts_board_pe_and_none():
+    rows = parse_board_spot(_load("board_spot_sample.json"), today="2026-07-06")
+    pes = {r.board_code: r.board_pe for r in rows}
+    # at least one board has a numeric PE and at least one has None (missing/"-")
+    assert any(isinstance(v, float) for v in pes.values())
+    assert any(v is None for v in pes.values())
 
 
 def test_parse_board_spot_tolerates_empty():
@@ -419,7 +435,8 @@ def _f(value: object) -> float | None:
 def parse_board_spot(payload: dict, *, today: str) -> tuple[BoardDay, ...]:
     """Pure: clist/get board payload → today's BoardDay per board. Tolerant of
     list/dict diff shape; blank/missing → (). f12=code, f14=name, f3=chg%,
-    f184=main-inflow net %, f8=turnover% (probe-confirmed field codes)."""
+    f9=市盈率 (board PE), f184=main-inflow net %, f8=turnover% (probe-confirmed
+    field codes). f9 tolerant like the others → None on missing/'-'/non-numeric."""
     out = []
     for r in _diff_rows(payload):
         code = r.get("f12")
@@ -429,7 +446,8 @@ def parse_board_spot(payload: dict, *, today: str) -> tuple[BoardDay, ...]:
         out.append(BoardDay(
             date=today, board_code=str(code), board_name=str(r.get("f14") or ""),
             chg_pct=chg, main_inflow_ratio=_f(r.get("f184")),
-            turnover_pct=_f(r.get("f8")), source="snapshot"))
+            turnover_pct=_f(r.get("f8")), board_pe=_f(r.get("f9")),
+            source="snapshot"))
     return tuple(out)
 
 
@@ -456,6 +474,7 @@ def parse_board_hist(payload: dict, board_code: str, board_name: str
         rows.append(BoardDay(date=d, board_code=board_code, board_name=board_name,
                              chg_pct=round(chg, 4), main_inflow_ratio=None,
                              turnover_pct=_f(parts[8]) if len(parts) > 8 else None,
+                             board_pe=None,  # kline carries no PE (only the snapshot does)
                              source="backfill"))
     return tuple(rows)
 
@@ -482,7 +501,7 @@ def fetch_board_spot(today: str, *, http_get=None, sleep=time.sleep
     for pn in range(1, _MAX_PAGES + 1):
         params = {"ut": _UT, "fltt": "2", "invt": "2", "np": "1", "pz": str(_PZ),
                   "pn": str(pn), "po": "1", "fs": "m:90+t:2",
-                  "fields": "f12,f14,f3,f8,f184,f2"}
+                  "fields": "f12,f14,f3,f8,f9,f184,f2"}
         payload = get(_CLIST, params=params, headers=_HEADERS, timeout=20,
                       proxies=_proxies())
         rows = parse_board_spot(payload, today=today)
@@ -509,7 +528,7 @@ def fetch_board_hist(board_code: str, board_name: str, *, http_get=None
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/rotation/test_board_fetch.py -v`
-Expected: PASS (4 tests). If a fixture field code diverges from the parser, fix the parser to match the recorded probe codes (do NOT edit the fixture to fit the parser).
+Expected: PASS (5 tests). If a fixture field code diverges from the parser, fix the parser to match the recorded probe codes (do NOT edit the fixture to fit the parser).
 
 - [ ] **Step 5: Commit**
 
@@ -530,7 +549,7 @@ git commit -m "feat(rotation): board snapshot + history parsers (pure) + proxy e
 
 **Interfaces:**
 - Consumes: `BoardDay`; `irc.io_utils.atomic_write_text`.
-- Produces: `load_store(path) -> dict[str, tuple[BoardDay, ...]]` (keyed by board_code, ascending by date; corrupt/missing → {}); `append_snapshot(path, day_rows, *, keep_td, trading_days) -> dict[...]` (idempotent same-day overwrite per board, prune to keep_td trading days, atomic byte-stable write); `seed_backfill(path, backfilled, *, keep_td, trading_days) -> dict[...]` (merge historical BoardDay series, prune, write).
+- Produces: `load_store(path) -> dict[str, tuple[BoardDay, ...]]` (keyed by board_code, ascending by date; corrupt/missing → {}); `append_snapshot(path, day_rows, *, keep_td, trading_days) -> dict[...]` (idempotent same-day overwrite per board, prune to keep_td trading days, atomic byte-stable write); `seed_backfill(path, backfilled, *, keep_td, trading_days) -> dict[...]` (merge historical BoardDay series, prune, write). The store is schema-agnostic over `BoardDay` fields (`asdict`/`BoardDay(**r)`), so `board_pe` persists automatically — pe_pctl is thus read from the store's LATEST day, inheriting once-per-day idempotency (AC3).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -542,9 +561,10 @@ from irc.rotation.series_store import load_store, append_snapshot
 from irc.rotation.types import BoardDay
 
 
-def _bd(date, code, chg, src="snapshot"):
+def _bd(date, code, chg, src="snapshot", pe=45.0):
     return BoardDay(date=date, board_code=code, board_name="半导体",
-                    chg_pct=chg, main_inflow_ratio=1.0, turnover_pct=2.0, source=src)
+                    chg_pct=chg, main_inflow_ratio=1.0, turnover_pct=2.0,
+                    board_pe=pe, source=src)
 
 
 def test_missing_store_is_empty(tmp_path):
@@ -714,7 +734,7 @@ git commit -m "feat(rotation): board series store (idempotent, pruned, byte-stab
 
 **Interfaces:**
 - Consumes: `BoardDay` series (`dict[str, tuple[BoardDay,...]]`).
-- Produces: `board_signals(series) -> dict[str, dict]` (per eligible board: `mom20`, `flow5`, `turn_delta`; boards with <20 trading days excluded); `cross_sectional(signals, *, flow_dark) -> dict[str, float]` (composite percentile per board; flow_dark drops flow leg globally and renormalizes to 0.71·mom/0.29·turn); helper `_percentile_ranks(values) -> dict`. Constants `W_MOM=0.5, W_FLOW=0.3, W_TURN=0.2`; `MIN_TD=20`.
+- Produces: `board_signals(series) -> dict[str, dict]` (per eligible board: `mom20`, `flow5`, `turn_delta`; boards with <20 trading days excluded); `cross_sectional(signals, *, flow_dark) -> dict[str, float]` (composite percentile per board; flow_dark drops flow leg globally and renormalizes to 0.71·mom/0.29·turn); `pe_percentiles(pe_by_board) -> dict[str, float]` (cross-sectional percentile over boards that HAVE a PE; PE-less boards absent from the result → pe_pctl None downstream); helper `_percentile_ranks(values) -> dict`. Constants `W_MOM=0.5, W_FLOW=0.3, W_TURN=0.2`; `MIN_TD=20`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -724,14 +744,15 @@ from irc.rotation.composite import board_signals, cross_sectional
 from irc.rotation.types import BoardDay
 
 
-def _series(code, chgs, flows=None, turns=None):
+def _series(code, chgs, flows=None, turns=None, pes=None):
     n = len(chgs)
     flows = flows if flows is not None else [1.0] * n
     turns = turns if turns is not None else [2.0] * n
+    pes = pes if pes is not None else [None] * n
     return tuple(
         BoardDay(date=f"2026-06-{i+1:02d}", board_code=code, board_name=code,
                  chg_pct=chgs[i], main_inflow_ratio=flows[i], turnover_pct=turns[i],
-                 source="snapshot")
+                 board_pe=pes[i], source="snapshot")
         for i in range(n))
 
 
@@ -763,6 +784,14 @@ def test_flow_dark_renormalizes_and_ignores_flow():
     cold = _series("BK2", [0.0] * 25, flows=[9.0] * 25, turns=[1.0] * 25)
     comp = cross_sectional(board_signals({"BK1": hot, "BK2": cold}), flow_dark=True)
     assert comp["BK1"] > comp["BK2"]  # flow leg dropped for ALL boards
+
+
+def test_pe_percentiles_ranks_only_boards_with_pe():
+    from irc.rotation.composite import pe_percentiles
+    pctls = pe_percentiles({"BK1": 80.0, "BK2": 10.0, "BK3": None})
+    assert pctls["BK1"] > pctls["BK2"]  # higher PE → higher percentile
+    assert "BK3" not in pctls  # PE-less board excluded → pe_pctl None downstream
+    assert all(0.0 <= v <= 1.0 for v in pctls.values())
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -781,7 +810,8 @@ cumulative chg minus the cross-board median. flow5 = mean main_inflow_ratio over
 last 5 td. turnΔ = (5-td mean turnover / 20-td mean turnover) - 1. Percentiles
 cross-sectional over boards with ≥20 td of history. flow_dark → drop the flow
 leg for ALL boards, renormalize to 0.71·mom/0.29·turn (never per-board mixing,
-never carry-forward). No I/O.
+never carry-forward). pe_percentiles ranks board PE cross-sectionally (chase_risk
+input, §6) over boards that HAVE a PE. No I/O.
 """
 from __future__ import annotations
 
@@ -848,21 +878,30 @@ def cross_sectional(signals: Mapping[str, dict], *, flow_dark: bool
         return {c: (W_MOM * mom[c] + W_TURN * turn[c]) / denom for c in signals}
     flow = _percentile_ranks({c: (s["flow5"] or 0.0) for c, s in signals.items()})
     return {c: W_MOM * mom[c] + W_FLOW * flow[c] + W_TURN * turn[c] for c in signals}
+
+
+def pe_percentiles(pe_by_board: Mapping[str, float | None]) -> dict[str, float]:
+    """Pure (§6 chase_risk input): cross-sectional PE percentile over boards that
+    HAVE a PE. PE-less boards (None) are EXCLUDED from the result → their pe_pctl
+    is None downstream (the real §6 'missing PE → no flag, noted in diagnostics'
+    path). Reuses the composite percentile helper — one ranking definition."""
+    present = {c: v for c, v in pe_by_board.items() if v is not None}
+    return _percentile_ranks(present)
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/rotation/test_composite.py -v`
-Expected: PASS (4 tests).
+Expected: PASS (5 tests).
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/irc/rotation/composite.py tests/rotation/test_composite.py
-git commit -m "feat(rotation): composite percentile blend + flow-dark global renorm (pure)"
+git commit -m "feat(rotation): composite percentile blend + flow-dark renorm + PE percentile (pure)"
 ```
 
-**Verification point:** boards <20 td excluded; mom20 is median-relative; composite ranks hot>cold; flow_dark drops the flow leg globally (AC5 renorm, no per-board mixing).
+**Verification point:** boards <20 td excluded; mom20 is median-relative; composite ranks hot>cold; flow_dark drops the flow leg globally (AC5 renorm, no per-board mixing); `pe_percentiles` ranks only PE-bearing boards (PE-less excluded → None downstream).
 
 ---
 
@@ -1333,6 +1372,18 @@ def test_md_is_additive_subset_of_json():
     assert "BK1" in md and "半导体" in md and "F1" in md
 
 
+def test_json_carries_pe_pctl_and_chase_risk():
+    js = json.loads(to_json(_report()))
+    bs = js["board_states"][0]
+    assert bs["pe_pctl"] == 0.95 and bs["chase_risk"] is True
+
+
+def test_md_renders_pe_pctl_and_chase_flag():
+    md = to_md(_report())
+    assert "追高" in md  # chase_risk annotation surfaced
+    assert "0.95" in md or "95" in md  # pe_pctl rendered on the row
+
+
 def test_abstain_report_shape():
     rep = abstain_report("snapshot dead after retries")
     js = json.loads(to_json(rep))
@@ -1374,8 +1425,9 @@ def to_json(report: RotationReport) -> str:
 
 def _state_line(bs) -> str:
     chase = " ⚠追高" if bs.chase_risk else ""
+    pe = f"{bs.pe_pctl:.2f}" if bs.pe_pctl is not None else "N/A"
     return (f"| {bs.board_code} | {bs.board_name} | {bs.state} | "
-            f"{bs.days_in_state} | {bs.composite_pctl:.2f} |{chase}")
+            f"{bs.days_in_state} | {bs.composite_pctl:.2f} | {pe} |{chase}")
 
 
 def _cand_line(c) -> str:
@@ -1397,7 +1449,8 @@ def to_md(report: RotationReport) -> str:
     if report.data_status == "abstain":
         lines.append(f"雷达今日弃权：{report.diagnostics.get('failure', '未知')}")
         return "\n".join(lines) + "\n"
-    lines += ["## 板块状态", "| 板块 | 名称 | 状态 | 天数 | 分位 |", "|---|---|---|---|---|"]
+    lines += ["## 板块状态", "| 板块 | 名称 | 状态 | 天数 | 分位 | PE分位 |",
+              "|---|---|---|---|---|---|"]
     lines += [_state_line(b) for b in report.board_states
               if b.state != "quiet"]
     lines += ["", "## 轮动候选基金", "| 基金 | 名称 | 板块 | 敞口 | 现有面 | 持仓季度 |",
@@ -1421,7 +1474,7 @@ def cold_holdings_note() -> str:
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `uv run pytest tests/rotation/test_report.py -v`
-Expected: PASS (4 tests).
+Expected: PASS (6 tests).
 
 - [ ] **Step 5: Commit**
 
@@ -1430,7 +1483,7 @@ git add src/irc/rotation/report.py tests/rotation/test_report.py
 git commit -m "feat(rotation): md+json report projections (byte-stable, no [ref:], abstain stub)"
 ```
 
-**Verification point:** json byte-stable + sorted (AC3); md contains no `[ref:` (AC8 grep); abstain stub shaped per §7.
+**Verification point:** json byte-stable + sorted (AC3); md contains no `[ref:` (AC8 grep); `pe_pctl` + `chase_risk` rendered on state rows (§5/§6); abstain stub shaped per §7.
 
 ---
 
@@ -1686,13 +1739,14 @@ def test_seed_boards_skips_already_present(tmp_path):
     p = tmp_path / "board_series.json"
     tds = tuple(f"2026-06-{i:02d}" for i in range(1, 26))
     # BK1 already seeded with 25 rows
-    append_snapshot(p, [BoardDay(d, "BK1", "半导体", 1.0, 1.0, 2.0, "backfill")
+    append_snapshot(p, [BoardDay(d, "BK1", "半导体", 1.0, 1.0, 2.0, None, "backfill")
                         for d in tds], keep_td=60, trading_days=tds)
     calls = []
 
     def fake_hist(code, name):
         calls.append(code)
-        return tuple(BoardDay(d, code, name, 1.0, None, 2.0, "backfill") for d in tds)
+        return tuple(BoardDay(d, code, name, 1.0, None, 2.0, None, "backfill")
+                     for d in tds)
 
     summary = seed_boards([("BK1", "半导体"), ("BK2", "白酒")], series_path=p,
                           keep_td=60, trading_days=tds, fetch_hist=fake_hist)
@@ -1828,7 +1882,7 @@ git commit -m "feat(rotation): resumable seed orchestration (boards/holdings/sto
 - Test: `tests/commands/test_rotation_cmd.py`
 
 **Interfaces:**
-- Consumes: every pure core (Tasks 5–10) + edges (Tasks 3,4,13); `fetch_board_spot`; `series_store.append_snapshot`; `load_trading_days`; `fetch_top_holdings`; `industry_map_store.load_store`/`fresh_slice`; `fetch_industry_pe` (for `pe_pctl`); membership loaders. `IRC_ROTATION_TOPUP_BUDGET` (default 50).
+- Consumes: every pure core (Tasks 5–10) + edges (Tasks 3,4,13); `fetch_board_spot`; `series_store.append_snapshot`; `load_trading_days`; `fetch_top_holdings`; `industry_map_store.load_store`/`fresh_slice`; `composite.pe_percentiles` (pe_pctl from the store's latest-day `board_pe` — NO separate PE cache/call, since f9 rides the snapshot inline); membership loaders. `IRC_ROTATION_TOPUP_BUDGET` (default 50).
 - Produces: `run_rotation(*, repo_root, today=None) -> int` (writes `outputs/<date>/rotation/rotation_radar.{md,json}`, appends `data/rotation/forward_ledger.jsonl`, exit 0 always — advisory, never pages); `run_rotation_seed(*, repo_root) -> int`. Degradation: total snapshot failure → abstain stub (no series append, no ledger); flow leg absent → `flow_dark=True` renorm + `data_status="degraded_flow_dark"`; cold holdings → L1 renders, candidates section = `cold_holdings_note()`.
 
 - [ ] **Step 1: Write the failing test** (inject all edges — no network)
@@ -1843,9 +1897,9 @@ from irc.rotation.types import BoardDay
 
 
 def _snapshot(today):
-    # 3 boards, one clearly hot (high chg + flow)
-    return (BoardDay(today, "BK1", "半导体", 3.0, 5.0, 4.0, "snapshot"),
-            BoardDay(today, "BK2", "白酒", 0.1, 0.0, 1.0, "snapshot"))
+    # 3 boards, one clearly hot (high chg + flow + rich PE)
+    return (BoardDay(today, "BK1", "半导体", 3.0, 5.0, 4.0, 95.0, "snapshot"),
+            BoardDay(today, "BK2", "白酒", 0.1, 0.0, 1.0, 12.0, "snapshot"))
 
 
 def test_abstain_on_total_snapshot_failure(tmp_path, monkeypatch):
@@ -1879,16 +1933,37 @@ def test_same_day_rerun_byte_identical(tmp_path):
 def test_flow_dark_tags_data_status(tmp_path):
     # snapshot with all main_inflow_ratio None → flow leg absent
     def spot(today, **kw):
-        return (BoardDay(today, "BK1", "半导体", 3.0, None, 4.0, "snapshot"),
-                BoardDay(today, "BK2", "白酒", 0.1, None, 1.0, "snapshot"))
+        return (BoardDay(today, "BK1", "半导体", 3.0, None, 4.0, 95.0, "snapshot"),
+                BoardDay(today, "BK2", "白酒", 0.1, None, 1.0, 12.0, "snapshot"))
     ...  # seed ≥20 td first
     run_rotation(repo_root=str(tmp_path), today="2026-07-06", _fetch_spot=spot)
     js = json.loads((tmp_path / "outputs" / "2026-07-06" / "rotation"
                      / "rotation_radar.json").read_text())
     assert js["data_status"] == "degraded_flow_dark"
-```
 
-Note: the `...` markers are placeholders in THIS plan excerpt — the implementer writes a `_seed_series(tmp_path)` helper that populates `data/rotation/board_series.json` (≥20 td per board via `append_snapshot`), an empty-but-present `data/narrative_holdings/`, and a `data/monitor/stock_industry_map.json` mapping a couple symbols to board codes. Fill these in fully; no placeholder ships in the test file.
+
+def test_chase_risk_fires_for_rich_emerging_board_and_not_when_pe_missing(tmp_path):
+    # Two boards: BK1 richly-valued (PE 95, top of PE distribution) and emerging;
+    # BK2 has no PE. chase_risk fires for BK1 (state in {emerging,hot} AND
+    # pe_pctl>0.90) and NEVER for the PE-less board (pe_pctl None → no flag).
+    def spot(today, **kw):
+        return (BoardDay(today, "BK1", "半导体", 3.0, 5.0, 4.0, 95.0, "snapshot"),
+                BoardDay(today, "BK2", "白酒", 3.1, 5.0, 4.0, None, "snapshot"),
+                BoardDay(today, "BK3", "银行", 0.1, 0.0, 1.0, 6.0, "snapshot"))
+    ...  # seed ≥20 td so BK1/BK3 clear MIN_TD and BK1 lands emerging
+    run_rotation(repo_root=str(tmp_path), today="2026-07-06", _fetch_spot=spot)
+    js = json.loads((tmp_path / "outputs" / "2026-07-06" / "rotation"
+                     / "rotation_radar.json").read_text())
+    by_code = {b["board_code"]: b for b in js["board_states"]}
+    assert by_code["BK1"]["chase_risk"] is True
+    assert by_code["BK1"]["pe_pctl"] is not None and by_code["BK1"]["pe_pctl"] > 0.90
+    assert by_code["BK2"]["pe_pctl"] is None and by_code["BK2"]["chase_risk"] is False
+    # pe-coverage diagnostic counts boards with / without a PE
+    assert js["diagnostics"]["pe_coverage"]["with_pe"] >= 2
+    assert "BK2" in js["diagnostics"]["pe_coverage"]["without_pe"]
+
+
+Note: the `...` markers are placeholders in THIS plan excerpt — the implementer writes a `_seed_series(tmp_path, *, board_pes=None, hot_boards=("BK1",))` helper that populates `data/rotation/board_series.json` (≥20 td per board via `append_snapshot`), an empty-but-present `data/narrative_holdings/`, and a `data/monitor/stock_industry_map.json` mapping a couple symbols to board codes. The helper must seed the `hot_boards` with a rising composite so that after the day's snapshot append they land `emerging` (fresh cross above p80 within 5 td) — required by `test_chase_risk_fires_for_rich_emerging_board_and_not_when_pe_missing`. `board_pe` on the historical seed rows may be None (only the snapshot day carries live PE, which is what pe_pctl reads). Fill these in fully; no placeholder ships in the test file.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -1915,7 +1990,7 @@ from pathlib import Path
 
 from irc.rotation.board_fetch import fetch_board_spot
 from irc.rotation.candidates import rank_candidates
-from irc.rotation.composite import board_signals, cross_sectional
+from irc.rotation.composite import board_signals, cross_sectional, pe_percentiles
 from irc.rotation.exposure import build_exposure
 from irc.rotation.ledger import append_rows, build_ledger_rows
 from irc.rotation.report import (
@@ -1943,12 +2018,23 @@ def _write_report(out_dir: Path, report: RotationReport) -> None:
     atomic_write_text(out_dir / "rotation_radar.md", to_md(report))
 
 
-def _build_states(series, flow_dark) -> tuple[BoardState, ...]:
-    """Pure glue: recompute the composite-pctl series per historical day, classify.
-    For v1, states are computed over the CURRENT composite as a 1-length slice per
-    day rebuilt from the store windows (composite recomputed per trailing day)."""
-    # Build a per-day composite-pctl series by recomputing composite over each
-    # trailing window end-date present in the store.
+def _latest_board_pe(series) -> dict[str, float | None]:
+    """Pure: each eligible board's PE from its LATEST stored day (the snapshot
+    day, which carries live f9). Read from the STORE — not a re-fetch — so pe_pctl
+    is byte-stable across same-day reruns (AC3)."""
+    out: dict[str, float | None] = {}
+    for c, rows in series.items():
+        latest = sorted(rows, key=lambda r: r.date)[-1] if rows else None
+        out[c] = latest.board_pe if latest else None
+    return out
+
+
+def _build_states(series, flow_dark) -> tuple[tuple[BoardState, ...], dict]:
+    """Pure glue: recompute the composite-pctl series per historical day, classify,
+    and wire pe_pctl (cross-sectional over boards with a PE) + chase_risk (§6:
+    state∈{emerging,hot} AND pe_pctl>0.90). States computed from the store windows
+    (composite recomputed per trailing day; D5 no incremental state file).
+    Returns (states, pe_coverage) — the §6 'missing PE noted in diagnostics' path."""
     all_dates = sorted({r.date for rows in series.values() for r in rows})
     pctl_series: dict[str, list[tuple[str, float]]] = {c: [] for c in series}
     for d in all_dates:
@@ -1958,16 +2044,24 @@ def _build_states(series, flow_dark) -> tuple[BoardState, ...]:
             pctl_series[c].append((d, p))
     latest = cross_sectional(board_signals(series), flow_dark=flow_dark)
     sig = board_signals(series)
+    pe_latest = {c: v for c, v in _latest_board_pe(series).items() if c in latest}
+    pe_pctls = pe_percentiles(pe_latest)  # PE-less boards absent → None downstream
     states = []
     for c in sorted(latest):
         state, dis = classify_board(tuple(pctl_series[c]))
         name = next((r.board_name for r in series[c][::-1] if r.board_name), c)
+        pe_pctl = pe_pctls.get(c)  # None when this board had no PE
+        chase = state in ("emerging", "hot") and pe_pctl is not None and pe_pctl > 0.90
         states.append(BoardState(
             board_code=c, board_name=name, state=state, days_in_state=dis,
             composite_pctl=round(latest[c], 4), mom20=round(sig[c]["mom20"], 4),
             flow5=(None if flow_dark else sig[c]["flow5"]),
-            turn_delta=round(sig[c]["turn_delta"], 4), pe_pctl=None, chase_risk=False))
-    return tuple(states)
+            turn_delta=round(sig[c]["turn_delta"], 4),
+            pe_pctl=(round(pe_pctl, 4) if pe_pctl is not None else None),
+            chase_risk=chase))
+    pe_coverage = {"with_pe": sum(1 for v in pe_latest.values() if v is not None),
+                   "without_pe": sorted(c for c, v in pe_latest.items() if v is None)}
+    return tuple(states), pe_coverage
 
 
 def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None) -> int:
@@ -1989,7 +2083,7 @@ def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None) 
     tds = tuple(d.isoformat() for d in (tds_set or ()))
     series = append_snapshot(root.joinpath(*_SERIES_REL), snapshot,
                              keep_td=_KEEP_TD, trading_days=tds)
-    states = _build_states(series, flow_dark)
+    states, pe_coverage = _build_states(series, flow_dark)
     # L2 exposure/candidates from cached holdings + stock→board map (top-up bounded).
     candidates, new_ids, cov = _resolve_candidates(root, _today, states)
     data_status = "degraded_flow_dark" if flow_dark else "ok"
@@ -1997,6 +2091,7 @@ def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None) 
         schema_version=SCHEMA_VERSION, radar_version=RADAR_VERSION,
         data_status=data_status, board_states=states, candidates=candidates,
         diagnostics={"new_candidates": list(new_ids), "coverage": cov,
+                     "pe_coverage": pe_coverage,
                      "immature_boards": sorted(
                          c for c, rows in series.items() if len(rows) < 20)})
     _write_report(out_dir, report)
@@ -2018,10 +2113,10 @@ Expected: PASS. NEVER run `pytest tests/commands/` whole-dir (hangs).
 
 ```bash
 git add src/irc/commands/rotation_cmd.py tests/commands/test_rotation_cmd.py
-git commit -m "feat(rotation): daily run + seed orchestration commands (abstain/flow-dark/cold-holdings)"
+git commit -m "feat(rotation): daily run + seed commands (abstain/flow-dark/cold-holdings + pe_pctl/chase_risk)"
 ```
 
-**Verification point:** abstain on snapshot failure with NO series mutation (AC5); byte-identical json on same-day rerun (AC3); flow-dark tags `data_status` (AC5); exit 0 always.
+**Verification point:** abstain on snapshot failure with NO series mutation (AC5); byte-identical json on same-day rerun (AC3, incl. stable pe_pctl since it reads the persisted `board_pe`); flow-dark tags `data_status` (AC5); `chase_risk` fires for a rich (pe_pctl>0.90) emerging board and NOT for a PE-less board, which is counted in `diagnostics.pe_coverage.without_pe` (§5/§6); exit 0 always.
 
 ---
 
@@ -2243,8 +2338,9 @@ Expected: every file < 200 lines. If `rotation_cmd.py` exceeds, extract `_resolv
 - **AC10** (wrapper chaining, no page, no capture-fail) → Task 16.
 - **AC11** (one-way dependency) → Task 11.
 - **AC12** (tests mirror one-for-one; per-file green) → Tasks 2–13 mirror layout + Task 18 per-file runs.
+- **§5/§6 `chase_risk` + `pe_pctl` deliverable** (not a numbered AC) → Task 2 (`board_pe` field), Task 3 (parse f9), Task 4 (persist), Task 5 (`pe_percentiles`), Task 9 (render), Task 14 (`_build_states` wiring + `pe_coverage` diagnostic + `test_chase_risk_fires_for_rich_emerging_board_and_not_when_pe_missing`).
 
 **Spec gaps / judgment calls (flag for review):**
 1. **§6 states over a per-day composite series.** The spec says states are "evaluated over the composite-percentile series ... trading-day indexed" but the series store holds raw `BoardDay`s, not a persisted composite-pctl series. Task 14 `_build_states` recomputes the composite per trailing day from the store windows (deterministic, no extra state file per D5). This is O(days × boards) but the store is ≤60 td × ~86 boards — cheap. Flagged in case a reviewer prefers persisting the pctl series.
-2. **`chase_risk`/`pe_pctl` wiring.** Board-PE percentile requires mapping the snapshot boards to the monitor's board-PE cache (keyed by board *name* `板块名称`, not `BK` code). Task 14 leaves `pe_pctl=None`/`chase_risk=False` as the safe default (spec §6: "missing PE → no flag, noted in diagnostics"). A follow-up wires the name→PE join once the AC1 probe confirms the snapshot carries `f9`/PE inline (which would remove the separate cache dependency). Flagged as a deliberate v1 simplification consistent with §6's missing-PE degradation.
+2. **`pe_pctl`/`chase_risk` — now fully wired (no deferral).** The snapshot requests `f9` (市盈率) inline on the SAME `clist m:90+t:2` interface `em_raw.parse_clist_boards` already reads, so board PE arrives at zero extra cost and identical BK-code vocabulary. It is persisted on `BoardDay.board_pe` in the series store; pe_pctl is computed from the store's LATEST day via `composite.pe_percentiles` (byte-stable across same-day reruns — AC3 — because it reads the persisted row, never an intraday re-fetch). `chase_risk = state∈{emerging,hot} AND pe_pctl is not None AND pe_pctl>0.90` (§6). The ONLY residual degradation is a board that genuinely returns no `f9` value → `pe_pctl=None`, `chase_risk=False`, counted in `diagnostics.pe_coverage.without_pe` (the real §6 "missing PE → no flag, noted in diagnostics" path). This is a documented runtime degradation, not a deferred feature.
 3. **`main_inflow_ratio` field on the board snapshot.** The AC1 probe (Task 1) must confirm whether `f184` is present on the `clist` board interface or requires the separate board fund-flow interface. If absent, every run is `degraded_flow_dark` until the correct interface is wired — the degradation path (Task 5/14) handles this gracefully, and it is called out in the probe notes.
