@@ -25,7 +25,7 @@ class BoardState:
     composite_pctl: float
     mom20: float
     flow5: float | None
-    turn_delta: float
+    turn_delta: float | None
     pe_pctl: float | None
     chase_risk: bool
 
@@ -57,7 +57,8 @@ class RotationCandidate:
 class RotationReport:
     schema_version: int
     radar_version: int
-    data_status: str  # "ok" | "degraded_flow_dark" | "abstain"
+    data_status: str  # "ok" | "degraded_flow_dark" | "degraded_turn_dark" |
+                      # "degraded_flow_turn_dark" | "abstain"
     board_states: tuple[BoardState, ...]
     candidates: tuple[RotationCandidate, ...]
     diagnostics: dict = field(default_factory=dict)

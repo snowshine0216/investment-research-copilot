@@ -41,6 +41,16 @@ def test_parse_board_hist_daily_rows():
     assert all(r.board_code == "BK0475" for r in rows)
 
 
+def test_parse_board_hist_turnover_always_none():
+    """F7: kline fields2 (f51-f58) carry NO turnover field at all — every backfill
+    row is honestly turnover_pct=None (never a stray parts[8] index read), so the
+    turn leg correctly stays uncomputable until live snapshot days accumulate."""
+    rows = parse_board_hist(_load("board_hist_sample.json"),
+                            board_code="BK0475", board_name="半导体")
+    assert rows
+    assert all(r.turnover_pct is None for r in rows)
+
+
 def test_parse_board_hist_tolerates_empty():
     assert parse_board_hist({"data": {"klines": []}}, "BK0475", "半导体") == ()
     assert parse_board_hist({}, "BK0475", "半导体") == ()

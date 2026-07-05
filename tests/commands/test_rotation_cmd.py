@@ -110,9 +110,9 @@ def test_flow_dark_tags_data_status_and_never_fabricates_zero_flow(tmp_path):
     import irc.commands.rotation_cmd as mod
     real_cs = mod.cross_sectional
 
-    def spy_cs(signals, *, flow_dark):
+    def spy_cs(signals, *, flow_dark, turn_dark=False):
         seen.setdefault("flow_dark_values", []).append(flow_dark)
-        return real_cs(signals, flow_dark=flow_dark)
+        return real_cs(signals, flow_dark=flow_dark, turn_dark=turn_dark)
 
     orig = mod.cross_sectional
     mod.cross_sectional = spy_cs
@@ -167,6 +167,59 @@ def test_partial_flow_gap_triggers_global_flow_dark(tmp_path):
     js, _ = _read_json(tmp_path)
     assert js["data_status"] == "degraded_flow_dark"  # flow5-aware gate fired
     assert all(b["flow5"] is None for b in js["board_states"])  # no fabricated-0 for BK2
+
+
+# --- turn_leg_dark: board present in series but MISSING from today's snapshot --
+
+def test_turn_dark_when_board_missing_from_snapshot(tmp_path):
+    """A board present in the seeded series (BK3) but absent from today's snapshot
+    has an all-None recent turnover window (its last real turnover row ages out /
+    was never refreshed live) → turn_leg_dark fires, data_status carries
+    `turn_dark`, that board's turn_delta is None in the json, and NO board is
+    scored with a fabricated turn (proven via the data_status + all-None check,
+    mirroring the flow-dark proof pattern)."""
+    from irc.rotation.series_store import append_snapshot
+
+    p = tmp_path / "data" / "rotation" / "board_series.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for d in _HIST_TDS:
+        rows.append(BoardDay(d, "BK1", "半导体", 0.15, 1.0, 2.0, None, "backfill"))
+        rows.append(BoardDay(d, "BK3", "银行", 0.15, 1.0, None, None, "backfill"))  # turnover=None
+    append_snapshot(p, rows, keep_td=60, trading_days=_HIST_TDS)
+    _seed_holdings(tmp_path)
+
+    def spot(today):  # BK3 absent from today's snapshot -> stays all-None turnover
+        return (BoardDay(today, "BK1", "半导体", 9.0, 5.0, 8.0, 40.0, "snapshot"),)
+
+    rc = _run(tmp_path, spot)
+    js, _ = _read_json(tmp_path)
+    assert rc == 0
+    assert js["data_status"] == "degraded_turn_dark"
+    assert "turn" in js["diagnostics"]["dark_legs"]
+    assert "flow" not in js["diagnostics"]["dark_legs"]
+    # both boards: turn leg dropped globally, nobody scored with a fabricated turn
+    assert all(b["turn_delta"] is None for b in js["board_states"]), \
+        "turn_delta must be None for every board while the turn leg is dark, " \
+        "never fabricated 0.0 for BK1 while BK3 lacks turnover"
+
+
+def test_flow_only_dark_still_reports_degraded_flow_dark(tmp_path):
+    """Regression: the pre-existing flow-only-dark path must keep reporting the
+    plain `degraded_flow_dark` status (not the new combined variant) when turn is
+    fine."""
+    _seed_series(tmp_path)
+    _seed_holdings(tmp_path)
+
+    def spot(today):
+        return (BoardDay(today, "BK1", "半导体", 9.0, None, 8.0, 95.0, "snapshot"),
+                BoardDay(today, "BK2", "白酒", 0.1, None, 1.0, 12.0, "snapshot"),
+                BoardDay(today, "BK3", "银行", 2.0, None, 2.0, 8.0, "snapshot"))
+
+    _run(tmp_path, spot)
+    js, _ = _read_json(tmp_path)
+    assert js["data_status"] == "degraded_flow_dark"
+    assert js["diagnostics"]["dark_legs"] == ["flow"]
 
 
 # --- HARD REQ 2: diagnostics populated end-to-end -------------------------------

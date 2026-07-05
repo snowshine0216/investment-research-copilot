@@ -277,13 +277,22 @@ into the 15:45 flow-capture wrapper (protective-only, AC10).
   and the holdings as-of quarter (quarterly staleness is stated, never hidden). Not a
   "watchlist" (that word is taken by the discover stage's generated set).
 - **Radar abstain** — the radar's honest-failure mode: on a failed daily capture it writes a stub
-  report and advances no state; on a flow-dark day it drops the flow leg for ALL boards and tags
-  the report degraded. Stale values are never presented as fresh (same family as the monitor's
-  FRESH/abstain-only flow convention).
+  report and advances no state; on a flow-dark or turn-dark day it drops the affected leg(s) for
+  ALL boards and tags the report degraded (`degraded_flow_dark` / `degraded_turn_dark` /
+  `degraded_flow_turn_dark`). Stale values are never presented as fresh (same family as the
+  monitor's FRESH/abstain-only flow convention). `cross_sectional` renormalizes weights over
+  whichever legs remain usable (mom is always usable; flow/turn each independently drop globally,
+  never per-board, per D6).
 - **§12 follow-up F6 — daily in-run bounded top-up (§8/D11)**: the daily `irc rotation` run is
   cache-only in v1; the ≤50 in-run `IRC_ROTATION_TOPUP_BUDGET` top-up for incremental
   holdings/board-map cache misses between seeds is deferred (the budget currently bounds seed's
   stock-board chunking). Cold cache renders L1 + the seed-pointer line (§7).
+- **§12 follow-up F7 — board-kline turnover fetch**: `parse_board_hist` backfill rows carry
+  `turnover_pct=None` (kline fields2 have no turnover), so the turn leg is snapshot-sourced only
+  and goes dark (`turn_leg_dark`) for a board without enough live turnover history yet, or one
+  that dropped out of a later snapshot (stale/renamed/partial snapshot) — honest, never a
+  fabricated 0.0. Fetching kline turnover (candidate field `f61`) needs its own live probe before
+  wiring (field codes are interface-specific — T1/f100-f127 scar).
 
 ## Spend / balance gate
 

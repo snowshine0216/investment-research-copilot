@@ -99,9 +99,13 @@ idempotency — a rerun on the same date must not double-append). Row (conceptua
 **Report** — `rotation_radar.json`: `schema_version: 1`, `radar_version: 1` (composite formula
 version; bump on any change to weights/windows/hysteresis — forward-eval segmentation depends on
 it, same lesson as the monitor `_ENGINE_VERSION`), `data_status ∈ {ok, degraded_flow_dark,
-abstain}`, board rows (code, name, state, days_in_state, composite_pctl, mom20, flow5, turn_delta,
-pe_pctl?, chase_risk: bool), candidate rows (see below), diagnostics (immature boards excluded,
-unmapped stocks, holdings-cache coverage %).
+degraded_turn_dark, degraded_flow_turn_dark, abstain}`, board rows (code, name, state,
+days_in_state, composite_pctl, mom20, flow5, turn_delta, pe_pctl?, chase_risk: bool), candidate
+rows (see below), diagnostics (immature boards excluded, unmapped stocks, holdings-cache coverage
+%, `dark_legs`: sorted list of legs dropped this run). The flow leg AND the turn leg each
+independently drop **globally** (never per-board) when any board can't compute that leg —
+`cross_sectional` renormalizes weights over whichever legs remain usable (both, either, or
+mom-only); see §7.
 
 **Candidates** — per `emerging`/`hot` board: top 10 funds by `exposure_pct` (Σ top-10 holding
 weight mapped to that board), threshold ≥10 %. Global `new_candidates` rollup = candidate funds on
@@ -132,6 +136,7 @@ composite_pctl, mom20, radar_version. Append-only, atomic.
 |---|---|
 | Snapshot call dead/transient after retries | Abstain: write stub report (`data_status: abstain`, failure named), no series append, no ledger rows, exit 0 (advisory — never pages). |
 | Price present, flow fields absent | Drop flow leg for ALL boards, renormalize to 0.71·mom/0.29·turn, `data_status: degraded_flow_dark`. |
+| Price present, turnover window absent for any board (stale/renamed/partial-snapshot board — `turn_leg_dark`) | Drop turn leg for ALL boards, renormalize to 0.625·mom/0.375·flow (or 1.0·mom if flow is also dark), `data_status: degraded_turn_dark` (or `degraded_flow_turn_dark` when both legs are dark). |
 | Holidays/weekends | Wrapper already skips (holiday guard in flow-capture wrapper). |
 | Holdings cache cold (seed never run) | L1 renders normally; candidates section renders a single actionable line pointing at `irc rotation seed`. Never fetches the full fan-out inline. |
 
@@ -204,6 +209,14 @@ never `watchlist` for radar output, never `action`/`bias` for candidate semantic
   the ≤50 in-run `IRC_ROTATION_TOPUP_BUDGET` top-up for incremental holdings/board-map cache
   misses between seeds is deferred (the budget currently bounds seed's stock-board chunking).
   Cold cache renders L1 + the seed-pointer line (§7).
+- **F7** Fetch board-kline turnover via a probed field code (akshare's board-hist interface
+  reportedly carries turnover on `f61` 换手率, but field codes are interface-specific — see
+  T1/f100-f127 scar — do NOT add blindly; needs its own AC1-style live probe) so the 20-day
+  turnover window is complete from day 1 post-seed. Until then `parse_board_hist` intentionally
+  leaves `turnover_pct=None` on every backfill row and the turn leg is snapshot-sourced only,
+  going dark (`turn_leg_dark`, §7) for any board whose recent turnover window hasn't accumulated
+  enough live snapshot days (or that dropped out of a subsequent snapshot — stale/renamed/partial
+  snapshot).
 
 ## 13. Traps for the implementer (scar tissue, verified 2026-07-05)
 

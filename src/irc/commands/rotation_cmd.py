@@ -27,6 +27,7 @@ from irc.rotation.composite import (
     cross_sectional,
     flow_leg_dark,
     pe_percentiles,
+    turn_leg_dark,
 )
 from irc.rotation.ledger import append_rows, build_ledger_rows
 from irc.rotation.report import (
@@ -70,48 +71,70 @@ def _latest_board_pe(series) -> dict[str, float | None]:
     return out
 
 
-def _pctl_series_by_day(series, *, flow_dark: bool) -> dict[str, list[tuple[str, float]]]:
+def _pctl_series_by_day(series, *, flow_dark: bool, turn_dark: bool
+                        ) -> dict[str, list[tuple[str, float]]]:
     """Pure glue: recompute the composite-percentile series per historical
     trailing day from the store windows (D5 — no incremental state file)."""
     all_dates = sorted({r.date for rows in series.values() for r in rows})
     pctl_series: dict[str, list[tuple[str, float]]] = {c: [] for c in series}
     for d in all_dates:
         sliced = {c: tuple(r for r in rows if r.date <= d) for c, rows in series.items()}
-        comp = cross_sectional(board_signals(sliced), flow_dark=flow_dark)
+        comp = cross_sectional(board_signals(sliced), flow_dark=flow_dark, turn_dark=turn_dark)
         for c, p in comp.items():
             pctl_series[c].append((d, p))
     return pctl_series
 
 
-def _one_state(code, series, sig, latest, pctl_series, pe_pctls, *, flow_dark) -> BoardState:
+def _one_state(code, series, sig, latest, pctl_series, pe_pctls, *,
+               flow_dark, turn_dark) -> BoardState:
     state, dis = classify_board(tuple(pctl_series[code]))
     name = next((r.board_name for r in series[code][::-1] if r.board_name), code)
     pe_pctl = pe_pctls.get(code)
     chase = state in ("emerging", "hot") and pe_pctl is not None and pe_pctl > 0.90
+    turn_delta = sig[code]["turn_delta"]
     return BoardState(
         board_code=code, board_name=name, state=state, days_in_state=dis,
         composite_pctl=round(latest[code], 4), mom20=round(sig[code]["mom20"], 4),
         flow5=(None if flow_dark else sig[code]["flow5"]),
-        turn_delta=round(sig[code]["turn_delta"], 4),
+        turn_delta=(None if turn_dark else (
+            round(turn_delta, 4) if turn_delta is not None else None)),
         pe_pctl=(round(pe_pctl, 4) if pe_pctl is not None else None),
         chase_risk=chase)
 
 
-def _build_states(series, *, flow_dark: bool) -> tuple[tuple[BoardState, ...], dict]:
+def _build_states(series, *, flow_dark: bool, turn_dark: bool
+                  ) -> tuple[tuple[BoardState, ...], dict]:
     """Pure glue: composite -> pctl series -> classify -> wire pe_pctl + chase_risk
     (§6). Returns (states, pe_coverage) — the 'missing PE noted in diagnostics'
     path (§6)."""
-    latest = cross_sectional(board_signals(series), flow_dark=flow_dark)
+    latest = cross_sectional(board_signals(series), flow_dark=flow_dark, turn_dark=turn_dark)
     sig = board_signals(series)
     pe_latest = {c: v for c, v in _latest_board_pe(series).items() if c in latest}
     pe_pctls = pe_percentiles(pe_latest)
-    pctl_series = _pctl_series_by_day(series, flow_dark=flow_dark)
+    pctl_series = _pctl_series_by_day(series, flow_dark=flow_dark, turn_dark=turn_dark)
     states = tuple(
-        _one_state(c, series, sig, latest, pctl_series, pe_pctls, flow_dark=flow_dark)
+        _one_state(c, series, sig, latest, pctl_series, pe_pctls,
+                  flow_dark=flow_dark, turn_dark=turn_dark)
         for c in sorted(latest))
     pe_coverage = {"with_pe": sum(1 for v in pe_latest.values() if v is not None),
                    "without_pe": sorted(c for c, v in pe_latest.items() if v is None)}
     return states, pe_coverage
+
+
+def _data_status(*, flow_dark: bool, turn_dark: bool) -> str:
+    """Pure: map (flow_dark, turn_dark) -> the honest data_status literal."""
+    if flow_dark and turn_dark:
+        return "degraded_flow_turn_dark"
+    if flow_dark:
+        return "degraded_flow_dark"
+    if turn_dark:
+        return "degraded_turn_dark"
+    return "ok"
+
+
+def _dark_legs(*, flow_dark: bool, turn_dark: bool) -> list[str]:
+    """Pure: sorted list of legs dropped this run, for honest diagnostics."""
+    return sorted(leg for leg, dark in (("flow", flow_dark), ("turn", turn_dark)) if dark)
 
 
 def _resolve_trading_days(root: Path, _trading_days=None) -> tuple[str, ...]:
@@ -146,21 +169,25 @@ def run_rotation(*, repo_root: str, today: str | None = None, _fetch_spot=None,
     tds = _resolve_trading_days(root, _trading_days)
     series = append_snapshot(root.joinpath(*_SERIES_REL), snapshot,
                              keep_td=_KEEP_TD, trading_days=tds)
-    # HARD REQUIREMENT 1: decide flow_dark GLOBALLY and flow5-AWARE — a board never
-    # scores with real flow while another silently gets a fabricated 0.0. A
-    # today's-snapshot-only gate misses the post-seed window (backfill rows carry
-    # main_inflow_ratio=None → flow5 None for every board until ~5 snapshot days
-    # accumulate); flow_leg_dark closes that dark-factor gap (D6).
-    flow_dark = all(b.main_inflow_ratio is None for b in snapshot) or \
-        flow_leg_dark(board_signals(series))
-    states, pe_coverage = _build_states(series, flow_dark=flow_dark)
+    # HARD REQUIREMENT 1: decide flow_dark and turn_dark GLOBALLY and leg-AWARE —
+    # a board never scores with a real leg value while another silently gets a
+    # fabricated 0.0. A today's-snapshot-only gate misses the post-seed window
+    # (backfill rows carry main_inflow_ratio/turnover_pct=None → the leg is None
+    # for every board until enough snapshot days accumulate); flow_leg_dark /
+    # turn_leg_dark close that dark-factor gap (D6). Signals computed ONCE and
+    # reused for both gates + downstream state-building.
+    sig = board_signals(series)
+    flow_dark = all(b.main_inflow_ratio is None for b in snapshot) or flow_leg_dark(sig)
+    turn_dark = turn_leg_dark(sig)
+    states, pe_coverage = _build_states(series, flow_dark=flow_dark, turn_dark=turn_dark)
     membership = load_membership(root, today=_today)
     candidates, new_ids, cand_diag = resolve_candidates(root, states, membership, today=_today)
-    data_status = "degraded_flow_dark" if flow_dark else "ok"
+    data_status = _data_status(flow_dark=flow_dark, turn_dark=turn_dark)
     diagnostics = {
         "immature_boards": sorted(c for c, rows in series.items() if len(rows) < 20),
         "pe_coverage": pe_coverage,
         "new_candidates": len(new_ids),
+        "dark_legs": _dark_legs(flow_dark=flow_dark, turn_dark=turn_dark),
         **cand_diag,
     }
     report = RotationReport(

@@ -59,8 +59,14 @@ def parse_board_spot(payload: dict, *, today: str) -> tuple[BoardDay, ...]:
 def parse_board_hist(payload: dict, board_code: str, board_name: str
                      ) -> tuple[BoardDay, ...]:
     """Pure: kline/get payload → ascending daily BoardDay series. kline CSV is
-    'date,open,close,high,low,volume,amount,amplitude' (f51..f58). chg% derived
-    from close vs prev close; flow/turnover absent in kline → None. Blank → ()."""
+    'date,open,close,high,low,volume,amount,amplitude' (f51..f58) — NO turnover
+    field. chg% derived from close vs prev close; flow AND turnover are
+    INTENTIONALLY None on every backfill row (kline gives price/momentum only;
+    the turn leg accrues from live snapshot turnover f8 as snapshot days
+    accumulate, exactly like the flow leg). Fetching kline turnover is a deferred
+    follow-up (F7): akshare's board-hist interface reportedly carries turnover on
+    **f61** (换手率), but field codes are interface-specific here (see T1/f100-f127
+    scar) — do NOT add f61 without an AC1-style live probe first. Blank → ()."""
     data = payload.get("data") if isinstance(payload, dict) else None
     klines = data.get("klines") if isinstance(data, dict) else None
     if not klines:
@@ -78,7 +84,7 @@ def parse_board_hist(payload: dict, board_code: str, board_name: str
         prev_close = close
         rows.append(BoardDay(date=d, board_code=board_code, board_name=board_name,
                              chg_pct=round(chg, 4), main_inflow_ratio=None,
-                             turnover_pct=_f(parts[8]) if len(parts) > 8 else None,
+                             turnover_pct=None,  # kline fields2 (f51-f58) carry NO turnover — see F7
                              board_pe=None,  # kline carries no PE (only the snapshot does)
                              source="backfill"))
     return tuple(rows)
