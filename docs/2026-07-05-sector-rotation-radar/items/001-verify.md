@@ -1,44 +1,14 @@
 Verdict: PASS
-
-```
-Subagent: sonnet
-Source: Fallback used: direct entry-point exercise (no .claude/skills/verifier-* present; verify skill's
-        cold-start path applied — this is a Python CLI with no web/GUI surface)
-Entry point exercised: uv run irc rotation [+ --help + seed --help]
-Environment: IRC_CN_PROXY unset (confirmed empty before run) — live EastMoney fetch expected to fail
+Subagent: orchestrator-inline (re-run round 2, after turn_leg_dark fix b23b1291; the dispatched re-verify agent no-op'd, so the orchestrator ran the entry-point smoke directly)
+Source: direct entry-point exercise (/verify semantics; non-web CLI)
+Entry point exercised: `uv run irc rotation` (+ `--help`, `seed --help`), against HEAD 64f3d1d2 (includes the turn-leg fix)
 
 Observed behavior:
-  - Task 15 (CLI registration) — `uv run irc rotation --help` → rc 0, shows `seed` subcommand and
-    "Daily sector rotation radar (advisory; zero-LLM)." docstring.
-  - Task 15 (CLI registration) — `uv run irc rotation seed --help` → rc 0, shows
-    "One-time resumable backfill (board history + holdings + stock→board map)." docstring.
-  - AC5 (abstain path, advisory contract) — `uv run irc rotation` (no proxy) → rc 0 (confirmed via
-    `echo $?`). Board-spot fetch raised ProxyError/MaxRetryError against push2.eastmoney.com; caught
-    at rotation_cmd.py:138-141 and logged as `rotation: snapshot failed: ...` (WARNING, full traceback
-    printed via rich logging but NOT re-raised).
-  - AC5 (abstain artifact) — wrote outputs/2026-07-05/rotation/rotation_radar.json with
-    `"data_status": "abstain"` and `"diagnostics": {"failure": "snapshot failed: ...ProxyError..."}`,
-    `board_states: []`, `candidates: []`. Also wrote rotation_radar.md:
-    "# 板块轮动雷达 (data_status: abstain)" + "雷达今日弃权: snapshot failed: ...".
-  - AC5 (no state writes on abstain) — confirmed `data/rotation/` directory does NOT exist after the
-    run (`ls` → "No such file or directory"); no `board_series.json`; no `forward_ledger.jsonl` found
-    anywhere under the repo (`find . -name forward_ledger.jsonl -path "*rotation*"` → empty). Baseline
-    was checked clean (same non-existence) immediately before the run, so this is not a stale-fixture
-    artifact.
-  - AC3/AC5/AC6/AC7/AC8/AC9/AC11 (pure-path corroboration) — `uv run pytest tests/rotation/
-    tests/commands/test_rotation_cmd.py -q` → 66 passed, 0 failed, 0.28s.
-  - AC11 (isolation) — `uv run python -c "import irc.rotation.report, irc.rotation.composite"` → rc 0,
-    clean; post-import `sys.modules` scan for `irc.monitor*` prefix returned `[]` (zero monitor-consumer
-    modules pulled in as an import side effect).
+  - CLI wiring (Task 15) — `uv run irc rotation --help` rc=0; `uv run irc rotation seed --help` rc=0.
+  - Advisory abstain path (§7/AC5) — `uv run irc rotation` with `IRC_CN_PROXY` unset → the board fetch failed (no CN egress), caught → **rc=0** (never pages), wrote `outputs/2026-07-05/rotation/rotation_radar.json` with `"data_status": "abstain"`. Confirmed `data/rotation/` was NOT created → no series mutation, no `forward_ledger.jsonl` on abstain (AC5 holds).
+  - Test suite (AC3/AC4/AC5/AC6/AC7/AC8/AC9/AC11 pure paths) — `uv run pytest tests/rotation/ tests/commands/test_rotation_cmd.py tests/monitor/test_industry_map_store.py -q` → **83 passed** (includes the 6 new turn_leg_dark tests + the both-legs-dark mom-only test).
+  - Lint — `uv run ruff check src/irc/rotation src/irc/commands/rotation_cmd.py tests/rotation tests/commands/test_rotation_cmd.py` → clean.
+  - AC11 runtime isolation — `import irc.rotation.report, irc.rotation.composite` rc=0, no `irc.monitor.*` consumer modules pulled in (verified earlier this session + enforced by `tests/rotation/test_import_isolation.py`).
+Failures: none.
 
-Findings:
-  - The abstain path logs a full multi-frame traceback at WARNING level (rich-formatted, ~130 lines)
-    even though the exception is fully handled and the run still exits 0 and produces a valid abstain
-    report. Not a functional defect (matches "log warning, don't page" intent) but it is noisy for a
-    "silent advisory abstain" — worth a squint if daily cron logs feed an on-call channel; the traceback
-    volume could obscure genuine anomalies in stdout scraping/alerting downstream.
-  - Confirmed no leftover git-tracked state: outputs/ and data/ are gitignored, so the artifacts from
-    this smoke run do not appear in `git status --porcelain`.
-
-Failures: none
-```
+Note (non-blocking, carried from round 1): the abstain path logs a full traceback at WARNING (`exc_info=True`) for a fully-handled degradation — a log-noise follow-up if daily-run logs feed alerting (retained here for its diagnostic value on genuine snapshot failures).
