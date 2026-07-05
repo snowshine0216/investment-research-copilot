@@ -121,6 +121,33 @@ No LLM, no paid search anywhere → the spend/balance gate is **not** involved.
 
 ---
 
+## Troubleshooting
+
+### The seed reports `boards={'done': 0}` / the daily run writes `data_status: "abstain"`
+
+The board **snapshot** (`push2.eastmoney.com/api/qt/clist/get?fs=m:90+t:2`) and board **history**
+(`push2his.eastmoney.com/.../stock/kline/get`) live on EastMoney's **geo-throttled** data plane. Some
+egress paths — notably rotating datacenter tunnels — reach `ulist.np` (the endpoint `irc monitor`
+uses for capital flow) but are **blocked on `clist/get` / `push2his`**, which fail with `ProxyError` /
+`Read timed out`. `clist/get` is load-bearing (it enumerates + snapshots the ~86 boards **every**
+run), so when it's blocked the radar has nothing to score.
+
+Diagnose (from the repo root, so `.env` loads):
+```bash
+uv run python -c "from dotenv import load_dotenv; load_dotenv(); \
+from irc.rotation.board_fetch import fetch_board_spot; print(len(fetch_board_spot('2026-01-01')), 'boards')"
+```
+- `ProxyError` on `push2.eastmoney.com` while `irc monitor` flow works → your egress can't reach
+  `clist/get` (only `ulist.np`).
+- **Same root cause darkens the monitor's board-PE leg.** Check `data/monitor/industry_pe/`: if the
+  newest day file is stale or empty `{}`, `clist/get` has been unreachable for a while and the
+  dual-track valuation *industry* leg has been degrading to DARK (ADR 0020 tolerates this silently).
+
+Fix: run the seed + daily job from an egress that **can** reach `clist/get` (a CN-residential IP, or a
+tunnel not geo-throttled on that endpoint). Follow-up **F8** (below) tracks a code path that would
+avoid `clist/get` entirely. This is the **AC1** "endpoints/field codes are interface-specific — probe
+live first" risk — the build had no CN egress to catch it.
+
 ## Package layout (`src/irc/rotation/`)
 
 Pure-core + edge split — effects (fetch, file writes) live only in `board_fetch.py`, the store
@@ -160,3 +187,9 @@ Tests mirror one-for-one under `tests/rotation/` (+ `tests/commands/test_rotatio
 - **F7** board-kline **turnover** fetch (akshare uses `f61`) — needs its own AC1 live probe before
   wiring (field codes are interface-specific); until then the turn leg is snapshot-sourced and goes
   dark for stale/partial-snapshot boards.
+- **F8** board fetch off **`clist/get`** — the board snapshot/history endpoints (`clist/get`,
+  `push2his` kline) are blocked on some geo-throttled egresses that still reach `ulist.np` (see
+  Troubleshooting). A `ulist.np`-based board path would need (a) a way to **enumerate** the ~86 boards
+  without `clist/get` (a static BK-code list, or another reachable endpoint) and (b) a reachable
+  board-history source (`push2his` is also blocked on the same egress). Non-trivial; tracked for a
+  dedicated session. Shares the root cause with the monitor's dark board-PE leg.
