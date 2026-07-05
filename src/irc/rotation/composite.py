@@ -36,6 +36,10 @@ def board_signals(series: Mapping[str, tuple[BoardDay, ...]]) -> dict[str, dict]
         turns = [r.turnover_pct for r in rows]
         m20 = _tail_mean(turns, MIN_TD)
         m5 = _tail_mean(turns, 5)
+        # The 0.0 fallback is a safe defensive default, not a live dark-factor path:
+        # turnover_pct is structurally always populated (snapshot f8 + kline
+        # volume/amount), so "missing turnover" is unreachable in practice — unlike
+        # the flow leg, which genuinely goes dark (see flow_leg_dark below).
         turn_delta = (m5 / m20 - 1) if (m20 not in (None, 0) and m5 is not None) else 0.0
         out[c] = {"mom20": cum[c] - med,
                   "flow5": _tail_mean(flows, 5),

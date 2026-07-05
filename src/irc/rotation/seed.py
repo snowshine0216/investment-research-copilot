@@ -2,7 +2,14 @@
 
 Resumable + partial-tolerant: each step skips anything already cached and reports
 a coverage summary; a transient failure on one board/fund/chunk never aborts the
-rest (breaker-protected via the injected fetchers). No LLM, no paid search.
+rest. None of the fetchers used here go through cached_fetch's breaker — that
+protection does not apply to this module. Instead, per-item isolation is done by
+THIS module's own try/except around each board/fund/chunk: `fetch_board_hist`
+(board_fetch.py) and `fetch_flow_today_batch` (flow_batch_fetch.py) both RAISE on
+transport error and are caught here in `seed_boards`/`seed_stock_board_map`;
+`fetch_top_holdings` (holdings_fetch.py) never raises — it already swallows its
+own AkShare failures and returns `()`, so `seed_holdings`'s try/except is a
+defensive no-op for it today. No LLM, no paid search.
 """
 from __future__ import annotations
 
