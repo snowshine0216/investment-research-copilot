@@ -30,6 +30,27 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 - pr-review nits: duplicated `fund_id`/`name_cn` display fields; `diagnostics: dict` mutable field on frozen `RotationReport` (no active mutation); per-board file rewrite in `seed.py` (perf). 
 - Cosmetic: `rotation_cmd.py` 245 lines (soft <200); abstain-path WARNING logs a full traceback (log-noise if daily logs feed alerting).
 
+---
+
+## RUN CLOSED — final status (2026-07-05)
+
+**Run:** sector-rotation-radar · mode `spec` · N=1 · project type `non-web` · PR shape A
+**Items merged:** 1/1 — **item 001** (sector rotation radar) via PR [#205](https://github.com/snowshine0216/investment-research-copilot/pull/205), squash `5e98e07c`, into the feature branch.
+**Items SKIPPED / BLOCKED:** none.
+**Prep commit:** `2c1b844b` — f127→f100 monitor fix (radar prerequisite, user-directed).
+
+**Phase 3:** workflow-completeness audit PASS (all verdict files present + correct; grill ⏭️ spec-mode); merged-branch sanity **83 tests green + ruff clean**; doc-sync verified (CONTEXT built-marker, ADR 0023 Accepted, CHANGELOG, TODOS F6+F7, spec §5 turn-dark enum).
+
+**Feature branch:** `autodev/sector-rotation-radar-feature`
+**Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/206  (feature → `main`)
+**Merged into protected branch: no** (PR #206 left open for user review — the guardrail held; no "merge to main" opt-in this run).
+
+**Quality gates that ran:** drift PASS · /ship steps 8+9 (5 P1s fixed pre-push) · /verify PASS · /code-review PASS-WITH-NITS after **1 fix round** (turn-leg dark-factor blocker fixed). Plus per-cluster subagent-driven-development reviews (Clusters 1–4a) during impl.
+
+**Follow-ups (in TODOS.md):** F1–F5 (spec §12), F6 (daily in-run top-up), F7 (board-kline turnover fetch — needs AC1 probe); + review nits (display dedup, frozen-dataclass mutable dict, seed file-rewrite perf, cmd file size, abstain log verbosity).
+
+**Notable incident:** the Cluster 4a integration layer hit a two-worker concurrent-build race (a cascade-descendant subagent built the same tasks alongside the hardened worker, each resetting the other). Recovered by resetting to the reviewed base and re-running the fix loop; final merged state independently drift-checked + reviewed + verified + code-reviewed clean.
+
 ## Notes
 
 - QA column omitted from the table on purpose: project type is **non-web**, so the post-ship verifier is `/verify` (XOR — never `/qa`).
