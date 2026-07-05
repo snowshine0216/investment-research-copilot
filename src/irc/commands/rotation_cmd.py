@@ -190,9 +190,12 @@ def run_rotation_seed(*, repo_root: str) -> int:
 
     map_path = root / "data" / "monitor" / "stock_industry_map.json"
     symbols = _held_symbols(holdings_dir, funds)
+    # §8: bound each top-up call to _topup_budget() symbols (env-overridable,
+    # default 50, IRC_ROTATION_TOPUP_BUDGET) — every chunk is one network call.
     map_summary = seed_stock_board_map(
         symbols, map_path=map_path, today=today, batch_fetch=fetch_flow_today_batch,
-        load_existing=load_industry_map, record=record_seen)
+        load_existing=load_industry_map, record=record_seen,
+        chunk_size=_topup_budget())
 
     print(f"rotation seed: boards={board_summary} holdings={holdings_summary} "
           f"stock_map={map_summary}")
