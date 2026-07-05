@@ -34,3 +34,18 @@ def test_report_shape():
     rep = RotationReport(schema_version=1, radar_version=1, data_status="ok",
                          board_states=(), candidates=(), diagnostics={})
     assert rep.schema_version == 1 and rep.radar_version == 1
+
+
+def test_exposure_row_and_candidate_are_frozen():
+    er = ExposureRow(fund_id="000001", name_cn="示例基金", board_code="BK0475",
+                     exposure_pct=12.5, matched_symbols=("600000",),
+                     holdings_as_of="2026Q1")
+    cand = RotationCandidate(fund_id="000001", name_cn="示例基金",
+                             board_code="BK0475", board_name="半导体",
+                             exposure_pct=12.5, on_discovered_watchlist=True,
+                             in_monitor_set=False, held=False,
+                             holdings_as_of="2026Q1")
+    assert er.board_code == cand.board_code == "BK0475"
+    import pytest
+    with pytest.raises(dataclasses.FrozenInstanceError):
+        cand.held = True  # type: ignore[misc]
