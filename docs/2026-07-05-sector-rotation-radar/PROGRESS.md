@@ -6,9 +6,10 @@ Legend: ⏳ pending · 🔄 in-progress · ✅ done · ⚠️ soft-fail (fix loo
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |-----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ✅ | ⏭️ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ✅ | ⏭️ | ✅ | ✅ | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 <sub>branch: ✅ `claude/sector-rotation-radar-001` (off `autodev/sector-rotation-radar-feature`)</sub>
+<sub>impl: ✅ `d92321a7..bd1d75bb` (18 tasks; new `src/irc/rotation/` package + `rotation_cmd.py` + CLI + 15:45 wrapper chain + docs; 74 tests green). Survived a 2-worker concurrent race on Cluster 4a; 3 review findings fixed (AC8 diagnostics `3f2be6da`, composite flow5 dark-factor `ac517d07`); §8 daily top-up deferred → follow-up **F6** (documented in spec §12 / CONTEXT / docstring).</sub>
 
 **Evidence cells** (filled as phases pass):
 
