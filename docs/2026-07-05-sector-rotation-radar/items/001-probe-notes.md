@@ -170,3 +170,58 @@ payload — but don't "verify" future probes against the mislabel.
 Session caveat for future probes: a Claude Code sandboxed shell RESETS both
 direct push2his connections and the proxy CONNECT (baidu control succeeds) —
 probe from an unsandboxed shell before concluding anything about EM egress.
+
+## Addendum 2026-07-05 (later, same day) — ⚠️ F7 "probe-cleared" is SUPERSEDED by F8
+
+**The "F7 is probe-cleared, ready to build" conclusion above (2/2 kline calls via
+`IRC_CN_PROXY`) was NOT reproducible.** A structured 2-run diagnosis matrix
+(`scripts/rotation_f8_diagnose.py`, unsandboxed, `requests` — T2) run after the
+first seed attempt failed shows the board endpoints are **unreachable from this
+host** — the earlier 2/2 caught a transient EM-allowed proxy exit, not a stable
+path. Do **not** treat F7 as ready-to-verify-live until a working CN egress is
+confirmed. The field-code table above (incl. `f61` = 换手率 at kline position 10)
+remains the best-known mapping and F7 can be **built + fixture-tested offline**
+against it, but its live reconfirmation is a real open follow-up, not done.
+
+### Diagnosis matrix (2 runs, ~minutes apart, unsandboxed)
+
+**Run 1 — proxy tunnel DOWN:**
+
+| Endpoint | via `IRC_CN_PROXY` | direct |
+|---|---|---|
+| baidu (tunnel liveness) | ProxyError 15s ✗ | — |
+| ulist.np (flow control) | ProxyError 15s ✗ | **200, real data ✓** (`600519 白酒Ⅱ f184=-5.3`) |
+| clist/get (board snapshot) | ProxyError 15s ✗ | RemoteDisconnected 0.03s ✗ |
+| push2his kline | ProxyError 15s ✗ | RemoteDisconnected 0.04s ✗ |
+
+**Run 2 — proxy restarted (tunnel UP, EM exit BLOCKED):**
+
+| Endpoint | via `IRC_CN_PROXY` | direct |
+|---|---|---|
+| baidu (tunnel liveness) | **200, 0.1s ✓** | — |
+| ulist.np (flow control) | ProxyError 1.1s ✗ | 502 ✗ (was 200 in run 1 — burst-throttled) |
+| clist/get (board snapshot) | ProxyError 1.1s ✗ | 502 ✗ |
+| push2his kline | ProxyError 1.1s ✗ | RemoteDisconnected ✗ |
+
+### Interpretation (this is F8)
+
+Two independent, egress-level problems — neither fixable in code:
+
+1. **Proxy exit IP is EM-blocked even when the tunnel is up.** Run 2: baidu-via-proxy
+   succeeds (0.1s) but every EM host fails fast (~1.1s ProxyError) — the proxy
+   opens the CONNECT, EM refuses the proxy's **exit IP**. Restarting the tunnel
+   revives liveness but not EM access (Kuaidaili datacenter exits are flagged by
+   EM). The tunnel occasionally rotates to an EM-allowed exit — that transient
+   window is what produced the "2/2" above and the 2026-07-02 `ulist.np 6/6`.
+2. **Direct egress is geo-throttled + board-plane-refused.** Direct `ulist.np`
+   went 200×3 → 502×3 across the two runs (the documented "~5-burst then block"
+   on this host's US-datacenter IP); `clist/get`/`push2his` are refused outright
+   (502 / RemoteDisconnected) on the *same host* while `ulist.np` (in-burst) works
+   — i.e. the block is endpoint- **and** IP-specific, not a wholesale host geo-block.
+
+**Fix = a working CN egress** (CN-residential / EM-allowed proxy exit, a CN VPS,
+or a paid CN data source), per the flow-coverage-recurrence conclusion. Until
+then: `irc rotation seed` fails (`boards={'done':0}`), the daily run `abstain`s,
+and the monitor's board-PE (dual-track valuation *industry* leg, same `clist/get`)
+stays DARK — same root cause, dark since 2026-06-30. Consolidated fix plan:
+[`../F8-DIAGNOSIS-FIX-PLAN.md`](../F8-DIAGNOSIS-FIX-PLAN.md).
