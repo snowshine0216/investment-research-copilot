@@ -176,6 +176,8 @@ The monitor vertical has its own operations manual — **[docs/monitor/README.md
 uv run irc monitor                          # daily brief (reads config/monitor.yaml)
 uv run irc monitor snapshot                 # quarterly constituent-cache refresh (automated via launchd)
 uv run irc monitor flow-capture             # daily 15:45 post-close flow append (automated; never run pre-close)
+uv run irc rotation                         # daily sector rotation radar (EM board composite + candidates, advisory-only, ADR 0023)
+uv run irc rotation seed                    # one-time resumable backfill (board history + holdings + stock→board map)
 ```
 
 **Model choice (important).** Set `MINIMAX_MODEL` to a **fast, non-reasoning chat

@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — sector rotation radar (2026-07-05)
+
+- **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM
+  sector rotation radar. `irc rotation` ranks EastMoney industry boards by a
+  momentum/flow/turnover composite, assigns each a `rotation_state`
+  (`emerging`/`hot`/`fading`/`quiet`, p80-entry/p70-exit hysteresis), and
+  resolves emerging/hot boards to candidate CN funds by holdings look-through
+  (fund×board exposure, `outputs/<date>/rotation/rotation_radar.{md,json}`).
+  `irc rotation seed` is a resumable one-time backfill (board history +
+  holdings + stock→board map). Advisory-only — never emits `portfolio_action`,
+  `DirectionalBias`, or `opportunity_state`, and is not an input to
+  discovery/scoring (ADR 0023). Appends `data/rotation/forward_ledger.jsonl`
+  from day 1 (eval command deferred). Chained into the 15:45 flow-capture
+  launchd wrapper, after the capture step, protective-only (a radar failure
+  logs but never pages and never changes the wrapper's exit code).
+
 ### Added — monitor industry fill: batch-first 行业 + board-PE serve-while-stale (2026-07-03)
 
 - **行业 names go batch-first** (report-v4 explainability WS-4 / P7, item 004):

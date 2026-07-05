@@ -1,7 +1,6 @@
 # ADR 0023 — Sector rotation radar: EM-board taxonomy, advisory isolation, cross-vertical edge reuse
 
-**Status:** Proposed (grilled + spec'd 2026-07-05, pending build; flip to Accepted when the
-implementing item merges).
+**Status:** Accepted (built 2026-07-05).
 
 **Builds on:** [ADR 0019 — monitor capital-flow factor](0019-monitor-capital-flow-factor.md)
 (EastMoney data-plane posture, breaker semantics, batch `ulist.np` findings),
@@ -79,3 +78,7 @@ flow-capture wrapper (post-close, holiday-guarded, protective-only), not the mon
 - Deferred hooks (dynamic hot_sector research query, auto-narrative baskets, memo/monitor
   surfacing) each need their own decision pass; F3 in particular interacts with ADR 0007's
   static theme mapping and must not be built as a side effect.
+- **F6 — daily in-run bounded top-up (§8/D11)**: the daily `irc rotation` run is cache-only in
+  v1; the ≤50 in-run `IRC_ROTATION_TOPUP_BUDGET` top-up for incremental holdings/board-map cache
+  misses between seeds is deferred (the budget currently bounds seed's stock-board chunking).
+  Cold cache renders L1 + the seed-pointer line (spec §7).
