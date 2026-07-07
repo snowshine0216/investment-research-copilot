@@ -62,3 +62,76 @@
   `rotation_health`'s body stays under ~15 lines. `ruff check` clean; all 21
   tests in `tests/notify/test_health.py` pass (14 pre-existing + 7 new).
 - Task 5 review round — vacuous test replaced with real corrupt-radar test + docstring clarification (conservative).
+
+## Task 6: `weekly_health` builder
+
+- **Conservative, same import-placement pattern as Tasks 4/5.** The brief's
+  Step 1 test-append block includes a standalone `from irc.notify.health
+  import weekly_health` line, which would shadow-import `weekly_health` mid-file
+  (after the top-of-file import block) and trigger `ruff` E402. Merged
+  `weekly_health` into the existing top-of-file `from irc.notify.health
+  import (...)` line instead (converted to a parenthesized multi-line import
+  since it now carries 6 names) and appended only the 4 new test functions,
+  byte-identical to the brief otherwise.
+- **Confirmed non-issue, no deviation:** the brief's Step 4 says "Expected:
+  PASS (23 tests)", but the actual pass count is 25 (21 pre-existing from
+  Task 5's review round + 4 new). Consistent with the same stale-count pattern
+  documented in Tasks 4 and 5's notes above.
+- `weekly_health` implemented verbatim from the brief (no logic changes).
+  Used the pre-staged production-shaped fixture `tests/notify/fixtures/health/gold_regime.json`
+  (real 07-04 artifact, committed at `26f242b6`) unchanged — DXY @ 2026-06-16
+  is 21 calendar days before the test's `today=2026-07-07`, matching the
+  locked G-Q4 assertion text verbatim.
+- `_MACRO_AGE_LIMIT_DAYS` (forward-declared in Task 3, flagged as
+  unused-but-confirmed-non-issue through Tasks 3–5) is now consumed —
+  last forward-declared constant resolved.
+- `src/irc/notify/health.py` is 174 lines (budget 200); `ruff check
+  src/irc/notify/health.py tests/notify/test_health.py` passes clean; all 25
+  tests in `tests/notify/test_health.py` pass (21 pre-existing + 4 new).
+
+## Task 8: Edge gathering — `_build_health` per run-kind + flow-capture outcome
+
+- **Conservative, same import-placement pattern as Tasks 1/4/5/6.** The brief's
+  Step 1 test-append block places a standalone `from datetime import date` and
+  `from irc.notify.classify import classify_run_outcome` mid-file (after the
+  last existing test function). `tests/commands/test_notify_cmd.py` already had
+  no top-level `datetime`/`classify` import (only inline per-test imports), so
+  appending verbatim triggered `ruff` E402. Moved both lines into the file's
+  top-of-file import block instead (`from datetime import date` next to
+  `from pathlib import Path`; `from irc.notify.classify import
+  classify_run_outcome` next to the existing `from irc.notify.types import
+  NotificationDecision`) and appended only the new helpers/test functions,
+  byte-identical to the brief otherwise. `ruff check src/irc/commands/notify_cmd.py
+  tests/commands/test_notify_cmd.py` passes clean.
+- **Substantive, spec-locked (not a bug): 3 pre-existing back-compat tests
+  needed companion-artifact seeding.** `_build_outcome` now calls
+  `_build_monitor_health`/`_build_weekly_health` for every `monitor`/`weekly`
+  run, and per spec AC5 ("Corrupt/absent `eval_trace.json` → body contains
+  `health unknown`") a *missing* companion artifact is intentionally
+  indistinguishable from a corrupt one — both degrade to `health_unknown()`,
+  which escalates `clean`/`action` to `degraded` (§3.2). Three tests predate
+  Task 8 and asserted `clean`/`action` severity while only ever seeding
+  `monitor.json` / `decision_report.json` (never `eval_trace.json`,
+  `fund_flow_series.json`, or `gold_regime.json`), so they started asserting a
+  severity the new health gate correctly no longer produces:
+  `tests/notify/test_monitor_run_kind.py::test_monitor_success_when_monitor_json_present`,
+  `tests/notify/test_run_kind_promotions.py::test_promotions_in_summary_page_as_action`,
+  `tests/notify/test_run_kind_promotions.py::test_summary_without_promotion_keys_stays_clean`.
+  Fixed by seeding a trivially-healthy (empty-shape) companion artifact in each
+  — `{"board_pe_freshness": {"state": "FRESH"}, "funds": {}}` for
+  `eval_trace.json`, `{}` for `fund_flow_series.json` and `gold_regime.json` —
+  so each test's health digest has zero warnings and its original
+  severity assertion (which exists to cover the `monitor.json` sentinel /
+  promotion-field wiring, not health gathering) holds on its own terms. No
+  production-code change; confirmed via `uv run pytest tests/notify/ -q`
+  (91 passed) after the fix.
+- `_build_monitor_health`, `_build_weekly_health`, `_build_flow_capture_health`,
+  `_recent_rotation_statuses`, `_flow_capture_coverage`, `_recovery_notice`,
+  `_read_json`, and the three `_build_outcome` edits implemented verbatim from
+  the brief (no logic changes). `src/irc/commands/notify_cmd.py` grew from 199
+  to 325 lines (over the 200-line "ideal" budget in CLAUDE.md) — all growth is
+  the brief's own locked code (six new edge functions + three call-site
+  wirings); no further split was in scope for this task. `ruff check
+  src/irc/commands/notify_cmd.py` passes clean; `uv run pytest
+  tests/commands/test_notify_cmd.py -q` — 35 passed (26 pre-existing + 9 new);
+  `uv run pytest tests/notify/ -q` — 91 passed (back-compat sweep, post-fix).

@@ -20,6 +20,13 @@ import httpx
 import yaml
 
 from irc.notify.classify import classify_run_outcome
+from irc.notify.health import (
+    HealthDigest,
+    health_unknown,
+    monitor_health,
+    rotation_health,
+    weekly_health,
+)
 from irc.notify.message import format_feishu, format_macos
 from irc.notify.types import NotificationDecision, RunOutcome
 
@@ -73,6 +80,23 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             trim_count=0,
             exit_count=0,
             review_count=0,
+            health=_build_monitor_health(root, out_dir),
+        )
+    if run_kind == "flow-capture":
+        sentinel = out_dir / "rotation" / "rotation_radar.json"
+        digest, recovery = _build_flow_capture_health(root, out_dir)
+        return RunOutcome(
+            run_kind=run_kind,
+            last_exit_code=last_exit_code,
+            today_dir_exists=sentinel.exists(),  # crash iff rotation_radar.json absent
+            pipeline_halted=False,
+            stale_ingest=False,
+            actionable_buy_count=0,
+            trim_count=0,
+            exit_count=0,
+            review_count=0,
+            health=digest,
+            recovery_notice=recovery,
         )
     if not out_dir.exists():
         return RunOutcome(
@@ -102,6 +126,7 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
         decision_report_unreadable=unreadable,
         promotion_count=_coerce_count(safe.get("promotion_count")),
         promotion_ids=_coerce_ids(safe.get("promotion_ids")),
+        health=_build_weekly_health(out_dir) if run_kind == "weekly" else None,
     )
 
 
@@ -134,6 +159,107 @@ def _read_summary(path: Path) -> dict | None:
     except json.JSONDecodeError:
         _log.warning("could not parse decision_report.json — classifying as failed")
         return None
+
+
+def _read_json(path: Path) -> dict | None:
+    """Parse a JSON file → dict; unreadable/corrupt → None (never raises)."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _build_monitor_health(root: Path, out_dir: Path) -> HealthDigest:
+    try:
+        trace = _read_json(out_dir / "monitor" / "eval_trace.json")
+        flow = _read_json(root / "data" / "monitor" / "fund_flow_series.json")
+        if trace is None or flow is None:
+            return health_unknown()
+        return monitor_health(
+            trace, flow, today=_china_today(), holidays=frozenset(_load_holidays(root))
+        )
+    except Exception:  # noqa: BLE001 — never block notify (ADR 0016 AC8)
+        _log.warning("monitor health gathering failed", exc_info=True)
+        return health_unknown()
+
+
+def _build_weekly_health(out_dir: Path) -> HealthDigest:
+    try:
+        gold = _read_json(out_dir / "gold_regime.json")
+        if gold is None:
+            return health_unknown()
+        return weekly_health(gold, today=_china_today())
+    except Exception:  # noqa: BLE001
+        _log.warning("weekly health gathering failed", exc_info=True)
+        return health_unknown()
+
+
+def _is_iso_date(name: str) -> bool:
+    try:
+        date.fromisoformat(name)
+        return True
+    except ValueError:
+        return False
+
+
+def _recent_rotation_statuses(root: Path, today: date, *, limit: int = 5) -> tuple[str, ...]:
+    """data_status of the most-recent dated output dirs (<= today), newest first."""
+    base = root / "outputs"
+    if not base.exists():
+        return ()
+    dates = sorted(
+        (p.name for p in base.iterdir()
+         if p.is_dir() and _is_iso_date(p.name) and p.name <= today.isoformat()),
+        reverse=True,
+    )[:limit]
+    out: list[str] = []
+    for d in dates:
+        radar = _read_json(base / d / "rotation" / "rotation_radar.json")
+        if radar and radar.get("data_status"):
+            out.append(str(radar["data_status"]))
+    return tuple(out)
+
+
+def _flow_capture_coverage(flow: dict, today: date) -> tuple[int, int]:
+    """(symbols whose newest row == today, total symbols)."""
+    iso = today.isoformat()
+    at = 0
+    for rows in flow.values():
+        dates = [r[0] for r in rows if isinstance(r, (list, tuple)) and r]
+        if dates and max(dates) == iso:
+            at += 1
+    return at, len(flow)
+
+
+def _recovery_notice(radar: dict, recent: tuple[str, ...]) -> str | None:
+    """Fire once on abstain/degraded → ok. recent[0] is today; recent[1] is prior."""
+    if (radar or {}).get("data_status") != "ok":
+        return None
+    prior = recent[1] if len(recent) > 1 else None
+    if prior is None or not (prior == "abstain" or str(prior).startswith("degraded_")):
+        return None
+    boards = len((radar or {}).get("board_states") or [])
+    days = 0
+    for s in recent[1:]:
+        if s == "abstain" or str(s).startswith("degraded_"):
+            days += 1
+        else:
+            break
+    return f"轮动雷达恢复 ok ({boards} boards) — 此前弃权 {days} 日"
+
+
+def _build_flow_capture_health(root: Path, out_dir: Path) -> tuple[HealthDigest, str | None]:
+    try:
+        radar = _read_json(out_dir / "rotation" / "rotation_radar.json")
+        if radar is None:
+            return health_unknown(), None
+        recent = _recent_rotation_statuses(root, _china_today())
+        flow = _read_json(root / "data" / "monitor" / "fund_flow_series.json")
+        cov = _flow_capture_coverage(flow, _china_today()) if flow is not None else None
+        return rotation_health(radar, recent, flow_capture_cov=cov), _recovery_notice(radar, recent)
+    except Exception:  # noqa: BLE001
+        _log.warning("flow-capture health gathering failed", exc_info=True)
+        return health_unknown(), None
 
 
 def _send_macos(decision: NotificationDecision) -> None:
