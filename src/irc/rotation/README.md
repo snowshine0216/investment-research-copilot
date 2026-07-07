@@ -184,11 +184,9 @@ Tests mirror one-for-one under `tests/rotation/` (+ `tests/commands/test_rotatio
 - **F4** auto-generated narrative baskets from emerging-board constituents.
 - **F5** `tracked_index` precision join for ETFs (board → CSIndex).
 - **F6** daily in-run bounded top-up (v1 is cache-only; the budget currently bounds `seed`).
-- **F7** board-kline **turnover** fetch (akshare uses `f61`) — needs its own AC1 live probe before
-  wiring (field codes are interface-specific); until then the turn leg is snapshot-sourced and goes
-  dark for stale/partial-snapshot boards.
+- **F7** board-kline **turnover** fetch — **BUILT, merged `4d5af11d` (2026-07-05)**: `board_fetch.py:87,136` parses `f61` (换手率) into `turnover_pct` on backfill rows, so the turn leg now has kline history (not snapshot-only). Still goes `turn_leg_dark` for boards without enough live turnover history yet or dropped from a later snapshot — honest, never a fabricated 0.0. No `radar_version` bump (availability class).
 - **F8** board fetch off **`clist/get`** — the board snapshot/history endpoints (`clist/get`,
-  `push2his` kline) are blocked on some geo-throttled egresses that still reach `ulist.np` (see
+  `push2his` kline) are **intermittently** reachable on direct egress (ok 2026-07-06, refused 07-07) and blocked on some geo-throttled egresses that still reach `ulist.np` (see
   Troubleshooting). A `ulist.np`-based board path would need (a) a way to **enumerate** the ~86 boards
   without `clist/get` (a static BK-code list, or another reachable endpoint) and (b) a reachable
   board-history source (`push2his` is also blocked on the same egress). Non-trivial; tracked for a
