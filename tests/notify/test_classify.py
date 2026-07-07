@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import pytest
 
-from irc.notify.classify import classify_run_outcome
+from irc.notify.classify import _ALWAYS_NOTIFY, classify_run_outcome
+from irc.notify.health import HealthDigest, HealthItem
 from irc.notify.types import RunOutcome
 
 
@@ -206,3 +207,80 @@ def test_promotion_ids_capped_in_body():
     assert "000004" in decision.body      # first five named
     assert "000007" not in decision.body  # tail elided
     assert "…" in decision.body
+
+
+# ---- Task 7: degraded severity, health-append, recovery notice ----
+
+
+def _warn_digest():
+    return HealthDigest((HealthItem("board_pe_dark", "warn",
+                                    "板块PE: DARK ≥4td — 价值陷阱检测不可用"),))
+
+
+def _info_digest():
+    return HealthDigest((HealthItem("board_pe_stale", "info", "板块PE: STALE-1 (07-06)"),))
+
+
+def test_always_notify_contains_degraded():
+    assert "degraded" in _ALWAYS_NOTIFY
+
+
+def test_health_warn_escalates_clean_to_degraded():
+    d = classify_run_outcome(_outcome(health=_warn_digest()))
+    assert d.severity == "degraded"
+    assert d.should_notify is True
+    assert "DARK" in d.body
+
+
+def test_degraded_notifies_even_when_notify_on_clean_false():
+    d = classify_run_outcome(_outcome(health=_warn_digest()), notify_on_clean=False)
+    assert d.severity == "degraded"
+    assert d.should_notify is True
+
+
+def test_health_warn_escalates_action_to_degraded_keeps_rollup():
+    d = classify_run_outcome(_outcome(actionable_buy_count=2, health=_warn_digest()))
+    assert d.severity == "degraded"
+    assert "2 buys" in d.body        # action rollup preserved in body
+    assert "DARK" in d.body
+
+
+def test_stale_precedence_beats_degraded_but_appends_health():
+    d = classify_run_outcome(_outcome(stale_ingest=True, health=_warn_digest()))
+    assert d.severity == "stale"     # stale > degraded
+    assert "DARK" in d.body          # health still appended to body
+
+
+def test_failed_appends_health_to_body():
+    d = classify_run_outcome(_outcome(last_exit_code=1, health=_warn_digest()))
+    assert d.severity == "failed"
+    assert "DARK" in d.body
+
+
+def test_info_only_health_stays_clean():
+    d = classify_run_outcome(_outcome(health=_info_digest()))
+    assert d.severity == "clean"
+
+
+def test_health_none_backcompat_stays_clean():
+    d = classify_run_outcome(_outcome(health=None))
+    assert d.severity == "clean"
+
+
+def test_recovery_notice_forces_clean_notify():
+    d = classify_run_outcome(
+        _outcome(recovery_notice="轮动雷达恢复 ok (200 boards) — 此前弃权 1 日"),
+        notify_on_clean=False,
+    )
+    assert d.severity == "clean"
+    assert d.should_notify is True
+    assert d.title == "IRC: 轮动雷达恢复"
+    assert "恢复" in d.body
+
+
+def test_degraded_warn_suppresses_recovery():
+    # A recovering day that also has a warn pages degraded, not a recovery notice.
+    d = classify_run_outcome(_outcome(
+        health=_warn_digest(), recovery_notice="轮动雷达恢复 ok (1 boards) — 此前弃权 1 日",
+    ))
+    assert d.severity == "degraded"

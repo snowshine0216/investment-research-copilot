@@ -4,6 +4,7 @@ arrives on `RunOutcome`. Precedence is locked by ADR 0016 §4/§5 + spec
 """
 from __future__ import annotations
 
+from irc.notify.health import HealthDigest
 from irc.notify.types import NotificationDecision, RunOutcome
 
 _EXIT_LABELS: dict[int, str] = {
@@ -15,7 +16,7 @@ _EXIT_LABELS: dict[int, str] = {
     124: "timeout",  # P0-3: watchdog killed the pipeline after IRC_RUN_TIMEOUT
 }
 
-_ALWAYS_NOTIFY = {"failed", "halted", "stale", "action"}
+_ALWAYS_NOTIFY = {"failed", "halted", "stale", "degraded", "action"}
 
 
 def classify_run_outcome(
@@ -24,7 +25,7 @@ def classify_run_outcome(
     """Map a RunOutcome to a NotificationDecision in fixed precedence."""
     severity, title, body = _decide(outcome)
     should_notify = severity in _ALWAYS_NOTIFY or (
-        severity == "clean" and notify_on_clean
+        severity == "clean" and (notify_on_clean or outcome.recovery_notice is not None)
     )
     return NotificationDecision(
         should_notify=should_notify, severity=severity, title=title, body=body
@@ -32,6 +33,24 @@ def classify_run_outcome(
 
 
 def _decide(outcome: RunOutcome) -> tuple[str, str, str]:
+    """Base precedence, then health-degraded escalation + body append + recovery."""
+    severity, title, body = _base_decide(outcome)
+    health = outcome.health
+    if severity in ("action", "clean") and health is not None and health.has_warnings:
+        severity, title = "degraded", "IRC data degraded"
+    if health is not None and health.has_warnings:
+        body = _append_health(body, health)
+    if severity == "clean" and outcome.recovery_notice:
+        return ("clean", "IRC: 轮动雷达恢复", outcome.recovery_notice)
+    return (severity, title, body)
+
+
+def _append_health(body: str, health: HealthDigest) -> str:
+    lines = " · ".join(i.text for i in health.items)
+    return f"{body} · {lines}" if body else lines
+
+
+def _base_decide(outcome: RunOutcome) -> tuple[str, str, str]:
     if not outcome.today_dir_exists:
         return (
             "failed",
