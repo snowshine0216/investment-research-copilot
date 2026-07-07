@@ -4,6 +4,15 @@
 > NAMES (never values), proxies, canonical model IDs, known traps, and verification
 > commands. Every line below is traceable to a repo source cited in parens. Credentials
 > live in `.env` — this file references the key name only, never a secret/proxy value.
+>
+> **Live-incident entries carry a date and a verification command, and must be re-verified
+> before being acted on.** A line describing a *transient* condition — a geo-block, an
+> outage, a "currently unset / currently set" env var, a "currently blocked" egress plane —
+> rots fast: the F8 board-plane entry below went stale **within 2 days** (written
+> "hard-blocked", already superseded by a 2026-07-06 seed success at review time). Treat any
+> dated live-incident line as a hypothesis, not a fact — run its cited one-liner (the
+> `uv run python -c …` / CN-egress probes already in this file are the pattern) and trust the
+> result, not the prose.
 
 ## Services & endpoints
 
