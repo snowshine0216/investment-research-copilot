@@ -9,7 +9,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence in cell/footnote) 
 | 005 | ✅`4ecf3b97` | ✅`8999770e`+`6127e663` | ✅`4b22f02f` | ✅ claude/review-followup-005 | ✅`d84c7b9c` | ✅`4e5f80a1` | ✅ [#209](https://github.com/snowshine0216/investment-research-copilot/pull/209) | ⏭️ | ✅`1311d81b` | ✅ PASS-W-NITS | ✅`de3000bf` | ✅ 1 roundᶠ | ✅ `6dc5d83b` |
 | 001 | ⏭️¹ | ⏭️¹ | ✅`0ca3f516` | ✅ claude/review-followup-001 | ✅`57b41fe2`ᵍ | ✅`f9b5d297` | ✅ [#212](https://github.com/snowshine0216/investment-research-copilot/pull/212) | ⏭️ | ✅`3a7f1ab0`+addendum | ✅ PASS-W-NITSʰ | ✅ PASS-W-NITS | ✅ 3 roundsʰ | ✅ `ecf264f6` |
 | 002 | ⏭️² | ⏭️² | ✅`112ad3b1` | ✅ claude/review-followup-002 | ✅`456e79ff`ⁱ | ✅ 58/58 | ✅ [#213](https://github.com/snowshine0216/investment-research-copilot/pull/213) | ⏭️ | ✅ guard-bite proven | ✅ PASS-W-NITSʲ | ✅`d217bc39` | ✅ 3 roundsʲ | ✅ `803e0415` |
-| 003 | ⏭️³ | ⏭️³ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 003 | ⏭️³ | ⏭️³ | ✅`987ae7b8` | ✅ claude/review-followup-003 | ✅`da42d186` | ✅`23d97578` | ✅ [#214](https://github.com/snowshine0216/investment-research-copilot/pull/214) | ⏭️ | ✅`07b8c73f`+addendum | ✅ PASS-W-NITSᵏ | ✅ FAIL→PASS `659f91a7` | ✅ 3 roundsᵏ | ✅ `d47388e8` |
 
 QA column is ⏭️ for every row: project type is non-web → /verify branch of the XOR.
 
@@ -34,6 +34,8 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 
 ⁱ 002 impl: T1 guard test RED as predicted → T2-5 doc clusters → T6 red→green (D1-D15 all verified); combined factual review re-derived every numeric claim; DXY-staleness TODOS entry added beyond 002-c's literal list (registered-for-completeness, documented).
 ʲ 002 post-ship rounds: `6989300b` (scorer-coverage precision; single-owner tables ENFORCED per the user's "lives ONLY in" wording — plan's lighter reading was drift; diagram f100 + pin test) and `4438415f` (Codex: guard widened 12→18 asserts across every version surface; TODOS F1 ledger-state contradiction corrected). verify proved the guard bites (corrupt→FAIL→restore→PASS). Merged squash `803e0415`.
+
+ᵏ 003: step-8/9 reviews proved the NEW RULES' OWN WORDING backfired (marker collision, adversarial-fixture outlawing, hang-dir funnel, env-recipe gap) → `dc22d0f5`; pr-review FAILed on 3 more ("weeks" git-refuted, bare "fixture" vs CONTEXT.md:42, phantom anchors) → `81b1bde0` → re-review PASS; Codex tightening (committed-snapshot clause) → `ffec6703`. Verify = cold-read actionability protocol, PASS. Merged squash `d47388e8`.
 
 ## Run-level
 
