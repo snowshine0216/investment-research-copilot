@@ -395,6 +395,32 @@ def _seed_rotation(root: Path, day: str, fixture: str) -> None:
     (rot / "rotation_radar.json").write_text(_read_fix(fixture), encoding="utf-8")
 
 
+def _flow_store_rolled_to(day: str) -> str:
+    """Real fund_flow_series fixture, dates rolled so its newest row lands on `day`.
+
+    Production-shaped rows (30 symbols, real magnitudes) — only the calendar is
+    shifted by a constant delta, preserving the fixture's real per-symbol lag
+    pattern (29/30 at the newest date) so coverage stays realistic regardless
+    of which date a test pins as "today".
+    """
+    raw = json.loads(_read_fix("fund_flow_series.json"))
+    all_dates = [
+        row[0] for rows in raw.values() for row in rows if isinstance(row, (list, tuple)) and row
+    ]
+    delta = date.fromisoformat(day) - max(date.fromisoformat(d) for d in all_dates)
+    shifted = {
+        sym: [[(date.fromisoformat(d) + delta).isoformat(), v] for d, v in rows]
+        for sym, rows in raw.items()
+    }
+    return json.dumps(shifted)
+
+
+def _seed_flow_store(root: Path, day: str) -> None:
+    dd = root / "data" / "monitor"
+    dd.mkdir(parents=True, exist_ok=True)
+    (dd / "fund_flow_series.json").write_text(_flow_store_rolled_to(day), encoding="utf-8")
+
+
 def test_build_monitor_health_attaches_digest(tmp_path, monkeypatch):
     monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
     _seed_monitor(tmp_path, "2026-07-07")
@@ -444,6 +470,7 @@ def test_build_weekly_health_dxy_stale(tmp_path, monkeypatch):
 def test_flow_capture_abstain_is_degraded(tmp_path, monkeypatch):
     monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 5))
     _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_abstain.json")
+    _seed_flow_store(tmp_path, "2026-07-05")
     outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
     d = classify_run_outcome(outcome, notify_on_clean=False)
     assert d.severity == "degraded"
@@ -454,6 +481,7 @@ def test_flow_capture_recovery_notice(tmp_path, monkeypatch):
     monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 6))
     _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_abstain.json")
     _seed_rotation(tmp_path, "2026-07-06", "rotation_radar_ok.json")
+    _seed_flow_store(tmp_path, "2026-07-06")
     outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
     assert outcome.recovery_notice == "轮动雷达恢复 ok (200 boards) — 此前弃权 1 日"
     d = classify_run_outcome(outcome, notify_on_clean=False)
@@ -465,6 +493,7 @@ def test_flow_capture_silent_when_ok_after_ok(tmp_path, monkeypatch):
     monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 6))
     _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_ok.json")
     _seed_rotation(tmp_path, "2026-07-06", "rotation_radar_ok.json")
+    _seed_flow_store(tmp_path, "2026-07-06")
     outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
     d = classify_run_outcome(outcome, notify_on_clean=False)
     assert d.should_notify is False  # ok-after-ok, no recovery, no page
@@ -476,6 +505,19 @@ def test_flow_capture_missing_radar_is_failed(tmp_path, monkeypatch):
     outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
     d = classify_run_outcome(outcome)
     assert d.severity == "failed"
+
+
+def test_flow_capture_missing_flow_store_is_unknown(tmp_path, monkeypatch):
+    """P0 (ship step-8): missing/corrupt flow store must surface health_unknown,
+    never silently vanish (spec §3.3) — an OK radar alone must not mask it."""
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _seed_rotation(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    # No data/monitor/fund_flow_series.json seeded at all.
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    assert any(i.code == "health_unknown" for i in outcome.health.items)
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.severity == "degraded"
+    assert "health unknown" in d.body
 
 
 def test_flow_capture_coverage_counts_newest_equal_today():

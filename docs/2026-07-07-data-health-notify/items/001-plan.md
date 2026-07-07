@@ -1264,6 +1264,8 @@ git add src/irc/commands/notify_cmd.py tests/commands/test_notify_cmd.py
 git commit -m "feat(notify): edge health gathering per run-kind + flow-capture outcome"
 ```
 
+**Amendment (ship step-8 review):** P0 — `_build_flow_capture_health` silently dropped a missing/corrupt flow store (cov=None → no item), violating §3.3; fixed edge-side by merging health_unknown into the digest, + `test_flow_capture_missing_flow_store_is_unknown`; the three flow-capture tests now seed a date-rolled production-shaped store so their scenarios stay pure.
+
 ---
 
 ## Task 9: CLI `--run-kind flow-capture` choice

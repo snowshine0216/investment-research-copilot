@@ -256,7 +256,13 @@ def _build_flow_capture_health(root: Path, out_dir: Path) -> tuple[HealthDigest,
         recent = _recent_rotation_statuses(root, _china_today())
         flow = _read_json(root / "data" / "monitor" / "fund_flow_series.json")
         cov = _flow_capture_coverage(flow, _china_today()) if flow is not None else None
-        return rotation_health(radar, recent, flow_capture_cov=cov), _recovery_notice(radar, recent)
+        digest = rotation_health(radar, recent, flow_capture_cov=cov)
+        if flow is None:
+            # Missing/corrupt flow store: cov=None means rotation_health's
+            # coverage check never ran — surface health_unknown so a dead
+            # store at 15:45 is never silent (spec §3.3).
+            digest = HealthDigest(digest.items + health_unknown().items)
+        return digest, _recovery_notice(radar, recent)
     except Exception:  # noqa: BLE001
         _log.warning("flow-capture health gathering failed", exc_info=True)
         return health_unknown(), None
