@@ -9,8 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Severity = Literal["failed", "halted", "stale", "action", "clean"]
-RunKind = Literal["daily", "weekly", "monitor"]
+from irc.notify.health import HealthDigest
+
+Severity = Literal["failed", "halted", "stale", "degraded", "action", "clean"]
+RunKind = Literal["daily", "weekly", "monitor", "flow-capture"]
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,13 @@ class RunOutcome:
     # accelerate_dca vs. the prior run) — from decision_report.json summary.
     promotion_count: int = 0
     promotion_ids: tuple[str, ...] = ()
+    # Data-health digest (ADR 0016 amendment) — pure derivation of on-disk
+    # artifacts, gathered best-effort at the edge. None keeps every pre-001
+    # callsite valid.
+    health: HealthDigest | None = None
+    # One-time abstain→ok recovery notice body (flow-capture only). When set on
+    # an otherwise-clean run it forces should_notify (G-Q3→C).
+    recovery_notice: str | None = None
 
 
 @dataclass(frozen=True)

@@ -18,11 +18,22 @@ def _write_report(tmp_path: Path, summary: dict) -> Path:
     return out
 
 
+def _seed_healthy_gold_regime(tmp_path: Path) -> None:
+    """Task 8: run_kind="weekly" now attaches a health digest read from today's
+    gold_regime.json. A truly-absent file is health_unknown (warn) by design
+    (spec AC5), which would escalate these tests' severity assertions away from
+    their original intent — seed a trivially-healthy (empty) shape so these
+    tests stay isolated to the promotion-field wiring they exist to cover."""
+    out = tmp_path / "outputs" / _china_today().isoformat()
+    (out / "gold_regime.json").write_text("{}", encoding="utf-8")
+
+
 def test_promotions_in_summary_page_as_action(tmp_path: Path) -> None:
     _write_report(tmp_path, {
         "actionable_buy_count": 0, "trim_count": 0, "exit_count": 0,
         "review_count": 0, "promotion_count": 1, "promotion_ids": ["161903"],
     })
+    _seed_healthy_gold_regime(tmp_path)
     outcome = _build_outcome(tmp_path, run_kind="weekly", last_exit_code=0)
     decision = classify_run_outcome(outcome, notify_on_clean=True)
     assert decision.severity == "action"
@@ -49,6 +60,7 @@ def test_summary_without_promotion_keys_stays_clean(tmp_path: Path) -> None:
         "actionable_buy_count": 0, "trim_count": 0, "exit_count": 0,
         "review_count": 0,
     })
+    _seed_healthy_gold_regime(tmp_path)
     outcome = _build_outcome(tmp_path, run_kind="weekly", last_exit_code=0)
     assert outcome.promotion_count == 0
     assert outcome.promotion_ids == ()

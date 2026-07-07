@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — data-health notification (2026-07-07)
+
+- **`irc notify-status` data-health digest** — the outcome notifier now surfaces
+  data degradation that was previously invisible in the "clean" notification. A
+  new pure module `src/irc/notify/health.py` derives a run-kind-specific digest
+  from already-written artifacts and appends it to the notification body:
+  - **monitor (12:15)** — board-PE `DARK` (warn) / `STALE-N` (info); flow-store
+    lag/coverage and per-symbol `>3td` staleness (warn); per-fund
+    `signal.status != ok` / `NO_CALL` (warn).
+  - **flow-capture (15:45, new run-kind)** — rotation `abstain` (warn, with a
+    `连续第 N 日` counter) / `degraded_*` (warn); flow-capture coverage `<80%`
+    (warn); plus a one-time `abstain→ok` recovery notice. Silent when fully ok
+    (`--no-notify-on-clean` hardcoded in the wrapper).
+  - **weekly (Sat 09:00)** — macro drivers older than 7 calendar days (warn,
+    e.g. `DXY 滞后 21d`) and `drivers_unavailable` (info).
+- **New `degraded` severity** (ADR 0016 amendment) — precedence
+  `failed > halted > stale > degraded > action > clean`, always-notify (fires
+  even with `IRC_NOTIFY_ON_CLEAN=0`). Notification-only; the digest is never
+  persisted and never feeds factor math.
+- `run-flow-capture.sh` now pages on a capture timeout (`rc=124` → `failed`),
+  superseding its former protective-only silence.
+
 ### Added — sector rotation radar (2026-07-05)
 
 - **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM

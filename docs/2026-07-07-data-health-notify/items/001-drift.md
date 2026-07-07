@@ -1,0 +1,32 @@
+Verdict: PASS
+
+Subagent: sonnet
+Plan checklist items: 12 tasks (74 step-level checkboxes across Tasks 1-12)
+Verified present in diff: 12/12 tasks; all logged deviations in 001-notes.md cross-checked against actual diff lines in `.superpowers/sdd/review-76eca5e5..b8098060.diff` (15 commits, 30 files, +9091/-17)
+
+## Method
+
+Read `001-plan.md` in full (all 12 tasks + inline "Amendment (Task-N review)" blocks for Tasks 4/5/12), read `001-notes.md` in full (deviations for Tasks 1, 4, 5, 8, 10, 12), then read every hunk of the review diff (`git diff --stat` cross-checked against the 30 changed files; each task's source/test hunks read in full, not just filenames). Cross-referenced the 15-commit list 1:1 against the 12 tasks + their review-round commits (`ebc37b4a`, `804daf10`, `0c05c42f` = Task 4/5 reviews; `b8098060` = Task 12 review). No commit is unaccounted for.
+
+## Per-task verification
+
+- **Task 1 (calendar.py)** — `previous_trading_day`/`trading_day_age` implemented verbatim (diff lines 1091-1137). Logged import-merge deviation (no duplicate `date` import; `previous_trading_day`/`trading_day_age` merged into the existing `irc.notify.calendar` import) confirmed present in `tests/notify/test_calendar.py` diff (line 9366) exactly as described — no standalone duplicate import added. OK.
+- **Task 2 (fixtures)** — all 7 fixture files present (diff lines 1619-9355), spot-checked key values: `eval_trace.json` board_pe_freshness STALE/07-06, `eval_trace_dark.json` DARK/07-01/age_td 4, `eval_trace_signal.json` 009225 low_confidence, `gold_regime.json` DXY@2026-06-16 + `drivers_unavailable: [etf_holdings_gld]`, `rotation_radar_abstain.json` data_status=abstain, `rotation_radar_ok.json` present. OK.
+- **Task 3 (HealthItem/HealthDigest/health_unknown)** — verbatim in `health.py` new-file diff (lines 1213-1262). OK.
+- **Task 4 (monitor_health)** — verbatim (diff lines 1264-1334). Amendment block in plan (line 397 of diff) matches the two extra tests actually present in `test_health.py` diff (`test_monitor_flow_coverage_floor_alone` line 9651, `test_monitor_health_total_on_corrupt_trace` line 9668). OK.
+- **Task 5 (rotation_health + _abstain_streak)** — verbatim (diff lines 1337-1368). Amendment block matches: locked vacuous garbage test replaced by `test_rotation_total_on_corrupt_radar` (diff line 9715); the locked `test_rotation_total_returns_digest_on_garbage` is genuinely absent from the diff, confirming the replacement, not an addition-on-top. OK.
+- **Task 6 (weekly_health)** — verbatim (diff lines 1371-1387). OK.
+- **Task 7 (degraded severity, health-append, recovery)** — `types.py` (`Severity`/`RunKind`/`health`/`recovery_notice` fields, diff lines 1388-1447) and `classify.py` (`_ALWAYS_NOTIFY`, `_decide`/`_base_decide` split, `_append_health`, recovery/degraded precedence, diff lines 1138-1207) match the plan's locked precedence (`failed > halted > stale > degraded > action > clean`) exactly — confirmed the `_base_decide` rename preserves the original body byte-for-byte (git diff shows only additions, the shared signature line is unchanged context). All 10 new `test_classify.py` tests present verbatim (diff lines 9456-9531), including the degraded-suppresses-recovery ordering test. OK.
+- **Task 8 (edge gathering + flow-capture outcome)** — `_read_json`, `_build_monitor_health`, `_build_weekly_health`, `_recent_rotation_statuses`, `_flow_capture_coverage`, `_recovery_notice`, `_build_flow_capture_health`, and the 3 `_build_outcome` call-site wirings all present verbatim (diff lines 980-1195, 909-958). The notes' "substantive, spec-locked" deviation (3 pre-existing back-compat tests needed companion-artifact seeding for AC5's health_unknown-escalates-degraded behavior) verified present exactly as described in `test_monitor_run_kind.py` (diff line 9759-9776) and `test_run_kind_promotions.py` (diff line 9799-9841) — only the 3 named tests were touched, `test_garbage_promotion_fields_degrade_to_zero` correctly left untouched (it doesn't assert severity). OK.
+- **Task 9 (CLI --run-kind flow-capture)** — one-line Click choice change verbatim (diff lines 858-866); both new CLI tests present (diff lines 1604-1618). OK.
+- **Task 10 (run-flow-capture.sh notify tail)** — notify tail, header, and watchdog comment edits present (diff lines 787-849). Logged deviation (header comment reworded to avoid literal "notify-status" substring, to keep the ordering tests green) verified: the actual header text (diff lines 793-800) says "the flow-capture notify tail below" with no literal "notify-status" token, while the real invocation (diff line 846) is byte-identical to the plan's locked command. `tests/ops/test_launchd_flow_capture.py` present verbatim, 7 tests (diff lines 9847-9897+). OK.
+- **Task 11 (runtime proofs)** — no code diff (as planned); `001-runtime-proofs.md` (diff lines 456-662) records AC1-AC5 all PASS with printed SEVERITY/BODY evidence matching the plan's "Expected" text exactly. OK.
+- **Task 12 (docs/CHANGELOG/TODOS/CONTEXT + sweep)** — ADR 0016 amendment (diff lines 663-709), `ops/launchd/README.md` + `docs/monitor/README.md` (diff lines 710-786, already reconciled by the `b8098060` review commit for the "never pages" fragments), root `README.md` (diff lines 100-126), `CHANGELOG.md` (diff lines 54-99), `TODOS.md` (diff lines 127-178) all match plan text. `CONTEXT.md` correctly absent from the changed-files list (verify-only, confirmed via empty `git diff -- CONTEXT.md`). Logged deviations (2 extra TODOS bullets from Task-8/Task-10 review rounds; wider commit scope incl. `001-plan.md` self-amendment + `001-runtime-proofs.md`; `PROGRESS.md` excluded) all verified: `PROGRESS.md` is absent from the diff's file list (empty `git diff -- PROGRESS.md`), extra TODOS bullets present at diff lines 156-168. OK.
+
+## Scope-creep check
+
+All 30 changed files map 1:1 to a plan task or a logged deviation; no orphan hunks found. All 15 commits map 1:1 to the 12 tasks plus their documented review rounds (`ebc37b4a`/`804daf10` = Task 4/5 review commits; `0c05c42f` = Task 5 notes commit; `b8098060` = Task 12 review commit) — no unexplained commits.
+
+## Drift findings
+
+None. Every plan task's planned files/behavior is present in the diff with matching intent. Every deviation logged in `001-notes.md` is (a) actually present in the diff exactly as described and (b) conservative/consistent with its stated rationale — no functional scope creep, no unimplemented planned functionality, no undocumented divergence.

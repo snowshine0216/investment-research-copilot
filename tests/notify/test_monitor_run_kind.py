@@ -25,6 +25,18 @@ def _monitor_dir(tmp_path: Path) -> Path:
 def test_monitor_success_when_monitor_json_present(tmp_path: Path) -> None:
     out = _monitor_dir(tmp_path)
     (out / "monitor.json").write_text("{}", encoding="utf-8")
+    # Task 8: _build_outcome now attaches a health digest for run_kind="monitor",
+    # read from these two companion artifacts. A truly-absent eval_trace.json /
+    # fund_flow_series.json is health_unknown (warn) by design (spec AC5), which
+    # would escalate this test's assertion away from "clean" — so seed a
+    # trivially-healthy (empty) shape for both, isolating this test to its own
+    # concern (the monitor.json sentinel, not health gathering).
+    (out / "eval_trace.json").write_text(
+        '{"board_pe_freshness": {"state": "FRESH"}, "funds": {}}', encoding="utf-8"
+    )
+    dd = tmp_path / "data" / "monitor"
+    dd.mkdir(parents=True)
+    (dd / "fund_flow_series.json").write_text("{}", encoding="utf-8")
     outcome = _build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
     decision = classify_run_outcome(outcome, notify_on_clean=True)
     assert decision.severity == "clean"

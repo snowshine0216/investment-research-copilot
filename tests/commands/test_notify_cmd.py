@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -12,6 +13,7 @@ from click.testing import CliRunner
 
 from irc.cli import main
 from irc.commands import notify_cmd
+from irc.notify.classify import classify_run_outcome
 from irc.notify.types import NotificationDecision
 
 # ---- shell script paths ----
@@ -366,3 +368,175 @@ def test_lib_run_sh_defines_both_functions():
     text = (_OPS / "lib-run.sh").read_text(encoding="utf-8")
     assert "acquire_lock()" in text, "lib-run.sh must define acquire_lock()"
     assert "run_with_watchdog()" in text, "lib-run.sh must define run_with_watchdog()"
+
+
+# ---- Task 8: edge health gathering per run-kind + flow-capture outcome ----
+
+_HFIX = Path(__file__).parents[1] / "notify" / "fixtures" / "health"
+
+
+def _read_fix(name: str) -> str:
+    return (_HFIX / name).read_text(encoding="utf-8")
+
+
+def _seed_monitor(root: Path, day: str, trace: str = "eval_trace.json") -> None:
+    md = root / "outputs" / day / "monitor"
+    md.mkdir(parents=True)
+    (md / "monitor.json").write_text("{}", encoding="utf-8")
+    (md / "eval_trace.json").write_text(_read_fix(trace), encoding="utf-8")
+    dd = root / "data" / "monitor"
+    dd.mkdir(parents=True)
+    (dd / "fund_flow_series.json").write_text(_read_fix("fund_flow_series.json"), encoding="utf-8")
+
+
+def _seed_rotation(root: Path, day: str, fixture: str) -> None:
+    rot = root / "outputs" / day / "rotation"
+    rot.mkdir(parents=True)
+    (rot / "rotation_radar.json").write_text(_read_fix(fixture), encoding="utf-8")
+
+
+def _flow_store_rolled_to(day: str) -> str:
+    """Real fund_flow_series fixture, dates rolled so its newest row lands on `day`.
+
+    Production-shaped rows (30 symbols, real magnitudes) — only the calendar is
+    shifted by a constant delta, preserving the fixture's real per-symbol lag
+    pattern (29/30 at the newest date) so coverage stays realistic regardless
+    of which date a test pins as "today".
+    """
+    raw = json.loads(_read_fix("fund_flow_series.json"))
+    all_dates = [
+        row[0] for rows in raw.values() for row in rows if isinstance(row, (list, tuple)) and row
+    ]
+    delta = date.fromisoformat(day) - max(date.fromisoformat(d) for d in all_dates)
+    shifted = {
+        sym: [[(date.fromisoformat(d) + delta).isoformat(), v] for d, v in rows]
+        for sym, rows in raw.items()
+    }
+    return json.dumps(shifted)
+
+
+def _seed_flow_store(root: Path, day: str) -> None:
+    dd = root / "data" / "monitor"
+    dd.mkdir(parents=True, exist_ok=True)
+    (dd / "fund_flow_series.json").write_text(_flow_store_rolled_to(day), encoding="utf-8")
+
+
+def test_build_monitor_health_attaches_digest(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _seed_monitor(tmp_path, "2026-07-07")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
+    assert outcome.health is not None
+    texts = " · ".join(i.text for i in outcome.health.items)
+    assert "板块PE: STALE-1" in texts
+    assert "滞后>3td" in texts
+
+
+def test_build_monitor_health_dark_degrades(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _seed_monitor(tmp_path, "2026-07-07", trace="eval_trace_dark.json")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.severity == "degraded"
+    assert d.should_notify is True
+    assert "DARK" in d.body
+
+
+def test_build_monitor_health_corrupt_trace_is_unknown(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    md = tmp_path / "outputs" / "2026-07-07" / "monitor"
+    md.mkdir(parents=True)
+    (md / "monitor.json").write_text("{}", encoding="utf-8")
+    (md / "eval_trace.json").write_text("{bad json", encoding="utf-8")
+    (tmp_path / "data" / "monitor").mkdir(parents=True)
+    (tmp_path / "data" / "monitor" / "fund_flow_series.json").write_text("{}", encoding="utf-8")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
+    d = classify_run_outcome(outcome)
+    assert "health unknown" in d.body
+
+
+def test_build_weekly_health_dxy_stale(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    out = tmp_path / "outputs" / "2026-07-07"
+    out.mkdir(parents=True)
+    (out / "decision_report.json").write_text(
+        json.dumps({"summary": {"actionable_buy_count": 0, "trim_count": 0,
+                                 "exit_count": 0, "review_count": 0}}), encoding="utf-8")
+    (out / "gold_regime.json").write_text(_read_fix("gold_regime.json"), encoding="utf-8")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="weekly", last_exit_code=0)
+    d = classify_run_outcome(outcome)
+    assert "DXY 滞后 21d" in d.body
+
+
+def test_flow_capture_abstain_is_degraded(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 5))
+    _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_abstain.json")
+    _seed_flow_store(tmp_path, "2026-07-05")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.severity == "degraded"
+    assert "弃权" in d.body and "连续第 1 日" in d.body
+
+
+def test_flow_capture_recovery_notice(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 6))
+    _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_abstain.json")
+    _seed_rotation(tmp_path, "2026-07-06", "rotation_radar_ok.json")
+    _seed_flow_store(tmp_path, "2026-07-06")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    assert outcome.recovery_notice == "轮动雷达恢复 ok (200 boards) — 此前弃权 1 日"
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.severity == "clean"
+    assert d.should_notify is True
+
+
+def test_flow_capture_silent_when_ok_after_ok(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 6))
+    _seed_rotation(tmp_path, "2026-07-05", "rotation_radar_ok.json")
+    _seed_rotation(tmp_path, "2026-07-06", "rotation_radar_ok.json")
+    _seed_flow_store(tmp_path, "2026-07-06")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.should_notify is False  # ok-after-ok, no recovery, no page
+
+
+def test_flow_capture_missing_radar_is_failed(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 5))
+    (tmp_path / "outputs" / "2026-07-05").mkdir(parents=True)  # dir but no rotation_radar.json
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    d = classify_run_outcome(outcome)
+    assert d.severity == "failed"
+
+
+def test_flow_capture_missing_flow_store_is_unknown(tmp_path, monkeypatch):
+    """P0 (ship step-8): missing/corrupt flow store must surface health_unknown,
+    never silently vanish (spec §3.3) — an OK radar alone must not mask it."""
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _seed_rotation(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    # No data/monitor/fund_flow_series.json seeded at all.
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    assert any(i.code == "health_unknown" for i in outcome.health.items)
+    d = classify_run_outcome(outcome, notify_on_clean=False)
+    assert d.severity == "degraded"
+    assert "health unknown" in d.body
+
+
+def test_flow_capture_coverage_counts_newest_equal_today():
+    flow = {"A": [["2026-07-07", 1.0]], "B": [["2026-07-06", 2.0]], "C": [["2026-07-07", 3.0]]}
+    assert notify_cmd._flow_capture_coverage(flow, date(2026, 7, 7)) == (2, 3)
+
+
+def test_notify_status_run_kind_lists_flow_capture():
+    result = CliRunner().invoke(main, ["notify-status", "--help"])
+    assert "flow-capture" in result.output
+
+
+def test_notify_status_flow_capture_missing_dir_exits_zero(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 5))
+    monkeypatch.setattr(notify_cmd, "_send_macos", lambda d: None)  # no real osascript
+    monkeypatch.delenv("IRC_FEISHU_WEBHOOK_URL", raising=False)
+    result = CliRunner().invoke(
+        main,
+        ["notify-status", "--run-kind", "flow-capture", "--last-exit-code", "0",
+         "--repo-root", str(tmp_path), "--no-notify-on-clean"],
+    )
+    assert result.exit_code == 0, result.output
