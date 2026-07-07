@@ -170,3 +170,8 @@ Triage 2026-07-05 (post-#206 merge): **do now** = ~~F7 → first seed~~ **resolv
   predates the branch and fixing it there would be scope creep past the locked plan.
   **Pick up when:** next notify-vertical change, or immediately via the spawned task chip
   (broaden the except + regression tests for both cases).
+- **`_recent_rotation_statuses` unbounded `outputs/` scan** — the 15:45 notify tail
+  iterates every date dir under `outputs/` and sorts, just to take the newest 5; O(n)
+  in repo lifetime (ship step-8 P1, 2026-07-07). Harmless at today's scale.
+  **Pick up when:** outputs/ passes ~1000 date dirs or the notify tail shows up in any
+  latency trace (fix: bounded reverse-sorted scandir with early break).
