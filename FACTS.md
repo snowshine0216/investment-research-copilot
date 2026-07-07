@@ -7,8 +7,10 @@
 >
 > **Live-incident entries carry a date and a verification command, and must be re-verified
 > before being acted on.** A line describing a *transient* condition — a geo-block, an
-> outage, a "currently unset / currently set" env var, a "currently blocked" egress plane —
-> rots fast: the F8 board-plane entry below went stale **within 2 days** (written
+> outage, a "currently unset / currently set" env var (re-verify any such claim with
+> `grep -oE '^NAME=' .env`, substituting the real var name — names only, never values), a
+> "currently blocked" egress plane — rots fast: the F8 board-plane entry below went stale
+> **within 2 days** (written
 > "hard-blocked", already superseded by a 2026-07-06 seed success at review time). Treat any
 > dated live-incident line as a hypothesis, not a fact — run its cited one-liner (the
 > `uv run python -c …` / CN-egress probes already in this file are the pattern) and trust the
