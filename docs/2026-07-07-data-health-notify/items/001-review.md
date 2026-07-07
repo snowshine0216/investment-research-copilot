@@ -20,4 +20,4 @@ Verdict "BREAKS" → triaged: the P0 (`_read_summary` catches only JSONDecodeErr
 
 ## Codex secondary (step 9 optional)
 
-Appended on completion below.
+No result: the installed codex CLI rejected the workflow's `--quiet`/`--search` flags, and the plain `codex exec` invocation produced no output in ~20 minutes and was killed. Optional step — the three primary reviewers (code-reviewer, silent-failure-hunter, adversarial) plus the independent /code-review PR pass (items/001-pr-review.md) stand as the review record.

@@ -2,7 +2,12 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | ✅ #210 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | ✅ #210 | ✅ | ✅ | ✅ | ✅ 0 rounds | 🔄 |
+
+- verify ✅ `items/001-verify.md` (PASS, commit `3e1e732f` — AC1–AC6 exercised live in-dispatch; AC1 severity honestly `degraded` per judgment call #2)
+- review ✅ `items/001-review.md` (PASS-WITH-NITS, ship steps 8+9; in-branch P0 fixed `2e7d473e` pre-push; codex secondary: no output, killed — optional)
+- pr-review ✅ `items/001-pr-review.md` (PASS-WITH-NITS, commit `f05f8e10`; comment https://github.com/snowshine0216/investment-research-copilot/pull/210#issuecomment-4903084986; 2 new nits — empty-`{}` flow store treated as nothing-to-check, duplicate radar read — recorded there, non-blocking)
+- fix ✅ 0 rounds — loop exit contract satisfied on first pass (verify PASS + review PASS-WITH-NITS + pr-review PASS-WITH-NITS, zero blockers/latent/high-confidence bugs)
 
 PR: https://github.com/snowshine0216/investment-research-copilot/pull/210 (base autodev/data-health-notify-feature) · review: items/001-review.md PASS-WITH-NITS (ship steps 8+9; in-branch P0 fixed 2e7d473e pre-push)
 
