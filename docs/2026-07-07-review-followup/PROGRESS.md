@@ -6,7 +6,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence in cell/footnote) 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 004 | ✅ᵃ | ✅ᵇ | ✅`468a8f0d` | ✅ claude/review-followup-004 | ✅`75a2b66e`ᶜ | ✅ | ✅ [#208](https://github.com/snowshine0216/investment-research-copilot/pull/208)ᵈ | ⏭️ | ✅ᵉ | ✅ᵈ | ✅ᵉ | ✅ 0 rounds | ✅ `76359c69` |
-| 005 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 005 | ✅`4ecf3b97` | ✅`8999770e`+`6127e663` | ✅`4b22f02f` | ✅ claude/review-followup-005 | ✅`d84c7b9c` | ✅`4e5f80a1` | ✅ [#209](https://github.com/snowshine0216/investment-research-copilot/pull/209) | ⏭️ | ✅`1311d81b` | ✅ PASS-W-NITS | ✅`de3000bf` | ✅ 1 roundᶠ | ✅ `6dc5d83b` |
 | 001 | ⏭️¹ | ⏭️¹ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏭️² | ⏭️² | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏭️³ | ⏭️³ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -26,6 +26,8 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 ᵈ 004 ship: PR #208 into feature branch; drift `items/004-drift.md` PASS; review `items/004-review.md` PASS-WITH-NITS (source /ship steps 8+9; 2 P1s fixed in-branch `b37bc4cb`, 2 nits deferred/noted); ship artifact `items/004-ship.md`; VERSION unchanged per repo convention.
 
 ᵉ 004 post-ship: verify `items/004-verify.md` PASS (independent offline replay re-run, invariants reproduced, no false-alarm warnings); pr-review `items/004-pr-review.md` PASS-WITH-NITS (/code-review, 3 nits all pre-triaged; no PR comment — no GitHub connector, inline findings captured); Codex secondary: findings none. Fix loop: 0 rounds. Merged squash `76359c69`, sub-branch deleted.
+
+ᶠ 005: ship reviews fixed 2 findings in-branch pre-push (`77426054`: unresolved-chunk-symbol warning + chunk_size=0 clamp); post-ship voluntary fix round (`c9bfdde5`: resolved-accounting aligned to merge_seen stripped-truthy gate + CHANGELOG). Deferred nits pre-triaged: cliff-burst = R-5 (002-c registers), skipped-count = grill Q6 locked, clamp-log = R-11. Codex secondary: no incident-grade findings. Merged squash `6dc5d83b`.
 
 ## Run-level
 
