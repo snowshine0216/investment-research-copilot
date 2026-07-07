@@ -41,9 +41,27 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 
 | gate | status |
 |------|--------|
-| run-doc-sync | ⏳ |
-| run-final-verify | ✅ PASS `docs/2026-07-07-review-followup/run-final-verify.md` |
-| close-out (feature-branch PR opened, not merged) | ⏳ |
+| run-doc-sync | ✅ PASS after 1 fix round (`aa36e5b2` closed the flow-capture-coverage + seed-hardening doc gaps; FAIL→PASS `cc86ac26`; CONTEXT/ADR untouched per locked rule) |
+| run-final-verify | ✅ PASS `docs/2026-07-07-review-followup/run-final-verify.md` (offline candidates replay 0→38; real notify-status subprocess degraded+弃权; guard 9/9; CLI sanity) |
+| close-out (feature-branch PR opened, not merged) | ✅ see final block |
+
+## Final block — run complete 2026-07-07
+
+**Items merged: 5/5** — [#208](https://github.com/snowshine0216/investment-research-copilot/pull/208) (004, `76359c69`) · [#209](https://github.com/snowshine0216/investment-research-copilot/pull/209) (005, `6dc5d83b`) · [#212](https://github.com/snowshine0216/investment-research-copilot/pull/212) (001, `ecf264f6`) · [#213](https://github.com/snowshine0216/investment-research-copilot/pull/213) (002, `803e0415`) · [#214](https://github.com/snowshine0216/investment-research-copilot/pull/214) (003, `d47388e8`). Skipped: 0 (SKIPPED.md holds only user-locked out-of-scope). Blocked: 0.
+
+**Phase 3:** workflow-completeness audit 5/5 all artifacts + verdicts (grill ⏭️×3 documented user overrides); run test sweep 244 green across every touched surface, run-diff ruff clean; doc-sync PASS after 1 fix round; final-verify PASS.
+
+**Deviation roll-up (from items/*-notes.md):**
+- All plan deviations were spec-faithful corrections, independently re-judged at drift/review time (001's G-Q5 guard, T4 fixture enrichment; 004's docstring fold-in; none reverted).
+- Intent-adjacent orchestrator decisions → UNKNOWNS.md queue: DXY TODOS registration beyond 002-c's literal list; 002-b single-owner enforced per the "lives ONLY in" wording; 003 rule-wording rewrites (meaning preserved); grill ⏭️ on 001/002/003 per user pre-completion.
+- The review stack caught real bugs at every layer: /ship steps 8+9 (001 adversarial BREAKS — 4 fixed), /code-review (003 FAIL — 3 fixed), Codex secondary (001 spec-gap flow-capture coverage check + false-recovery regression; 002 guard-coverage hole + F1 contradiction). No layer was redundant this run.
+- Process traps survived: one implementer killed mid-task by an API server error (resumed via SendMessage, zero loss); the 004 merge's local "Aborting" was gh's branch-cleanup on a dirty tree, PR had merged fine.
+
+**Feature branch:** autodev/review-followup-feature
+**Feature-branch PR:** (see below — opened, not merged)
+**Merged into protected branch: no** (PR left open for user review)
+
+**Follow-ups for the user:** (1) PR #211 (`autodev/data-health-notify-feature`, the ABORTED prior data-health session) is still OPEN and superseded by #212 — close it and prune its stale worktree `.claude/worktrees/data-health-notify` (plus the two detached-HEAD worktrees) when convenient; (2) QUIZ.md pending (UNKNOWNS queue); (3) TODOS now registers all review deferrals — R-5 (paced seed) is the next time-sensitive one before the ~2026-08-05 staleness cliff.
 
 ## Log
 
