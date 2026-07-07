@@ -35,10 +35,32 @@ def test_readme_eval_schema_matches_code():
     assert "schema 6" not in text, "README.md still carries the stale 'schema 6'"
 
 
+def test_readme_engine_matches_code():
+    text = _read("README.md")
+    assert f"Engine {ENGINE}" in text, f"README.md must state 'Engine {ENGINE}'"
+    assert "Engine 3" not in text and "engine-3" not in text, "README.md stale engine-3 ref"
+
+
 def test_docs_monitor_readme_engine_matches_code():
     text = _read("docs/monitor/README.md")
     assert f"engine {ENGINE}" in text, f"docs/monitor/README.md must state 'engine {ENGINE}'"
     assert "engine-3" not in text and "engine 3" not in text, "stale engine-3 ref"
+
+
+def test_docs_monitor_readme_schema_matches_code():
+    text = _read("docs/monitor/README.md")
+    assert f"schema {SCHEMA}" in text, f"docs/monitor/README.md must state 'schema {SCHEMA}'"
+    assert "schema 6" not in text, "docs/monitor/README.md still carries the stale 'schema 6'"
+
+
+def test_evals_readme_schema_matches_code():
+    text = _read("evals/README.md")
+    assert f'schema_version "{SCHEMA}"' in text, (
+        f'evals/README.md must state schema_version "{SCHEMA}"'
+    )
+    assert 'schema_version "6"' not in text, (
+        "evals/README.md still carries the stale schema_version \"6\""
+    )
 
 
 def test_monitor_workflow_diagram_matches_code():
