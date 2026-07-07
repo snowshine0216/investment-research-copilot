@@ -15,20 +15,39 @@ _EXIT_LABELS: dict[int, str] = {
     124: "timeout",  # P0-3: watchdog killed the pipeline after IRC_RUN_TIMEOUT
 }
 
-_ALWAYS_NOTIFY = {"failed", "halted", "stale", "action"}
+_ALWAYS_NOTIFY = {"failed", "halted", "stale", "degraded", "action"}
 
 
 def classify_run_outcome(
     outcome: RunOutcome, *, notify_on_clean: bool = True
 ) -> NotificationDecision:
     """Map a RunOutcome to a NotificationDecision in fixed precedence."""
-    severity, title, body = _decide(outcome)
-    should_notify = severity in _ALWAYS_NOTIFY or (
-        severity == "clean" and notify_on_clean
+    severity, title, body = _apply_health(outcome, _decide(outcome))
+    should_notify = (
+        outcome.force_notify
+        or severity in _ALWAYS_NOTIFY
+        or (severity == "clean" and notify_on_clean)
     )
     return NotificationDecision(
         should_notify=should_notify, severity=severity, title=title, body=body
     )
+
+
+def _apply_health(
+    outcome: RunOutcome, base: tuple[str, str, str]
+) -> tuple[str, str, str]:
+    """Append health lines to the body; escalate clean/action → degraded on a
+    warning. failed/halted/stale keep their severity but still show what was
+    already degraded (spec §3.2)."""
+    base_sev, title, body = base
+    health = outcome.health
+    if health is None or not health.items:
+        return base
+    body = f"{body} · " + " · ".join(item.text for item in health.items)
+    if health.has_warnings and base_sev in ("clean", "action"):
+        title = "IRC data degraded" if base_sev == "clean" else title
+        return ("degraded", title, body)
+    return (base_sev, title, body)
 
 
 def _decide(outcome: RunOutcome) -> tuple[str, str, str]:

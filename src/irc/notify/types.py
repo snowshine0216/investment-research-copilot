@@ -9,8 +9,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Severity = Literal["failed", "halted", "stale", "action", "clean"]
-RunKind = Literal["daily", "weekly", "monitor"]
+from irc.notify.health import HealthDigest
+
+Severity = Literal["failed", "halted", "stale", "degraded", "action", "clean"]
+RunKind = Literal["daily", "weekly", "monitor", "flow-capture"]
 
 
 @dataclass(frozen=True)
@@ -38,6 +40,11 @@ class RunOutcome:
     # accelerate_dca vs. the prior run) — from decision_report.json summary.
     promotion_count: int = 0
     promotion_ids: tuple[str, ...] = ()
+    # Data-health digest derived at the notify edge (ADR 0016 amendment). None
+    # keeps every pre-existing call site + test valid. `force_notify` lets the
+    # 15:45 abstain→ok recovery notice page despite a clean severity.
+    health: HealthDigest | None = None
+    force_notify: bool = False
 
 
 @dataclass(frozen=True)
