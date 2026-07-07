@@ -7,7 +7,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence in cell/footnote) 
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
 | 004 | ✅ᵃ | ✅ᵇ | ✅`468a8f0d` | ✅ claude/review-followup-004 | ✅`75a2b66e`ᶜ | ✅ | ✅ [#208](https://github.com/snowshine0216/investment-research-copilot/pull/208)ᵈ | ⏭️ | ✅ᵉ | ✅ᵈ | ✅ᵉ | ✅ 0 rounds | ✅ `76359c69` |
 | 005 | ✅`4ecf3b97` | ✅`8999770e`+`6127e663` | ✅`4b22f02f` | ✅ claude/review-followup-005 | ✅`d84c7b9c` | ✅`4e5f80a1` | ✅ [#209](https://github.com/snowshine0216/investment-research-copilot/pull/209) | ⏭️ | ✅`1311d81b` | ✅ PASS-W-NITS | ✅`de3000bf` | ✅ 1 roundᶠ | ✅ `6dc5d83b` |
-| 001 | ⏭️¹ | ⏭️¹ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️¹ | ⏭️¹ | ✅`0ca3f516` | ✅ claude/review-followup-001 | ✅`57b41fe2`ᵍ | ✅`f9b5d297` | ✅ [#212](https://github.com/snowshine0216/investment-research-copilot/pull/212) | ⏭️ | ✅`3a7f1ab0`+addendum | ✅ PASS-W-NITSʰ | ✅ PASS-W-NITS | ✅ 3 roundsʰ | ✅ `ecf264f6` |
 | 002 | ⏭️² | ⏭️² | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 003 | ⏭️³ | ⏭️³ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
@@ -28,6 +28,9 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 ᵉ 004 post-ship: verify `items/004-verify.md` PASS (independent offline replay re-run, invariants reproduced, no false-alarm warnings); pr-review `items/004-pr-review.md` PASS-WITH-NITS (/code-review, 3 nits all pre-triaged; no PR comment — no GitHub connector, inline findings captured); Codex secondary: findings none. Fix loop: 0 rounds. Merged squash `76359c69`, sub-branch deleted.
 
 ᶠ 005: ship reviews fixed 2 findings in-branch pre-push (`77426054`: unresolved-chunk-symbol warning + chunk_size=0 clamp); post-ship voluntary fix round (`c9bfdde5`: resolved-accounting aligned to merge_seen stripped-truthy gate + CHANGELOG). Deferred nits pre-triaged: cliff-burst = R-5 (002-c registers), skipped-count = grill Q6 locked, clamp-log = R-11. Codex secondary: no incident-grade findings. Merged squash `6dc5d83b`.
+
+ᵍ 001 impl: SDD 7 tasks + 2 in-loop review-fix rounds (weekly cold-machine health_unknown `4c8b739c`; monitor-README contradiction `8976b484`); one implementer recovered from a mid-task API error via SendMessage resume; deviations all spec-faithful (items/001-notes.md); runtime proof AC1-AC5 `items/001-runtime-proof.md`.
+ʰ 001 post-ship: /ship reviews found 4 real issues (adversarial BREAKS) → fixed `690eb0ea` → adversarial re-verified CLEAN. pr-review nit (5th shape sibling) → `fb9316da`. Codex secondary found 2 MORE real issues: spec-gap flow-capture coverage check (plan under-wired spec line 89 — plan-vs-spec hole invisible to drift) + corrupt-today-radar false-recovery regression → both fixed `d9a06161` with CLI-level proof. All verdict files carry addenda. Merged squash `ecf264f6`.
 
 ## Run-level
 
