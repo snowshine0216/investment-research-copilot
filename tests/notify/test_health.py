@@ -103,3 +103,29 @@ def test_monitor_health_total_on_corrupt_flow():
                         today=_TODAY, holidays=frozenset())
     assert dg.items[0].code == "health_unknown"
     assert dg.has_warnings
+
+
+def test_monitor_flow_coverage_floor_alone():
+    # Isolate the coverage-floor half of the run-level OR: newest date across
+    # the store equals today's previous trading day (no date lag), but only
+    # 5/30 symbols carry that newest date (well under the 80% floor).
+    raw = _load("fund_flow_series.json")
+    syms = sorted(raw)
+    fresh, rest = syms[:5], syms[5:]
+    flow = {
+        **{s: [r for r in raw[s] if r[0] <= "2026-07-06"] for s in fresh},
+        **{s: [r for r in raw[s] if r[0] <= "2026-06-20"] for s in rest},
+    }
+    dg = monitor_health(_load("eval_trace.json"), flow, today=_TODAY, holidays=frozenset())
+    fl = [i for i in dg.items if i.code == "flow_stale"]
+    assert fl and fl[0].level == "warn"
+    assert fl[0].text == "资金流: 最新 07-06 (滞后 1td), 覆盖 5/30"
+
+
+def test_monitor_health_total_on_corrupt_trace():
+    # A malformed trace (not a dict) must degrade to health_unknown, never raise,
+    # even with a fully valid flow_store.
+    dg = monitor_health("oops", _load("fund_flow_series.json"),
+                        today=_TODAY, holidays=frozenset())
+    assert dg.items == (health_unknown().items[0],)
+    assert dg.has_warnings

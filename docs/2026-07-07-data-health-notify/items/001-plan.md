@@ -541,6 +541,8 @@ git add src/irc/notify/health.py tests/notify/test_health.py
 git commit -m "feat(notify): monitor_health — board-PE + flow recency + signal digest"
 ```
 
+**Amendment (Task-4 review):** two coverage-hardening tests added beyond the locked test list — `test_monitor_flow_coverage_floor_alone` (isolates the <80% coverage branch of the run-level OR) and `test_monitor_health_total_on_corrupt_trace` (total-function guarantee for a malformed trace, complementing the corrupt-flow_store case). Reviewer-driven; no production-code change.
+
 ---
 
 ## Task 5: `rotation_health` builder (+ `_abstain_streak`)
