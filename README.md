@@ -245,14 +245,14 @@ single-instance lock, a wall-clock watchdog, and per-run logs under
 `outputs/_logs/`; outcomes page via `irc notify-status` (macOS always, Feishu when
 `IRC_FEISHU_WEBHOOK_URL` is set).
 
-The **authoritative schedule table** (exact times, gates, locks, watchdogs) lives in [`ops/launchd/README.md`](ops/launchd/README.md) — the summary below links to it, never diverges from it.
+The **authoritative schedule table** (exact times, gates, locks, watchdogs, notify semantics) lives ONLY in [`ops/launchd/README.md`](ops/launchd/README.md) — the summary below is a cadence pointer, never a second source of truth.
 
-| Agent | Schedule (Asia/Shanghai) | What it runs |
+| Agent | Schedule (Asia/Shanghai) | Purpose |
 |---|---|---|
-| `com.irc.monitor` | Daily 12:15 (weekend/CN-holiday skip; `monitor.json` idempotency sentinel) | `irc monitor` + `notify-status --run-kind monitor` |
-| `com.irc.flow-capture` | Daily 15:45, after the 15:00 close | `irc monitor flow-capture` → **chains `irc rotation`** (sector-rotation radar, ADR 0023, advisory-only); best-effort data-health notify: silent-on-ok, pages on rotation abstain/degradation, one-time abstain→ok recovery notice |
-| `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | `irc monitor snapshot` (protective watchdog, no page) |
-| `com.irc.weekly` | Saturday 09:00 (`decision_report.json` idempotency sentinel) | full `irc run` + `notify-status --run-kind weekly` — pages on failure/halt/action, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
+| `com.irc.monitor` | Daily 12:15 | Daily brief (`irc monitor`) + notify |
+| `com.irc.flow-capture` | Daily 15:45 | Capital-flow capture → chained `irc rotation` (ADR 0023) |
+| `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | Refreshes the typed constituent caches valuation/constituent factors read |
+| `com.irc.weekly` | Saturday 09:00 | Full `irc run` + notify, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
 
 ```bash
 bash ops/launchd/install.sh             # install all four agents (+ one-time cold-start snapshot)

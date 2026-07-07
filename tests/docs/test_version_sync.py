@@ -48,6 +48,16 @@ def test_monitor_workflow_diagram_matches_code():
     assert "engine-3" not in text and "engine 3" not in text, "diagram stale engine-3"
 
 
+def test_monitor_workflow_diagram_batch_industry_field_is_f100():
+    """The ulist.np batch flow-capture call's industry field is f100, not f127
+    (flow_batch_fetch.py: f127 is numeric there; 行业 rides on f100 — the correct
+    f127 belongs only to the per-symbol stock/get fallback, not this batch call)."""
+    text = _read("docs/diagrams/monitor-workflow.html")
+    assert "f184+f100" in text, "diagram must depict the ulist.np batch call as f184+f100, not f127"
+    assert "f100 store merge" in text, "diagram must depict the batch job's industry-map merge as f100, not f127"
+    assert "f127" not in text, "diagram must not claim f127 for the batch-industry field"
+
+
 def test_rotation_report_docstring_matches_constants():
     """Self-consistency: report.py module docstring numbers == the constants."""
     text = _read("src/irc/rotation/report.py")

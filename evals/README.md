@@ -143,10 +143,17 @@ M2 hardens the deterministic core **without adding an `irc eval` stage or a new 
 eval registry stage, no additional gating stage"). Two deliverables:
 
 - **D1 — offline property + hybrid-oracle suite** (pytest, under [`tests/monitor/`](../tests/monitor/),
-  *not* an `irc eval` stage). A `hypothesis` (derandomized) suite over the seven pure scorers
-  (`compute_signal`, `build_factor_scores`, `trend_score`, `valuation_state_score`, `heat_score`,
-  `aggregate_news_factor`, `aggregate_flow`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence,
-  band boundaries and reproducibility across the input space. An **independent oracle**
+  *not* an `irc eval` stage) over the seven pure scorers (`compute_signal`, `build_factor_scores`,
+  `trend_score`, `valuation_state_score`, `heat_score`, `aggregate_news_factor`, `aggregate_flow`),
+  asserting monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence, band boundaries and
+  reproducibility across the input space. Six of the seven carry a `hypothesis` (derandomized)
+  `@given` property suite — `compute_signal` ([`test_signal_property.py`](../tests/monitor/test_signal_property.py)),
+  `build_factor_scores` ([`test_factors_property.py`](../tests/monitor/test_factors_property.py)),
+  `trend_score` ([`test_trend_property.py`](../tests/monitor/test_trend_property.py)),
+  `valuation_state_score` + `heat_score` ([`test_factor_maps_oracle.py`](../tests/monitor/test_factor_maps_oracle.py)),
+  and `aggregate_news_factor` ([`test_news_factor_property.py`](../tests/monitor/test_news_factor_property.py));
+  `aggregate_flow` is example-tested only, in
+  [`test_holding_metrics.py`](../tests/monitor/test_holding_metrics.py). An **independent oracle**
   (`tests/monitor/_oracle.py`, test-only) is written **only** where a genuinely different formulation
   exists (composite/renorm Σw′·s, gate predicate, band classifier, valuation/heat decision tables);
   direct formula-transcriptions get properties only. (`aggregate_news_factor`'s value is the clamped

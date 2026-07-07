@@ -34,20 +34,34 @@ funds + 1 gold (008986) + 1 `qdii_global` (270023) + 1 `qdii_china_us_internet`
 
 ## Daily process (automated)
 
-Four launchd agents (installed via `bash ops/launchd/install.sh`, runbook:
-[`ops/launchd/README.md`](../../ops/launchd/README.md)) — the weekly one is
-covered in [Weekly process](#weekly-process); the daily/quarterly three:
+Four launchd agents (installed via `bash ops/launchd/install.sh`) run the
+pipeline unattended; the weekly one is covered in
+[Weekly process](#weekly-process). **The authoritative schedule** (exact
+times, gates, locks, watchdogs, notify semantics) **lives only in
+[`ops/launchd/README.md`](../../ops/launchd/README.md)** — the table below is
+a cadence summary, not a second source of truth.
 
-| Time (Asia/Shanghai) | Agent | What runs |
+| Time (Asia/Shanghai) | Agent | Purpose |
 |---|---|---|
-| 12:15 daily | `com.irc.monitor` | `irc monitor` → `irc notify-status --run-kind monitor`. Wrapper skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `outputs/<date>/monitor/monitor.json` exists; single-instance lock; 30-min watchdog (timeout pages as `rc=124`). |
-| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f100`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f100` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog (the watchdog itself doesn't page — a capture timeout rc=124 pages `failed` via the notify tail below). **Never run manually before the 15:00 close** — the manual path is unguarded. Then runs `irc rotation` (sector rotation radar, ADR 0023) — advisory-only, protective (non-zero radar exit is logged and never changes the flow-capture rc; a rotation abstain/crash surfaces via the notify tail below). **Data-health notify (2026-07-07):** the 15:45 job now ends with a best-effort `notify-status --run-kind flow-capture --no-notify-on-clean` — silent when the chain is fully ok, pages on rotation `abstain`/`degraded_*` (with a `连续第 N 日` counter) or a capture failure, and fires a one-time `轮动雷达恢复 ok` notice on the abstain→ok transition. |
-| 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | `irc monitor snapshot` — refreshes the typed per-fund constituent caches the valuation/constituent factors read. Protective 60-min watchdog, no page (a lapse surfaces as N/A factors in the next brief). |
+| 12:15 daily | `com.irc.monitor` | Daily brief (`irc monitor`) + notify. No same-day retry on failure — re-run `uv run irc monitor` by hand. |
+| 15:45 daily | `com.irc.flow-capture` | Capital-flow capture → chained `irc rotation`; see [What the 15:45 run does](#what-the-1545-flow-capture-run-does) below. |
+| 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | Refreshes the typed per-fund constituent caches the valuation/constituent factors read. |
 
-The 12:15 slot is after the CN morning session closes, leaving the 15:00 close
-ahead for same-day decisions. There is **no same-day retry**: a failed 12:15 run
-pages immediately but the next automatic attempt is tomorrow — re-run
-`uv run irc monitor` by hand if you want today's brief.
+The 12:15 slot is after the CN morning session closes, leaving the 15:00
+close ahead for same-day decisions.
+
+### What the 15:45 flow-capture run does
+
+One batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f100`)
+appends today's **completed-day** capital-flow row to
+`data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day
+retention) and merges the `f100` 行业 names into
+`data/monitor/stock_industry_map.json`; it then best-effort refreshes the
+board-PE day cache in the rested window (so next morning's stale fallback is
+at worst 1 day old). **Never run this manually before the 15:00 close** — the
+manual path is unguarded. Watchdog/lock/notify semantics (incl. the
+data-health notify on rotation abstain/degradation):
+[`ops/launchd/README.md`](../../ops/launchd/README.md).
 
 ### What one 12:15 run does
 
