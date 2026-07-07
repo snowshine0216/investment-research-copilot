@@ -130,3 +130,7 @@ macOS banner); wrapper wiring confirmed statically; regression suite green. AC6 
 was spot-checked by grep (ADR 0016 §7 amendment present; `ops/launchd/README.md`,
 `docs/monitor/README.md`, root `README.md` all mention the flow-capture notify tail) but not
 exhaustively diffed — outside this dispatch's explicit step list.
+
+## Addendum (2026-07-07, post-verify fix rounds 2-3)
+
+Commits `fb9316da` + `d9a06161` landed after this verdict (pr-review nit + Codex findings). Each carries TDD RED→GREEN + a CLI-level subprocess proof for the new flow-capture coverage path (staged 7/30 store → `degraded · flow-capture: 7/30`, notify True). Orchestrator gate re-run at merge time: test_health.py 25, test_notify_cmd.py 43, test_launchd_flow_capture.py 4 — all green. Verdict unchanged: PASS.
