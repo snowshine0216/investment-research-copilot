@@ -5,6 +5,7 @@ as codes) is asserted to yield 0 candidates — the regression guard for R-1."""
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from irc.monitor.industry_map_store import fresh_slice, load_store, record_seen
@@ -76,3 +77,42 @@ def test_prefix_names_as_codes_yield_zero_candidates(tmp_path):
     cands_pre, _ = rank_candidates(rows_pre, states, discovered_watchlist=frozenset(),
                                    monitor_set=frozenset(), held=frozenset())
     assert len(cands_pre) == 0
+
+
+def test_resolve_candidates_warns_on_dropped_name_translation(tmp_path, caplog):
+    """review-followup-004 finding 1: a store name absent from every BoardState.
+    board_name must warn once with the drop count + a small name sample —
+    the join must not degrade silently."""
+    _write_holdings(tmp_path)
+    map_path = tmp_path / "data" / "monitor" / "stock_industry_map.json"
+    map_path.parent.mkdir(parents=True)
+    record_seen(map_path, TODAY, {"600519": "白酒", "000858": "白酒", "300750": "新能源"})
+    states = (_state("BK0477", "白酒", "hot"),)
+    membership = (frozenset(), frozenset(), frozenset())
+
+    with caplog.at_level(logging.WARNING, logger="irc.rotation._cmd_helpers"):
+        resolve_candidates(tmp_path, states, membership, today=TODAY)
+
+    dropped = [r for r in caplog.records if "dropped" in r.getMessage()]
+    assert len(dropped) == 1, "exactly one warning for the whole run, not per-symbol"
+    msg = dropped[0].getMessage()
+    assert "1" in msg
+    assert "新能源" in msg
+
+
+def test_resolve_candidates_warns_on_duplicate_board_name(tmp_path, caplog):
+    """review-followup-004 finding 2: two BoardState rows sharing a board_name
+    silently misattribute via last-write-wins in name_to_code; must warn once
+    naming the duplicate(s), without raising or changing join behavior."""
+    _write_holdings(tmp_path)
+    _seed_store(tmp_path)
+    states = (_state("BK0477", "白酒", "hot"), _state("BK0478", "白酒", "quiet"))
+    membership = (frozenset(), frozenset(), frozenset())
+
+    with caplog.at_level(logging.WARNING, logger="irc.rotation._cmd_helpers"):
+        candidates, _, diag = resolve_candidates(tmp_path, states, membership, today=TODAY)
+
+    dup_warnings = [r for r in caplog.records if "duplicate" in r.getMessage()]
+    assert len(dup_warnings) == 1, "exactly one warning for the whole run"
+    assert "白酒" in dup_warnings[0].getMessage()
+    assert diag["holdings_cache"] == "ok"  # unchanged join behavior, no raise
