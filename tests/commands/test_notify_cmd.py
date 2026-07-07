@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import re
+import shutil
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -11,7 +13,7 @@ import respx
 from click.testing import CliRunner
 
 from irc.cli import main
-from irc.commands import notify_cmd
+from irc.commands import notify_cmd, notify_health
 from irc.notify.types import NotificationDecision
 
 # ---- shell script paths ----
@@ -366,3 +368,79 @@ def test_lib_run_sh_defines_both_functions():
     text = (_OPS / "lib-run.sh").read_text(encoding="utf-8")
     assert "acquire_lock()" in text, "lib-run.sh must define acquire_lock()"
     assert "run_with_watchdog()" in text, "lib-run.sh must define run_with_watchdog()"
+
+
+# ---- Task 4: edge health reads + flow-capture run-kind ----
+
+_FIX = Path(__file__).parents[1] / "notify" / "fixtures"
+
+
+def _stage_monitor(root: Path, day: str) -> None:
+    mon = root / "outputs" / day / "monitor"
+    mon.mkdir(parents=True)
+    shutil.copy(_FIX / "eval_trace_monitor.json", mon / "eval_trace.json")
+    (mon / "monitor.json").write_text("{}", encoding="utf-8")
+    (root / "data" / "monitor").mkdir(parents=True)
+    shutil.copy(_FIX / "fund_flow_series.json",
+                root / "data" / "monitor" / "fund_flow_series.json")
+
+
+def test_read_monitor_health_flags_stale_board_pe(tmp_path):
+    _stage_monitor(tmp_path, "2026-07-07")
+    digest = notify_health.read_monitor_health(tmp_path, date(2026, 7, 7), set())
+    codes = {i.code for i in digest.items}
+    assert "board_pe_stale" in codes
+    assert "flow_symbol_stale" in codes  # 688072 @ 2026-06-26
+
+
+def test_read_monitor_health_corrupt_trace_is_unknown(tmp_path):
+    mon = tmp_path / "outputs" / "2026-07-07" / "monitor"
+    mon.mkdir(parents=True)
+    (mon / "eval_trace.json").write_text("{bad json", encoding="utf-8")
+    digest = notify_health.read_monitor_health(tmp_path, date(2026, 7, 7), set())
+    assert digest.items[0].code == "health_unknown"
+
+
+def test_read_weekly_health_flags_dxy(tmp_path):
+    out = tmp_path / "outputs" / "2026-07-07"
+    out.mkdir(parents=True)
+    shutil.copy(_FIX / "gold_regime.json", out / "gold_regime.json")
+    digest = notify_health.read_weekly_health(tmp_path, date(2026, 7, 7))
+    assert any("DXY" in i.text and "滞后 21d" in i.text for i in digest.items)
+
+
+def _stage_radar(root: Path, day: str, fixture: str) -> None:
+    rot = root / "outputs" / day / "rotation"
+    rot.mkdir(parents=True)
+    shutil.copy(_FIX / fixture, rot / "rotation_radar.json")
+
+
+def test_read_flow_capture_abstain_returns_warn(tmp_path):
+    _stage_radar(tmp_path, "2026-07-07", "rotation_radar_abstain.json")
+    digest, force = notify_health.read_flow_capture(tmp_path, date(2026, 7, 7))
+    assert digest.has_warnings is True and force is False
+    assert digest.items[0].code == "rotation_abstain"
+
+
+def test_read_flow_capture_recovery_forces_notify(tmp_path):
+    _stage_radar(tmp_path, "2026-07-06", "rotation_radar_abstain.json")
+    _stage_radar(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    digest, force = notify_health.read_flow_capture(tmp_path, date(2026, 7, 7))
+    assert force is True
+    assert digest.items[0].code == "rotation_recovered"
+
+
+def test_flow_capture_outcome_missing_radar_is_failed(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    assert outcome.today_dir_exists is False  # no rotation_radar.json ⇒ crash sentinel
+    decision = __import__("irc.notify.classify", fromlist=["classify_run_outcome"]).classify_run_outcome(outcome)
+    assert decision.severity == "failed"
+
+
+def test_build_outcome_monitor_attaches_health(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _stage_monitor(tmp_path, "2026-07-07")
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
+    assert outcome.health is not None
+    assert any(i.code == "board_pe_stale" for i in outcome.health.items)
