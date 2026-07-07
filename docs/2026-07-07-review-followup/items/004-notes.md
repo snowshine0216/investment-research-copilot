@@ -32,3 +32,11 @@ Invariant gates, all passing:
 - INV-ii (cap bites): max per-board raw count > CAND_TOP_N (10) — observed max 69 > 10
 - AC7/G4: coverage_pct byte-identical pre/post — observed 67.8016 == 67.8016
 - locked: all seen 行业 names resolve to a board — observed unresolved_names=0
+
+## Implementation notes — deviations from plan (impl phase closed 2026-07-07)
+
+- T3 fold-in: also updated `resolve_candidates` docstring in `_cmd_helpers.py` (not in T3's file list; prompted by T2 review Minor). conservative → triage: accepted, same docstring-correction scope.
+- T5 replay script executed from scratchpad, NOT committed (references the 2.9 MB board_series.json; not a fixture). Evidence committed to this file instead; the plan's script block remains the reproducible source. conservative → triage: accepted.
+- Post-review fix `75a2b66e` (beyond plan steps, prompted by review Minors): docstring dotted-path corrected to `rotation._cmd_helpers.resolve_candidates`; stale test renamed `test_merge_seen_stores_board_codes_as_industry` → `test_merge_seen_stores_industry_strings_verbatim` (assertions untouched). conservative → triage: accepted.
+- Review Minors accepted WITHOUT code change: (a) no dedicated test for "name in store but absent from today's states" branch — same guard clause as the covered unmapped-symbol path, HK test exercises it; (b) board-name-uniqueness assumption in `{board_name: board_code}` — systemic, grill-verified 200 collision-free names on real data. → triage: accepted.
+- Process: T3+T4 reviewed in one combined dispatch (both prose-only, contiguous commits); T5 gated by inline evidence check (downstream /verify re-runs the replay).
