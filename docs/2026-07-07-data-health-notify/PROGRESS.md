@@ -2,7 +2,9 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | ✅ #210 | ✅ | ✅ | ✅ | ✅ 0 rounds | 🔄 |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | ✅ #210 | ✅ | ✅ | ✅ | ✅ 0 rounds | ✅ 0b15e5cf |
+
+- merge ✅ — PR #210 squash-merged into `autodev/data-health-notify-feature` at `0b15e5cf` (gh pr merge --squash --delete-branch; `gh pr view 210 --json state` = MERGED). Note: the local-only plan commit `76eca5e5` rode into the squash (never pushed to origin separately); local feature reset to origin post-merge — no content lost, squash carries the amended plan.
 
 - verify ✅ `items/001-verify.md` (PASS, commit `3e1e732f` — AC1–AC6 exercised live in-dispatch; AC1 severity honestly `degraded` per judgment call #2)
 - review ✅ `items/001-review.md` (PASS-WITH-NITS, ship steps 8+9; in-branch P0 fixed `2e7d473e` pre-push; codex secondary: no output, killed — optional)
