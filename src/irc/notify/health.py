@@ -44,3 +44,76 @@ def health_unknown() -> HealthDigest:
 def _md(iso: str) -> str:
     """`2026-07-06` -> `07-06` (MM-DD render form used across the digest)."""
     return iso[5:]
+
+
+def monitor_health(
+    trace: dict, flow_store: dict, *, today: date, holidays: frozenset[date]
+) -> HealthDigest:
+    """Monitor (12:15) digest: board-PE + flow-store recency + per-fund signal."""
+    try:
+        items = (
+            *_board_pe_items(trace),
+            *_flow_items(flow_store, today=today, holidays=holidays),
+            *_signal_items(trace),
+        )
+        return HealthDigest(items)
+    except Exception:  # noqa: BLE001 — total function (ADR 0016 AC8)
+        return health_unknown()
+
+
+def _board_pe_items(trace: dict) -> tuple[HealthItem, ...]:
+    fresh = (trace or {}).get("board_pe_freshness") or {}
+    state = fresh.get("state")
+    if state == "DARK":
+        return (HealthItem("board_pe_dark", "warn",
+                           "板块PE: DARK ≥4td — 价值陷阱检测不可用"),)
+    if state == "STALE":
+        return (HealthItem("board_pe_stale", "info",
+                           f"板块PE: STALE-{fresh.get('age_td')} ({_md(fresh.get('as_of'))})"),)
+    return ()
+
+
+def _newest_dates(flow_store: dict) -> dict[str, str | None]:
+    out: dict[str, str | None] = {}
+    for sym, rows in (flow_store or {}).items():
+        dates = [r[0] for r in rows if isinstance(r, (list, tuple)) and r]
+        out[sym] = max(dates) if dates else None
+    return out
+
+
+def _flow_items(
+    flow_store: dict, *, today: date, holidays: frozenset[date]
+) -> tuple[HealthItem, ...]:
+    newest = _newest_dates(flow_store)
+    if not newest:
+        return ()
+    total = len(newest)
+    overall = max(v for v in newest.values() if v)
+    at_newest = sum(1 for v in newest.values() if v == overall)
+    items: list[HealthItem] = []
+    lag = trading_day_age(date.fromisoformat(overall), today, holidays)
+    if date.fromisoformat(overall) < previous_trading_day(today, holidays) or (
+        at_newest < total * _COVERAGE_FLOOR
+    ):
+        items.append(HealthItem("flow_stale", "warn",
+                                f"资金流: 最新 {_md(overall)} (滞后 {lag}td), 覆盖 {at_newest}/{total}"))
+    stale = [(s, v) for s, v in newest.items()
+             if v and trading_day_age(date.fromisoformat(v), today, holidays) > _STALE_TD_LIMIT]
+    if stale:
+        oldest = min(v for _, v in stale)
+        items.append(HealthItem("flow_symbol_stale", "warn",
+                                f"资金流: 最新 {_md(overall)} · 覆盖 {at_newest}/{total} · "
+                                f"{len(stale)} 只滞后>3td(最旧 {_md(oldest)})"))
+    return tuple(items)
+
+
+def _signal_items(trace: dict) -> tuple[HealthItem, ...]:
+    funds = (trace or {}).get("funds") or {}
+    total = len(funds)
+    non_ok = [fid for fid, f in funds.items()
+              if ((f or {}).get("signal") or {}).get("status", "ok") != "ok"]
+    if not non_ok:
+        return ()
+    listed = ", ".join(sorted(non_ok)[:_MAX_SIGNAL_IDS])
+    return (HealthItem("signal_not_ok", "warn",
+                       f"信号: {len(non_ok)}/{total} 非 ok (NO_CALL: {listed})"),)
