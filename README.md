@@ -245,7 +245,7 @@ single-instance lock, a wall-clock watchdog, and per-run logs under
 | Agent | Schedule (Asia/Shanghai) | What it runs |
 |---|---|---|
 | `com.irc.monitor` | Daily 12:15 (weekend/CN-holiday skip; `monitor.json` idempotency sentinel) | `irc monitor` + `notify-status --run-kind monitor` |
-| `com.irc.flow-capture` | Daily 15:45, after the 15:00 close | `irc monitor flow-capture` (best-effort, no page) |
+| `com.irc.flow-capture` | Daily 15:45, after the 15:00 close | `irc monitor flow-capture` (best-effort; data-health notify: silent-on-ok, pages on rotation abstain/degradation, one-time abstain→ok recovery notice) |
 | `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | `irc monitor snapshot` (protective watchdog, no page) |
 | `com.irc.weekly` | Saturday 09:00 (`decision_report.json` idempotency sentinel) | full `irc run` + `notify-status --run-kind weekly` — pages on failure/halt/action, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
 

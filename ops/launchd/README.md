@@ -6,7 +6,7 @@ outcome (macOS notification always; optional Feishu webhook). Architecture: ADR 
 | Label | Schedule (Asia/Shanghai) | Command | Gate |
 |---|---|---|---|
 | `com.irc.monitor` | Daily 12:15 | `irc monitor` | skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `monitor.json` already exists |
-| `com.irc.flow-capture` | Daily 15:45 (after the 15:00 close) | `irc monitor flow-capture` → `irc rotation` (sector rotation radar, ADR 0023, chained after capture) | skips weekends + CN holidays; single-instance lock `.flow-capture.lock`; best-effort — no notification; the rotation step is advisory-only and protective (failure logged, never pages, never changes the wrapper rc) |
+| `com.irc.flow-capture` | Daily 15:45 (after the 15:00 close) | `irc monitor flow-capture` → `irc rotation` (sector rotation radar, ADR 0023, chained after capture) | skips weekends + CN holidays; single-instance lock `.flow-capture.lock`; best-effort **data-health notify** (`notify-status --run-kind flow-capture --no-notify-on-clean`): silent on a fully-ok chain, pages on rotation abstain/degradation or a capture failure, fires a one-time abstain→ok recovery notice; a capture timeout (rc=124) pages `failed`; the rotation step is advisory-only (failure/abstain surfaces via the notify tail, but never changes the wrapper rc) |
 | `com.irc.fundamentals-quarterly` | 1st of Jan / Apr / Jul / Oct 08:00 | `irc monitor snapshot` | none (unconditional) |
 | `com.irc.weekly` | Saturday 09:00 | `irc run` (full pipeline) → `irc notify-status --run-kind weekly` | once-per-day skip if `decision_report.json` exists; lock `.weekly.lock`; pages on failure/halt/action (incl. **promotions** — funds newly reaching core_dca/accelerate_dca) |
 
@@ -63,8 +63,8 @@ worker — and reports `rc=124`.
 | Wrapper | Timeout env (default) | On timeout |
 |---|---|---|
 | `run-monitor.sh` | `IRC_MONITOR_TIMEOUT` (1800s / 30 min) | `rc=124` → `notify-status` pages **"timeout"** (`classify` maps 124) |
-| `run-flow-capture.sh` | `IRC_FLOW_CAPTURE_TIMEOUT` (300s / 5 min) | `rc=124` **logged, does NOT page** (best-effort capture; the next brief shows flow N/A) |
-| `run-flow-capture.sh` — rotation step | `IRC_ROTATION_TIMEOUT` (300s / 5 min) | rc logged, does NOT page (advisory; wrapper rc unchanged) |
+| `run-flow-capture.sh` | `IRC_FLOW_CAPTURE_TIMEOUT` (300s / 5 min) | `rc=124` → `notify-status --run-kind flow-capture` pages **`failed`** (a stale tomorrow-flow) |
+| `run-flow-capture.sh` — rotation step | `IRC_ROTATION_TIMEOUT` (300s / 5 min) | rc logged; a kill before `rotation_radar.json` is written pages **`failed`** via the same missing-sentinel path as the row above (wrapper rc itself unchanged — advisory) |
 | `run-fundamentals.sh` | `IRC_SNAPSHOT_TIMEOUT` (3600s / 60 min) | `rc=124` **logged loudly, does NOT page** (protective-only) |
 | `run-weekly.sh` | `IRC_WEEKLY_TIMEOUT` (7200s / 2h) | `rc=124` → `notify-status --run-kind weekly` pages **"timeout"** |
 | `run-weekly.sh` — eval-refresh step | `IRC_WEEKLY_EVAL_TIMEOUT` (900s per suite) | `rc=124` **logged, does NOT page** (best-effort; runs after notify; wrapper rc unchanged) |

@@ -96,3 +96,21 @@ future item.
   portable wall-clock watchdog (process-group kill → `rc=124`) and per-wrapper
   single-instance locks via the shared `ops/launchd/lib-run.sh`. Design + rationale:
   `docs/2026-06-30-launchd-watchdog/items/001-spec.md` (no standalone ADR — reversible).
+
+### 7. Data-health digest + `degraded` severity + `flow-capture` run-kind (amendment 2026-07-07)
+
+The classifier gains a `degraded` severity between `stale` and `action`:
+precedence is now `failed > halted > stale > degraded > action > clean`, and
+`degraded ∈ _ALWAYS_NOTIFY` (it fires even under `IRC_NOTIFY_ON_CLEAN=0` —
+without that, a clean run hiding a DARK board-PE leg would stay invisible, which
+is the exact bug this closes). A new pure module `src/irc/notify/health.py`
+derives a **data-health digest** (see CONTEXT.md) from already-written artifacts
+at the notify edge — never persisted, never an input to factor math. The digest
+lines are appended to the body of every severity (a `failed` run still shows what
+was already degraded); a `clean`/`action` base with any `warn` item escalates to
+`degraded`. A new `flow-capture` run-kind covers the 15:45 chain: it is
+silent-on-ok (`--no-notify-on-clean` hardcoded in the wrapper), pages on rotation
+`abstain`/`degraded_*`, and fires a one-time recovery notice on the abstain→ok
+transition (`force_notify` clean). The flow-capture wrapper passes the
+authoritative flow-capture `$rc`, so a capture timeout (rc=124) now pages
+`failed` — superseding the wrapper's former "a timeout does NOT page" note.
