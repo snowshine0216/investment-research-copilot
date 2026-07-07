@@ -42,7 +42,7 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 | gate | status |
 |------|--------|
 | run-doc-sync | ⏳ |
-| run-final-verify | ⏳ |
+| run-final-verify | ✅ PASS `docs/2026-07-07-review-followup/run-final-verify.md` |
 | close-out (feature-branch PR opened, not merged) | ⏳ |
 
 ## Log
