@@ -99,8 +99,7 @@ def resolve_candidates(root: Path, states: tuple[BoardState, ...], membership: M
         }
     map_path = root / "data" / "monitor" / "stock_industry_map.json"
     stock_to_board = fresh_slice(load_store(map_path), today)
-    board_names = {b.board_code: b.board_name for b in states}
-    rows, exp_diag = build_exposure(funds, stock_to_board, board_names)
+    rows, exp_diag = build_exposure(funds, stock_to_board)
     candidates, new_ids = rank_candidates(
         rows, states, discovered_watchlist=watchlist, monitor_set=monitor_set, held=held)
     diag = {
