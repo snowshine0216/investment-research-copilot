@@ -145,7 +145,7 @@ eval registry stage, no additional gating stage"). Two deliverables:
 - **D1 — offline property + hybrid-oracle suite** (pytest, under [`tests/monitor/`](../tests/monitor/),
   *not* an `irc eval` stage). A `hypothesis` (derandomized) suite over the seven pure scorers
   (`compute_signal`, `build_factor_scores`, `trend_score`, `valuation_state_score`, `heat_score`,
-  `aggregate_news_factor`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence,
+  `aggregate_news_factor`, `aggregate_flow`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence,
   band boundaries and reproducibility across the input space. An **independent oracle**
   (`tests/monitor/_oracle.py`, test-only) is written **only** where a genuinely different formulation
   exists (composite/renorm Σw′·s, gate predicate, band classifier, valuation/heat decision tables);
