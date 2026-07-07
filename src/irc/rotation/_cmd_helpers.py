@@ -85,8 +85,11 @@ def _load_holdings_cache(cache_dir: Path) -> list[tuple[str, str, tuple, str | N
 def resolve_candidates(root: Path, states: tuple[BoardState, ...], membership: Membership,
                        *, today: str):
     """PURE-glue L2 join: cached holdings x stock->board map -> exposure ->
-    ranked candidates. Cold holdings cache (§7) -> no fetch, candidates stay
-    empty, diagnostics flags it for the cold_holdings_note() render."""
+    ranked candidates. Translates the store's 行业 NAMES to board CODES first,
+    via a {board_name: board_code} map built from this run's BoardState list,
+    before the active-membership filter. Cold holdings cache (§7) -> no fetch,
+    candidates stay empty, diagnostics flags it for the cold_holdings_note()
+    render."""
     from irc.monitor.industry_map_store import fresh_slice, load_store
 
     cache_dir = root / "data" / "narrative_holdings"
