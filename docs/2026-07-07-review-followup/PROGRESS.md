@@ -5,7 +5,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence in cell/footnote) 
 
 | id | spec | grill | plan | branch | impl | drift | PR | QA | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|----|--------|--------|-----------|-----|-------|
-| 004 | ✅ᵃ | ✅ᵇ | ✅`468a8f0d` | ✅ claude/review-followup-004 | ✅`75a2b66e`ᶜ | 🔄 | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 004 | ✅ᵃ | ✅ᵇ | ✅`468a8f0d` | ✅ claude/review-followup-004 | ✅`75a2b66e`ᶜ | ✅ | ✅ [#208](https://github.com/snowshine0216/investment-research-copilot/pull/208)ᵈ | ⏭️ | ✅ᵉ | ✅ᵈ | ✅ᵉ | ✅ 0 rounds | ✅ `76359c69` |
 | 005 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 001 | ⏭️¹ | ⏭️¹ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 | 002 | ⏭️² | ⏭️² | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
@@ -22,6 +22,10 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 ᵇ 004 grill: `items/004-grill.md` Verdict: PASS (commits `46076fe1` + `78e841bb`; 7 Qs auto-accepted → UNKNOWNS.md queue; CONTEXT.md "Stock-industry map" entry updated; no ADR — three-of-three bar not met; AC7 coverage corrected 62.16%→67.80%, replay counts reframed as invariants).
 
 ᶜ 004 impl: SDD per-task loop, 6 plan tasks + post-review fix; commits `c8c36584`→`75a2b66e` + notes `7b1e72e9`; 24/24 focused tests + ruff green; replay proof pre-fix 0 → post-fix 38 candidates (invariant-gated); deviations + triage in `items/004-notes.md`.
+
+ᵈ 004 ship: PR #208 into feature branch; drift `items/004-drift.md` PASS; review `items/004-review.md` PASS-WITH-NITS (source /ship steps 8+9; 2 P1s fixed in-branch `b37bc4cb`, 2 nits deferred/noted); ship artifact `items/004-ship.md`; VERSION unchanged per repo convention.
+
+ᵉ 004 post-ship: verify `items/004-verify.md` PASS (independent offline replay re-run, invariants reproduced, no false-alarm warnings); pr-review `items/004-pr-review.md` PASS-WITH-NITS (/code-review, 3 nits all pre-triaged; no PR comment — no GitHub connector, inline findings captured); Codex secondary: findings none. Fix loop: 0 rounds. Merged squash `76359c69`, sub-branch deleted.
 
 ## Run-level
 
