@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Session start — Read `FACTS.md` first
+
+[`FACTS.md`](FACTS.md) is the session-start fact registry: service endpoints, proxy
+env-vars (names only, never values), canonical model IDs, known traps, and
+verification commands. Read it before asking the user anything it already answers.
+Never re-ask the user for anything recorded there.
+
 ## What this project is
 
 Weekly research/recommendation system for gold + Mainland-China funds + ETFs (CN/HK/US via QDII proxy). A staged data pipeline (`irc` CLI) ingests market + fundamentals + web research, then produces a discovered watchlist, scores, gold-regime view, allocation, trade plan, LLM-synthesised memo, and an opportunity/discipline layer with thesis cards.

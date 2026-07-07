@@ -47,6 +47,8 @@ Copy `.env.example` to `.env`, keep every secret there, and treat `.env.example`
 | `FRED_API_KEY`, `INTRINIO_API_KEY` | Optional FRED macro data | Used when OpenBB pulls live FRED macro series. Without them, the ingest stage falls back where possible. |
 | `ACTIVE_FUND_TENURE_PROXY_ENABLED` | Active fund discovery behavior | Defaults to `true`; set `false` to require real manager-tenure data for active funds. |
 | `IRC_HTTPS_PROXY` | Outbound HTTPS proxy | Single value applied to every outbound HTTPS call this codebase makes. See "HTTPS proxy" below for the full list of call sites. Leave unset for direct connections. |
+| `IRC_CN_PROXY` | CN egress for the EastMoney **board plane** (`irc rotation`, `irc monitor` board-PE leg) | URL or bare `host:port`. *Opposite direction* from `IRC_HTTPS_PROXY` — the two never mix. See "CN egress proxy" below for the commands that need it and how to validate. Leave unset for CN-direct. |
+| `IRC_CN_PROXY_MODE` | Kill switch for `IRC_CN_PROXY` | `off` forces every CN board-plane call direct even when the URL is set; default `on` when a URL is present. |
 | `DEBUG` | Troubleshooting | Set `DEBUG=true` for verbose CLI logging and full tracebacks. Default output still includes progress bars and categorized error summaries. |
 
 Minimum local `.env` for the default config:
@@ -123,6 +125,31 @@ Set `IRC_HTTPS_PROXY` (e.g. `http://10.27.7.110:8080`) when running from a netwo
 - DXY ingest only — EastMoney via AkShare. Other AkShare calls stay direct because most of them serve mainland-CN domains where a non-CN proxy hurts more than it helps.
 
 Leave the variable unset (or blank) for direct connections everywhere. If a single host on this list is the only one you need to route, point the proxy at a forwarder that you control which can selectively bypass the rest.
+
+### CN egress proxy (EastMoney board plane)
+
+`IRC_CN_PROXY` routes the **EastMoney board data plane** through a mainland-CN egress. It is the *opposite direction* from `IRC_HTTPS_PROXY` (which routes non-CN hosts) — the two never mix. It accepts a URL or a bare `host:port` (normalized to `http://host:port`). Set `IRC_CN_PROXY_MODE=off` to disable it even when the URL is set — every call site then goes direct; the default is `on` when a URL is present.
+
+Only the **board plane** needs it. EastMoney geo-throttles `push2.eastmoney.com/api/qt/clist/get` (board snapshot + board PE) and `push2his` (board history kline) on some egresses while still serving the flow plane (`ulist.np`). So the monitor's *flow* leg works direct; only the commands below need a CN egress that can reach `clist/get` / `push2his`:
+
+| Command | Cadence | Board-plane endpoint | Output to validate |
+|---|---|---|---|
+| `uv run irc rotation` | daily | `clist/get` snapshot | `outputs/<date>/rotation/rotation_radar.json` → `data_status` ≠ `"abstain"` and `board_states[]` non-empty |
+| `uv run irc monitor` | daily | `clist/get` board PE (industry-valuation leg only — the flow leg is direct) | `data/monitor/industry_pe/<date>.json` is **non-empty** (`{}` = dark) |
+| `uv run irc rotation seed` | one-time / top-up | `clist/get` + `push2his` kline | `data/rotation/board_series.json` max date = today, ~200 boards |
+| `uv run irc fundamentals stock-valuation` | quarterly | `stock_value_em` (routed through the proxy **when set**, else CN-direct) | `stock_valuation_history` rows refresh for the A-share basket |
+
+Validate the two daily runs:
+
+```bash
+# irc rotation — did the board snapshot reach the boards (not abstain)?
+uv run python -c "import json,glob; f=sorted(glob.glob('outputs/*/rotation/rotation_radar.json'))[-1]; d=json.load(open(f)); print(f,'| data_status:',d['data_status'],'| boards:',len(d['board_states'])); print('OK' if d['data_status']!='abstain' and d['board_states'] else 'FAIL — board fetch blocked')"
+
+# irc monitor — is the board-PE (industry-valuation) leg lit, not dark?
+uv run python -c "import json,glob; f=sorted(glob.glob('data/monitor/industry_pe/*.json'))[-1]; d=json.load(open(f)); print(f,'| entries:',len(d)); print('OK — board-PE lit' if len(d)>0 else 'DARK — clist/get blocked')"
+```
+
+A `data_status` of `degraded_flow_dark` / `degraded_turn_dark` is fine — the board *snapshot* succeeded and only the flow/turn sub-legs renormed (expected for ~5–20 trading days after a seed). Only `abstain` means the board fetch itself failed. When the board plane is blocked on your egress, run these from one that can reach `clist/get` (a CN-residential IP or a CN VPS); the rotation operator manual's [Troubleshooting](src/irc/rotation/README.md#troubleshooting) covers the geo-block in depth.
 
 ## Workflows by cadence
 
