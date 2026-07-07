@@ -10,13 +10,16 @@
 - **AkShare / EastMoney (board plane)** — `push2.eastmoney.com/api/qt/clist/get` (board
   snapshot + board PE) and `push2his` (board kline). Geo-throttled on some non-CN
   egresses; routed through `$IRC_CN_PROXY` when set (`README.md:129-133`,
-  `src/irc/http_proxy.py:38-47`). **As of 2026-07-05 this plane is hard-blocked** on this
-  machine's egress: the configured proxy tunnel's exit IP is EM-blocked and direct
-  egress is burst-throttled/refused — a diagnosed infrastructure problem, not a code bug.
-  `irc rotation` currently writes `data_status: "abstain"`. See `TODOS.md:14` and
-  `docs/2026-07-05-sector-rotation-radar/F8-DIAGNOSIS-FIX-PLAN.md`. Re-check before
-  assuming CN board-plane code is broken. **TEMPORARY entry — delete this section once
-  F8 is resolved.**
+  `src/irc/http_proxy.py:38-47`).
+  **As of 2026-07-07 this plane is INTERMITTENT at day granularity, not hard-blocked** —
+  `IRC_CN_PROXY` was dropped from `.env` on 2026-07-06 and direct egress now carries it:
+  full success 2026-07-06 (rotation seed completed 200 boards × 60 rows, board-PE recovered
+  69/70, forward ledger started 52 rows), refused again 2026-07-07 (`RemoteDisconnected`).
+  Expect a mix of ok/abstain days; `irc rotation` writes `data_status: "abstain"` only on
+  refused days — cheap and safe. `push2his`-via-`$IRC_HTTPS_PROXY` (the DXY route) stays dead
+  — a separate problem. See `TODOS.md` "Sector rotation radar" §0-corrected entries and
+  `docs/2026-07-05-sector-rotation-radar/F8-DIAGNOSIS-FIX-PLAN.md`. **Re-verify with the CN
+  egress board-plane one-liners below before acting — this describes a live incident.**
 - **AkShare / EastMoney (flow plane)** — `ulist.np` batch endpoint. Stays reachable
   direct even when the board plane is geo-throttled; no proxy needed (`README.md:133`).
 - **Tushare** (`api.tushare.pro`) — mainland-CN fundamentals fallback (filing digest,

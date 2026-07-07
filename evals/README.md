@@ -74,7 +74,7 @@ CI's **live** job sets the env and expects `0/1/2` — a `3` there means the key
 ## Monitor eval (M0 + M1 + M2 + M3 — landed)
 
 The monitor vertical (`irc monitor`, ADR 0017) ships a per-fund **directional bias**
-(`ADD_BIAS | NEUTRAL | REDUCE_BIAS`) daily for the 7-fund Monitor set. The eval layer validates
+(`ADD_BIAS | NEUTRAL | REDUCE_BIAS`) daily for the 10-fund Monitor set. The eval layer validates
 **process trust** ("does each stage do what it claims?") and starts the **forward track record**.
 
 Four registered stages:
@@ -143,7 +143,7 @@ M2 hardens the deterministic core **without adding an `irc eval` stage or a new 
 eval registry stage, no additional gating stage"). Two deliverables:
 
 - **D1 — offline property + hybrid-oracle suite** (pytest, under [`tests/monitor/`](../tests/monitor/),
-  *not* an `irc eval` stage). A `hypothesis` (derandomized) suite over the six pure scorers
+  *not* an `irc eval` stage). A `hypothesis` (derandomized) suite over the seven pure scorers
   (`compute_signal`, `build_factor_scores`, `trend_score`, `valuation_state_score`, `heat_score`,
   `aggregate_news_factor`) asserts monotonicity, clamp bounds, renorm-sum, gate-predicate equivalence,
   band boundaries and reproducibility across the input space. An **independent oracle**
@@ -184,8 +184,9 @@ data-independent; not `live_gated`, no spend gate). It reads only persisted JSON
   `latest_per_key(forward_ledger)` → matured rows scored vs realized forward total return (H = 20 NAV
   obs). Validates the **whole published signal**; accrues forward as the ledger matures.
 
-The runner ([`monitor_forward/runner.py`](monitor_forward/runner.py)) emits **three `MetricReport` rows**
-(`raw_composite_directional`, `publishable_bias_directional`, `rank_ic`) + a `details.json` sibling with
+The runner ([`monitor_forward/runner.py`](monitor_forward/runner.py)) emits **four `MetricReport` rows**
+(`raw_composite_directional`, `publishable_bias_directional`, `rank_ic`, and the FU1 diagnostic
+`engine_population` — appended, never scored/gating) + a `details.json` sibling with
 clustered block-bootstrap CIs and three baselines (within-`run_date` permutation null, momentum from the
 `<= as_of_date` slice, buy-hold). **WARN-max** for statistical weakness; FAIL only on input-contract /
 scorer-invariant breaches (`bad_nav` is a row-level exclusion). The daily brief renders a pure
@@ -307,7 +308,7 @@ runners here are the thin I/O boundary.
   `EVAL_GATED`/validation panel + forward-ledger **writer**.
 - **M1 — LLM suites** ✅ synthetic corpora + pure scorers; `monitor_impact` / `monitor_narrative`
   `live_gated` runners.
-- **M2 — deterministic rigor** ✅ `hypothesis` property + hybrid-oracle suite over the six pure scorers
+- **M2 — deterministic rigor** ✅ `hypothesis` property + hybrid-oracle suite over the seven pure scorers
   (`tests/monitor/*_property.py`, `_oracle.py`) **plus** an in-run **panel-only** `deterministic_scoring`
   health ([`monitor/eval/determinism.py`](../src/irc/monitor/eval/determinism.py)) that recomputes the
   full signal block from the persisted trace and diffs it. No new `irc eval` stage, no new gate.

@@ -41,7 +41,7 @@ covered in [Weekly process](#weekly-process); the daily/quarterly three:
 | Time (Asia/Shanghai) | Agent | What runs |
 |---|---|---|
 | 12:15 daily | `com.irc.monitor` | `irc monitor` → `irc notify-status --run-kind monitor`. Wrapper skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `outputs/<date>/monitor/monitor.json` exists; single-instance lock; 30-min watchdog (timeout pages as `rc=124`). |
-| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f127`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f127` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog (the watchdog itself doesn't page — a capture timeout rc=124 pages `failed` via the notify tail below). **Never run manually before the 15:00 close** — the manual path is unguarded. Then runs `irc rotation` (sector rotation radar, ADR 0023) — advisory-only, protective (non-zero radar exit is logged and never changes the flow-capture rc; a rotation abstain/crash surfaces via the notify tail below). **Data-health notify (2026-07-07):** the 15:45 job now ends with a best-effort `notify-status --run-kind flow-capture --no-notify-on-clean` — silent when the chain is fully ok, pages on rotation `abstain`/`degraded_*` (with a `连续第 N 日` counter) or a capture failure, and fires a one-time `轮动雷达恢复 ok` notice on the abstain→ok transition. |
+| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f100`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f100` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog (the watchdog itself doesn't page — a capture timeout rc=124 pages `failed` via the notify tail below). **Never run manually before the 15:00 close** — the manual path is unguarded. Then runs `irc rotation` (sector rotation radar, ADR 0023) — advisory-only, protective (non-zero radar exit is logged and never changes the flow-capture rc; a rotation abstain/crash surfaces via the notify tail below). **Data-health notify (2026-07-07):** the 15:45 job now ends with a best-effort `notify-status --run-kind flow-capture --no-notify-on-clean` — silent when the chain is fully ok, pages on rotation `abstain`/`degraded_*` (with a `连续第 N 日` counter) or a capture failure, and fires a one-time `轮动雷达恢复 ok` notice on the abstain→ok transition. |
 | 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | `irc monitor snapshot` — refreshes the typed per-fund constituent caches the valuation/constituent factors read. Protective 60-min watchdog, no page (a lapse surfaces as N/A factors in the next brief). |
 
 The 12:15 slot is after the CN morning session closes, leaving the 15:00 close
@@ -59,7 +59,7 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
    (completed days, union of active-fund top-5 symbols) + **one provisional
    intraday flow batch** (盘中提示 annotation only — rendered, never persisted).
    - **行业 is batch-first (ADR 0020 addendum 2026-07-03):** the one `ulist.np`
-     batch call carries `f127`; names accumulate cross-day in
+     batch call carries `f100`; names accumulate cross-day in
      `data/monitor/stock_industry_map.json` (serve-while-stale ≤ 30 calendar
      days, refresh-on-seen). The per-symbol `stock/get` path fires only for
      symbols absent from that map (~never in steady state). Board PE is
@@ -88,6 +88,8 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
 8. **Render + write** (atomic, fixed order): `report.html` → `signal.json` →
    `impacts.json` → `narrative.json` → `monitor.json` (the completion sentinel),
    plus `drilldown.html` and `eval_trace.json`. Record spend to the ledger.
+
+> **Single owner:** this manual is the canonical source for factor weights and the schema/engine version numbers. Other docs link here or cite the code constant (`trace.SCHEMA_VERSION` / `monitor_cmd._ENGINE_VERSION`); the version-grep guard `tests/docs/test_version_sync.py` enforces agreement.
 
 ### Factors and signal (engine 4)
 
@@ -138,7 +140,7 @@ Open `outputs/<date>/monitor/report.html`:
    value-trap badge + flow) for active funds.
 4. **Validation panel** + **predictive panel**: informational stages render 观测
    (never PASS); suite ages go amber at ≥ 10 days, UNKNOWN at ≥ 14; the forward
-   panel says `insufficient_data` honestly until engine-3 blocks mature — the only
+   panel says `insufficient_data` honestly until engine-4 blocks mature — the only
    accrued track record it cites is trend-only (~0.54 hit rate).
 
 Treat a bias as **research lean, not an order** — anything actionable goes through
@@ -232,7 +234,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 7, engine 4) |
 | `data/monitor/forward_ledger.jsonl` | Append-only per-fund-per-day rows (incl. `market_composite`/`market_bias`) scored by `monitor_forward` |
 | `data/monitor/fund_flow_series.json` | Completed-day flow store (written only by the 15:45 job) |
-| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f127; fallback merges too) |
+| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f100; fallback merges too) |
 | `data/monitor/industry_pe/<date>.json` | Board-PE day cache (non-empty parses only; stale-served ≤ 3 td with an age tag) |
 | `outputs/_logs/run-*.log` | Per-fire wrapper logs (14-day retention) |
 
