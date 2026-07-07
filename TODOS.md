@@ -161,3 +161,12 @@ Triage 2026-07-05 (post-#206 merge): **do now** = ~~F7 → first seed~~ **resolv
 - [x] **Resilient CN exchange price fetch**: EastMoney primary with automatic Sina finance fallback. **Completed:** v0.4.0.0 (2026-05-10)
 - [x] **Role-aware allocation top-K**: two-phase greedy ensures role diversity. **Completed:** v0.4.0.0 (2026-05-10)
 - [x] **Negative tenure from future inception date**: rejects ≤0 years. **Completed:** v0.4.0.0 (2026-05-10)
+- **`notify daily/weekly` `_read_summary` crash on non-JSON read errors** — pre-existing
+  (bae6236c, 2026-06-10, NOT part of data-health-notify): only `json.JSONDecodeError` is
+  caught, so an invalid-UTF-8 byte (`UnicodeDecodeError`) or unreadable permissions
+  (`PermissionError`) on `decision_report.json` crashes `irc notify-status` before any
+  notification fires — total silence, violating the ADR 0016 AC8 never-crash posture.
+  Found by the 2026-07-07 ship adversarial review (live-reproduced); deferred because it
+  predates the branch and fixing it there would be scope creep past the locked plan.
+  **Pick up when:** next notify-vertical change, or immediately via the spawned task chip
+  (broaden the except + regression tests for both cases).
