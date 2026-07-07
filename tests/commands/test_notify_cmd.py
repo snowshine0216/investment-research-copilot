@@ -481,3 +481,20 @@ def test_flow_capture_missing_radar_is_failed(tmp_path, monkeypatch):
 def test_flow_capture_coverage_counts_newest_equal_today():
     flow = {"A": [["2026-07-07", 1.0]], "B": [["2026-07-06", 2.0]], "C": [["2026-07-07", 3.0]]}
     assert notify_cmd._flow_capture_coverage(flow, date(2026, 7, 7)) == (2, 3)
+
+
+def test_notify_status_run_kind_lists_flow_capture():
+    result = CliRunner().invoke(main, ["notify-status", "--help"])
+    assert "flow-capture" in result.output
+
+
+def test_notify_status_flow_capture_missing_dir_exits_zero(tmp_path, monkeypatch):
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 5))
+    monkeypatch.setattr(notify_cmd, "_send_macos", lambda d: None)  # no real osascript
+    monkeypatch.delenv("IRC_FEISHU_WEBHOOK_URL", raising=False)
+    result = CliRunner().invoke(
+        main,
+        ["notify-status", "--run-kind", "flow-capture", "--last-exit-code", "0",
+         "--repo-root", str(tmp_path), "--no-notify-on-clean"],
+    )
+    assert result.exit_code == 0, result.output
