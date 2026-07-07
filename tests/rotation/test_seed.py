@@ -82,10 +82,10 @@ def test_seed_stock_board_map_skips_fresh_and_chunks(tmp_path):
 
     def fake_batch(symbols):
         chunks.append(tuple(symbols))
-        return {}, {s: "BK9" for s in symbols}
+        return {}, {s: "电子元件" for s in symbols}
 
     def fake_load(_path):
-        return {"600001": {"industry": "BK1", "seen_at": "2026-07-06"}}
+        return {"600001": {"industry": "半导体", "seen_at": "2026-07-06"}}
 
     recorded = []
 
