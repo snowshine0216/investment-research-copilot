@@ -2,7 +2,9 @@
 
 | id | spec | grill | plan | branch | impl | drift | PR | verify | review | pr-review | fix | merge |
 |----|------|-------|------|--------|------|-------|----|--------|--------|-----------|-----|-------|
-| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | 🔄 | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 001 | ⏭️ | ⏭️ | ✅ | ✅ claude/data-health-notify-001 | ✅ b8098060 | ✅ | ✅ #210 | 🔄 | ✅ | 🔄 | ⏳ | ⏳ |
+
+PR: https://github.com/snowshine0216/investment-research-copilot/pull/210 (base autodev/data-health-notify-feature) · review: items/001-review.md PASS-WITH-NITS (ship steps 8+9; in-branch P0 fixed 2e7d473e pre-push)
 
 Legend: ⏳ pending · 🔄 in progress · ✅ done (with evidence) · ⚠️ soft fail (fix loop) · ⏭️ skipped by mode · ⛔ refused gate
 
