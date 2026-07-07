@@ -74,6 +74,33 @@ Triage 2026-07-05 (post-#206 merge): **do now** = ~~F7 → first seed~~ **resolv
 - [x] **`ActiveFundSnapshot` thesis path lacks the dual-leg coverage check** — `derive_thesis_from_evidence` (`opportunity/states.py`) sets `thesis_state="intact"` for an `ActiveFundSnapshot` whenever flattened constituent evidence is non-empty, *without* requiring both a `data` leg and an `information` leg (the dual-leg gate exists only on the `FundLevelSnapshot` branch). A snapshot with data-only (e.g. filing-only) evidence can therefore reach `intact` → and, with cheap valuation + cold heat + acceptable quality, `core_dca`. Pre-existing (not introduced by eval-funds), but `irc eval-funds` surfaces `core_dca` prominently, so a data-only-evidence false-confidence is now more visible. Consider extending the dual-leg check to the `ActiveFundSnapshot` branch. (eval-funds ship adversarial review 2026-06-01) **Resolved 2026-07-03:** dual-leg heuristic extended to the `ActiveFundSnapshot` branch (the function lives in `opportunity/thesis_evidence.py`, not `states.py`) — `intact` requires ≥1 data + ≥1 information leg across the presence-only union flattened ∪ `fund_level_evidence`; the empty-flattened guard runs first so rule-2.5 all-pure-failure rows stay `evidence_insufficient` and no Policy-B-publishable row flips (ADR 0003 §8; CONTEXT.md "Dual-leg thesis heuristic"). Single-leg → `evidence_insufficient` with direction-specific reasons（缺少数据腿/缺少信息腿）. Tests `test_active_fund_data_only_evidence_is_insufficient` / `_info_only_evidence_is_insufficient` / `_constituent_dual_leg_stays_intact` / `_fund_level_info_leg_satisfies_gate` / `_fund_level_data_leg_satisfies_gate` / `_empty_evidence_stays_insufficient_plain` / `_empty_flattened_with_dual_leg_fund_level_stays_insufficient` (tests/opportunity/test_thesis_evidence.py) + `test_evaluate_fund_data_only_evidence_is_small_watch_not_core_dca` (tests/opportunity/test_fund_eval.py).
 - [x] **`load_active_fund_cache` swallows `OSError`/`ValueError` without logging** — `fundamentals/snapshot_cache.py:~242` returns `None` on a missing OR corrupt/permission-denied cache file with no log line, so a corrupt cache is indistinguishable from "not yet fetched" in `irc eval-funds` output (both render `missing_constituent_snapshot`). Emit a debug/warn log on the swallow so corrupt caches are diagnosable without filesystem inspection. (eval-funds ship silent-failure review 2026-06-01) **Resolved 2026-06-30:** `load_active_fund_cache` now WARNs (with the path) on an unreadable file, a non-object JSON body, AND a well-formed-but-corrupt snapshot (`_active_fund_from_dict → None`) — logging lives at the I/O edge so `_active_fund_from_dict` stays pure. Tests `test_load_active_fund_cache_warns_on_unreadable_json` / `_on_corrupt_snapshot`. Also covers the `load_latest_active_fund_cached` corrupt-swallow entry below (same loader).
 - [ ] **Rule-2.5-exempted constituent failures absent from `citation_audit.json`** — `find_incomplete_constituent_analyses` skips rule-2.5 (foreign-heavy) publishable rows wholesale (`opportunity_cmd.py` Step 2b), so their pure-failure constituents never reach `constituent_findings` in the shadow log. They stay visible in the `## 持仓明细` appendix (rendered `❌`), but an operator grepping `citation_audit.json` for fund data-health sees an exempted foreign-heavy fund as clean even when a *CN-side* constituent genuinely (vs. structurally-unreachable HK/US) failed. Consider an `exempted_constituents` field on the shadow payload for audit-JSON completeness. (rule-2.5-gate-exemption ship silent-failure review 2026-06-04)
+- [ ] **Data-health trend persistence (health-trend eval)** — the data-health
+  digest (`src/irc/notify/health.py`) is stateless: it recomputes from today's
+  artifacts on every notify and has no memory of prior days, so it cannot answer
+  "has board-PE been DARK for N consecutive days?". Deferred per the 2026-07-07
+  data-health-notify grill (G-Q7): a persisted trend/state file is only worth its
+  drift surface once a health-trend eval is wanted. **Pick up when** a health-trend
+  eval is wanted. (data-health-notify spec §10.8)
+- [ ] **Generalize the abstain→ok recovery notice to monitor DARK→FRESH** — the
+  15:45 flow-capture notifier fires a one-time recovery notice on the rotation
+  `abstain→ok` transition (G-Q3→C), but the 12:15 monitor notifier has no
+  equivalent for board-PE `DARK→FRESH` (it repeats the DARK warn daily until it
+  clears, then goes silent — no "recovered" signal). Generalizing needs the same
+  transition-state tracking deferred above. **Pick up when** board-plane flakiness
+  persists after review item M-3 lands. (data-health-notify spec §10.8)
+- [ ] **`notify` flow-capture streak vs crash-gap days** — `_recent_rotation_statuses`
+  (`src/irc/commands/notify_cmd.py`) silently skips days whose `rotation_radar.json`
+  is missing/corrupt, so the `连续第 N 日` / 此前弃权 M 日 counters can miscount
+  across a crash day (the crash day itself pages `failed`, so severity is
+  unaffected). Why deferred: cosmetic counter accuracy, needs a semantics decision
+  (does a crash break or extend a streak). **Pick up when** a rotation crash day
+  actually occurs in the wild. (data-health-notify Task-8 review 2026-07-07)
+- [ ] **`flow-capture` wrapper dynamic tests** — `tests/ops/test_launchd_flow_capture.py`
+  is static-only (substring/ordering); `run-monitor.sh` has dynamic stub-`uv`
+  execution tests proving `rc=124` reaches `notify-status` and a notify failure
+  leaves `$rc` untouched. Why deferred: parity gap, wrapper logic verified by
+  review + runtime proofs. **Pick up when** any wrapper logic next changes.
+  (data-health-notify Task-10 review 2026-07-07)
 
 ## Coverage gaps
 

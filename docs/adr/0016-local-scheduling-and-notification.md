@@ -96,3 +96,35 @@ future item.
   portable wall-clock watchdog (process-group kill → `rc=124`) and per-wrapper
   single-instance locks via the shared `ops/launchd/lib-run.sh`. Design + rationale:
   `docs/2026-06-30-launchd-watchdog/items/001-spec.md` (no standalone ADR — reversible).
+
+## Amendment (2026-07-07): data-health digest, `degraded` severity, `flow-capture` run-kind
+
+Spec: `docs/2026-07-07-data-health-notify/items/001-spec.md` (grilled + locked).
+
+- **New `degraded` severity.** Precedence becomes `failed > halted > stale >
+  degraded > action > clean`, and `degraded ∈ _ALWAYS_NOTIFY` — it fires even
+  with `IRC_NOTIFY_ON_CLEAN=0` (without that, a clean-run-with-DARK day would be
+  silenced, recreating the invisibility this amendment fixes). A clean-or-actionable
+  run whose on-disk artifacts show data degradation (board-PE DARK, flow
+  staleness, rotation abstain/`degraded_*`, stale macro drivers) is tagged
+  `degraded`; the action rollup, when present, stays in the body. `degraded` sits
+  above `action` because a trust problem should tag the notification before the
+  action it taints. The name matches rotation's `degraded_*` `data_status` family
+  (`data_stale` was rejected — it collides with the `stale` severity).
+- **Data-health digest (`src/irc/notify/health.py`).** A pure, UNPERSISTED
+  derivation of already-written artifacts (`eval_trace.json`,
+  `fund_flow_series.json`, `rotation_radar.json`, `gold_regime.json`), gathered
+  best-effort at the notify edge and appended to the body. Never an input to
+  factor math or any pipeline stage; a missing/corrupt input degrades to a single
+  `health_unknown` warn item, never an exception (same degrade-never-crash posture
+  as AC8). See CONTEXT.md "Data-health digest".
+- **New `flow-capture` run-kind.** The 15:45 `run-flow-capture.sh` wrapper gains a
+  best-effort `notify-status --run-kind flow-capture --no-notify-on-clean` tail: a
+  fully-ok chain stays silent, degradation/abstain/failure pages `degraded`/
+  `failed`, and a one-time recovery notice fires on the abstain→ok transition
+  (severity `clean`, forced notify). The tail passes the flow-capture `$rc`; a
+  rotation crash is caught via today's `rotation_radar.json` sentinel (written on
+  both ok and abstain).
+- **Behaviour change:** a capture timeout (`rc=124`) now pages as `failed`,
+  superseding the wrapper's prior "a timeout does NOT page" comment — a capture
+  timeout means tomorrow's flow is stale, which is exactly what this surfaces.

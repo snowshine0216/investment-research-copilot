@@ -1740,6 +1740,11 @@ git add docs/adr/0016-local-scheduling-and-notification.md ops/launchd/README.md
 git commit -m "docs(notify): ADR 0016 amendment + AC6 doc syncs + CHANGELOG + TODOS deferrals"
 ```
 
+**Amendment (execution-time, Task 12):** two extra `TODOS.md` bullets were added
+alongside Step 6's pair — `notify flow-capture streak vs crash-gap days` and
+`flow-capture wrapper dynamic tests` — carried over as deferrals from the Task-8
+and Task-10 review rounds respectively; not in the original Step 6 spec text above.
+
 ---
 
 ## Self-Review (completed by plan author)

@@ -163,3 +163,34 @@
   tests/ops/test_launchd_flow_capture.py -q` — 7 passed; pre-existing
   `bash tests/ops/test_flow_capture_wrapper.sh` (AC10 wrapper chaining) still
   passes unaffected (radar-chain assertions sit before the new notify tail).
+
+## Task 12: Docs, CHANGELOG, TODOS, CONTEXT verify + full affected-test sweep
+
+- **Extra TODOS bullets (per orchestrator instruction, beyond brief's Step 6).**
+  Added two additional `## Reliability` deferrals alongside the brief's two:
+  `notify flow-capture streak vs crash-gap days` (Task-8 review) and
+  `flow-capture wrapper dynamic tests` (Task-10 review). Per orchestrator
+  instruction, also appended a one-line amendment note at the end of Task 12's
+  section in `items/001-plan.md` documenting that these two came from
+  Task-8/Task-10 reviews and were not in the original Step 6 spec text.
+- **Commit scope wider than brief's Step 9 `git add` list (per orchestrator
+  instruction).** In addition to the brief's six doc files, the commit also
+  includes `docs/2026-07-07-data-health-notify/items/001-plan.md` (the Task 12
+  amendment note above) and the untracked `items/001-runtime-proofs.md` (Task 11
+  evidence copy, a genuine straggler — `git status` showed it untracked at Task
+  12 start). `items/001-notes.md` (this file) was already committed pre-existing
+  with no pending changes, so it is committed here only insofar as this Task 12
+  section is a new edit to it. `docs/2026-07-07-data-health-notify/PROGRESS.md`
+  was excluded from the commit per explicit instruction (orchestrator-owned) even
+  though it was modified in the working tree at task start.
+- **CONTEXT.md verify (Step 7): PASS.** Both `grep -c` checks returned `1` —
+  "Data-health digest" and "the outcome-notification layer is the surface that
+  names flow staleness" are both already present (grill session additions).
+  No edit made, no BLOCKED condition.
+- **Test sweep (Step 8): all green, counts match the brief's expected deltas
+  exactly.** `tests/notify/{test_calendar,test_health,test_classify,test_types,
+  test_message,test_monitor_run_kind,test_run_kind_promotions}.py` — 91 passed;
+  `tests/commands/test_notify_cmd.py` — 37 passed; `tests/ops/{test_launchd_
+  flow_capture,test_launchd_monitor,test_launchd_weekly,test_wrappers,
+  test_run_lib}.py` — 70 passed; `ruff check` — All checks passed. No
+  pre-existing test regressed.
