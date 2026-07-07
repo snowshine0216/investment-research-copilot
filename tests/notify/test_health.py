@@ -4,7 +4,13 @@ import json
 from datetime import date
 from pathlib import Path
 
-from irc.notify.health import HealthDigest, monitor_health
+from irc.notify.health import (
+    HealthDigest,
+    detect_rotation_recovery,
+    monitor_health,
+    rotation_health,
+    weekly_health,
+)
 
 _FIX = Path(__file__).parent / "fixtures"
 
@@ -77,3 +83,64 @@ def test_monitor_health_clean_when_fresh_and_covered():
     flow = {"600000": [["2026-07-07", 1.0]], "600036": [["2026-07-07", 2.0]]}
     digest = monitor_health(trace, flow, _TDAYS)
     assert digest == HealthDigest(())
+
+
+def test_rotation_health_abstain_counts_consecutive():
+    radar = _load("rotation_radar_abstain.json")  # data_status == "abstain"
+    digest = rotation_health(radar, ("ok", "abstain", "abstain"))
+    item = digest.items[0]
+    assert item.code == "rotation_abstain" and item.level == "warn"
+    assert "连续第 2 日" in item.text
+    assert digest.has_warnings is True
+
+
+def test_rotation_health_degraded_prefix_is_warn():
+    digest = rotation_health({"data_status": "degraded_flow_dark"}, ("degraded_flow_dark",))
+    assert digest.items[0].code == "rotation_degraded"
+    assert "degraded_flow_dark" in digest.items[0].text
+
+
+def test_rotation_health_ok_is_empty():
+    radar = _load("rotation_radar_ok.json")  # data_status == "ok"
+    assert rotation_health(radar, ("abstain", "ok")) == HealthDigest(())
+
+
+def test_rotation_health_missing_status_is_unknown():
+    digest = rotation_health({}, ())
+    assert digest.items[0].code == "health_unknown"
+
+
+def test_detect_recovery_on_abstain_to_ok():
+    radar = _load("rotation_radar_ok.json")
+    board_count = len(radar["board_states"])
+    text = detect_rotation_recovery(("abstain", "ok"), board_count)
+    assert text is not None
+    assert f"{board_count} boards" in text and "此前弃权 1 日" in text
+
+
+def test_detect_recovery_none_when_no_prior_degradation():
+    assert detect_rotation_recovery(("ok", "ok"), 200) is None
+
+
+def test_detect_recovery_none_when_today_not_ok():
+    assert detect_rotation_recovery(("abstain", "abstain"), 200) is None
+
+
+def test_weekly_health_flags_stale_macro_driver():
+    gold = _load("gold_regime.json")  # DXY @ 2026-06-16
+    digest = weekly_health(gold, date(2026, 7, 7))
+    dxy = [i for i in digest.items if i.code == "macro_driver_stale" and "DXY" in i.text]
+    assert dxy and dxy[0].level == "warn"
+    assert "滞后 21d" in dxy[0].text
+
+
+def test_weekly_health_relays_unavailable_as_info():
+    gold = _load("gold_regime.json")  # drivers_unavailable == ["etf_holdings_gld"]
+    digest = weekly_health(gold, date(2026, 7, 7))
+    unavail = [i for i in digest.items if i.code == "driver_unavailable"]
+    assert unavail and unavail[0].level == "info"
+    assert "etf_holdings_gld" in unavail[0].text
+
+
+def test_weekly_health_empty_is_unknown():
+    assert weekly_health({}, date(2026, 7, 7)).items[0].code == "health_unknown"

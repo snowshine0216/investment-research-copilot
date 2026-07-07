@@ -113,3 +113,75 @@ def _signal_items(funds: dict) -> tuple[HealthItem, ...]:
     listed = ", ".join(bad[:_MAX_SIGNAL_IDS])
     return (HealthItem("signal_not_ok", "warn",
                        f"信号: {len(bad)}/{len(funds)} 非 ok (NO_CALL: {listed})"),)
+
+
+def rotation_health(radar: dict, recent_statuses: tuple[str, ...]) -> HealthDigest:
+    """Rotation abstain/degraded → warn; ok → empty; missing → unknown."""
+    if not radar or "data_status" not in radar:
+        return _UNKNOWN
+    status = radar["data_status"]
+    if status == "abstain":
+        consec = _consecutive_degraded(recent_statuses)
+        return HealthDigest((HealthItem("rotation_abstain", "warn",
+                             f"轮动雷达: 弃权 (连续第 {consec} 日)"),))
+    if isinstance(status, str) and status.startswith("degraded_"):
+        return HealthDigest((HealthItem("rotation_degraded", "warn",
+                             f"轮动雷达: {status}"),))
+    return HealthDigest(())
+
+
+def _is_degraded(status: object) -> bool:
+    return status == "abstain" or (isinstance(status, str) and status.startswith("degraded_"))
+
+
+def _consecutive_degraded(recent_statuses: tuple[str, ...]) -> int:
+    count = 0
+    for status in reversed(recent_statuses):
+        if not _is_degraded(status):
+            break
+        count += 1
+    return count
+
+
+def detect_rotation_recovery(
+    recent_statuses: tuple[str, ...], board_count: int
+) -> str | None:
+    """Body for the one-time abstain→ok recovery notice, else None."""
+    if len(recent_statuses) < 2 or recent_statuses[-1] != "ok":
+        return None
+    prior_run = _consecutive_degraded(recent_statuses[:-1])
+    if prior_run == 0:
+        return None
+    return f"轮动雷达恢复 ok ({board_count} boards) — 此前弃权 {prior_run} 日"
+
+
+def weekly_health(gold_regime: dict, today: date) -> HealthDigest:
+    """Macro-driver age (>7 calendar days ⇒ warn) + drivers_unavailable (info)."""
+    if not gold_regime:
+        return _UNKNOWN
+    items = _macro_items(gold_regime.get("macro_snapshots", []), today)
+    items += _unavailable_items(gold_regime.get("drivers_unavailable", []))
+    return HealthDigest(items)
+
+
+def _macro_items(snapshots: list, today: date) -> tuple[HealthItem, ...]:
+    out: list[HealthItem] = []
+    for snap in snapshots:
+        age = _driver_age(snap.get("date"), today)
+        if age is not None and age > _MACRO_MAX_AGE_DAYS:
+            out.append(HealthItem("macro_driver_stale", "warn",
+                       f"宏观驱动: {snap.get('series_id')} 滞后 {age}d ({snap.get('date')})"))
+    return tuple(out)
+
+
+def _driver_age(raw: object, today: date) -> int | None:
+    try:
+        return (today - date.fromisoformat(str(raw))).days
+    except (TypeError, ValueError):
+        return None
+
+
+def _unavailable_items(names: list) -> tuple[HealthItem, ...]:
+    return tuple(
+        HealthItem("driver_unavailable", "info", f"缺失驱动: {name}") for name in names
+    )
