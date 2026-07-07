@@ -13,3 +13,10 @@ Reviewers: pr-review-toolkit:code-reviewer (step 8a) + general-purpose adversari
 ## Classification
 
 Blockers: 0 remaining. Latent bugs: 0 remaining (all wording loopholes closed pre-push). Nits: 1 accepted.
+
+## Post-capture rounds addendum (2026-07-07)
+
+- pr-review round: FAIL → 3 findings ("weeks" claim git-refuted; bare "fixture" ×7 vs CONTEXT.md:42; phantom §4.3/§4.4 anchors) → fixed `81b1bde0` → pr-review re-review upgraded to PASS (`659f91a7`).
+- Codex secondary: 1 finding — "copied from a real on-disk artifact" readable as live data/** runtime reads → tightened to committed-snapshot wording `ffec6703`. No other contradiction found.
+- Verify (`07b8c73f`) predates the last two wording commits; its cold-read conclusions (marker disclaim, adversarial exemption, per-file caveat, forward-only, env recipe) all survive — the later commits only narrowed wording further in the same direction (orchestrator gate re-ran tests/docs 9/9 at merge).
+Verdict unchanged: PASS-WITH-NITS.
