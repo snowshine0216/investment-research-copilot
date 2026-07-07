@@ -19,6 +19,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emits its candidate rows from data already on disk. No `radar_version`/`schema_version`
   bump; board scoring untouched.
 
+- **Sector rotation radar — seed skip-set freshness (review R-4, P0)**: `irc rotation
+  seed`'s stock→board map builder skipped **every** symbol already present in
+  `data/monitor/stock_industry_map.json`, ignoring `seen_at` age, so once the ~640
+  seeded non-Monitor mappings crossed the store's 30-calendar-day `fresh_slice`
+  window (~2026-08-05) they dropped out of the daily join AND could never be
+  re-fetched — the store could only recover by being deleted. `seed_stock_board_map`'s
+  skip-set now derives from `fresh_slice(existing, today)` (its keys) instead of
+  `existing.keys()`, so STALE entries re-enter the re-fetch set and `record_seen`'s
+  refresh-on-seen bumps their `seen_at` back to `today` (coverage self-heals on
+  re-seed); FRESH entries stay skipped, preserving resumability. No
+  `radar_version`/`schema_version`/`VERSION` bump; store shape and board scoring
+  untouched.
+
 ### Added — sector rotation radar (2026-07-05)
 
 - **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM
