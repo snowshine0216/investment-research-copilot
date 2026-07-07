@@ -153,3 +153,22 @@ def _abstain_streak(recent_statuses: tuple[str, ...]) -> int:
         else:
             break
     return streak
+
+
+def weekly_health(gold_regime: dict, *, today: date) -> HealthDigest:
+    """Weekly (Sat 09:00) digest: macro-driver age + unavailable drivers."""
+    try:
+        items: list[HealthItem] = []
+        for snap in (gold_regime or {}).get("macro_snapshots") or []:
+            iso = snap.get("date")
+            if not iso:
+                continue
+            age = (today - date.fromisoformat(iso)).days
+            if age > _MACRO_AGE_LIMIT_DAYS:
+                items.append(HealthItem("macro_driver_stale", "warn",
+                                        f"宏观驱动: {snap.get('series_id')} 滞后 {age}d ({_md(iso)})"))
+        for drv in (gold_regime or {}).get("drivers_unavailable") or []:
+            items.append(HealthItem("macro_driver_unavailable", "info", f"缺失驱动: {drv}"))
+        return HealthDigest(tuple(items))
+    except Exception:  # noqa: BLE001 — total function (ADR 0016 AC8)
+        return health_unknown()

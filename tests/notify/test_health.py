@@ -4,7 +4,14 @@ import json
 from datetime import date
 from pathlib import Path
 
-from irc.notify.health import HealthDigest, HealthItem, health_unknown, monitor_health, rotation_health
+from irc.notify.health import (
+    HealthDigest,
+    HealthItem,
+    health_unknown,
+    monitor_health,
+    rotation_health,
+    weekly_health,
+)
 
 
 def test_digest_empty_has_no_warnings():
@@ -175,3 +182,29 @@ def test_rotation_total_on_corrupt_radar():
     dg = rotation_health("oops", ("ok",))
     assert dg.items == (health_unknown().items[0],)
     assert dg.has_warnings
+
+
+def test_weekly_dxy_stale_is_warn():
+    dg = weekly_health(_load("gold_regime.json"), today=date(2026, 7, 7))
+    dxy = [i for i in dg.items if i.code == "macro_driver_stale"]
+    assert dxy and dxy[0].level == "warn"
+    assert dxy[0].text == "宏观驱动: DXY 滞后 21d (06-16)"
+
+
+def test_weekly_only_dxy_breaches_7d_threshold():
+    # real_yield/vix/inflation/DGS10 are all 07-01/07-02 (<= 6d) → not stale.
+    dg = weekly_health(_load("gold_regime.json"), today=date(2026, 7, 7))
+    stale = [i.text for i in dg.items if i.code == "macro_driver_stale"]
+    assert stale == ["宏观驱动: DXY 滞后 21d (06-16)"]
+
+
+def test_weekly_drivers_unavailable_is_info():
+    dg = weekly_health(_load("gold_regime.json"), today=date(2026, 7, 7))
+    un = [i for i in dg.items if i.code == "macro_driver_unavailable"]
+    assert un and un[0].level == "info"
+    assert un[0].text == "缺失驱动: etf_holdings_gld"
+
+
+def test_weekly_total_on_garbage():
+    dg = weekly_health({"macro_snapshots": [{"date": 123}]}, today=date(2026, 7, 7))
+    assert dg.items[0].code == "health_unknown"
