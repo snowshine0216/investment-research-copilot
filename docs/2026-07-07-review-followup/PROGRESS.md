@@ -58,7 +58,7 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 - Process traps survived: one implementer killed mid-task by an API server error (resumed via SendMessage, zero loss); the 004 merge's local "Aborting" was gh's branch-cleanup on a dirty tree, PR had merged fine.
 
 **Feature branch:** autodev/review-followup-feature
-**Feature-branch PR:** (see below — opened, not merged)
+**Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/215 (opened, not merged)
 **Merged into protected branch: no** (PR left open for user review)
 
 **Follow-ups for the user:** (1) PR #211 (`autodev/data-health-notify-feature`, the ABORTED prior data-health session) is still OPEN and superseded by #212 — close it and prune its stale worktree `.claude/worktrees/data-health-notify` (plus the two detached-HEAD worktrees) when convenient; (2) QUIZ.md pending (UNKNOWNS queue); (3) TODOS now registers all review deferrals — R-5 (paced seed) is the next time-sensitive one before the ~2026-08-05 staleness cliff.
