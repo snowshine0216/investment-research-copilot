@@ -122,8 +122,11 @@ shape, and all version numbers are untouched.
   bump.
 - **Failure clock (context, encode in the plan's "why"):** ~60 Monitor symbols refresh
   daily; ~640 others expire ≈2026-08-05; exposure coverage then collapses and re-seeding
-  skips them all forever (recovery impossible without deleting the store). This fix restores
-  self-healing.
+  skips them all forever (recovery impossible without deleting the store). ~~This fix restores
+  self-healing.~~ **This fix restores self-healing _on re-seed_** — see `## Resolved decisions`
+  Q4: the heal fires only when `irc rotation seed` is re-run (the daily `irc rotation` run is
+  read-only on the store); continuous coverage still needs a periodic seed cadence or the
+  deferred F6 in-run top-up.
 
 ## Open questions resolved during brainstorming (auto-accepted; rationale recorded)
 
@@ -164,3 +167,88 @@ production-shaped fixtures; no version bump) were not re-litigated — only thei
   keeps meaning "not fetched because already good"; after the fix "already good" = fresh
   rather than merely present. No consumer asserts the old all-keys count as a contract (the
   command-layer only prints the summary). No new field.
+
+## Resolved decisions
+
+Grill `grill(005)` (opus, autodev auto-accept — no user in loop; every recommendation below
+was auto-accepted). Verdict **PASS**: the spec upholds the item-004-corrected store contract
+(≤30-calendar-day serve-while-stale, 行业 names, refresh-on-seen) and ADR 0023 (no
+`radar_version` bump, advisory posture untouched) — no spec-vs-CONTEXT / spec-vs-ADR
+contradiction. Original content above is preserved; corrections are struck through in place.
+
+- **Q1 — Does re-fetching ~640 stale symbols blow the seed's fetch budget
+  (`IRC_ROTATION_TOPUP_BUDGET`) on the ~2026-08-05 cliff day and starve NEVER-seen symbols?**
+  → **No starvation — there is no total-call cap to blow.** `IRC_ROTATION_TOPUP_BUDGET` maps
+  to `chunk_size` (per-call symbol count, default 50 at the command edge —
+  `rotation_cmd.py:204-211,242-245`), **not** a per-run call ceiling (the R-11 "budget is
+  actually chunk size" finding). `seed_stock_board_map` fetches **every** pending symbol
+  (never-seen + newly-stale) in chunks of `chunk_size`; a larger pending set means more
+  chunks, never a dropped/starved symbol. **Consequence (challenged, accepted):** the fix
+  turns the ~08-05 cliff into a periodic ~640-symbol re-fetch burst (~640/50 ≈ 13 extra
+  `ulist.np` calls) on top of the ~331 never-mappable HK symbols already re-fetched every seed
+  (R-11) — an unpaced burst against a burst-throttling endpoint (the R-5 self-DoS shape).
+  This is **out of scope** (R-5 pacing/backoff is a separate finding) and introduces **no new
+  crash risk**: seed's per-chunk `try/except` sends a throttled chunk to `failed` (retried
+  next seed), never aborting. Rationale: the fix trades "silent coverage collapse" for "an
+  honest, heavier, gracefully-degrading re-seed" — exactly the intended direction. **Doc
+  impact:** this resolved decision (budget mechanics) + CONTEXT store clause.
+
+- **Q2 — Is the `summary["skipped"]` accounting still truthful post-fix?** → **Yes, and the
+  locked `len(fresh)` stays.** After AC1, `skipped = len(fresh)` counts fresh (≤30d) existing
+  keys; every newly-stale existing key moves into `pending` and lands in `done` or `failed` —
+  never silently dropped. **Pre-existing quirk (unchanged by this fix, therefore NOT a
+  regression):** `skipped` is *store-scoped* (all fresh map keys, which may include fresh keys
+  for symbols no longer in the `symbols` input) while `done`/`failed` are *symbol-scoped*
+  (⊂ the requested `symbols`), so the three counts do **not** sum to `len(symbols)` — this was
+  already true pre-fix (`skipped = len(existing.keys())`). Per the locked "no richer summary
+  shape" (Q6) and "no consumer contracts on the count," keep `len(fresh)`; do not add an
+  intersection or a stale-refetched tally. **Doc impact:** none beyond this note.
+
+- **Q3 — Does the daily `irc rotation` run change the staleness-clock assumptions the spec's
+  failure model rests on?** → **No — the daily run is READ-ONLY on the store.**
+  `resolve_candidates` reads the store via `fresh_slice(load_store(map_path), today)`
+  (`_cmd_helpers.py:110,122`) and **never** calls `record_seen`/`merge_seen`; the in-run F6
+  top-up that *would* write is **deferred** (ADR 0023 F6). `seen_at` is written only by (a)
+  `irc monitor`'s daily `ulist.np` batch for its ~60 monitor symbols and (b) `irc rotation
+  seed` on demand. This **confirms** the spec's failure clock exactly — the daily radar run
+  neither ages nor heals entries. **Doc impact:** CONTEXT store clause makes the writer/reader
+  split explicit.
+
+- **Q4 — Does the fix make coverage auto-heal, or only heal on re-seed?** → **Only on
+  re-seed** (wording sharpened in the Failure-clock constraint above). The fix makes a seed
+  run *effective* at healing (stale → `pending` → `record_seen` bumps `seen_at`), but there is
+  **no scheduled seed** — `ops/launchd` chains the daily `irc rotation` run, not `irc rotation
+  seed` (verified; ADR 0023 D4 rides the 15:45 flow-capture wrapper for the *radar*, not
+  seed). So without a manual/periodic re-seed (or the deferred F6 in-run top-up), coverage
+  still crosses the ~08-05 cliff. The fix is **necessary but not sufficient** for continuous
+  coverage; the periodic-seed cadence / F6 build is a **separate, out-of-scope** decision. The
+  spec's "restores self-healing" is corrected to "restores self-healing on re-seed" so the
+  plan/ops do not over-read it as automatic. **Doc impact:** spec Failure-clock strike-through
+  + CONTEXT store clause.
+
+- **Q5 — AC3 integration-test mechanics: what exactly must the fake `batch_fetch` return, and
+  which symbols go in the `symbols` input?** → **Sharpened (no behavior change to the fix).**
+  `seed_stock_board_map` unpacks `_flow, industry_by_symbol = batch_fetch(tuple(chunk))`, so
+  the AC3 fake must return a **2-tuple** `({}, {<stale_sym>: "<行业 name>"})` — matching the
+  existing AC2 fixture shape `return {}, {...}`, **not** a bare dict. To prove the fresh entry
+  is *skipped* (not merely absent), AC3 must pass **both** the stale and the fresh symbol in
+  the `symbols` argument, then assert: (1) `load_store(map_path)[<stale_sym>]["seen_at"] ==
+  today`; (2) the fresh symbol's `seen_at` is **unchanged**; (3) the fresh symbol never
+  appears in a recorded chunk. Rationale: a fresh symbol absent from `symbols` would be
+  trivially untouched — passing it in is what makes the skip assertion load-bearing. **Doc
+  impact:** AC3 mechanics (plan input).
+
+- **Q6 — Alignment with the item-004-corrected CONTEXT.md store entry.** → **One clause
+  added.** The post-004 store entry documented the two READERS (monitor join, radar join) but
+  was silent on the seed WRITER's skip-set. Appended a clause: the rotation seed's re-fetch
+  skip-set honors the **same** `fresh_slice` ≤30-calendar-day window (writer and both joins in
+  lockstep; a seed-local window would re-open the heal gap), plus the writer/reader split from
+  Q3. **Doc impact:** CONTEXT.md "Stock-industry map (cross-day store)" term.
+
+- **Q7 — Is a new ADR warranted?** → **No.** Three-of-three fails: **not hard to reverse**
+  (a one-line skip-set expression swap reusing the existing pure `fresh_slice`, no
+  schema/`radar_version`/store-shape change, trivially revertible); the mild surprise is
+  captured by the AC4 docstring rewrite + the CONTEXT clause; the only trade-off (heavier
+  cliff-day re-fetch vs silent collapse) is decisively settled by the store's own
+  serve-while-stale contract, not a genuine either/or. Consistent with item 004 (no ADR for
+  its L2 join fix). **Doc impact:** none.
