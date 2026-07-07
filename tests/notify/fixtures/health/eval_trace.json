@@ -1,0 +1,640 @@
+{
+ "schema_version": "7",
+ "engine_version": "4",
+ "run_date": "2026-07-07",
+ "board_pe_freshness": {
+  "state": "STALE",
+  "as_of": "2026-07-06",
+  "age_td": 1
+ },
+ "funds": {
+  "008986": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": -0.1625,
+    "signal_confidence": 0.9475,
+    "available_weight": 1.0,
+    "present_families": [
+     "crowding",
+     "news",
+     "price-momentum"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.45,
+      "value": -0.7304412115283073,
+      "contribution": -0.3286985451877383,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.2,
+      "value": 0.3,
+      "contribution": 0.06,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.35,
+      "value": 0.30333333333333334,
+      "contribution": 0.10616666666666666,
+      "confidence": 0.85
+     }
+    ],
+    "divergence_codes": [
+     "trend_macro_conflict",
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "270023": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": 0.2674,
+    "signal_confidence": 0.8765,
+    "available_weight": 0.85,
+    "present_families": [
+     "crowding",
+     "news",
+     "price-momentum"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.4117647058823529,
+      "value": 0.7787583627837819,
+      "contribution": 0.32066520820508665,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.17647058823529413,
+      "value": -0.5,
+      "contribution": -0.08823529411764706,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.4117647058823529,
+      "value": 0.085,
+      "contribution": 0.035,
+      "confidence": 0.7
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "519069": {
+   "signal": {
+    "status": "ok",
+    "bias": "ADD_BIAS",
+    "composite": 0.4342,
+    "signal_confidence": 0.9526,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": 0.7022712846091655,
+      "contribution": 0.1755678211522914,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": 0.51095414040426,
+      "contribution": 0.102190828080852,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": 0.3,
+      "contribution": 0.03,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": 0.29000000000000004,
+      "contribution": 0.043500000000000004,
+      "confidence": 0.825
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.5615069292487236,
+      "contribution": 0.08422603938730854,
+      "confidence": 0.8588110867979577
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": -0.008388037928519328,
+      "contribution": -0.0012582056892778992,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "ADD_BIAS",
+   "validation_badge": "validated"
+  },
+  "260112": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": -0.0609,
+    "signal_confidence": 0.8968,
+    "available_weight": 0.8,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.3125,
+      "value": -0.4821034236645383,
+      "contribution": -0.15065731989516823,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.125,
+      "value": 0.3,
+      "contribution": 0.0375,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.18749999999999997,
+      "value": 0.09166666666666669,
+      "contribution": 0.0171875,
+      "confidence": 0.7999999999999999
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.18749999999999997,
+      "value": 0.28367268536304263,
+      "contribution": 0.05318862850557048,
+      "confidence": 0.6494429504417979
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.18749999999999997,
+      "value": -0.0968113714944295,
+      "contribution": -0.01815213215520553,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "006533": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": 0.0963,
+    "signal_confidence": 0.9489,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": 0.7796656692302645,
+      "contribution": 0.19491641730756612,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": -0.053534002229654376,
+      "contribution": -0.010706800445930876,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": -0.5,
+      "contribution": -0.05,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": 0.44000000000000006,
+      "contribution": 0.066,
+      "confidence": 0.875
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.22142561413193487,
+      "contribution": 0.03321384211979023,
+      "confidence": 0.7841291747170853
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": -0.9142975434722607,
+      "contribution": -0.13714463152083908,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "009225": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": -0.2871,
+    "signal_confidence": 0.9385,
+    "available_weight": 0.65,
+    "present_families": [
+     "crowding",
+     "news",
+     "price-momentum"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.4615384615384615,
+      "value": -0.5065874550406205,
+      "contribution": -0.23380959463413253,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.23076923076923075,
+      "value": -0.5,
+      "contribution": -0.11538461538461538,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.3076923076923077,
+      "value": 0.2016666666666667,
+      "contribution": 0.06205128205128206,
+      "confidence": 0.7999999999999999
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "000083": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": 0.1766,
+    "signal_confidence": 0.9425,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": -0.5541864681845631,
+      "contribution": -0.13854661704614077,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": 0.6795219319862001,
+      "contribution": 0.13590438639724003,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": 0.3,
+      "contribution": 0.03,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": 0.265,
+      "contribution": 0.03975,
+      "confidence": 0.75
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.5747497879558948,
+      "contribution": 0.08621246819338423,
+      "confidence": 0.8663698049194232
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": 0.15507492225049474,
+      "contribution": 0.02326123833757421,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "trend_valuation_conflict",
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "519770": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": 0.1147,
+    "signal_confidence": 0.9282,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": 0.7768434774297832,
+      "contribution": 0.1942108693574458,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": -0.32364205487018965,
+      "contribution": -0.06472841097403793,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": 0.3,
+      "contribution": 0.03,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": 0.055000000000000035,
+      "contribution": 0.008250000000000006,
+      "confidence": 0.75
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.5006542539436255,
+      "contribution": 0.07509813809154382,
+      "confidence": 0.7715283165244374
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": -0.8541505042668736,
+      "contribution": -0.12812257564003102,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "trend_valuation_conflict",
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "018132": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": -0.1028,
+    "signal_confidence": 0.922,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": -0.5530770974978352,
+      "contribution": -0.1382692743744588,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": 0.590281173594132,
+      "contribution": 0.11805623471882641,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": 0.3,
+      "contribution": 0.03,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": -0.10333333333333333,
+      "contribution": -0.0155,
+      "confidence": 0.7999999999999999
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.21163897034864776,
+      "contribution": 0.03174584555229716,
+      "confidence": 0.6800912349299446
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": -0.858911697621375,
+      "contribution": -0.12883675464320624,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "trend_valuation_conflict",
+     "valuation_flow_conflict",
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  },
+  "161903": {
+   "signal": {
+    "status": "ok",
+    "bias": "NEUTRAL",
+    "composite": 0.2246,
+    "signal_confidence": 0.9214,
+    "available_weight": 1.0,
+    "present_families": [
+     "capital-flow",
+     "crowding",
+     "news",
+     "price-momentum",
+     "valuation"
+    ],
+    "contributions": [
+     {
+      "name": "trend",
+      "renorm_weight": 0.25,
+      "value": 0.7905567258923671,
+      "contribution": 0.19763918147309179,
+      "confidence": 1.0
+     },
+     {
+      "name": "valuation",
+      "renorm_weight": 0.2,
+      "value": 0.2399829497016198,
+      "contribution": 0.047996589940323964,
+      "confidence": 1.0
+     },
+     {
+      "name": "heat",
+      "renorm_weight": 0.1,
+      "value": 0.3,
+      "contribution": 0.03,
+      "confidence": 1.0
+     },
+     {
+      "name": "macro_tilt",
+      "renorm_weight": 0.15,
+      "value": 0.06500000000000002,
+      "contribution": 0.009750000000000002,
+      "confidence": 0.7749999999999999
+     },
+     {
+      "name": "constituent",
+      "renorm_weight": 0.15,
+      "value": 0.08881639582828038,
+      "contribution": 0.013322459374242058,
+      "confidence": 0.7012733446519525
+     },
+     {
+      "name": "flow",
+      "renorm_weight": 0.15,
+      "value": -0.49381518311908806,
+      "contribution": -0.07407227746786321,
+      "confidence": 1.0
+     }
+    ],
+    "divergence_codes": [
+     "low_factor_agreement"
+    ]
+   },
+   "gate": {
+    "suppressed": false,
+    "failed_stages": [],
+    "reason": ""
+   },
+   "published_state": "NEUTRAL",
+   "validation_badge": "validated"
+  }
+ }
+}
