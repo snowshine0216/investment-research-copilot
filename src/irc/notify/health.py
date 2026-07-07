@@ -144,6 +144,22 @@ def _signal_items(funds: dict) -> tuple[HealthItem, ...]:
                        f"信号: {len(bad)}/{len(funds)} 非 ok (NO_CALL: {listed})"),)
 
 
+def flow_capture_health(flow_store: dict, today: date) -> HealthDigest:
+    """Spec §3.1 rotation row: warn when today's capture appended < 80% of the
+    store's union symbols, computed from the store delta (the wrapper passes
+    no count). Empty/corrupt store ⇒ health_unknown — no delta can be proven,
+    and `irc monitor flow-capture` exits 0 even when the EM batch fails."""
+    newest = _newest_by_symbol(flow_store) if isinstance(flow_store, dict) else {}
+    if not newest:
+        return _UNKNOWN
+    total = len(newest)
+    at_today = sum(1 for d in newest.values() if d == today.isoformat())
+    if (at_today / total) < _COVERAGE_FLOOR:
+        return HealthDigest((HealthItem(
+            "flow_capture_partial", "warn", f"flow-capture: {at_today}/{total}"),))
+    return HealthDigest(())
+
+
 def rotation_health(radar: dict, recent_statuses: tuple[str, ...]) -> HealthDigest:
     """Rotation abstain/degraded → warn; ok → empty; missing → unknown."""
     if not radar or "data_status" not in radar:

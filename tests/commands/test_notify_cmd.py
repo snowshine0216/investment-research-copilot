@@ -549,3 +549,79 @@ def test_flow_capture_missing_today_radar_does_not_reissue_recovery(tmp_path, mo
     decision = classify_run_outcome(outcome)
     assert decision.severity == "failed"
     assert "恢复" not in decision.body
+
+
+# ---- Round 3: Findings A (flow-capture coverage delta) + B (corrupt-today recovery) ----
+
+def _stage_flow_store(root: Path, n_today: int, n_total: int) -> None:
+    """n_total union symbols; the first n_today have their newest row today."""
+    store = {
+        f"6{i:05d}": [["2026-07-06", 1.0], ["2026-07-07", 2.0]] if i < n_today
+        else [["2026-07-06", 1.0]]
+        for i in range(n_total)
+    }
+    data_dir = root / "data" / "monitor"
+    data_dir.mkdir(parents=True)
+    (data_dir / "fund_flow_series.json").write_text(json.dumps(store), encoding="utf-8")
+
+
+def test_flow_capture_partial_coverage_pages_degraded(tmp_path, monkeypatch):
+    """Finding A (P0 spec gap): ok rotation + today's capture appended only
+    7/30 union symbols → warn item `flow-capture: 7/30` and severity degraded
+    (the page fires) — today `irc monitor flow-capture` exits 0 even when the
+    EM batch fails, so a soft capture failure was silent at 15:45."""
+    from irc.notify.classify import classify_run_outcome
+
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _stage_radar(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    _stage_flow_store(tmp_path, 7, 30)
+
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    decision = classify_run_outcome(outcome, notify_on_clean=False)
+    assert decision.severity == "degraded"
+    assert decision.should_notify is True
+    assert "flow-capture: 7/30" in decision.body
+
+
+def test_flow_capture_full_coverage_stays_clean(tmp_path, monkeypatch):
+    """Finding A: full capture (30/30 today rows) + ok rotation adds no item —
+    a fully-ok 15:45 chain stays silent (spec §3.4)."""
+    from irc.notify.classify import classify_run_outcome
+
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    _stage_radar(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    _stage_flow_store(tmp_path, 30, 30)
+
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="flow-capture", last_exit_code=0)
+    decision = classify_run_outcome(outcome, notify_on_clean=False)
+    assert decision.severity == "clean"
+    assert decision.should_notify is False
+
+
+def test_flow_capture_missing_store_flags_unknown(tmp_path):
+    """Finding A: store unreadable/missing → the existing health_unknown warn
+    path (consistent with read_monitor_health), never a silent-clean digest."""
+    _stage_radar(tmp_path, "2026-07-07", "rotation_radar_ok.json")
+    # NOTE: no data/monitor/fund_flow_series.json staged at all.
+    digest, force = notify_health.read_flow_capture(tmp_path, date(2026, 7, 7))
+    assert force is False
+    assert digest.has_warnings is True
+    assert any(i.code == "health_unknown" for i in digest.items)
+
+
+def test_flow_capture_corrupt_today_radar_does_not_fire_recovery(tmp_path):
+    """Finding B (P1): TODAY's radar CORRUPT (not missing) — the exists() gate
+    passes while _recent_rotation_statuses drops the unreadable today, so
+    recent[-1] silently becomes YESTERDAY and yesterday's abstain→ok recovery
+    re-fired as a bogus forced `恢复 ok (0 boards)` page. Recovery must anchor
+    on the PARSED radar (dict AND its own data_status == "ok")."""
+    _stage_radar(tmp_path, "2026-07-05", "rotation_radar_abstain.json")
+    _stage_radar(tmp_path, "2026-07-06", "rotation_radar_ok.json")
+    corrupt_dir = tmp_path / "outputs" / "2026-07-07" / "rotation"
+    corrupt_dir.mkdir(parents=True)
+    (corrupt_dir / "rotation_radar.json").write_text("{bad json", encoding="utf-8")
+
+    digest, force = notify_health.read_flow_capture(tmp_path, date(2026, 7, 7))
+    assert force is False
+    assert all(i.code != "rotation_recovered" for i in digest.items)
+    assert all("恢复" not in i.text for i in digest.items)

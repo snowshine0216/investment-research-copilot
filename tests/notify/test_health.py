@@ -7,6 +7,7 @@ from pathlib import Path
 from irc.notify.health import (
     HealthDigest,
     detect_rotation_recovery,
+    flow_capture_health,
     monitor_health,
     rotation_health,
     weekly_health,
@@ -196,5 +197,39 @@ def test_weekly_health_null_macro_snapshots_is_health_unknown():
     gold = _load("gold_regime.json")
     gold = {**gold, "macro_snapshots": None}
     digest = weekly_health(gold, date(2026, 7, 7))
+    assert digest.items[0].code == "health_unknown"
+    assert digest.has_warnings is True
+
+
+# ---- Finding A (round 3): flow-capture coverage from the store delta ----
+# Spec (2026-07-07-data-health-notify-design.md §3.1 rotation row + §3.3):
+# warn when today's capture appended < 80% of union symbols, computed from
+# the flow store (the wrapper passes no count); rendered `flow-capture: N/M`.
+
+_TODAY = date(2026, 7, 7)
+
+
+def _staged_store(n_today: int, n_total: int) -> dict:
+    """n_total union symbols; the first n_today have their newest row today."""
+    return {
+        f"6{i:05d}": [["2026-07-06", 1.0], ["2026-07-07", 2.0]] if i < n_today
+        else [["2026-07-06", 1.0]]
+        for i in range(n_total)
+    }
+
+
+def test_flow_capture_health_partial_coverage_warns():
+    digest = flow_capture_health(_staged_store(7, 30), _TODAY)
+    assert digest.items and digest.items[0].level == "warn"
+    assert "flow-capture: 7/30" in digest.items[0].text
+    assert digest.has_warnings is True
+
+
+def test_flow_capture_health_full_coverage_is_empty():
+    assert flow_capture_health(_staged_store(30, 30), _TODAY) == HealthDigest(())
+
+
+def test_flow_capture_health_empty_store_is_unknown():
+    digest = flow_capture_health({}, _TODAY)
     assert digest.items[0].code == "health_unknown"
     assert digest.has_warnings is True
