@@ -64,7 +64,7 @@ worker — and reports `rc=124`.
 |---|---|---|
 | `run-monitor.sh` | `IRC_MONITOR_TIMEOUT` (1800s / 30 min) | `rc=124` → `notify-status` pages **"timeout"** (`classify` maps 124) |
 | `run-flow-capture.sh` | `IRC_FLOW_CAPTURE_TIMEOUT` (300s / 5 min) | `rc=124` → `notify-status --run-kind flow-capture` pages **"failed"** (a capture timeout ⇒ tomorrow's flow is stale — data-health-notify) |
-| `run-flow-capture.sh` — rotation step | `IRC_ROTATION_TIMEOUT` (300s / 5 min) | rc logged, does NOT page (advisory; wrapper rc unchanged) |
+| `run-flow-capture.sh` — rotation step | `IRC_ROTATION_TIMEOUT` (300s / 5 min) | rc logged, does NOT page directly (advisory; wrapper rc unchanged) — but a kill/crash that leaves today's `rotation_radar.json` unwritten pages **failed** via the flow-capture notify tail's sentinel check |
 | `run-fundamentals.sh` | `IRC_SNAPSHOT_TIMEOUT` (3600s / 60 min) | `rc=124` **logged loudly, does NOT page** (protective-only) |
 | `run-weekly.sh` | `IRC_WEEKLY_TIMEOUT` (7200s / 2h) | `rc=124` → `notify-status --run-kind weekly` pages **"timeout"** |
 | `run-weekly.sh` — eval-refresh step | `IRC_WEEKLY_EVAL_TIMEOUT` (900s per suite) | `rc=124` **logged, does NOT page** (best-effort; runs after notify; wrapper rc unchanged) |

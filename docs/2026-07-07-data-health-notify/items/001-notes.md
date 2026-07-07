@@ -194,3 +194,4 @@
   flow_capture,test_launchd_monitor,test_launchd_weekly,test_wrappers,
   test_run_lib}.py` — 70 passed; `ruff check` — All checks passed. No
   pre-existing test regressed.
+- Task 12 review round — fixed two stale "never pages" doc fragments contradicting the new sentinel paging (conservative, docs-only).
