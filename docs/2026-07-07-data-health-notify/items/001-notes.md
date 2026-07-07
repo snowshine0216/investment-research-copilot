@@ -135,3 +135,31 @@
   src/irc/commands/notify_cmd.py` passes clean; `uv run pytest
   tests/commands/test_notify_cmd.py -q` — 35 passed (26 pre-existing + 9 new);
   `uv run pytest tests/notify/ -q` — 91 passed (back-compat sweep, post-fix).
+
+## Task 10: `run-flow-capture.sh` notify tail + comment updates
+
+- **Conservative, brief-internal contradiction.** The brief's Step 4 header
+  block text literally includes the substring `` `notify-status --run-kind
+  flow-capture` `` inside the *header comment* at the top of the file (before
+  the weekend/holiday gates and the rotation step). The brief's Step 1 test
+  file uses `text.index("notify-status")` (first occurrence in the whole
+  file) to assert the notify tail sits after the trading-day gates
+  (`test_flow_capture_notify_after_trading_day_gates`) and after the rotation
+  step (`test_flow_capture_notify_after_rotation_step`) — with the header text
+  verbatim, the *first* `"notify-status"` occurrence is in the header, before
+  either gate, so both ordering tests failed red-for-the-wrong-reason after
+  the implementation step. Resolved by rewording the header comment to convey
+  the same meaning without the literal token: "as `failed` via the
+  flow-capture notify tail below (data-health-notify)" instead of "as `failed`
+  via `notify-status --run-kind flow-capture` (data-health-notify)". No other
+  wording, mechanics, or locked decisions changed — the actual notify-tail
+  invocation (Step 3) is byte-identical to the brief, sits after both gates,
+  passes `--last-exit-code "$rc"` (not `$radar_rc`), hardcodes
+  `--no-notify-on-clean`, and remains best-effort (`|| echo` breadcrumb, never
+  changes `$rc`). Watchdog comment (Step 4, second block) implemented
+  verbatim — it does not contain the literal string `notify-status` so no
+  analogous issue there.
+- `bash -n ops/launchd/run-flow-capture.sh` passes; `uv run pytest
+  tests/ops/test_launchd_flow_capture.py -q` — 7 passed; pre-existing
+  `bash tests/ops/test_flow_capture_wrapper.sh` (AC10 wrapper chaining) still
+  passes unaffected (radar-chain assertions sit before the new notify tail).
