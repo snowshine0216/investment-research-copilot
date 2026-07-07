@@ -4,7 +4,7 @@ import json
 from datetime import date
 from pathlib import Path
 
-from irc.notify.health import HealthDigest, HealthItem, health_unknown, monitor_health
+from irc.notify.health import HealthDigest, HealthItem, health_unknown, monitor_health, rotation_health
 
 
 def test_digest_empty_has_no_warnings():
@@ -129,3 +129,46 @@ def test_monitor_health_total_on_corrupt_trace():
                         today=_TODAY, holidays=frozenset())
     assert dg.items == (health_unknown().items[0],)
     assert dg.has_warnings
+
+
+def test_rotation_abstain_warn_with_streak():
+    dg = rotation_health(_load("rotation_radar_abstain.json"), ("abstain", "abstain", "ok"))
+    ab = [i for i in dg.items if i.code == "rotation_abstain"]
+    assert ab and ab[0].level == "warn"
+    assert ab[0].text == "轮动雷达: 弃权 (连续第 2 日)"
+
+
+def test_rotation_abstain_streak_one_when_prior_ok():
+    dg = rotation_health(_load("rotation_radar_abstain.json"), ("abstain",))
+    ab = [i for i in dg.items if i.code == "rotation_abstain"]
+    assert ab[0].text == "轮动雷达: 弃权 (连续第 1 日)"
+
+
+def test_rotation_ok_no_warn():
+    dg = rotation_health(_load("rotation_radar_ok.json"), ("ok", "abstain"))
+    assert dg.items == ()
+    assert dg.has_warnings is False
+
+
+def test_rotation_degraded_status_warn():
+    # degraded_* never occurs in a real artifact; minimal dict keeps the real key.
+    dg = rotation_health({"data_status": "degraded_flow_dark", "board_states": []},
+                         ("degraded_flow_dark",))
+    dgd = [i for i in dg.items if i.code == "rotation_degraded"]
+    assert dgd and dgd[0].text == "轮动雷达: degraded_flow_dark"
+
+
+def test_flow_capture_coverage_warn_below_floor():
+    dg = rotation_health(_load("rotation_radar_ok.json"), ("ok",), flow_capture_cov=(7, 30))
+    cov = [i for i in dg.items if i.code == "flow_capture_coverage"]
+    assert cov and cov[0].level == "warn" and cov[0].text == "flow-capture: 7/30"
+
+
+def test_flow_capture_coverage_no_warn_at_floor():
+    dg = rotation_health(_load("rotation_radar_ok.json"), ("ok",), flow_capture_cov=(29, 30))
+    assert not [i for i in dg.items if i.code == "flow_capture_coverage"]
+
+
+def test_rotation_total_returns_digest_on_garbage():
+    dg = rotation_health({"data_status": ["not", "a", "string"]}, ("ok",))
+    assert isinstance(dg, HealthDigest)

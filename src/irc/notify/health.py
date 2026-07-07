@@ -117,3 +117,37 @@ def _signal_items(trace: dict) -> tuple[HealthItem, ...]:
     listed = ", ".join(sorted(non_ok)[:_MAX_SIGNAL_IDS])
     return (HealthItem("signal_not_ok", "warn",
                        f"信号: {len(non_ok)}/{total} 非 ok (NO_CALL: {listed})"),)
+
+
+def rotation_health(
+    radar: dict,
+    recent_statuses: tuple[str, ...],
+    *,
+    flow_capture_cov: tuple[int, int] | None = None,
+) -> HealthDigest:
+    """Flow-capture (15:45) digest: rotation status + flow-capture coverage."""
+    try:
+        items: list[HealthItem] = []
+        status = (radar or {}).get("data_status")
+        if status == "abstain":
+            items.append(HealthItem("rotation_abstain", "warn",
+                                    f"轮动雷达: 弃权 (连续第 {_abstain_streak(recent_statuses)} 日)"))
+        elif isinstance(status, str) and status.startswith("degraded_"):
+            items.append(HealthItem("rotation_degraded", "warn", f"轮动雷达: {status}"))
+        if flow_capture_cov is not None:
+            at, total = flow_capture_cov
+            if total and at < total * _COVERAGE_FLOOR:
+                items.append(HealthItem("flow_capture_coverage", "warn", f"flow-capture: {at}/{total}"))
+        return HealthDigest(tuple(items))
+    except Exception:  # noqa: BLE001 — total function (ADR 0016 AC8)
+        return health_unknown()
+
+
+def _abstain_streak(recent_statuses: tuple[str, ...]) -> int:
+    streak = 0
+    for s in recent_statuses:
+        if s == "abstain":
+            streak += 1
+        else:
+            break
+    return streak
