@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data-health notifications (workflow-review item 001)**: `irc notify-status`
+  now surfaces data degradation for all three scheduled surfaces. A new pure
+  `src/irc/notify/health.py` derives a **data-health digest** (board-PE
+  DARK/STALE, flow recency — run-level lag/coverage when symbols are uniformly
+  stale, a per-symbol outlier count when only a minority lag the pack — per-fund
+  signal status, rotation `abstain`/`degraded_*`, macro-driver age > 7d,
+  `drivers_unavailable`) from already-written artifacts at the notify edge —
+  never persisted. A new `degraded` severity (`failed > halted > stale >
+  degraded > action > clean`, always-notify) tags a run whose data is
+  untrustworthy. New `flow-capture` run-kind wires the 15:45 chain: silent-on-ok,
+  pages on rotation abstain, one-time abstain→ok recovery notice.
+  Notification-layer only — no report/schema/engine change. ADR 0016 amended
+  (§7).
+
 ### Fixed
 
 - **Sector rotation radar — L2 candidates join (review R-1, P0)**: the stock→board

@@ -1,0 +1,10 @@
+{
+  "board_states": [],
+  "candidates": [],
+  "data_status": "abstain",
+  "diagnostics": {
+    "failure": "snapshot failed: HTTPSConnectionPool(host='push2.eastmoney.com', port=443): Max retries exceeded with url: /api/qt/clist/get?ut=fa5fd1943c7b386f172d6893dbfba10b&fltt=2&invt=2&np=1&pz=100&pn=1&po=1&fs=m%3A90%2Bt%3A2&fields=f12%2Cf14%2Cf3%2Cf8%2Cf9%2Cf184%2Cf2 (Caused by ProxyError('Unable to connect to proxy', RemoteDisconnected('Remote end closed connection without response')))"
+  },
+  "radar_version": 1,
+  "schema_version": 1
+}

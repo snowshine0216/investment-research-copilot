@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from irc.notify.calendar import should_skip_daily
+from irc.notify.calendar import recent_trading_days, should_skip_daily
 
 
 def test_weekday_not_in_holidays_does_not_skip():
@@ -27,3 +27,15 @@ def test_weekday_in_holidays_skips():
 
 def test_empty_holidays_only_skips_weekends():
     assert should_skip_daily(date(2026, 10, 1), set()) is False
+
+
+def test_recent_trading_days_skips_weekend_and_holiday():
+    # 2026-07-07 is a Tuesday; 07-04/07-05 are Sat/Sun; make 07-03 a holiday.
+    days = recent_trading_days(date(2026, 7, 7), {date(2026, 7, 3)}, 4)
+    assert days == (
+        date(2026, 7, 1),
+        date(2026, 7, 2),
+        date(2026, 7, 6),
+        date(2026, 7, 7),
+    )
+    assert days[-1] == date(2026, 7, 7)  # ascending, today last

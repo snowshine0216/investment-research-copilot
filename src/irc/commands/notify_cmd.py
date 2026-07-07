@@ -8,6 +8,7 @@ the underlying run result (ADR 0016 / AC8).
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -19,6 +20,11 @@ from urllib.parse import urlsplit
 import httpx
 import yaml
 
+from irc.commands.notify_health import (
+    read_flow_capture,
+    read_monitor_health,
+    read_weekly_health,
+)
 from irc.notify.classify import classify_run_outcome
 from irc.notify.message import format_feishu, format_macos
 from irc.notify.types import NotificationDecision, RunOutcome
@@ -56,7 +62,10 @@ def _load_holidays(root: Path) -> set[date]:
 
 def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutcome:
     """Gather today's on-disk artifacts into a frozen RunOutcome (no fallback)."""
-    out_dir = root / "outputs" / _china_today().isoformat()
+    today = _china_today()
+    out_dir = root / "outputs" / today.isoformat()
+    if run_kind == "flow-capture":
+        return _flow_capture_outcome(root, today, last_exit_code)
     if run_kind == "monitor":
         # monitor.json is the LAST of _write_outputs' five atomic writes, so its
         # presence is the only artifact that proves the full set was written. A
@@ -73,8 +82,12 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             trim_count=0,
             exit_count=0,
             review_count=0,
+            health=read_monitor_health(root, today, _load_holidays(root)),
         )
     if not out_dir.exists():
+        # weekly's health read is unconditional (like monitor's): on a cold
+        # machine with no outputs/<date>/ at all, read_weekly_health degrades
+        # to a health_unknown digest — never left None asymmetrically.
         return RunOutcome(
             run_kind=run_kind,
             last_exit_code=last_exit_code,
@@ -85,11 +98,12 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             trim_count=0,
             exit_count=0,
             review_count=0,
+            health=read_weekly_health(root, today) if run_kind == "weekly" else None,
         )
     summary = _read_summary(out_dir / "decision_report.json")
     unreadable = summary is None
     safe = summary if summary is not None else {}
-    return RunOutcome(
+    outcome = RunOutcome(
         run_kind=run_kind,
         last_exit_code=last_exit_code,
         today_dir_exists=True,
@@ -102,6 +116,30 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
         decision_report_unreadable=unreadable,
         promotion_count=_coerce_count(safe.get("promotion_count")),
         promotion_ids=_coerce_ids(safe.get("promotion_ids")),
+    )
+    if run_kind == "weekly":
+        return dataclasses.replace(outcome, health=read_weekly_health(root, today))
+    return outcome
+
+
+def _flow_capture_outcome(root: Path, today: date, last_exit_code: int) -> RunOutcome:
+    """Flow-capture: severity is health-driven (abstain/degraded → degraded); a
+    rotation crash surfaces as `failed` via the missing radar sentinel. Sell-side
+    counts are 0 (not None) so a clean base never reads as 'sell-side UNKNOWN'."""
+    sentinel = root / "outputs" / today.isoformat() / "rotation" / "rotation_radar.json"
+    digest, force = read_flow_capture(root, today)
+    return RunOutcome(
+        run_kind="flow-capture",
+        last_exit_code=last_exit_code,
+        today_dir_exists=sentinel.exists(),
+        pipeline_halted=False,
+        stale_ingest=False,
+        actionable_buy_count=0,
+        trim_count=0,
+        exit_count=0,
+        review_count=0,
+        health=digest,
+        force_notify=force,
     )
 
 
