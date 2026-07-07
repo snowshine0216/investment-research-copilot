@@ -75,7 +75,7 @@
           <button class="toolbar-toggle" onclick="this.parentElement.classList.toggle('expanded')" title="Export options" aria-label="Export options">⋯</button>
         </div>
       </div>
-      <p class="subtitle">Daily 12:15 brief for the 10-fund Monitor set · run-level prep (purchase · flow slice · theme search ×1/theme) → per-fund loop ×10 (NAV · impacts · factors · signal) → 宏观面速览 → eval spine → report v3 · plus 15:45 flow capture &amp; quarterly snapshot jobs</p>
+      <p class="subtitle">Daily 12:15 brief for the 10-fund Monitor set · run-level prep (purchase · flow slice · theme search ×1/theme) → per-fund loop ×10 (NAV · impacts · factors · signal) → 宏观面速览 → eval spine → report v4 · plus 15:45 flow capture &amp; quarterly snapshot jobs</p>
     </div>
 
     <!-- Main Diagram -->
@@ -226,7 +226,7 @@
         <rect x="414" y="150" width="200" height="68" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
         <text x="514" y="172" fill="white" font-size="11" font-weight="600" text-anchor="middle">Flow slice + 盘中 batch</text>
         <text x="514" y="188" fill="#94a3b8" font-size="8" text-anchor="middle">completed-day store slice ·×1 provisional f184</text>
-        <text x="514" y="202" fill="#fbbf24" font-size="8" text-anchor="middle">ulist.np(f184+f127) · IRC_CN_PROXY · 盘中提示 render-only · f127→industry map store</text>
+        <text x="514" y="202" fill="#fbbf24" font-size="8" text-anchor="middle">ulist.np(f184+f100) · IRC_CN_PROXY · 盘中提示 render-only · f100→industry map store</text>
 
         <!-- theme search -->
         <rect x="680" y="150" width="180" height="68" rx="6" fill="#0f172a"/>
@@ -303,7 +303,7 @@
         <!-- render / write -->
         <rect x="908" y="552" width="250" height="80" rx="6" fill="#0f172a"/>
         <rect x="908" y="552" width="250" height="80" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
-        <text x="1033" y="574" fill="white" font-size="11" font-weight="600" text-anchor="middle">_write_outputs · report v3</text>
+        <text x="1033" y="574" fill="white" font-size="11" font-weight="600" text-anchor="middle">_write_outputs · report v4</text>
         <text x="1033" y="590" fill="#94a3b8" font-size="8" text-anchor="middle">今日速览 · 市场面 anchor · heatmap/timeline/bars</text>
         <text x="1033" y="604" fill="#94a3b8" font-size="8" text-anchor="middle">citation dedup + tier badges · honest dark-data</text>
         <text x="1033" y="618" fill="#a78bfa" font-size="8" text-anchor="middle">pure HTML · no JS · byte-stable</text>
@@ -320,7 +320,7 @@
         <rect x="908" y="660" width="300" height="176" rx="6" fill="rgba(76, 29, 149, 0.4)" stroke="#a78bfa" stroke-width="1.5"/>
         <text x="1058" y="682" fill="white" font-size="11" font-weight="600" text-anchor="middle">outputs/&lt;date&gt;/monitor/</text>
         <text x="922" y="704" fill="#a78bfa" font-size="9">• report.html</text>
-        <text x="1040" y="704" fill="#94a3b8" font-size="8">v3 brief · 今日速览 + 3 charts</text>
+        <text x="1040" y="704" fill="#94a3b8" font-size="8">v4 brief · 今日速览 + 3 charts</text>
         <text x="922" y="722" fill="#a78bfa" font-size="9">• drilldown.html</text>
         <text x="1040" y="722" fill="#94a3b8" font-size="8">per-stock PB/PE + 行业 + flow board</text>
         <text x="922" y="740" fill="#94a3b8" font-size="9">• signal.json</text>
@@ -347,8 +347,8 @@
         <!-- flow-capture job -->
         <rect x="24" y="950" width="200" height="56" rx="6" fill="#0f172a"/>
         <rect x="24" y="950" width="200" height="56" rx="6" fill="rgba(120, 53, 15, 0.3)" stroke="#fbbf24" stroke-width="1.5"/>
-        <text x="124" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd 15:45 · flow-capture</text>
-        <text x="124" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">ulist.np ×1 full-basket post-close · +f127 store merge · +board-PE refresh · best-effort, no page</text>
+        <text x="124" y="972" fill="white" font-size="11" font-weight="600" text-anchor="middle">launchd 15:45 · flow-capture → rotation</text>
+        <text x="124" y="988" fill="#94a3b8" font-size="8" text-anchor="middle">ulist.np ×1 full-basket post-close · +f100 store merge · +board-PE refresh · best-effort, no page</text>
 
         <!-- flow store -->
         <rect x="252" y="950" width="230" height="56" rx="6" fill="#0f172a"/>
@@ -428,14 +428,14 @@
           <li>• 7 artifacts + 2 ledger appends · atomic .tmp → os.replace · sentinel = monitor.json</li>
           <li>• Gaps ship as N/A + reason code; dark columns collapse with honest reasons</li>
           <li>• 今日速览: run-global caveat 行（首行） · 偏向变化 · 可操作 · 数据健康 (all gate-respecting)</li>
-          <li>• Forward panel honest: insufficient_data until engine-3 blocks mature (only trend-only ~0.54 accrued)</li>
+          <li>• Forward panel honest: insufficient_data until engine-4 blocks mature (only trend-only ~0.54 accrued)</li>
         </ul>
       </div>
     </div>
 
     <!-- Footer -->
     <p class="footer">
-      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 / 0021 / 0022 · report v3 · engine "4" · eval schema "7"<br>
+      investment-research-copilot · irc monitor vertical · ADR 0017 / 0019 / 0020 / 0021 / 0022 · report v4 · engine "4" · eval schema "7"<br>
       ops manual → <a href="../monitor/README.md" style="color:#22d3ee;text-decoration:none;">docs/monitor/README.md</a> · validation &amp; eval layer → companion <a href="../../evals/docs/monitor-eval-workflow.html" style="color:#34d399;text-decoration:none;">evals/docs/monitor-eval-workflow.html</a>
     </p>
   </div>
