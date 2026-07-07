@@ -37,20 +37,40 @@ class HealthDigest:
 _UNKNOWN = HealthDigest(
     (HealthItem("health_unknown", "warn", "health unknown — 健康检查数据缺失/损坏"),)
 )  # text carries the literal "health unknown" (AC5) + the CN gloss
+HEALTH_UNKNOWN = _UNKNOWN  # public alias — the notify_health edge net reuses this digest
 
 
 def monitor_health(
     trace: dict, flow_store: dict, trading_days: tuple[date, ...]
 ) -> HealthDigest:
     """Board-PE freshness + flow recency/coverage + per-fund signal status."""
-    if not trace or "board_pe_freshness" not in trace:
+    if not _monitor_shape_ok(trace):
+        return _UNKNOWN
+    funds = trace.get("funds") or {}
+    if not _funds_shape_ok(funds):
         return _UNKNOWN
     items = (
         _board_pe_item(trace["board_pe_freshness"])
-        + _flow_items(flow_store, trading_days)
-        + _signal_items(trace.get("funds", {}))
+        + _flow_items(flow_store if isinstance(flow_store, dict) else {}, trading_days)
+        + _signal_items(funds)
     )
     return HealthDigest(items)
+
+
+def _monitor_shape_ok(trace: object) -> bool:
+    """isinstance guard — a missing/None/wrong-type board_pe_freshness must
+    degrade to health_unknown rather than crash `_board_pe_item` (P0-1)."""
+    return (
+        isinstance(trace, dict)
+        and "board_pe_freshness" in trace
+        and isinstance(trace["board_pe_freshness"], dict)
+    )
+
+
+def _funds_shape_ok(funds: object) -> bool:
+    """isinstance guard — funds must be a dict of dicts; a non-dict container
+    or a non-dict per-fund record both crashed `_signal_items` (P0-1)."""
+    return isinstance(funds, dict) and all(isinstance(rec, dict) for rec in funds.values())
 
 
 def _board_pe_item(bpf: dict) -> tuple[HealthItem, ...]:
@@ -157,16 +177,31 @@ def detect_rotation_recovery(
 
 def weekly_health(gold_regime: dict, today: date) -> HealthDigest:
     """Macro-driver age (>7 calendar days ⇒ warn) + drivers_unavailable (info)."""
-    if not gold_regime:
+    if not _weekly_shape_ok(gold_regime):
         return _UNKNOWN
     items = _macro_items(gold_regime.get("macro_snapshots", []), today)
     items += _unavailable_items(gold_regime.get("drivers_unavailable", []))
     return HealthDigest(items)
 
 
+def _weekly_shape_ok(gold_regime: object) -> bool:
+    """isinstance guard — `dict.get(key, default)` only applies the default
+    when the key is ABSENT, not when its value is JSON null, so a null
+    macro_snapshots/drivers_unavailable must be caught explicitly here rather
+    than crash `_macro_items`/`_unavailable_items` downstream (P0-1)."""
+    if not isinstance(gold_regime, dict) or not gold_regime:
+        return False
+    return (
+        isinstance(gold_regime.get("macro_snapshots", []), list)
+        and isinstance(gold_regime.get("drivers_unavailable", []), list)
+    )
+
+
 def _macro_items(snapshots: list, today: date) -> tuple[HealthItem, ...]:
     out: list[HealthItem] = []
     for snap in snapshots:
+        if not isinstance(snap, dict):
+            continue
         age = _driver_age(snap.get("date"), today)
         if age is not None and age > _MACRO_MAX_AGE_DAYS:
             out.append(HealthItem("macro_driver_stale", "warn",

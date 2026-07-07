@@ -39,10 +39,21 @@ def _write_healthy_trace(out: Path) -> None:
     )
 
 
+def _write_healthy_flow(tmp_path: Path) -> None:
+    """A present-but-empty flow store: valid JSON (not missing/corrupt), so it
+    doesn't trip the P0-2 absent-store health_unknown warning, and empty
+    (no symbols), so it doesn't trip flow_stale/flow_symbol_stale either —
+    needed to keep this fixture genuinely "fully healthy" per Finding 2."""
+    data_dir = tmp_path / "data" / "monitor"
+    data_dir.mkdir(parents=True)
+    (data_dir / "fund_flow_series.json").write_text("{}", encoding="utf-8")
+
+
 def test_monitor_success_when_monitor_json_present(tmp_path: Path) -> None:
     out = _monitor_dir(tmp_path)
     (out / "monitor.json").write_text("{}", encoding="utf-8")
     _write_healthy_trace(out)
+    _write_healthy_flow(tmp_path)
     outcome = _build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
     decision = classify_run_outcome(outcome, notify_on_clean=True)
     assert decision.severity == "clean"

@@ -144,3 +144,43 @@ def test_weekly_health_relays_unavailable_as_info():
 
 def test_weekly_health_empty_is_unknown():
     assert weekly_health({}, date(2026, 7, 7)).items[0].code == "health_unknown"
+
+
+# ---- Finding 1(a): nested wrong-shape values must degrade, never crash ----
+
+def test_monitor_health_string_funds_is_health_unknown():
+    """eval_trace funds: "x" (proven live crash: AttributeError in _signal_items)."""
+    trace = _load("eval_trace_monitor.json")
+    trace = {**trace, "funds": "x"}
+    digest = monitor_health(trace, {}, _TDAYS)
+    assert digest.items[0].code == "health_unknown"
+    assert digest.has_warnings is True
+
+
+def test_monitor_health_non_dict_board_pe_freshness_is_health_unknown():
+    """board_pe_freshness: 12345 (proven live crash: AttributeError on .get)."""
+    trace = _load("eval_trace_monitor.json")
+    trace = {**trace, "board_pe_freshness": 12345}
+    digest = monitor_health(trace, {}, _TDAYS)
+    assert digest.items[0].code == "health_unknown"
+    assert digest.has_warnings is True
+
+
+def test_monitor_health_non_dict_fund_record_is_health_unknown():
+    """funds: {"f1": "not-a-dict"} (proven live crash: AttributeError on rec.get)."""
+    trace = _load("eval_trace_monitor.json")
+    trace = {**trace, "funds": {"f1": "not-a-dict"}}
+    digest = monitor_health(trace, {}, _TDAYS)
+    assert digest.items[0].code == "health_unknown"
+    assert digest.has_warnings is True
+
+
+def test_weekly_health_null_macro_snapshots_is_health_unknown():
+    """gold_regime macro_snapshots: null (proven live crash: TypeError on
+    `for snap in None` — dict.get's default only applies when the key is
+    absent, not when its value is the JSON null)."""
+    gold = _load("gold_regime.json")
+    gold = {**gold, "macro_snapshots": None}
+    digest = weekly_health(gold, date(2026, 7, 7))
+    assert digest.items[0].code == "health_unknown"
+    assert digest.has_warnings is True
