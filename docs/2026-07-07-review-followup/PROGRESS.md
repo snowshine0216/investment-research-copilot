@@ -8,7 +8,7 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (evidence in cell/footnote) 
 | 004 | ✅ᵃ | ✅ᵇ | ✅`468a8f0d` | ✅ claude/review-followup-004 | ✅`75a2b66e`ᶜ | ✅ | ✅ [#208](https://github.com/snowshine0216/investment-research-copilot/pull/208)ᵈ | ⏭️ | ✅ᵉ | ✅ᵈ | ✅ᵉ | ✅ 0 rounds | ✅ `76359c69` |
 | 005 | ✅`4ecf3b97` | ✅`8999770e`+`6127e663` | ✅`4b22f02f` | ✅ claude/review-followup-005 | ✅`d84c7b9c` | ✅`4e5f80a1` | ✅ [#209](https://github.com/snowshine0216/investment-research-copilot/pull/209) | ⏭️ | ✅`1311d81b` | ✅ PASS-W-NITS | ✅`de3000bf` | ✅ 1 roundᶠ | ✅ `6dc5d83b` |
 | 001 | ⏭️¹ | ⏭️¹ | ✅`0ca3f516` | ✅ claude/review-followup-001 | ✅`57b41fe2`ᵍ | ✅`f9b5d297` | ✅ [#212](https://github.com/snowshine0216/investment-research-copilot/pull/212) | ⏭️ | ✅`3a7f1ab0`+addendum | ✅ PASS-W-NITSʰ | ✅ PASS-W-NITS | ✅ 3 roundsʰ | ✅ `ecf264f6` |
-| 002 | ⏭️² | ⏭️² | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
+| 002 | ⏭️² | ⏭️² | ✅`112ad3b1` | ✅ claude/review-followup-002 | ✅`456e79ff`ⁱ | ✅ 58/58 | ✅ [#213](https://github.com/snowshine0216/investment-research-copilot/pull/213) | ⏭️ | ✅ guard-bite proven | ✅ PASS-W-NITSʲ | ✅`d217bc39` | ✅ 3 roundsʲ | ✅ `803e0415` |
 | 003 | ⏭️³ | ⏭️³ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ | ⏭️ | ⏳ | ⏳ | ⏳ | ⏳ | ⏳ |
 
 QA column is ⏭️ for every row: project type is non-web → /verify branch of the XOR.
@@ -31,6 +31,9 @@ QA column is ⏭️ for every row: project type is non-web → /verify branch of
 
 ᵍ 001 impl: SDD 7 tasks + 2 in-loop review-fix rounds (weekly cold-machine health_unknown `4c8b739c`; monitor-README contradiction `8976b484`); one implementer recovered from a mid-task API error via SendMessage resume; deviations all spec-faithful (items/001-notes.md); runtime proof AC1-AC5 `items/001-runtime-proof.md`.
 ʰ 001 post-ship: /ship reviews found 4 real issues (adversarial BREAKS) → fixed `690eb0ea` → adversarial re-verified CLEAN. pr-review nit (5th shape sibling) → `fb9316da`. Codex secondary found 2 MORE real issues: spec-gap flow-capture coverage check (plan under-wired spec line 89 — plan-vs-spec hole invisible to drift) + corrupt-today-radar false-recovery regression → both fixed `d9a06161` with CLI-level proof. All verdict files carry addenda. Merged squash `ecf264f6`.
+
+ⁱ 002 impl: T1 guard test RED as predicted → T2-5 doc clusters → T6 red→green (D1-D15 all verified); combined factual review re-derived every numeric claim; DXY-staleness TODOS entry added beyond 002-c's literal list (registered-for-completeness, documented).
+ʲ 002 post-ship rounds: `6989300b` (scorer-coverage precision; single-owner tables ENFORCED per the user's "lives ONLY in" wording — plan's lighter reading was drift; diagram f100 + pin test) and `4438415f` (Codex: guard widened 12→18 asserts across every version surface; TODOS F1 ledger-state contradiction corrected). verify proved the guard bites (corrupt→FAIL→restore→PASS). Merged squash `803e0415`.
 
 ## Run-level
 
