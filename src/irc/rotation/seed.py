@@ -81,10 +81,14 @@ def seed_stock_board_map(
     chunk_size: int = 200,
 ) -> dict:
     """Chunked ulist.np (f100 行业 — NOT f127, T1) over held stocks; skip symbols
-    already present in the map. record(map_path, today, industry_by_symbol) merges
-    each chunk through the extended industry_map_store. Partial-tolerant (AC2)."""
+    still FRESH (seen_at ≤ 30 calendar days per fresh_slice) in the map. STALE
+    entries (seen_at > 30 calendar days) fall out of the skip-set and are
+    re-fetched, so record(map_path, today, ...)'s REFRESH-ON-SEEN bumps their
+    seen_at back to today and exposure coverage self-heals (on re-seed). record
+    merges each chunk through the industry_map_store. Partial-tolerant (AC2)."""
+    from irc.monitor.industry_map_store import fresh_slice
     existing = load_existing(map_path)
-    fresh = set(existing.keys())
+    fresh = set(fresh_slice(existing, today))
     pending = [s for s in dict.fromkeys(symbols) if s not in fresh]
     done, failed = 0, []
     for i in range(0, len(pending), chunk_size):

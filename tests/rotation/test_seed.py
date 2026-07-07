@@ -126,3 +126,66 @@ def test_seed_stock_board_map_chunk_failure_is_tolerated(tmp_path):
     )
     assert summary["done"] == 0
     assert summary["failed"] == ("600002", "600003")
+
+
+def test_seed_stock_board_map_refetches_stale_skips_fresh(tmp_path):
+    # Production-shaped store: 行业 NAMES in the industry slot (NOT "BK1"). One
+    # entry STALE (seen_at > 30 calendar days before today), one FRESH (≤ 30 days).
+    map_path = tmp_path / "stock_industry_map.json"
+    chunks = []
+
+    def fake_batch(symbols):
+        chunks.append(tuple(symbols))
+        return {}, {s: "半导体" for s in symbols}
+
+    def fake_load(_path):
+        return {
+            "600519": {"industry": "酿酒行业", "seen_at": "2026-05-01"},  # 66d → STALE
+            "000651": {"industry": "家电行业", "seen_at": "2026-07-01"},  # 5d  → FRESH
+        }
+
+    summary = seed_stock_board_map(
+        ["600519", "000651"],
+        map_path=map_path,
+        today="2026-07-06",
+        batch_fetch=fake_batch,
+        load_existing=fake_load,
+        record=lambda *a, **k: {},
+        chunk_size=200,
+    )
+    fetched = [s for c in chunks for s in c]
+    assert "600519" in fetched       # STALE (>30d) re-fetched — the freshness fix
+    assert "000651" not in fetched   # FRESH (≤30d) still skipped — resumability
+    assert summary["skipped"] == 1   # only the fresh entry counts as skipped
+
+
+def test_seed_stock_board_map_roundtrip_refreshes_stale_seen_at(tmp_path):
+    # Integration: real store round-trip. Pre-seed a STALE + a FRESH entry, run
+    # seed, assert stale seen_at bumped to today while fresh is untouched — the
+    # heal loop end-to-end (stale → re-fetched → record_seen refresh-on-seen).
+    from irc.monitor.industry_map_store import load_store, record_seen
+
+    map_path = tmp_path / "stock_industry_map.json"
+    record_seen(map_path, "2026-05-01", {"600519": "酿酒行业"})  # STALE (66d)
+    record_seen(map_path, "2026-07-01", {"000651": "家电行业"})  # FRESH (5d)
+
+    chunks = []
+
+    def fake_batch(symbols):
+        chunks.append(tuple(symbols))
+        return {}, {s: "酿酒行业" for s in symbols}  # 2-tuple; only stale is pending
+
+    summary = seed_stock_board_map(
+        ["600519", "000651"],
+        map_path=map_path,
+        today="2026-07-06",
+        batch_fetch=fake_batch,
+        load_existing=load_store,
+        record=record_seen,
+        chunk_size=200,
+    )
+    store = load_store(map_path)
+    assert store["600519"]["seen_at"] == "2026-07-06"   # STALE refreshed to today
+    assert store["000651"]["seen_at"] == "2026-07-01"   # FRESH untouched
+    assert "000651" not in [s for c in chunks for s in c]  # fresh never re-fetched
+    assert summary["done"] == 1
