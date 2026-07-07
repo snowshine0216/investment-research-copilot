@@ -1,4 +1,7 @@
-Verdict: FAIL
+Verdict: PASS
+
+(Initial verdict FAIL, 2026-07-07 — both findings closed by `aa36e5b2`; see
+"Re-run verification" at the bottom.)
 
 Subagent: sonnet
 Items reviewed: 5 (004 rotation join fix, 005 seed freshness, 001 data-health notify, 002 docs-sync, 003 conventions)
@@ -85,3 +88,49 @@ even when rc=0), and cross-reference it from `docs/monitor/README.md`'s new
 "What the 15:45 flow-capture run does" section; optionally add one line to
 `src/irc/rotation/README.md`'s Troubleshooting section pointing at the seed's
 unresolved-symbol warning log and the `chunk_size=0` guard.
+
+## Re-run verification (2026-07-07, after `aa36e5b2`)
+
+`aa36e5b2` ("docs(run): close run-doc-sync gaps") is an ancestor of the feature
+branch HEAD. Each added sentence was checked against the as-built code, not just
+for presence:
+
+- **Finding 1 (blocker) — flow-capture coverage-delta check: CLOSED.**
+  - `CHANGELOG.md` [Unreleased] Added entry now names `flow_capture_health` /
+    `_capture_coverage_items`, the `flow-capture: N/M` warn, the "fewer than 80%
+    of the flow store's union symbols" threshold, and the escalate-to-`degraded`-
+    at-rc=0 behavior.
+  - `docs/monitor/README.md` "What the 15:45 flow-capture run does" adds the
+    soft-capture-failure sentence (same threshold + `flow-capture: N/M` + rc=0).
+  - `ops/launchd/README.md` flow-capture row adds "also pages `degraded` with
+    `flow-capture: N/M` when today's row covers less than 80% of the flow
+    store's union symbols (even at wrapper rc=0)".
+  - Semantics match as-built: `_COVERAGE_FLOOR = 0.80` with a strict `<`
+    comparison (`src/irc/notify/health.py:16,157`), so "fewer/less than 80%" is
+    exact; denominator = union symbols via `_newest_by_symbol`, numerator =
+    symbols whose newest row is dated today (`health.py:147-159`); warn items
+    escalate a `clean`/`action` base to `degraded`
+    (`src/irc/notify/classify.py:47-49`), independent of wrapper rc. Docs'
+    silence on the empty/corrupt-store → `health_unknown` branch is an
+    acceptable omission, not a contradiction (it renders as the flow-worded
+    unknown item, already covered by the digest docs).
+  - CONTEXT.md / docs/adr/** deliberately untouched (locked rule). Acceptable:
+    the coverage check is one item *inside* the digest CONTEXT.md already
+    defines; the operator-facing gap — an unexplained `degraded` page at rc=0 —
+    is now explained on both ops surfaces (`ops/launchd/README.md`,
+    `docs/monitor/README.md`) plus CHANGELOG.
+- **Finding 2 (minor) — seed ship-hardening in rotation ops manual: CLOSED.**
+  - `src/irc/rotation/README.md` Troubleshooting gains a section headed by the
+    literal log line `seed_stock_board_map: N symbol(s) unresolved after
+    batch_fetch`. Semantics match as-built: sample of up to 5
+    (`sorted(set(unresolved))[:5]`, `seed.py:113`); `IRC_ROTATION_TOPUP_BUDGET`
+    does wire to `chunk_size` (`rotation_cmd.py:245` via `_TOPUP_BUDGET_ENV`);
+    the quoted clamp `effective_chunk_size = max(1, chunk_size)` is verbatim
+    `seed.py:96`; "re-run seed to top them up" is correct — unresolved symbols
+    are never written to the store (stripped-truthy `_resolved` gate), so they
+    stay pending for the next seed.
+- **Residual sweep:** re-checked the full `main...HEAD` functional surface
+  (notify classify/calendar/types/health, `notify_health.py`, `cli.py`,
+  `run-flow-capture.sh`, rotation `_cmd_helpers`/`exposure`/`seed`,
+  `industry_map_store.py`, `monitor-workflow.html` relabels). No remaining
+  functional change lacks doc coverage.
