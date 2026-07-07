@@ -13,10 +13,13 @@ TRANSIENT upstream and can never reach here as a string). Corrupt/missing →
 {} (never crash the brief). Byte-stable atomic writes; a no-op merge writes
 nothing. Patterned on flow_series_store.py.
 
-Also serves the sector rotation radar (ADR 0023 D7): the same store persists
-stock→EM-board-code mappings (board codes are stored in the `industry` slot; the
-radar carries board display names separately from the daily snapshot). 30-day
-serve-while-stale semantics preserved — extended in place, not forked.
+Also serves the sector rotation radar (ADR 0023 D7): the SAME store holds 东财
+行业 NAMES (f100) in the `industry` slot for BOTH consumers (monitor and radar) —
+never board codes. The radar translates 行业 name → EM board code at its OWN join
+(`rotation._cmd_helpers.resolve_candidates`, via a `{board_name: board_code}` map
+built from that run's `BoardState` list), never in the store, which stays
+monitor-owned and name-based. 30-day serve-while-stale semantics preserved —
+extended in place, not forked.
 """
 from __future__ import annotations
 

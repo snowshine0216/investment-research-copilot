@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Sector rotation radar — L2 candidates join (review R-1, P0)**: the stock→board
+  store (`data/monitor/stock_industry_map.json`) holds 东财行业 **names** (f100) in
+  its `industry` slot, but the radar's candidates join filtered exposure rows against
+  BK **board codes**, so `ExposureRow.board_code` (a name) never matched and
+  `candidates` was always empty — even on successful runs. `rotation.resolve_candidates`
+  now translates 行业 name → EM board code at the join (via a `{board_name: board_code}`
+  map from the run's `BoardState` list) before the active-board filter, so the radar
+  emits its candidate rows from data already on disk. No `radar_version`/`schema_version`
+  bump; board scoring untouched.
+
 ### Added — sector rotation radar (2026-07-05)
 
 - **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM

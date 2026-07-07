@@ -17,7 +17,6 @@ Fund = tuple[str, str, tuple[Holding, ...], str | None]
 def build_exposure(
     funds: Iterable[Fund],
     stock_to_board: Mapping[str, str],
-    board_names: Mapping[str, str],
 ) -> tuple[tuple[ExposureRow, ...], dict]:
     rows: list[ExposureRow] = []
     all_syms: set[str] = set()
