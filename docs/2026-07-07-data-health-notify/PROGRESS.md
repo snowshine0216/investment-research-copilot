@@ -26,6 +26,21 @@ Legend: ⏳ pending · 🔄 in progress · ✅ done (with evidence) · ⚠️ so
 1. **Planner (Opus), intent-preserving:** spec §2/§3 name the trace field `signal.raw_status`; the real 07-07 `eval_trace.json` field is `signal.status`. Plan keys on `signal.status` (production-shaped fixture rule caught spec drift).
 2. **Planner (Opus), intent-preserving but AC-visible:** spec §5 AC1 says today's monitor severity "stays clean", but the locked G-Q5→B per-symbol rule (warn when any store symbol >3 td stale) fires on today's REAL store (symbol 688072 stale since 06-26 — the spec's own §2/§3.1 canonical example). Honest severity today = `degraded`. Plan follows the locked rule; AC1's real intent (board-PE STALE-N alone doesn't escalate) is proven via the info-level board item + fixture test.
 
+## Final status (run closed 2026-07-07)
+
+- **Items merged:** 1/1 — PR [#210](https://github.com/snowshine0216/investment-research-copilot/pull/210) squash `0b15e5cf` into `autodev/data-health-notify-feature`. SKIPPED: 0. BLOCKED: 0. Fix rounds: 0 (post-ship verdicts passed first try).
+- **Feature branch:** autodev/data-health-notify-feature · **Feature-branch PR:** https://github.com/snowshine0216/investment-research-copilot/pull/211 · **Merged into protected branch: no** (PR left open for user review — guardrail held).
+- **Phase 3:** workflow-completeness audit PASS (all verdict artifacts present, markers green); merged-branch sanity 161 + 38 passed, CLI boots, touched-file ruff clean (repo-wide ruff noise pre-existing on main).
+- **Quiz:** QUIZ.md (bilingual, 5 questions) — queued in ~/.claude/UNKNOWNS.md.
+
+### Deviation roll-up (full detail: items/001-notes.md)
+
+1. Planner corrected spec drift against real artifacts: `signal.raw_status` → `signal.status`; AC1 severity honestly `degraded` today per locked G-Q5→B (intent-preserving; UNKNOWNS row added).
+2. Ship step-8 P0 fixed in-branch (`2e7d473e`): missing/corrupt flow store now surfaces `health_unknown` instead of silence (spec §3.3 enforced) + regression test.
+3. Review rounds hardened tests only: +2 coverage tests (T4), vacuous garbage test replaced with a real corrupt-radar test (T5), 3 pre-existing tests re-seeded per AC5 semantics — assertions untouched (T8), 2 stale "never pages" doc fragments reconciled (T12).
+4. Mechanical: brief-verbatim imports merged to top-of-file to avoid ruff E402/F811 (T1/4/5/6/8); T10 wrapper header rewording (comment-only, fixed a brief-internal ordering-test contradiction).
+5. Deferred with triggers (TODOS.md + chip): pre-existing `_read_summary` crash; unbounded outputs/ scan; crash-gap streak semantics; wrapper dynamic-test parity; pr-review nits (empty-`{}` store corner, duplicate radar read) recorded in items/001-pr-review.md.
+
 ## Notes
 
 - Feature branch `autodev/data-health-notify-feature` synthesized off main @ 9cf85ac3 and pushed (no non-protected branch existed; user named none).
