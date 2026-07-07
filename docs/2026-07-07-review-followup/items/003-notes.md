@@ -53,3 +53,15 @@ FACTS.md are not guarded surfaces but no accidental damage occurred.
   sentences bullet (content mapping was already correct; only the notation was wrong).
   Verification: `grep -c fixture CLAUDE.md` → 0; Conventions bullet count still 10;
   `grep "§4\.3\|§4\.4" CLAUDE.md` → 0; `uv run pytest tests/docs/ -q` → 9 passed.
+
+- **2026-07-07 Codex finding round (same branch, one more wording-precision fix):** the
+  clause "must be copied from a real on-disk artifact (a real `data/**` store or cache
+  file)" could be read as tests READING live mutable `data/**` at runtime — conflicting
+  with fast/isolated/deterministic tests and effects-at-edges. Intended meaning (what this
+  run's tests actually did, e.g. `tests/notify/fixtures/*.json`): commit a minimal snapshot
+  DERIVED from a real artifact into the test tree; never read live `data/**` in unit/
+  assembly tests. Clause tightened to: "must be a **committed snapshot copied/reduced from
+  a real artifact** (e.g. a trimmed copy of the real `data/**` store or cache file, checked
+  into the test tree) — tests never read live `data/**` at runtime." Everything else in the
+  bullet untouched. Verification: bullet count still 10; `uv run pytest tests/docs/ -q` →
+  9 passed.
