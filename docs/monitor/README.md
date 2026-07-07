@@ -59,8 +59,10 @@ retention) and merges the `f100` 行业 names into
 `data/monitor/stock_industry_map.json`; it then best-effort refreshes the
 board-PE day cache in the rested window (so next morning's stale fallback is
 at worst 1 day old). **Never run this manually before the 15:00 close** — the
-manual path is unguarded. Watchdog/lock/notify semantics (incl. the
-data-health notify on rotation abstain/degradation):
+manual path is unguarded. A soft capture failure — today's row appended for
+fewer than 80% of the flow store's union symbols — pages `degraded` with
+`flow-capture: N/M` even when the capture wrapper exits 0. Watchdog/lock/notify
+semantics (incl. the data-health notify on rotation abstain/degradation):
 [`ops/launchd/README.md`](../../ops/launchd/README.md).
 
 ### What one 12:15 run does

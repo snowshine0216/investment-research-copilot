@@ -19,7 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   never persisted. A new `degraded` severity (`failed > halted > stale >
   degraded > action > clean`, always-notify) tags a run whose data is
   untrustworthy. New `flow-capture` run-kind wires the 15:45 chain: silent-on-ok,
-  pages on rotation abstain, one-time abstain→ok recovery notice.
+  pages on rotation abstain, one-time abstain→ok recovery notice. A flow-capture
+  coverage-delta check (`flow_capture_health` / `_capture_coverage_items`) warns
+  `flow-capture: N/M` when today's capture appended fewer than 80% of the flow
+  store's union symbols, escalating an otherwise-ok run to `degraded` even when
+  the capture wrapper exits 0.
   Notification-layer only — no report/schema/engine change. ADR 0016 amended
   (§7).
 

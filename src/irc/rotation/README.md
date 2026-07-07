@@ -148,6 +148,13 @@ tunnel not geo-throttled on that endpoint). Follow-up **F8** (below) tracks a co
 avoid `clist/get` entirely. This is the **AC1** "endpoints/field codes are interface-specific — probe
 live first" risk — the build had no CN egress to catch it.
 
+### The seed log prints `seed_stock_board_map: N symbol(s) unresolved after batch_fetch`
+
+Expected on partial coverage, not a bug: symbols left with a missing/blank industry after a chunk's
+`batch_fetch` are logged (sample of up to 5) rather than silently dropped — re-run `seed` to top them
+up. A misconfigured `IRC_ROTATION_TOPUP_BUDGET=0` no longer crashes the chunk loop; it clamps to
+1-symbol chunks (`seed.py::seed_stock_board_map`, `effective_chunk_size = max(1, chunk_size)`).
+
 ## Package layout (`src/irc/rotation/`)
 
 Pure-core + edge split — effects (fetch, file writes) live only in `board_fetch.py`, the store
