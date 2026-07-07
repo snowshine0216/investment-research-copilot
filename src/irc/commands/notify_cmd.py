@@ -85,6 +85,9 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             health=read_monitor_health(root, today, _load_holidays(root)),
         )
     if not out_dir.exists():
+        # weekly's health read is unconditional (like monitor's): on a cold
+        # machine with no outputs/<date>/ at all, read_weekly_health degrades
+        # to a health_unknown digest — never left None asymmetrically.
         return RunOutcome(
             run_kind=run_kind,
             last_exit_code=last_exit_code,
@@ -95,6 +98,7 @@ def _build_outcome(root: Path, *, run_kind: str, last_exit_code: int) -> RunOutc
             trim_count=0,
             exit_count=0,
             review_count=0,
+            health=read_weekly_health(root, today) if run_kind == "weekly" else None,
         )
     summary = _read_summary(out_dir / "decision_report.json")
     unreadable = summary is None

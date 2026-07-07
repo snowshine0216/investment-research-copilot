@@ -444,3 +444,18 @@ def test_build_outcome_monitor_attaches_health(tmp_path, monkeypatch):
     outcome = notify_cmd._build_outcome(tmp_path, run_kind="monitor", last_exit_code=0)
     assert outcome.health is not None
     assert any(i.code == "board_pe_stale" for i in outcome.health.items)
+
+
+def test_weekly_cold_machine_attaches_health_unknown(tmp_path, monkeypatch):
+    """Task-4 review finding: weekly with NO outputs/<date>/ at all must still
+    carry a health_unknown digest — symmetric with monitor/flow-capture, which
+    both attach one in the identical cold-machine scenario. Severity stays
+    failed (today_dir_exists=False wins the classify precedence)."""
+    from irc.notify.classify import classify_run_outcome
+
+    monkeypatch.setattr(notify_cmd, "_china_today", lambda: date(2026, 7, 7))
+    outcome = notify_cmd._build_outcome(tmp_path, run_kind="weekly", last_exit_code=0)
+    assert outcome.today_dir_exists is False
+    assert outcome.health is not None
+    assert any(i.code == "health_unknown" for i in outcome.health.items)
+    assert classify_run_outcome(outcome).severity == "failed"
