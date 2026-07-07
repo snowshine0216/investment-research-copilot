@@ -19,6 +19,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   emits its candidate rows from data already on disk. No `radar_version`/`schema_version`
   bump; board scoring untouched.
 
+- **Sector rotation radar — seed skip-set freshness (review R-4, P0)**: `irc rotation
+  seed`'s stock→board map builder skipped **every** symbol already present in
+  `data/monitor/stock_industry_map.json`, ignoring `seen_at` age, so once the ~640
+  seeded non-Monitor mappings crossed the store's 30-calendar-day `fresh_slice`
+  window (~2026-08-05) they dropped out of the daily join AND could never be
+  re-fetched — the store could only recover by being deleted. `seed_stock_board_map`'s
+  skip-set now derives from `fresh_slice(existing, today)` (its keys) instead of
+  `existing.keys()`, so STALE entries re-enter the re-fetch set and `record_seen`'s
+  refresh-on-seen bumps their `seen_at` back to `today` (coverage self-heals on
+  re-seed); FRESH entries stay skipped, preserving resumability. No
+  `radar_version`/`schema_version`/`VERSION` bump; store shape and board scoring
+  untouched. Ship-hardening (review-followup-005): symbols left with a
+  missing/blank industry after `batch_fetch` now log one whole-run warning
+  (count + sample) instead of silently vanishing from `done`/`skipped`/`failed`;
+  a misconfigured `chunk_size=0` degrades to 1-symbol chunks instead of raising;
+  and the done/unresolved accounting now uses the same stripped-truthy gate as
+  `merge_seen`, so a whitespace-only industry counts as unresolved rather than
+  done.
+
 ### Added — sector rotation radar (2026-07-05)
 
 - **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM
