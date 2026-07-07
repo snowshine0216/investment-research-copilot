@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from irc.rotation.seed import seed_boards, seed_holdings, seed_stock_board_map
 from irc.rotation.types import BoardDay
 
@@ -76,7 +78,7 @@ def test_seed_holdings_skips_cached(tmp_path):
     assert summary["done"] == 1 and summary["skipped"] == 1
 
 
-def test_seed_stock_board_map_skips_fresh_and_chunks(tmp_path):
+def test_seed_stock_board_map_skips_fresh_and_chunks(tmp_path, caplog):
     map_path = tmp_path / "stock_industry_map.json"
     chunks = []
 
@@ -93,20 +95,23 @@ def test_seed_stock_board_map_skips_fresh_and_chunks(tmp_path):
         recorded.append((today, dict(industry_by_symbol)))
         return {}
 
-    summary = seed_stock_board_map(
-        ["600001", "600002", "600003", "600004"],
-        map_path=map_path,
-        today="2026-07-06",
-        batch_fetch=fake_batch,
-        load_existing=fake_load,
-        record=fake_record,
-        chunk_size=2,
-    )
+    with caplog.at_level(logging.WARNING, logger="irc.rotation.seed"):
+        summary = seed_stock_board_map(
+            ["600001", "600002", "600003", "600004"],
+            map_path=map_path,
+            today="2026-07-06",
+            batch_fetch=fake_batch,
+            load_existing=fake_load,
+            record=fake_record,
+            chunk_size=2,
+        )
     # 600001 is fresh → skipped; remaining 3 symbols in 2 chunks of ≤2.
     assert [len(c) for c in chunks] == [2, 1]
     assert "600001" not in [s for c in chunks for s in c]
     assert summary["skipped"] == 1 and summary["done"] == 3
     assert len(recorded) == 2
+    # review-followup-005 finding 1: fully-resolved batch → no unresolved warning.
+    assert not [r for r in caplog.records if "unresolved" in r.getMessage()]
 
 
 def test_seed_stock_board_map_chunk_failure_is_tolerated(tmp_path):
@@ -189,3 +194,64 @@ def test_seed_stock_board_map_roundtrip_refreshes_stale_seen_at(tmp_path):
     assert store["000651"]["seen_at"] == "2026-07-01"   # FRESH untouched
     assert "000651" not in [s for c in chunks for s in c]  # fresh never re-fetched
     assert summary["done"] == 1
+
+
+def test_seed_stock_board_map_warns_once_on_unresolved_symbols(tmp_path, caplog):
+    """review-followup-005 finding 1: batch_fetch succeeds but returns a
+    missing/blank industry for some requested symbols in a chunk — those
+    symbols land in neither done/failed/skipped today. Must warn exactly
+    once for the WHOLE run (not per chunk) with count + a symbol sample,
+    or the stale old row silently survives unnoticed."""
+    map_path = tmp_path / "stock_industry_map.json"
+
+    def fake_batch(symbols):
+        # First chunk: 600002 missing entirely. Second chunk: 600004 blank.
+        if "600001" in symbols:
+            return {}, {"600001": "电子元件"}
+        return {}, {"600003": "software", "600004": ""}
+
+    with caplog.at_level(logging.WARNING, logger="irc.rotation.seed"):
+        summary = seed_stock_board_map(
+            ["600001", "600002", "600003", "600004"],
+            map_path=map_path,
+            today="2026-07-06",
+            batch_fetch=fake_batch,
+            load_existing=lambda _p: {},
+            record=lambda *a, **k: {},
+            chunk_size=2,
+        )
+    unresolved_warnings = [r for r in caplog.records if "unresolved" in r.getMessage()]
+    assert len(unresolved_warnings) == 1, "exactly one warning for the whole run"
+    msg = unresolved_warnings[0].getMessage()
+    assert "2" in msg
+    assert "600002" in msg
+    assert "600004" in msg
+    # Summary shape is locked (grill Q6) — no new keys, no behavior change.
+    assert set(summary) == {"done", "skipped", "failed"}
+    assert summary["failed"] == ()
+    assert summary["done"] == 2  # only the two resolved symbols counted
+
+
+def test_seed_stock_board_map_chunk_size_zero_does_not_crash(tmp_path):
+    """review-followup-005 finding 2: chunk_size=0 (misconfigured
+    IRC_ROTATION_TOPUP_BUDGET=0) must not raise ValueError from
+    range(0, n, 0) — it degrades to 1-symbol chunks instead."""
+    map_path = tmp_path / "stock_industry_map.json"
+    chunks = []
+
+    def fake_batch(symbols):
+        chunks.append(tuple(symbols))
+        return {}, {s: "电子元件" for s in symbols}
+
+    summary = seed_stock_board_map(
+        ["600001", "600002", "600003"],
+        map_path=map_path,
+        today="2026-07-06",
+        batch_fetch=fake_batch,
+        load_existing=lambda _p: {},
+        record=lambda *a, **k: {},
+        chunk_size=0,
+    )
+    assert [len(c) for c in chunks] == [1, 1, 1]
+    assert summary["done"] == 3
+    assert summary["failed"] == ()

@@ -87,12 +87,13 @@ def seed_stock_board_map(
     seen_at back to today and exposure coverage self-heals (on re-seed). record
     merges each chunk through the industry_map_store. Partial-tolerant (AC2)."""
     from irc.monitor.industry_map_store import fresh_slice
+    effective_chunk_size = max(1, chunk_size)  # guard: misconfigured 0 → 1-symbol chunks
     existing = load_existing(map_path)
     fresh = set(fresh_slice(existing, today))
     pending = [s for s in dict.fromkeys(symbols) if s not in fresh]
-    done, failed = 0, []
-    for i in range(0, len(pending), chunk_size):
-        chunk = pending[i:i + chunk_size]
+    done, failed, unresolved = 0, [], []
+    for i in range(0, len(pending), effective_chunk_size):
+        chunk = pending[i:i + effective_chunk_size]
         try:
             _flow, industry_by_symbol = batch_fetch(tuple(chunk))
         except Exception as exc:  # noqa: BLE001 — partial-tolerant chunk (AC2/T3)
@@ -101,4 +102,11 @@ def seed_stock_board_map(
             continue
         record(map_path, today, industry_by_symbol)
         done += sum(1 for v in industry_by_symbol.values() if v)
+        unresolved.extend(sym for sym in chunk if not industry_by_symbol.get(sym))
+    if unresolved:
+        sample = sorted(set(unresolved))[:5]
+        _log.warning(
+            "seed_stock_board_map: %d symbol(s) unresolved after batch_fetch "
+            "(missing/blank industry); sample=%s", len(unresolved), sample,
+        )
     return {"done": done, "skipped": len(fresh), "failed": tuple(failed)}
