@@ -175,6 +175,20 @@ def test_monitor_health_non_dict_fund_record_is_health_unknown():
     assert digest.has_warnings is True
 
 
+def test_monitor_health_null_signal_record_flags_not_ok_without_raising():
+    """5th shape sibling (pr-review on #212): a valid dict fund record with
+    signal: null crashed _signal_items — dict.get's default only applies when
+    the key is ABSENT, so `rec.get("signal", {})` returned the actual None.
+    A null signal must read as absent (status unknown → non-ok), not raise."""
+    trace = _load("eval_trace_monitor.json")
+    funds = {**trace["funds"], "f1": {"signal": None, "published_state": "NEUTRAL"}}
+    trace = {**trace, "funds": funds}
+    digest = monitor_health(trace, {}, _TDAYS)
+    sig = [i for i in digest.items if i.code == "signal_not_ok"]
+    assert sig and sig[0].level == "warn" and "f1" in sig[0].text
+    assert digest.has_warnings is True
+
+
 def test_weekly_health_null_macro_snapshots_is_health_unknown():
     """gold_regime macro_snapshots: null (proven live crash: TypeError on
     `for snap in None` — dict.get's default only applies when the key is

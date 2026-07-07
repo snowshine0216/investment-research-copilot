@@ -120,12 +120,21 @@ def _run_level_stale(
     return lagging or (at_newest / total) < _COVERAGE_FLOOR
 
 
+def _signal_status(rec: dict) -> object:
+    """None-valued signal reads as absent (P0-1 5th sibling): `dict.get`'s
+    default only applies when the key is ABSENT, so a JSON `signal: null`
+    reached `.get("status")` on None. The sibling reads are already
+    null-safe: `published_state` is an equality check against any value."""
+    signal = rec.get("signal")
+    return signal.get("status") if isinstance(signal, dict) else None
+
+
 def _signal_items(funds: dict) -> tuple[HealthItem, ...]:
     if not funds:
         return ()
     bad = tuple(
         fid for fid, rec in funds.items()
-        if rec.get("signal", {}).get("status") != "ok"
+        if _signal_status(rec) != "ok"
         or rec.get("published_state") == "NO_CALL"
     )
     if not bad:
