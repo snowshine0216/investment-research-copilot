@@ -30,7 +30,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refresh-on-seen bumps their `seen_at` back to `today` (coverage self-heals on
   re-seed); FRESH entries stay skipped, preserving resumability. No
   `radar_version`/`schema_version`/`VERSION` bump; store shape and board scoring
-  untouched.
+  untouched. Ship-hardening (review-followup-005): symbols left with a
+  missing/blank industry after `batch_fetch` now log one whole-run warning
+  (count + sample) instead of silently vanishing from `done`/`skipped`/`failed`;
+  a misconfigured `chunk_size=0` degrades to 1-symbol chunks instead of raising;
+  and the done/unresolved accounting now uses the same stripped-truthy gate as
+  `merge_seen`, so a whitespace-only industry counts as unresolved rather than
+  done.
 
 ### Added — sector rotation radar (2026-07-05)
 

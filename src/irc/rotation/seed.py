@@ -24,6 +24,12 @@ from irc.rotation.series_store import load_store, seed_backfill
 _log = logging.getLogger(__name__)
 
 
+def _resolved(v: object) -> bool:
+    """Stripped-truthy — mirrors merge_seen's persist gate (industry_map_store.py)
+    so a whitespace-only industry counts as unresolved, never as done."""
+    return isinstance(v, str) and bool(v.strip())
+
+
 def seed_boards(
     board_list: Iterable[tuple[str, str]],
     *,
@@ -101,8 +107,8 @@ def seed_stock_board_map(
             failed.extend(chunk)
             continue
         record(map_path, today, industry_by_symbol)
-        done += sum(1 for v in industry_by_symbol.values() if v)
-        unresolved.extend(sym for sym in chunk if not industry_by_symbol.get(sym))
+        done += sum(1 for v in industry_by_symbol.values() if _resolved(v))
+        unresolved.extend(sym for sym in chunk if not _resolved(industry_by_symbol.get(sym)))
     if unresolved:
         sample = sorted(set(unresolved))[:5]
         _log.warning(

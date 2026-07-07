@@ -232,6 +232,37 @@ def test_seed_stock_board_map_warns_once_on_unresolved_symbols(tmp_path, caplog)
     assert summary["done"] == 2  # only the two resolved symbols counted
 
 
+def test_seed_stock_board_map_whitespace_industry_counts_as_unresolved(tmp_path, caplog):
+    """review-followup-005 nit 1: merge_seen (industry_map_store.py) only persists
+    stripped-truthy industry strings, so a whitespace-only value must be treated
+    as unresolved here too — never counted as done, and never silently written
+    to the store (real load_store/record_seen round-trip)."""
+    from irc.monitor.industry_map_store import load_store, record_seen
+
+    map_path = tmp_path / "stock_industry_map.json"
+
+    def fake_batch(symbols):
+        return {}, {"600001": "电子元件", "600002": "   "}
+
+    with caplog.at_level(logging.WARNING, logger="irc.rotation.seed"):
+        summary = seed_stock_board_map(
+            ["600001", "600002"],
+            map_path=map_path,
+            today="2026-07-06",
+            batch_fetch=fake_batch,
+            load_existing=load_store,
+            record=record_seen,
+            chunk_size=200,
+        )
+    assert summary["done"] == 1  # whitespace-only symbol excluded from done-count
+    unresolved_warnings = [r for r in caplog.records if "unresolved" in r.getMessage()]
+    assert len(unresolved_warnings) == 1
+    assert "600002" in unresolved_warnings[0].getMessage()
+    store = load_store(map_path)
+    assert "600002" not in store  # row unchanged — merge_seen never persisted it
+    assert store["600001"]["industry"] == "电子元件"
+
+
 def test_seed_stock_board_map_chunk_size_zero_does_not_crash(tmp_path):
     """review-followup-005 finding 2: chunk_size=0 (misconfigured
     IRC_ROTATION_TOPUP_BUDGET=0) must not raise ValueError from
