@@ -1,4 +1,9 @@
-Verdict: FAIL
+Verdict: PASS
+
+> Round 2 (2026-07-07): all three round-1 findings fixed in `81b1bde0` and
+> independently re-verified — see "Re-review (round 2)" at the bottom. The
+> round-1 body below is retained as the audit trail; its FAIL classification
+> is superseded.
 
 Source: independent second-pass review via `/code-review` skill, PR #214
 (`claude/review-followup-003` → `autodev/review-followup-feature`), performed
@@ -101,3 +106,41 @@ terminology collision with an existing, explicit repo convention
 (`CONTEXT.md:42`) — both went uncaught by the PR's own two bundled review
 passes. Per the FAIL bar ("any misleading rule/contradiction"), this PR does
 not clear an independent second pass as-is. Finding 3 is a cosmetic nit.
+
+## Re-review (round 2) — fix commit `81b1bde0`
+
+Scope: `git show 81b1bde0` only (2 files: `CLAUDE.md` 3 lines reworded,
+`003-notes.md` +21-line bookkeeping paragraph). Branch fast-forwarded
+locally; every check re-run against the updated tree, not the commit
+message.
+
+- **Finding 1 — CLOSED.** "shipped green for weeks" → "shipped green while
+  the join was dead". `grep -c weeks CLAUDE.md` → 0. The new phrasing makes
+  no duration claim and is true per git history (defect masked by
+  unrepresentative test data, regardless of elapsed time). Minor residual
+  redundancy ("the join was dead ... shipped green while the join was dead")
+  is cosmetic and unambiguous — not held against the verdict.
+- **Finding 2 — CLOSED.** Bullet retitled "Production-shaped test data";
+  `grep -ci fixture CLAUDE.md` → 0 (case-insensitive, whole file). Meaning
+  unchanged; now conformant with `CONTEXT.md:42`. The bookkeeping files
+  (`003-notes.md`, `003-review.md`) still contain the word, but only when
+  quoting the superseded round-1 wording as historical record — acceptable;
+  the glossary rule targets live guidance, not audit trails. (Correction to
+  round-1 Finding 2: the bare word appeared 4×, not 7×, in the CLAUDE.md
+  bullet itself — the overcount included bookkeeping-file quotes; the
+  finding's substance is unaffected.)
+- **Finding 3 — CLOSED.** Citations now read "(review §4, item 4)" and
+  "(review §4, item 3 / M-1)" — both resolve to real anchors in
+  `docs/2026-07-07-workflow-review.md` ("## 4." numbered list, items 3/4;
+  content mapping re-confirmed correct). The untouched "(review §2.1 / R-1)"
+  citation was already valid ("### 2.1 Rotation" is a real header).
+- **No new issues.** Diff touches only the three round-1 bullets plus
+  bookkeeping; FACTS.md untouched (round-1 findings did not implicate it);
+  Conventions bullet count still 10; `uv run pytest tests/docs/ -q` → 9
+  passed on the updated tree; the `003-notes.md` fix log accurately
+  describes what the commit does (spot-checked every claim in it, including
+  its verification greps, which I re-ran and reproduced).
+
+Round-2 classification: blockers 0, latent issues 0, nits 0 remaining
+(round-1 nit fixed; the phrasing redundancy above is below the nit bar).
+Verdict upgraded FAIL → PASS.
