@@ -14,3 +14,10 @@ Reviewers: pr-review-toolkit:code-reviewer (step 8a) + general-purpose adversari
 ## Classification
 
 Blockers: 0. Latent bugs: 0. Nits: 2 accepted (above). Verdict PASS-WITH-NITS.
+
+## Codex-secondary addendum (post-capture, pre-merge — 2026-07-07)
+
+Two more real findings, both fixed `4438415f` before merge:
+- guard coverage hole — schema/engine asserted in only ONE surface each; widened to every surface stating a number (12→18 asserts / 8 tests; widening revealed no stale docs).
+- TODOS F1 internal contradiction — still claimed "ledger hasn't started (seed not run)" below the corrected seed-DONE entries; F1 why-defer now reflects ledger started 2026-07-06 (52 rows verified), pickup ~2026-08-03+, F8-egress dependency noted.
+Verdict unchanged: PASS-WITH-NITS.
