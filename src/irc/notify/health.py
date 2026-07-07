@@ -1,8 +1,10 @@
 """PURE data-health digest builders. No file/clock/env access — the notify edge
 reads artifacts + clock and passes dicts + dates here. Mirrors classify.py.
 
-Every builder is TOTAL: a missing/corrupt input dict yields a single `warn`
+Every builder is TOTAL: corrupt/malformed input yields a single `warn`
 `health_unknown` item, never an exception (degrade-never-crash, ADR 0016 AC8).
+Missing artifact files are the notify_cmd edge's responsibility (spec §3.3);
+builders here always receive parsed values.
 """
 from __future__ import annotations
 

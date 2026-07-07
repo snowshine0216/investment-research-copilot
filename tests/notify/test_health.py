@@ -169,6 +169,9 @@ def test_flow_capture_coverage_no_warn_at_floor():
     assert not [i for i in dg.items if i.code == "flow_capture_coverage"]
 
 
-def test_rotation_total_returns_digest_on_garbage():
-    dg = rotation_health({"data_status": ["not", "a", "string"]}, ("ok",))
-    assert isinstance(dg, HealthDigest)
+def test_rotation_total_on_corrupt_radar():
+    # A malformed radar (not a dict) must degrade to health_unknown, never raise,
+    # even with a well-formed recent_statuses tuple.
+    dg = rotation_health("oops", ("ok",))
+    assert dg.items == (health_unknown().items[0],)
+    assert dg.has_warnings

@@ -656,6 +656,8 @@ git add src/irc/notify/health.py tests/notify/test_health.py
 git commit -m "feat(notify): rotation_health — abstain streak + degraded + flow-capture coverage"
 ```
 
+**Amendment (Task-5 review):** the locked garbage test was vacuous (its dict matched no branch and never reached the except path) — replaced by `test_rotation_total_on_corrupt_radar` (`rotation_health("oops", ("ok",))` → exactly health_unknown), which also removes an unsanctioned hand-crafted dict; module docstring clarified that missing FILES are the edge's responsibility (Task 8), builders handle corrupt parsed input. Reviewer-driven; no executable production change.
+
 ---
 
 ## Task 6: `weekly_health` builder

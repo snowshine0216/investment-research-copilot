@@ -61,3 +61,4 @@
   (no logic changes). `src/irc/notify/health.py` is 153 lines (budget 200);
   `rotation_health`'s body stays under ~15 lines. `ruff check` clean; all 21
   tests in `tests/notify/test_health.py` pass (14 pre-existing + 7 new).
+- Task 5 review round — vacuous test replaced with real corrupt-radar test + docstring clarification (conservative).
