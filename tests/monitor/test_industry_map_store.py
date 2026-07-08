@@ -86,9 +86,10 @@ def test_record_seen_all_none_input_writes_nothing(tmp_path: Path):
     assert not p.exists()                    # RD-4: a no-op merge never creates the file
 
 
-def test_merge_seen_stores_board_codes_as_industry():
-    # ADR 0023 D7: the rotation radar reuses this store to persist stock→EM-board-code
-    # mappings — board codes live in the `industry` slot (arbitrary strings already).
+def test_merge_seen_stores_industry_strings_verbatim():
+    # ADR 0023 D7: the rotation radar reuses this store, but the store itself treats
+    # the value as an opaque 行业 string — merge/refresh-on-seen semantics don't
+    # care what the string holds (name or code), so this covers both consumers.
     store = merge_seen({}, "2026-07-06", {"600001": "BK0475", "000002": "BK0438"})
     served = fresh_slice(store, "2026-07-06")
     assert served == {"600001": "BK0475", "000002": "BK0438"}

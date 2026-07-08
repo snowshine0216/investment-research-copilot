@@ -82,11 +82,31 @@ def _load_holdings_cache(cache_dir: Path) -> list[tuple[str, str, tuple, str | N
     return funds
 
 
+def _translation_warnings(stock_to_name: dict[str, str], name_to_code: dict[str, str],
+                          states: tuple[BoardState, ...]) -> None:
+    """Logs (never raises) two silent-degrade risks in the name->code join:
+    store names absent from this run's board list, and duplicate
+    BoardState.board_name values (name_to_code last-write-wins on those)."""
+    dropped = [nm for nm in stock_to_name.values() if nm not in name_to_code]
+    if dropped:
+        sample = sorted(set(dropped))[:5]
+        _log.warning("rotation: %d name translation(s) dropped joining store to "
+                     "board codes; sample=%s", len(dropped), sample)
+    names = [b.board_name for b in states]
+    if len(name_to_code) != len(states):
+        dupes = sorted({nm for nm in names if names.count(nm) > 1})
+        _log.warning("rotation: duplicate board_name in states, last-write-wins "
+                     "may misattribute: %s", dupes)
+
+
 def resolve_candidates(root: Path, states: tuple[BoardState, ...], membership: Membership,
                        *, today: str):
     """PURE-glue L2 join: cached holdings x stock->board map -> exposure ->
-    ranked candidates. Cold holdings cache (§7) -> no fetch, candidates stay
-    empty, diagnostics flags it for the cold_holdings_note() render."""
+    ranked candidates. Translates the store's 行业 NAMES to board CODES first,
+    via a {board_name: board_code} map built from this run's BoardState list,
+    before the active-membership filter. Cold holdings cache (§7) -> no fetch,
+    candidates stay empty, diagnostics flags it for the cold_holdings_note()
+    render."""
     from irc.monitor.industry_map_store import fresh_slice, load_store
 
     cache_dir = root / "data" / "narrative_holdings"
@@ -98,9 +118,12 @@ def resolve_candidates(root: Path, states: tuple[BoardState, ...], membership: M
             "holdings_coverage_pct": 0.0, "unmapped_syms": (),
         }
     map_path = root / "data" / "monitor" / "stock_industry_map.json"
-    stock_to_board = fresh_slice(load_store(map_path), today)
-    board_names = {b.board_code: b.board_name for b in states}
-    rows, exp_diag = build_exposure(funds, stock_to_board, board_names)
+    name_to_code = {b.board_name: b.board_code for b in states}
+    stock_to_name = fresh_slice(load_store(map_path), today)
+    _translation_warnings(stock_to_name, name_to_code, states)
+    stock_to_code = {sym: name_to_code[nm] for sym, nm in stock_to_name.items()
+                     if nm in name_to_code}
+    rows, exp_diag = build_exposure(funds, stock_to_code)
     candidates, new_ids = rank_candidates(
         rows, states, discovered_watchlist=watchlist, monitor_set=monitor_set, held=held)
     diag = {

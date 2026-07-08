@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Data-health notifications (workflow-review item 001)**: `irc notify-status`
+  now surfaces data degradation for all three scheduled surfaces. A new pure
+  `src/irc/notify/health.py` derives a **data-health digest** (board-PE
+  DARK/STALE, flow recency — run-level lag/coverage when symbols are uniformly
+  stale, a per-symbol outlier count when only a minority lag the pack — per-fund
+  signal status, rotation `abstain`/`degraded_*`, macro-driver age > 7d,
+  `drivers_unavailable`) from already-written artifacts at the notify edge —
+  never persisted. A new `degraded` severity (`failed > halted > stale >
+  degraded > action > clean`, always-notify) tags a run whose data is
+  untrustworthy. New `flow-capture` run-kind wires the 15:45 chain: silent-on-ok,
+  pages on rotation abstain, one-time abstain→ok recovery notice. A flow-capture
+  coverage-delta check (`flow_capture_health` / `_capture_coverage_items`) warns
+  `flow-capture: N/M` when today's capture appended fewer than 80% of the flow
+  store's union symbols, escalating an otherwise-ok run to `degraded` even when
+  the capture wrapper exits 0.
+  Notification-layer only — no report/schema/engine change. ADR 0016 amended
+  (§7).
+
+### Fixed
+
+- **Sector rotation radar — L2 candidates join (review R-1, P0)**: the stock→board
+  store (`data/monitor/stock_industry_map.json`) holds 东财行业 **names** (f100) in
+  its `industry` slot, but the radar's candidates join filtered exposure rows against
+  BK **board codes**, so `ExposureRow.board_code` (a name) never matched and
+  `candidates` was always empty — even on successful runs. `rotation.resolve_candidates`
+  now translates 行业 name → EM board code at the join (via a `{board_name: board_code}`
+  map from the run's `BoardState` list) before the active-board filter, so the radar
+  emits its candidate rows from data already on disk. No `radar_version`/`schema_version`
+  bump; board scoring untouched.
+
+- **Sector rotation radar — seed skip-set freshness (review R-4, P0)**: `irc rotation
+  seed`'s stock→board map builder skipped **every** symbol already present in
+  `data/monitor/stock_industry_map.json`, ignoring `seen_at` age, so once the ~640
+  seeded non-Monitor mappings crossed the store's 30-calendar-day `fresh_slice`
+  window (~2026-08-05) they dropped out of the daily join AND could never be
+  re-fetched — the store could only recover by being deleted. `seed_stock_board_map`'s
+  skip-set now derives from `fresh_slice(existing, today)` (its keys) instead of
+  `existing.keys()`, so STALE entries re-enter the re-fetch set and `record_seen`'s
+  refresh-on-seen bumps their `seen_at` back to `today` (coverage self-heals on
+  re-seed); FRESH entries stay skipped, preserving resumability. No
+  `radar_version`/`schema_version`/`VERSION` bump; store shape and board scoring
+  untouched. Ship-hardening (review-followup-005): symbols left with a
+  missing/blank industry after `batch_fetch` now log one whole-run warning
+  (count + sample) instead of silently vanishing from `done`/`skipped`/`failed`;
+  a misconfigured `chunk_size=0` degrades to 1-symbol chunks instead of raising;
+  and the done/unresolved accounting now uses the same stripped-truthy gate as
+  `merge_seen`, so a whitespace-only industry counts as unresolved rather than
+  done.
+
 ### Added — sector rotation radar (2026-07-05)
 
 - **`irc rotation` + `irc rotation seed`**: a new daily, deterministic, zero-LLM

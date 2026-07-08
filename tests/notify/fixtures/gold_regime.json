@@ -1,0 +1,268 @@
+{
+  "regime": "downtrend",
+  "vol_ratio": 1.2685431539921737,
+  "adx": 27.83277166415177,
+  "trend_sign": -1,
+  "score": 50.5555,
+  "drivers_score": 50.5555,
+  "drivers_tilt": "neutral",
+  "drivers_availability": "partial",
+  "drivers_unavailable": [
+    "etf_holdings_gld"
+  ],
+  "tilt": "neutral",
+  "zone": "aggressive",
+  "scenario": "base",
+  "scenario_triggers": [],
+  "macro_snapshots": [
+    {
+      "series_id": "real_yield_10y_tips",
+      "display_name": "美国10Y TIPS 实际利率",
+      "value": 2.25,
+      "unit": "%",
+      "date": "2026-07-01"
+    },
+    {
+      "series_id": "DXY",
+      "display_name": "美元指数 DXY",
+      "value": 99.56,
+      "unit": "",
+      "date": "2026-06-16"
+    },
+    {
+      "series_id": "vix",
+      "display_name": "VIX 波动率指数",
+      "value": 16.59,
+      "unit": "",
+      "date": "2026-07-01"
+    },
+    {
+      "series_id": "inflation_5y5y",
+      "display_name": "5Y5Y 通胀预期",
+      "value": 2.22,
+      "unit": "%",
+      "date": "2026-07-02"
+    },
+    {
+      "series_id": "DGS10",
+      "display_name": "美国10Y 国债收益率",
+      "value": 4.48,
+      "unit": "%",
+      "date": "2026-07-01"
+    }
+  ],
+  "theme_refs": [
+    {
+      "theme": "us_monetary",
+      "display_name": "美国货币政策",
+      "summary": "Federal Reserve Chairman Kevin Warsh made several public appearances and statements this past week, primarily at the European Central Bank's annual forum in Sintra, Portugal  . His remarks focused on inflation, the economic outlook, and data modernization.",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "cn_monetary",
+      "display_name": "中国货币政策",
+      "summary": "**7月1日**：央行开展1000亿元7天逆回购操作 。 **7月2日**：央行开展2885亿元7天逆回购操作，操作利率为1.40%，与此前持平 。",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "geopolitics",
+      "display_name": "地缘政治",
+      "summary": "**Ukraine seeks €6.6 billion from EU peace fund**: Ukraine has formally requested €6.6 billion from the European Peace Facility to fund military aid, according to a Reuters report .",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "us_fiscal_politics",
+      "display_name": "美国财政与政治",
+      "summary": "The Trump administration closed a tariff loophole, but China has found ways to \"wriggle free\" from the new restrictions . This ongoing trade friction continues to create uncertainty for markets, particularly for companies with cross-border supply chains.",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "cn_equity_property_policy",
+      "display_name": "中国股市与地产政策",
+      "summary": "根据中指研究院发布的《中国房地产政策跟踪报告（2026年6月）》，该报告系统梳理了2026年6月中国房地产领域的政策动向，涵盖调控、金融、土地等多方面内容。报告为付费报告，共28页，发布于2026年6月30日 。此外，西安于近期发布楼市新政，要求商品住房在办理预售许可前或调整价格前，须向物价局进行价格申报，并实行“一套一标”价格公示制度；同时明确配套建设费用一次性计入房价，不得额外收取。该政策旨在规范市场秩序，但历史数据显示，楼市与股市之间并非简单的“此起彼伏”关系，例如2012-2013年房价上涨时股市低迷，而2014年下半年楼市低迷时股市开启牛市 。",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "gold_drivers",
+      "display_name": "黄金驱动因素",
+      "summary": "Recent market dynamics show a sharp correction in precious metals, a shift in bond ETF flows, and continued strong central bank gold buying intentions, all against a backdrop of a stronger U.S. dollar and shifting Fed rate expectations.",
+      "date": "2026-07-04"
+    },
+    {
+      "theme": "holdings_sector",
+      "display_name": "持仓行业要闻",
+      "summary": "**金价波动加剧，中长期配置价值凸显**：2026年初金价超12次刷新历史峰值，伦敦现货黄金一度触及5405美元/盎司，但6月大幅回落，年初至今下跌约7%，平均波动率升至30%（高于20年均值17%）。世界黄金协会预计下半年黄金投资步入关键期，地缘政治、利率和投资者情绪为多重不确定性因素  。 **全球央行购金意愿持续增强**：世界黄金协会《2026年全球央行黄金储备调研》显示，45%的受访央行预计未来12个月增持黄金，创2018年以来新高；89%的受访者预期全球央行黄金储备将继续增加。黄金已超越美国国债成为全球最大官方储备资产  。",
+      "date": "2026-07-04"
+    }
+  ],
+  "evidence": [
+    {
+      "type": "snapshot",
+      "source": "real_yield_10y_tips",
+      "url": "",
+      "date": "2026-07-01",
+      "summary": "美国10Y TIPS 实际利率 2.25% @ 2026-07-01",
+      "scope": "asset_class_macro",
+      "citation_kind": "data",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "c35a5e47edf92f97",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "snapshot",
+      "source": "DXY",
+      "url": "",
+      "date": "2026-06-16",
+      "summary": "美元指数 DXY 99.56 @ 2026-06-16",
+      "scope": "asset_class_macro",
+      "citation_kind": "data",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "ec5c40e177d34c8c",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "snapshot",
+      "source": "vix",
+      "url": "",
+      "date": "2026-07-01",
+      "summary": "VIX 波动率指数 16.59 @ 2026-07-01",
+      "scope": "asset_class_macro",
+      "citation_kind": "data",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "658c0a25159d3e3d",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "snapshot",
+      "source": "inflation_5y5y",
+      "url": "",
+      "date": "2026-07-02",
+      "summary": "5Y5Y 通胀预期 2.22% @ 2026-07-02",
+      "scope": "asset_class_macro",
+      "citation_kind": "data",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "e3f09a997a645f94",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "snapshot",
+      "source": "DGS10",
+      "url": "",
+      "date": "2026-07-01",
+      "summary": "美国10Y 国债收益率 4.48% @ 2026-07-01",
+      "scope": "asset_class_macro",
+      "citation_kind": "data",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "3db349bd6dfad275",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:us_monetary",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "Federal Reserve Chairman Kevin Warsh made several public appearances and statements this past week, primarily at the European Central Bank's annual forum in Sintra, Portugal  . His remarks focused on inflation, the economic outlook, and data modernization.",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "138912320ade1958",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:cn_monetary",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "**7月1日**：央行开展1000亿元7天逆回购操作 。 **7月2日**：央行开展2885亿元7天逆回购操作，操作利率为1.40%，与此前持平 。",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "eb02e39b36e7f54d",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:geopolitics",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "**Ukraine seeks €6.6 billion from EU peace fund**: Ukraine has formally requested €6.6 billion from the European Peace Facility to fund military aid, according to a Reuters report .",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "2e43b01dd727852f",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:us_fiscal_politics",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "The Trump administration closed a tariff loophole, but China has found ways to \"wriggle free\" from the new restrictions . This ongoing trade friction continues to create uncertainty for markets, particularly for companies with cross-border supply chains.",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "b5a7104e6e25ced4",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:cn_equity_property_policy",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "根据中指研究院发布的《中国房地产政策跟踪报告（2026年6月）》，该报告系统梳理了2026年6月中国房地产领域的政策动向，涵盖调控、金融、土地等多方面内容。报告为付费报告，共28页，发布于2026年6月30日 。此外，西安于近期发布楼市新政，要求商品住房在办理预售许可前或调整价格前，须向物价局进行价格申报，并实行“一套一标”价格公示制度；同时明确配套建设费用一次性计入房价，不得额外收取。该政策旨在规范市场秩序，但历史数据显示，楼市与股市之间并非简单的“此起彼伏”关系，例如2012-2013年房价上涨时股市低迷，而2014年下半年楼市低迷时股市开启牛市 。",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "18ca5e20cb79e973",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:gold_drivers",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "Recent market dynamics show a sharp correction in precious metals, a shift in bond ETF flows, and continued strong central bank gold buying intentions, all against a backdrop of a stronger U.S. dollar and shifting Fed rate expectations.",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "ce025446e3260dd9",
+      "holding_weight_pct": null
+    },
+    {
+      "type": "news",
+      "source": "research:holdings_sector",
+      "url": "",
+      "date": "2026-07-04",
+      "summary": "**金价波动加剧，中长期配置价值凸显**：2026年初金价超12次刷新历史峰值，伦敦现货黄金一度触及5405美元/盎司，但6月大幅回落，年初至今下跌约7%，平均波动率升至30%（高于20年均值17%）。世界黄金协会预计下半年黄金投资步入关键期，地缘政治、利率和投资者情绪为多重不确定性因素  。 **全球央行购金意愿持续增强**：世界黄金协会《2026年全球央行黄金储备调研》显示，45%的受访央行预计未来12个月增持黄金，创2018年以来新高；89%的受访者预期全球央行黄金储备将继续增加。黄金已超越美国国债成为全球最大官方储备资产  。",
+      "scope": "asset_class_macro",
+      "citation_kind": "information",
+      "owner_instrument_id": "macro",
+      "parent_fund_id": null,
+      "constituent_key": null,
+      "citation_id": "f512407b5d55e14f",
+      "holding_weight_pct": null
+    }
+  ]
+}

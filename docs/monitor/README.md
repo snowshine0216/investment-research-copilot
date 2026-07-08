@@ -34,20 +34,36 @@ funds + 1 gold (008986) + 1 `qdii_global` (270023) + 1 `qdii_china_us_internet`
 
 ## Daily process (automated)
 
-Four launchd agents (installed via `bash ops/launchd/install.sh`, runbook:
-[`ops/launchd/README.md`](../../ops/launchd/README.md)) — the weekly one is
-covered in [Weekly process](#weekly-process); the daily/quarterly three:
+Four launchd agents (installed via `bash ops/launchd/install.sh`) run the
+pipeline unattended; the weekly one is covered in
+[Weekly process](#weekly-process). **The authoritative schedule** (exact
+times, gates, locks, watchdogs, notify semantics) **lives only in
+[`ops/launchd/README.md`](../../ops/launchd/README.md)** — the table below is
+a cadence summary, not a second source of truth.
 
-| Time (Asia/Shanghai) | Agent | What runs |
+| Time (Asia/Shanghai) | Agent | Purpose |
 |---|---|---|
-| 12:15 daily | `com.irc.monitor` | `irc monitor` → `irc notify-status --run-kind monitor`. Wrapper skips weekends + `config/cn_market_holidays.yaml`; once-per-day skip if `outputs/<date>/monitor/monitor.json` exists; single-instance lock; 30-min watchdog (timeout pages as `rc=124`). |
-| 15:45 daily | `com.irc.flow-capture` | `irc monitor flow-capture` — one batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f127`) appends today's **completed-day** capital-flow row to `data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day retention), merges the `f127` 行业 names into `data/monitor/stock_industry_map.json`, then best-effort refreshes the board-PE day cache in the rested window (so next morning's stale fallback is at worst 1 day old). The extra duties ride AFTER the flow append and fit the default 300 s watchdog. Best-effort: 5-min watchdog, no page. **Never run manually before the 15:00 close** — the manual path is unguarded. Then runs `irc rotation` (sector rotation radar, ADR 0023) — advisory-only, protective (non-zero radar exit is logged, never pages, never changes the flow-capture rc). |
-| 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | `irc monitor snapshot` — refreshes the typed per-fund constituent caches the valuation/constituent factors read. Protective 60-min watchdog, no page (a lapse surfaces as N/A factors in the next brief). |
+| 12:15 daily | `com.irc.monitor` | Daily brief (`irc monitor`) + notify. No same-day retry on failure — re-run `uv run irc monitor` by hand. |
+| 15:45 daily | `com.irc.flow-capture` | Capital-flow capture → chained `irc rotation`; see [What the 15:45 run does](#what-the-1545-flow-capture-run-does) below. |
+| 08:00 on Jan/Apr/Jul/Oct 1st | `com.irc.fundamentals-quarterly` | Refreshes the typed per-fund constituent caches the valuation/constituent factors read. |
 
-The 12:15 slot is after the CN morning session closes, leaving the 15:00 close
-ahead for same-day decisions. There is **no same-day retry**: a failed 12:15 run
-pages immediately but the next automatic attempt is tomorrow — re-run
-`uv run irc monitor` by hand if you want today's brief.
+The 12:15 slot is after the CN morning session closes, leaving the 15:00
+close ahead for same-day decisions.
+
+### What the 15:45 flow-capture run does
+
+One batched EastMoney `ulist.np` call (full-basket secids, `f184`+`f100`)
+appends today's **completed-day** capital-flow row to
+`data/monitor/fund_flow_series.json` (top-5-union scope, ~25 trading-day
+retention) and merges the `f100` 行业 names into
+`data/monitor/stock_industry_map.json`; it then best-effort refreshes the
+board-PE day cache in the rested window (so next morning's stale fallback is
+at worst 1 day old). **Never run this manually before the 15:00 close** — the
+manual path is unguarded. A soft capture failure — today's row appended for
+fewer than 80% of the flow store's union symbols — pages `degraded` with
+`flow-capture: N/M` even when the capture wrapper exits 0. Watchdog/lock/notify
+semantics (incl. the data-health notify on rotation abstain/degradation):
+[`ops/launchd/README.md`](../../ops/launchd/README.md).
 
 ### What one 12:15 run does
 
@@ -59,7 +75,7 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
    (completed days, union of active-fund top-5 symbols) + **one provisional
    intraday flow batch** (盘中提示 annotation only — rendered, never persisted).
    - **行业 is batch-first (ADR 0020 addendum 2026-07-03):** the one `ulist.np`
-     batch call carries `f127`; names accumulate cross-day in
+     batch call carries `f100`; names accumulate cross-day in
      `data/monitor/stock_industry_map.json` (serve-while-stale ≤ 30 calendar
      days, refresh-on-seen). The per-symbol `stock/get` path fires only for
      symbols absent from that map (~never in steady state). Board PE is
@@ -88,6 +104,8 @@ Run-level, in order (`src/irc/commands/monitor_cmd.py::run_monitor`):
 8. **Render + write** (atomic, fixed order): `report.html` → `signal.json` →
    `impacts.json` → `narrative.json` → `monitor.json` (the completion sentinel),
    plus `drilldown.html` and `eval_trace.json`. Record spend to the ledger.
+
+> **Single owner:** this manual is the canonical source for factor weights and the schema/engine version numbers. Other docs link here or cite the code constant (`trace.SCHEMA_VERSION` / `monitor_cmd._ENGINE_VERSION`); the version-grep guard `tests/docs/test_version_sync.py` enforces agreement.
 
 ### Factors and signal (engine 4)
 
@@ -138,7 +156,7 @@ Open `outputs/<date>/monitor/report.html`:
    value-trap badge + flow) for active funds.
 4. **Validation panel** + **predictive panel**: informational stages render 观测
    (never PASS); suite ages go amber at ≥ 10 days, UNKNOWN at ≥ 14; the forward
-   panel says `insufficient_data` honestly until engine-3 blocks mature — the only
+   panel says `insufficient_data` honestly until engine-4 blocks mature — the only
    accrued track record it cites is trend-only (~0.54 hit rate).
 
 Treat a bias as **research lean, not an order** — anything actionable goes through
@@ -232,7 +250,7 @@ entry into the daily Monitor set stays a deliberate manual edit:
 | `outputs/<date>/monitor/eval_trace.json` | Eval spine input (schema 7, engine 4) |
 | `data/monitor/forward_ledger.jsonl` | Append-only per-fund-per-day rows (incl. `market_composite`/`market_bias`) scored by `monitor_forward` |
 | `data/monitor/fund_flow_series.json` | Completed-day flow store (written only by the 15:45 job) |
-| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f127; fallback merges too) |
+| `data/monitor/stock_industry_map.json` | Cross-day stock→行业 store (batch-first f100; fallback merges too) |
 | `data/monitor/industry_pe/<date>.json` | Board-PE day cache (non-empty parses only; stale-served ≤ 3 td with an age tag) |
 | `outputs/_logs/run-*.log` | Per-fire wrapper logs (14-day retention) |
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from irc.notify.classify import classify_run_outcome
+from irc.notify.health import HealthDigest, HealthItem
 from irc.notify.types import RunOutcome
 
 
@@ -206,3 +207,52 @@ def test_promotion_ids_capped_in_body():
     assert "000004" in decision.body      # first five named
     assert "000007" not in decision.body  # tail elided
     assert "…" in decision.body
+
+
+# ---- Task 3: `degraded` severity + health digest on RunOutcome (spec §3.2) ----
+
+_WARN = HealthDigest((HealthItem("board_pe_dark", "warn", "板块PE: DARK ≥4td"),))
+_INFO = HealthDigest((HealthItem("board_pe_stale", "info", "板块PE: STALE-1 (2026-07-06)"),))
+
+
+def test_clean_with_warning_escalates_to_degraded():
+    decision = classify_run_outcome(_outcome(health=_WARN))
+    assert decision.severity == "degraded"
+    assert decision.should_notify is True  # degraded ∈ _ALWAYS_NOTIFY
+    assert "DARK" in decision.body
+
+
+def test_degraded_fires_even_when_notify_on_clean_false():
+    decision = classify_run_outcome(_outcome(health=_WARN), notify_on_clean=False)
+    assert decision.severity == "degraded"
+    assert decision.should_notify is True
+
+
+def test_clean_with_info_only_stays_clean_but_appends_body():
+    decision = classify_run_outcome(_outcome(health=_INFO))
+    assert decision.severity == "clean"
+    assert "STALE-1" in decision.body
+
+
+def test_action_with_warning_becomes_degraded_keeps_rollup():
+    decision = classify_run_outcome(_outcome(actionable_buy_count=2, health=_WARN))
+    assert decision.severity == "degraded"
+    assert "2 buys" in decision.body and "DARK" in decision.body
+
+
+def test_failed_appends_health_but_stays_failed():
+    decision = classify_run_outcome(_outcome(last_exit_code=1, health=_WARN))
+    assert decision.severity == "failed"
+    assert "DARK" in decision.body
+
+
+def test_force_notify_sends_clean():
+    decision = classify_run_outcome(_outcome(force_notify=True), notify_on_clean=False)
+    assert decision.severity == "clean"
+    assert decision.should_notify is True
+
+
+def test_health_none_is_backcompat():
+    decision = classify_run_outcome(_outcome())
+    assert decision.severity == "clean"
+    assert decision.body == "Run completed; nothing actionable."

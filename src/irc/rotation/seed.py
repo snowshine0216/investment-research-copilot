@@ -24,6 +24,12 @@ from irc.rotation.series_store import load_store, seed_backfill
 _log = logging.getLogger(__name__)
 
 
+def _resolved(v: object) -> bool:
+    """Stripped-truthy — mirrors merge_seen's persist gate (industry_map_store.py)
+    so a whitespace-only industry counts as unresolved, never as done."""
+    return isinstance(v, str) and bool(v.strip())
+
+
 def seed_boards(
     board_list: Iterable[tuple[str, str]],
     *,
@@ -81,14 +87,19 @@ def seed_stock_board_map(
     chunk_size: int = 200,
 ) -> dict:
     """Chunked ulist.np (f100 行业 — NOT f127, T1) over held stocks; skip symbols
-    already present in the map. record(map_path, today, industry_by_symbol) merges
-    each chunk through the extended industry_map_store. Partial-tolerant (AC2)."""
+    still FRESH (seen_at ≤ 30 calendar days per fresh_slice) in the map. STALE
+    entries (seen_at > 30 calendar days) fall out of the skip-set and are
+    re-fetched, so record(map_path, today, ...)'s REFRESH-ON-SEEN bumps their
+    seen_at back to today and exposure coverage self-heals (on re-seed). record
+    merges each chunk through the industry_map_store. Partial-tolerant (AC2)."""
+    from irc.monitor.industry_map_store import fresh_slice
+    effective_chunk_size = max(1, chunk_size)  # guard: misconfigured 0 → 1-symbol chunks
     existing = load_existing(map_path)
-    fresh = set(existing.keys())
+    fresh = set(fresh_slice(existing, today))
     pending = [s for s in dict.fromkeys(symbols) if s not in fresh]
-    done, failed = 0, []
-    for i in range(0, len(pending), chunk_size):
-        chunk = pending[i:i + chunk_size]
+    done, failed, unresolved = 0, [], []
+    for i in range(0, len(pending), effective_chunk_size):
+        chunk = pending[i:i + effective_chunk_size]
         try:
             _flow, industry_by_symbol = batch_fetch(tuple(chunk))
         except Exception as exc:  # noqa: BLE001 — partial-tolerant chunk (AC2/T3)
@@ -96,5 +107,12 @@ def seed_stock_board_map(
             failed.extend(chunk)
             continue
         record(map_path, today, industry_by_symbol)
-        done += sum(1 for v in industry_by_symbol.values() if v)
+        done += sum(1 for v in industry_by_symbol.values() if _resolved(v))
+        unresolved.extend(sym for sym in chunk if not _resolved(industry_by_symbol.get(sym)))
+    if unresolved:
+        sample = sorted(set(unresolved))[:5]
+        _log.warning(
+            "seed_stock_board_map: %d symbol(s) unresolved after batch_fetch "
+            "(missing/blank industry); sample=%s", len(unresolved), sample,
+        )
     return {"done": done, "skipped": len(fresh), "failed": tuple(failed)}

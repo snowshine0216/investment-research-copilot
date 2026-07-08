@@ -10,6 +10,9 @@ Weekly research-and-recommendation system for gold + Mainland China funds + Main
 - Opportunity + thesis discipline: [docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md](docs/superpowers/specs/2026-05-14-opportunity-thesis-discipline-design.md)
 - **Monitor operations manual** (daily + weekly process): [docs/monitor/README.md](docs/monitor/README.md) · workflow diagram: [docs/diagrams/monitor-workflow.html](docs/diagrams/monitor-workflow.html)
 
+**Doc map** (five manuals — each the single owner of its topic; link, don't copy):
+[`README.md`](README.md) (this file) · [`docs/monitor/README.md`](docs/monitor/README.md) (monitor ops; **owns factor weights + schema/engine numbers**) · [`src/irc/rotation/README.md`](src/irc/rotation/README.md) (rotation ops) · [`evals/README.md`](evals/README.md) (eval surface) · [`ops/launchd/README.md`](ops/launchd/README.md) (**owns the schedule table**). Diagrams: [`monitor-workflow.html`](docs/diagrams/monitor-workflow.html) · [`overall-workflow.html`](docs/diagrams/overall-workflow.html) (thesis-cards, 2026-05-21) · [`stage0-ingest-to-plan.html`](docs/diagrams/stage0-ingest-to-plan.html).
+
 ## Quick start
 
 Prerequisites: Python 3.12+, [uv](https://docs.astral.sh/uv/).
@@ -47,6 +50,8 @@ Copy `.env.example` to `.env`, keep every secret there, and treat `.env.example`
 | `FRED_API_KEY`, `INTRINIO_API_KEY` | Optional FRED macro data | Used when OpenBB pulls live FRED macro series. Without them, the ingest stage falls back where possible. |
 | `ACTIVE_FUND_TENURE_PROXY_ENABLED` | Active fund discovery behavior | Defaults to `true`; set `false` to require real manager-tenure data for active funds. |
 | `IRC_HTTPS_PROXY` | Outbound HTTPS proxy | Single value applied to every outbound HTTPS call this codebase makes. See "HTTPS proxy" below for the full list of call sites. Leave unset for direct connections. |
+| `IRC_CN_PROXY` | CN egress for the EastMoney **board plane** (`irc rotation`, `irc monitor` board-PE leg) | URL or bare `host:port`. *Opposite direction* from `IRC_HTTPS_PROXY` — the two never mix. See "CN egress proxy" below for the commands that need it and how to validate. Leave unset for CN-direct. |
+| `IRC_CN_PROXY_MODE` | Kill switch for `IRC_CN_PROXY` | `off` forces every CN board-plane call direct even when the URL is set; default `on` when a URL is present. |
 | `DEBUG` | Troubleshooting | Set `DEBUG=true` for verbose CLI logging and full tracebacks. Default output still includes progress bars and categorized error summaries. |
 
 Minimum local `.env` for the default config:
@@ -124,6 +129,31 @@ Set `IRC_HTTPS_PROXY` (e.g. `http://10.27.7.110:8080`) when running from a netwo
 
 Leave the variable unset (or blank) for direct connections everywhere. If a single host on this list is the only one you need to route, point the proxy at a forwarder that you control which can selectively bypass the rest.
 
+### CN egress proxy (EastMoney board plane)
+
+`IRC_CN_PROXY` routes the **EastMoney board data plane** through a mainland-CN egress. It is the *opposite direction* from `IRC_HTTPS_PROXY` (which routes non-CN hosts) — the two never mix. It accepts a URL or a bare `host:port` (normalized to `http://host:port`). Set `IRC_CN_PROXY_MODE=off` to disable it even when the URL is set — every call site then goes direct; the default is `on` when a URL is present.
+
+Only the **board plane** needs it. EastMoney geo-throttles `push2.eastmoney.com/api/qt/clist/get` (board snapshot + board PE) and `push2his` (board history kline) on some egresses while still serving the flow plane (`ulist.np`). So the monitor's *flow* leg is **routed through `IRC_CN_PROXY` when set and works direct when unset** (it doesn't *require* the proxy — unlike the board plane; matches `docs/monitor/README.md` env table + `flow_batch_fetch.py:83-86`); only the commands below need a CN egress that can reach `clist/get` / `push2his`:
+
+| Command | Cadence | Board-plane endpoint | Output to validate |
+|---|---|---|---|
+| `uv run irc rotation` | daily | `clist/get` snapshot | `outputs/<date>/rotation/rotation_radar.json` → `data_status` ≠ `"abstain"` and `board_states[]` non-empty |
+| `uv run irc monitor` | daily | `clist/get` board PE (industry-valuation leg only — the flow leg is direct) | `data/monitor/industry_pe/<date>.json` is **non-empty** (`{}` = dark) |
+| `uv run irc rotation seed` | one-time / top-up | `clist/get` + `push2his` kline | `data/rotation/board_series.json` max date = today, ~200 boards (pagination cap — exact universe unverified, see review R-3) |
+| `uv run irc fundamentals stock-valuation` | quarterly | `stock_value_em` (routed through the proxy **when set**, else CN-direct) | `stock_valuation_history` rows refresh for the A-share basket |
+
+Validate the two daily runs:
+
+```bash
+# irc rotation — did the board snapshot reach the boards (not abstain)?
+uv run python -c "import json,glob; f=sorted(glob.glob('outputs/*/rotation/rotation_radar.json'))[-1]; d=json.load(open(f)); print(f,'| data_status:',d['data_status'],'| boards:',len(d['board_states'])); print('OK' if d['data_status']!='abstain' and d['board_states'] else 'FAIL — board fetch blocked')"
+
+# irc monitor — is the board-PE (industry-valuation) leg lit, not dark?
+uv run python -c "import json,glob; f=sorted(glob.glob('data/monitor/industry_pe/*.json'))[-1]; d=json.load(open(f)); print(f,'| entries:',len(d)); print('OK — board-PE lit' if len(d)>0 else 'DARK — clist/get blocked')"
+```
+
+A `data_status` of `degraded_flow_dark` / `degraded_turn_dark` is fine — the board *snapshot* succeeded and only the flow/turn sub-legs renormed (expected for ~5–20 trading days after a seed). Only `abstain` means the board fetch itself failed. When the board plane is blocked on your egress, run these from one that can reach `clist/get` (a CN-residential IP or a CN VPS); the rotation operator manual's [Troubleshooting](src/irc/rotation/README.md#troubleshooting) covers the geo-block in depth.
+
 ## Workflows by cadence
 
 Run these from the repo root.
@@ -170,7 +200,7 @@ RESEARCH_ENABLED=true uv run irc run
 
 The monitor vertical has its own operations manual — **[docs/monitor/README.md](docs/monitor/README.md)** — covering the daily automated process (12:15 brief, 15:45 flow capture, quarterly snapshots), the weekly research loop around it, how to read the report, promoting funds into the Monitor set, maintenance cadences, env keys, and troubleshooting. Read that; the below is the summary.
 
-`irc monitor` produces a daily directional-bias brief (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or `NO_CALL` on insufficient evidence) for the fixed 10-fund **Monitor set** in `config/monitor.yaml`. Engine 4 scores six factors — NAV trend, bottom-up dual-track valuation (`0.60·self-history + 0.40·industry-relative` with a False-Cheap clamp), capital flow (completed-day batched store), heat/限购, and LLM-scored macro + constituent news — into a coverage-gated composite, anchored by a news-free **market composite** (ADR 0021). Report v3 adds one run-level 宏观面速览 macro narrative, source-tiered deduped citations, a 今日速览 strip, honest dark-data reasons, and an eval spine that suppresses unhealthy funds to **EVAL-GATED 🛡** (ADR 0017 / 0019 / 0020 / 0021 / 0022). Outputs: `outputs/<date>/monitor/{report.html, drilldown.html, monitor.json, …}` + appends to `data/monitor/forward_ledger.jsonl`.
+`irc monitor` produces a daily directional-bias brief (`ADD_BIAS` / `NEUTRAL` / `REDUCE_BIAS`, or `NO_CALL` on insufficient evidence) for the fixed 10-fund **Monitor set** in `config/monitor.yaml`. Engine 4 scores six factors — NAV trend, bottom-up dual-track valuation (`0.60·self-history + 0.40·industry-relative` with a False-Cheap clamp), capital flow (completed-day batched store), heat/限购, and LLM-scored macro + constituent news — into a coverage-gated composite, anchored by a news-free **market composite** (ADR 0021). Report v4 adds one run-level 宏观面速览 macro narrative, source-tiered deduped citations, a 今日速览 strip, honest dark-data reasons, and an eval spine that suppresses unhealthy funds to **EVAL-GATED 🛡** (ADR 0017 / 0019 / 0020 / 0021 / 0022). Outputs: `outputs/<date>/monitor/{report.html, drilldown.html, monitor.json, …}` + appends to `data/monitor/forward_ledger.jsonl`.
 
 ```bash
 uv run irc monitor                          # daily brief (reads config/monitor.yaml)
@@ -194,7 +224,7 @@ per-call deadline and degrades funds to `NO_CALL`.
 ### Monitor eval & validation (`irc eval monitor_*`)
 
 Every `irc monitor` run emits an eval spine: `outputs/<date>/monitor/eval_trace.json`
-(schema 6) plus an append to `data/monitor/forward_ledger.jsonl`. In-run health
+(schema 7) plus an append to `data/monitor/forward_ledger.jsonl`. In-run health
 failures gate a fund's bias to **EVAL-GATED 🛡**; published biases carry ✓ validated /
 ⚠ caveated chips; missing/stale suite reports fail open (caveated, not gated).
 
@@ -215,12 +245,14 @@ single-instance lock, a wall-clock watchdog, and per-run logs under
 `outputs/_logs/`; outcomes page via `irc notify-status` (macOS always, Feishu when
 `IRC_FEISHU_WEBHOOK_URL` is set).
 
-| Agent | Schedule (Asia/Shanghai) | What it runs |
+The **authoritative schedule table** (exact times, gates, locks, watchdogs, notify semantics) lives ONLY in [`ops/launchd/README.md`](ops/launchd/README.md) — the summary below is a cadence pointer, never a second source of truth.
+
+| Agent | Schedule (Asia/Shanghai) | Purpose |
 |---|---|---|
-| `com.irc.monitor` | Daily 12:15 (weekend/CN-holiday skip; `monitor.json` idempotency sentinel) | `irc monitor` + `notify-status --run-kind monitor` |
-| `com.irc.flow-capture` | Daily 15:45, after the 15:00 close | `irc monitor flow-capture` (best-effort, no page) |
-| `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | `irc monitor snapshot` (protective watchdog, no page) |
-| `com.irc.weekly` | Saturday 09:00 (`decision_report.json` idempotency sentinel) | full `irc run` + `notify-status --run-kind weekly` — pages on failure/halt/action, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
+| `com.irc.monitor` | Daily 12:15 | Daily brief (`irc monitor`) + notify |
+| `com.irc.flow-capture` | Daily 15:45 | Capital-flow capture → chained `irc rotation` (ADR 0023) |
+| `com.irc.fundamentals-quarterly` | 08:00 on Jan/Apr/Jul/Oct 1st | Refreshes the typed constituent caches valuation/constituent factors read |
+| `com.irc.weekly` | Saturday 09:00 | Full `irc run` + notify, incl. **newly-promoted funds** (新晋关注 diff vs the prior run) |
 
 ```bash
 bash ops/launchd/install.sh             # install all four agents (+ one-time cold-start snapshot)
@@ -361,9 +393,11 @@ You can also use `uv run irc run --only <stage>` for a pipeline-stage-only rerun
 
 | Command | Main outputs |
 |---|---|
-| `uv run irc monitor` | `outputs/<date>/monitor/report.html` + `drilldown.html` (self-contained daily brief + per-stock board) + `eval_trace.json` + appends to `data/monitor/forward_ledger.jsonl` |
+| `uv run irc monitor` | `outputs/<date>/monitor/report.html` + `drilldown.html` (self-contained daily brief + per-stock board) + `monitor.json` (completion sentinel) + `eval_trace.json` + appends to `data/monitor/forward_ledger.jsonl` |
 | `uv run irc monitor snapshot` | per-fund constituent caches under `data/fundamentals/<quarter>/` |
 | `uv run irc monitor flow-capture` | appends today's completed-day capital-flow batch to `data/monitor/fund_flow_series.json` (daily 15:45 launchd job) |
+| `uv run irc rotation` | `outputs/<date>/rotation/rotation_radar.{json,md}` (sector-rotation radar) + appends to `data/rotation/forward_ledger.jsonl` (daily 15:45, chained after flow-capture) |
+| `uv run irc rotation seed` | `data/rotation/board_series.json` (one-time / top-up board-history + stock→board-map seed) |
 | `uv run irc eval monitor_signal` | `outputs/<date>/evals/monitor_signal/report.json` (free, in `--all`) |
 | `IRC_RUN_LIVE_LLM_EVAL=1 uv run irc eval monitor_impact` / `monitor_narrative` | `outputs/<date>/evals/monitor_{impact,narrative}/report.json` (live-LLM; SKIPPED rc 3 without the env) |
 | `uv run irc ingest` | `data/local.duckdb`, provider manifests under `data/_manifest/` |
@@ -414,7 +448,7 @@ After `irc init` you will have:
 - `inputs/account.yaml` — your real holdings + venues.
 - `inputs/preferences.yaml` — risk band, asset-class targets, currency tolerance, capital plan.
 - `config/llm.yaml` — task → (provider, model) routing. Env-driven: provider `base_url` / `api_key` / `default_model` are resolved from env vars at the call edge.
-- `config/monitor.yaml` — the Monitor set: the fixed 7 funds `irc monitor` covers, their analysis profiles, and factor-weight vectors. Source of truth for which funds appear in the daily brief.
+- `config/monitor.yaml` — the Monitor set: the fixed 10 funds `irc monitor` covers, their analysis profiles, and factor-weight vectors. Source of truth for which funds appear in the daily brief.
 - `config/scoring.yaml`, `config/gold_drivers.yaml`, `config/discovery.yaml`,
   `config/valuation_buckets.yaml`, `config/triggers.yaml` — tunable parameters.
 - `config/overrides.yaml`, `config/macro_view.yaml` — your sovereignty layer.

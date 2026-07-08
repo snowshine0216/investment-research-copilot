@@ -1,7 +1,10 @@
 #!/bin/bash
 # 15:45 FLOW-CAPTURE wrapper: append the completed-day flow batch to the series
-# store. Protective-only (a timeout does NOT page — capture is best-effort; the
-# 12:15 brief already ran). StandardOut/ErrPath are /dev/null; we write our own log.
+# store.
+# Best-effort data-health notify tail (ADR 0016 amendment): silent on a fully-ok
+# chain, pages on rotation abstain/degradation, a capture failure, or a one-time
+# abstain→ok recovery. A capture timeout (rc=124) now pages `failed` — a stale
+# tomorrow-flow is exactly what that surfaces. StandardOut/ErrPath are /dev/null.
 #
 # __UV_BIN__ / __REPO_ROOT__ are substituted by install.sh.
 set -euo pipefail
@@ -44,5 +47,14 @@ echo "[$TODAY] flow-capture rc=$rc"
 radar_rc=0
 run_with_watchdog "${IRC_ROTATION_TIMEOUT:-300}" "$UV_BIN" run irc rotation || radar_rc=$?
 echo "[$TODAY] rotation rc=$radar_rc (advisory; does not affect flow-capture rc)"
+
+# Data-health notification (best-effort): pass the flow-capture $rc (authoritative);
+# a rotation crash is caught via the missing today's rotation_radar.json sentinel.
+# --no-notify-on-clean: a fully-ok 15:45 chain stays silent (no page). `|| echo`
+# (not `|| true`) keeps a notifier failure from aborting under set -e while leaving
+# a log breadcrumb — never a page.
+"$UV_BIN" run irc notify-status --run-kind flow-capture --last-exit-code "$rc" \
+  --no-notify-on-clean \
+  || echo "[$TODAY] notify-status failed (rc=$?) — flow-capture rc was $rc (see above)"
 
 exit "$rc"
